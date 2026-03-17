@@ -132,7 +132,7 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
                 ? AlertCircle
                 : isProject
                 ? FolderKanban
-                : (item as typeof shortcuts[0]).icon;
+                : ("icon" in item ? item.icon : LayoutDashboard);
 
               const showResultsLabel = item.type !== "nav" && (i === 0 || allItems[i - 1].type === "nav");
 
