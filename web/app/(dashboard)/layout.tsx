@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Image from "next/image";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -7,7 +6,8 @@ import { LogOut } from "lucide-react";
 import { SidebarNav } from "./nav";
 import { MobileNav } from "./mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { db, alerts, projects, getUserProjectIds } from "@/lib/db";
+import { WorkspaceSwitcher } from "./workspace-switcher";
+import { db, alerts, users, getUserProjectIds } from "@/lib/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -23,6 +23,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const userName = session.user?.name ?? session.user?.email ?? "User";
   const userEmail = session.user?.email ?? "";
+
+  // Fetch user plan
+  let userPlan: "free" | "pro" | "team" = "free";
+  if (userId) {
+    const [row] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
+    userPlan = (row?.plan as "free" | "pro" | "team") ?? "free";
+  }
 
   // Count unread alerts for this user's projects (owned + team member)
   let unreadCount = 0;
@@ -48,45 +55,31 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex min-h-screen bg-page">
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col border-r border-line bg-surface md:flex">
-        {/* Logo */}
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-5">
-          <Link href="/" className="flex items-center gap-2.5">
-            <Image
-              src="/logo-inari/favicon-96x96.png"
-              alt="InariWatch"
-              width={36}
-              height={36}
-              className="shrink-0"
-            />
-            <span className="font-mono text-sm font-semibold uppercase tracking-[0.15em] text-fg-strong">
-              InariWatch
-            </span>
-          </Link>
-        </div>
+        {/* Workspace switcher */}
+        <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} />
 
-        {/* Nav — client component, owns its own icon references */}
+        {/* Nav */}
         <SidebarNav unreadAlerts={unreadCount} />
 
         {/* User */}
-        <div className="shrink-0 border-t border-line p-3">
-          <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
+        <div className="shrink-0 border-t border-line px-3 py-3">
+          <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-inari-accent text-[11px] font-bold text-white">
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-fg-base">
+              <p className="truncate text-sm font-medium text-fg-strong leading-tight">
                 {session.user?.name ?? session.user?.email}
               </p>
               {session.user?.name && session.user?.email && (
-                <p className="truncate text-xs text-zinc-500">{session.user.email}</p>
+                <p className="truncate text-[11px] text-zinc-500 leading-tight">{session.user.email}</p>
               )}
-              <p className="text-xs text-zinc-600">Free plan</p>
             </div>
             <div className="flex items-center gap-0.5">
               <ThemeToggle />
               <Link
                 href="/api/auth/signout"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-400 transition-colors"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong transition-colors"
                 title="Sign out"
               >
                 <LogOut className="h-3.5 w-3.5" />
