@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2, XCircle, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata = {
   title: "Pricing — InariWatch",
@@ -94,17 +95,17 @@ function Cell({ value }: { value: boolean | string }) {
   if (typeof value === "boolean") {
     return value
       ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" />
-      : <XCircle className="h-4 w-4 text-zinc-800 mx-auto" />;
+      : <XCircle className="h-4 w-4 text-line-medium mx-auto" />;
   }
-  if (value === "—") return <Minus className="h-4 w-4 text-zinc-700 mx-auto" />;
-  return <span className="text-sm text-zinc-300 font-medium">{value}</span>;
+  if (value === "—") return <Minus className="h-4 w-4 text-line-medium mx-auto" />;
+  return <span className="text-sm text-fg-base font-medium">{value}</span>;
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PricingPage() {
   return (
-    <div className="min-h-screen bg-inari-bg text-white">
+    <div className="min-h-screen bg-inari-bg text-fg-strong">
 
       {/* Nav */}
       <nav className="border-b border-inari-border px-6 py-4">
@@ -113,7 +114,8 @@ export default function PricingPage() {
             INARIWATCH
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm text-zinc-400 hover:text-white transition-colors">Sign in</Link>
+            <ThemeToggle />
+            <Link href="/login" className="text-sm text-fg-base hover:text-fg-strong transition-colors">Sign in</Link>
             <Link href="/register">
               <Button variant="primary" size="sm">Get started</Button>
             </Link>
@@ -127,7 +129,7 @@ export default function PricingPage() {
         <div className="text-center mb-16">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Pricing</p>
           <h1 className="text-4xl font-bold sm:text-5xl">Simple, honest pricing</h1>
-          <p className="mt-4 text-lg text-zinc-400 max-w-xl mx-auto">
+          <p className="mt-4 text-lg text-fg-base max-w-xl mx-auto">
             Start free with the CLI. Upgrade to cloud when you need 24/7 monitoring.
           </p>
         </div>
@@ -139,7 +141,7 @@ export default function PricingPage() {
           <div className="rounded-2xl border border-inari-border bg-inari-card p-8">
             <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Local</p>
             <div className="mt-2 flex items-end gap-1">
-              <span className="text-4xl font-bold text-white">Free</span>
+              <span className="text-4xl font-bold text-fg-strong">Free</span>
               <span className="pb-1 text-zinc-500 text-sm">forever</span>
             </div>
             <p className="mt-2 text-sm text-zinc-500">CLI runs on your machine. Data stays local.</p>
@@ -148,14 +150,14 @@ export default function PricingPage() {
             </a>
             <ul className="mt-8 space-y-3">
               {["Open source Rust CLI", "GitHub, Vercel, Sentry integrations", "Telegram notifications", "AI correlation (BYOK)", "Works while laptop is on"].map((f) => (
-                <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
+                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
                   {f}
                 </li>
               ))}
               {["Web dashboard", "24/7 monitoring"].map((f) => (
-                <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-700 line-through">
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-zinc-800" />
+                <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-400 line-through">
+                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-line-medium" />
                   {f}
                 </li>
               ))}
@@ -171,7 +173,7 @@ export default function PricingPage() {
             </div>
             <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Pro</p>
             <div className="mt-2 flex items-end gap-1">
-              <span className="text-4xl font-bold text-white">$9</span>
+              <span className="text-4xl font-bold text-fg-strong">$9</span>
               <span className="pb-1 text-zinc-500 text-sm">/month</span>
             </div>
             <p className="mt-2 text-sm text-zinc-500">For individual developers who need 24/7 cloud coverage.</p>
@@ -191,7 +193,7 @@ export default function PricingPage() {
                 "Telegram, Slack, Email & Push",
                 "Desktop app",
               ].map((f) => (
-                <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
+                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
                   {f}
                 </li>
@@ -203,7 +205,7 @@ export default function PricingPage() {
           <div className="rounded-2xl border border-inari-border bg-inari-card p-8">
             <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Team</p>
             <div className="mt-2 flex items-end gap-1">
-              <span className="text-4xl font-bold text-white">$19</span>
+              <span className="text-4xl font-bold text-fg-strong">$19</span>
               <span className="pb-1 text-zinc-500 text-sm">/month</span>
             </div>
             <p className="mt-2 text-sm text-zinc-500">For teams monitoring multiple projects together.</p>
@@ -222,7 +224,7 @@ export default function PricingPage() {
                 "Audit logs",
                 "Priority support",
               ].map((f) => (
-                <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
+                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
                   {f}
                 </li>
@@ -239,7 +241,7 @@ export default function PricingPage() {
             <div className="grid grid-cols-4 border-b border-inari-border bg-inari-card">
               <div className="p-4" />
               {["Local", "Pro — $9/mo", "Team — $19/mo"].map((h, i) => (
-                <div key={h} className={`p-4 text-center text-sm font-semibold ${i === 1 ? "text-inari-accent" : "text-zinc-300"}`}>
+                <div key={h} className={`p-4 text-center text-sm font-semibold ${i === 1 ? "text-inari-accent" : "text-fg-base"}`}>
                   {h}
                 </div>
               ))}
@@ -248,8 +250,8 @@ export default function PricingPage() {
             {CATEGORIES.map((cat) => (
               <div key={cat.label}>
                 {/* Category label */}
-                <div className="grid grid-cols-4 border-b border-inari-border bg-[#0a0a0c]">
-                  <div className="px-4 py-2.5 col-span-4 text-xs font-mono text-zinc-600 uppercase tracking-widest">
+                <div className="grid grid-cols-4 border-b border-inari-border bg-surface-inner">
+                  <div className="px-4 py-2.5 col-span-4 text-xs font-mono text-zinc-500 uppercase tracking-widest">
                     {cat.label}
                   </div>
                 </div>
@@ -259,7 +261,7 @@ export default function PricingPage() {
                     key={row.feature}
                     className={`grid grid-cols-4 border-b border-inari-border last:border-0 ${idx % 2 === 0 ? "bg-inari-bg" : "bg-inari-card/50"}`}
                   >
-                    <div className="px-4 py-3 text-sm text-zinc-400">{row.feature}</div>
+                    <div className="px-4 py-3 text-sm text-fg-base">{row.feature}</div>
                     <div className="px-4 py-3 flex items-center justify-center"><Cell value={row.free} /></div>
                     <div className="px-4 py-3 flex items-center justify-center border-x border-inari-border/50"><Cell value={row.pro} /></div>
                     <div className="px-4 py-3 flex items-center justify-center"><Cell value={row.team} /></div>
@@ -293,12 +295,12 @@ export default function PricingPage() {
                   { name: "Betterstack", price: "$24/mo", ai: false, byok: false, cli: false },
                   { name: "OpsGenie",   price: "$9/user", ai: false, byok: false, cli: false },
                 ].map((row) => (
-                  <tr key={row.name} className={`border-b border-inari-border last:border-0 ${row.highlight ? "text-white" : "text-zinc-400"}`}>
+                  <tr key={row.name} className={`border-b border-inari-border last:border-0 ${row.highlight ? "text-fg-strong" : "text-fg-base"}`}>
                     <td className={`py-3 font-medium ${row.highlight ? "text-inari-accent" : ""}`}>{row.name}</td>
                     <td className="py-3 text-center">{row.price}</td>
-                    <td className="py-3 text-center">{row.ai ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" /> : <XCircle className="h-4 w-4 text-zinc-700 mx-auto" />}</td>
-                    <td className="py-3 text-center">{row.byok ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" /> : <XCircle className="h-4 w-4 text-zinc-700 mx-auto" />}</td>
-                    <td className="py-3 text-center">{row.cli ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" /> : <XCircle className="h-4 w-4 text-zinc-700 mx-auto" />}</td>
+                    <td className="py-3 text-center">{row.ai ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" /> : <XCircle className="h-4 w-4 text-line-medium mx-auto" />}</td>
+                    <td className="py-3 text-center">{row.byok ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" /> : <XCircle className="h-4 w-4 text-line-medium mx-auto" />}</td>
+                    <td className="py-3 text-center">{row.cli ? <CheckCircle2 className="h-4 w-4 text-inari-accent mx-auto" /> : <XCircle className="h-4 w-4 text-line-medium mx-auto" />}</td>
                   </tr>
                 ))}
               </tbody>
@@ -312,8 +314,8 @@ export default function PricingPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {FAQ.map((item) => (
               <div key={item.q} className="rounded-xl border border-inari-border bg-inari-card p-6">
-                <p className="font-semibold text-white mb-2">{item.q}</p>
-                <p className="text-sm text-zinc-400 leading-relaxed">{item.a}</p>
+                <p className="font-semibold text-fg-strong mb-2">{item.q}</p>
+                <p className="text-sm text-fg-base leading-relaxed">{item.a}</p>
               </div>
             ))}
           </div>
@@ -322,7 +324,7 @@ export default function PricingPage() {
         {/* CTA */}
         <div className="text-center rounded-2xl border border-inari-accent/20 bg-inari-accent-dim p-12">
           <h2 className="text-2xl font-bold mb-2">Ready to stop flying blind?</h2>
-          <p className="text-zinc-400 mb-8">Start with the free CLI or jump straight to cloud monitoring.</p>
+          <p className="text-fg-base mb-8">Start with the free CLI or jump straight to cloud monitoring.</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link href="/register">
               <Button variant="primary" size="lg">Start free trial</Button>
@@ -331,7 +333,7 @@ export default function PricingPage() {
               <Button variant="outline" size="lg">See how it works</Button>
             </Link>
           </div>
-          <p className="mt-4 text-xs text-zinc-600">No credit card required · Cancel anytime</p>
+          <p className="mt-4 text-xs text-zinc-500">No credit card required · Cancel anytime</p>
         </div>
 
       </div>
@@ -339,11 +341,11 @@ export default function PricingPage() {
       {/* Footer */}
       <footer className="border-t border-inari-border py-10">
         <div className="mx-auto max-w-6xl px-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
-          <span className="font-mono text-zinc-400 uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
-          <div className="flex items-center gap-6 text-sm text-zinc-600">
-            <Link href="/" className="hover:text-zinc-400 transition-colors">Home</Link>
-            <Link href="/login" className="hover:text-zinc-400 transition-colors">Sign in</Link>
-            <Link href="/register" className="hover:text-zinc-400 transition-colors">Get started</Link>
+          <span className="font-mono text-zinc-500 uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
+          <div className="flex items-center gap-6 text-sm text-zinc-500">
+            <Link href="/" className="hover:text-fg-base transition-colors">Home</Link>
+            <Link href="/login" className="hover:text-fg-base transition-colors">Sign in</Link>
+            <Link href="/register" className="hover:text-fg-base transition-colors">Get started</Link>
           </div>
         </div>
       </footer>

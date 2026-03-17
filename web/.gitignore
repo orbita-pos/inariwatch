@@ -19,3 +19,5 @@ Thumbs.db
 
 # Drizzle
 lib/db/migrations/meta/
+
+.vercel

@@ -16,48 +16,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { MarketingNav } from "./marketing-nav";
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
 function Nav() {
-  return (
-    <nav className="fixed top-0 inset-x-0 z-50 border-b border-inari-border/50 bg-inari-bg/80 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-2.5">
-          <Image
-            src="/logo-inari/favicon-96x96.png"
-            alt="InariWatch"
-            width={36}
-            height={36}
-            className="shrink-0"
-          />
-          <span className="font-mono font-bold text-fg-strong uppercase tracking-widest text-sm">INARIWATCH</span>
-        </Link>
-
-        <div className="hidden items-center gap-6 text-sm text-fg-base md:flex">
-          <Link href="#integrations"  className="hover:text-fg-strong transition-colors">Integrations</Link>
-          <Link href="#ai"            className="hover:text-fg-strong transition-colors">AI features</Link>
-          <Link href="#pricing"       className="hover:text-fg-strong transition-colors">Pricing</Link>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Link
-            href="#"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 text-sm text-fg-base hover:text-fg-strong transition-colors"
-          >
-            <Github className="h-4 w-4" />
-            <span className="hidden sm:inline">GitHub</span>
-          </Link>
-          <ThemeToggle />
-          <Link href="/login">
-            <Button variant="outline" size="sm">Sign in</Button>
-          </Link>
-        </div>
-      </div>
-    </nav>
-  );
+  return <MarketingNav />;
 }
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
@@ -84,11 +48,11 @@ function Hero() {
           quality={90}
         />
         {/* Left gradient: dark → transparent so text is readable, fox stays visible */}
-        <div className="absolute inset-0 bg-gradient-to-r from-inari-bg via-inari-bg/90 via-[52%] to-inari-bg/10" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/90 via-[52%] to-black/10" />
         {/* Bottom fade into the next section */}
         <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-inari-bg to-transparent" />
         {/* Top fade for nav readability */}
-        <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-inari-bg/60 to-transparent" />
+        <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black/60 to-transparent" />
       </div>
 
       {/* Content — left half */}
@@ -102,10 +66,10 @@ function Hero() {
               <span className="text-gradient-accent glow-accent-text">watched.</span>
             </h1>
 
-            <p className="mt-6 text-lg text-zinc-400 leading-relaxed max-w-md">
+            <p className="mt-6 text-lg text-zinc-300 leading-relaxed max-w-md">
               InariWatch monitors GitHub, Vercel, Sentry, and more.
               When something breaks, you get{" "}
-              <span className="text-zinc-200">one smart alert</span> — not six.
+              <span className="text-white">one smart alert</span> — not six.
             </p>
 
             {/* CTAs */}
@@ -118,7 +82,7 @@ function Hero() {
               </Link>
 
               {/* CLI — equally prominent */}
-              <div className="group flex w-full items-center gap-3 rounded-xl border border-inari-border bg-inari-card/90 backdrop-blur-sm px-4 py-3 font-mono text-sm hover:border-zinc-700 transition-colors">
+              <div className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-black/50 backdrop-blur-sm px-4 py-3 font-mono text-sm hover:border-white/20 transition-colors">
                 <span className="text-inari-accent select-none">$</span>
                 <span className="flex-1 text-zinc-300">curl -fsSL https://get.inariwatch.com | sh</span>
                 <CopyButton text="curl -fsSL https://get.inariwatch.com | sh" />
@@ -126,7 +90,7 @@ function Hero() {
             </div>
 
             {/* Social proof */}
-            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-zinc-500">
+            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/50">
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
                 Runs local or 24/7 cloud
@@ -163,7 +127,7 @@ function StatsBar() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {stats.map((s) => (
             <div key={s.label} className="text-center">
-              <p className="text-2xl font-bold text-white font-mono">{s.value}</p>
+              <p className="text-2xl font-bold text-fg-strong font-mono">{s.value}</p>
               <p className="text-xs text-zinc-500 uppercase tracking-wider mt-0.5">{s.label}</p>
             </div>
           ))}
@@ -174,14 +138,6 @@ function StatsBar() {
 }
 
 // ── Integrations ──────────────────────────────────────────────────────────────
-//
-// Layout: fox looking right (left) → integration cards (right)
-// Fox image prompt:
-//   cute chubby pixel art fox with glowing blue eyes, sitting and looking to the right,
-//   side profile view, glowing torii gate behind it, pixel cyberpunk atmosphere,
-//   dark background #09090b, neon reflections, 32-bit pixel art style, clean pixel grid,
-//   composition: fox on the left third looking toward the right, lots of empty dark space
-//   on the right, square or 4:3 aspect ratio
 
 function Integrations() {
   const integrations = [
@@ -223,18 +179,16 @@ function Integrations() {
         {/* Header */}
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Integrations</p>
-          <h2 className="text-3xl font-bold text-white sm:text-4xl max-w-lg">
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
             Connects to everything in your stack
           </h2>
-          <p className="mt-4 text-zinc-400 max-w-md">
+          <p className="mt-4 text-fg-base max-w-md">
             One place for all your alerts. InariWatch polls every 5 minutes and
             surfaces what matters — already correlated.
           </p>
         </div>
 
         <div className="grid gap-10 lg:grid-cols-[1fr_1.6fr] items-start">
-          {/* Fox image — looking right toward the cards */}
-          {/* Replace /hero-fox-2k.png with /hero-fox-integrations.png once generated */}
           <div className="relative rounded-2xl overflow-hidden aspect-square lg:aspect-[3/4] hidden lg:block">
             <Image
               src="/integration.png"
@@ -243,9 +197,7 @@ function Integrations() {
               className="object-cover object-center"
               quality={85}
             />
-            {/* Fade right edge into the cards */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-inari-bg" />
-            {/* Bottom fade */}
             <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-inari-bg to-transparent" />
           </div>
 
@@ -261,7 +213,7 @@ function Integrations() {
                 }`}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-zinc-100">{item.name}</h3>
+                  <h3 className="font-semibold text-fg-strong">{item.name}</h3>
                   {item.status === "live" ? (
                     <span className="text-xs font-mono text-inari-accent bg-inari-accent-dim px-2 py-0.5 rounded-full border border-inari-accent/20">
                       live
@@ -337,10 +289,10 @@ function AIFeatures() {
         {/* Header */}
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">AI-powered</p>
-          <h2 className="text-3xl font-bold text-white sm:text-4xl max-w-lg">
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
             Not just alerts — intelligence
           </h2>
-          <p className="mt-4 text-zinc-400 max-w-md">
+          <p className="mt-4 text-fg-base max-w-md">
             Bring your own AI key (Claude or OpenAI). InariWatch uses it to
             turn raw events into decisions.
           </p>
@@ -360,8 +312,8 @@ function AIFeatures() {
                   {f.tag}
                 </span>
               </div>
-              <h3 className="font-semibold text-zinc-100 mb-2">{f.title}</h3>
-              <p className="text-sm text-zinc-500 leading-relaxed">{f.body}</p>
+              <h3 className="font-semibold text-fg-strong mb-2">{f.title}</h3>
+              <p className="text-sm text-fg-base leading-relaxed">{f.body}</p>
             </div>
           ))}
         </div>
@@ -378,10 +330,10 @@ function CorrelationDemo() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Smart alerts</p>
-          <h2 className="text-3xl font-bold text-white sm:text-4xl max-w-lg">
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
             One alert instead of six
           </h2>
-          <p className="mt-4 text-zinc-400 max-w-md">
+          <p className="mt-4 text-fg-base max-w-md">
             Every tool fires its own notification. InariWatch connects the dots so
             you understand what happened, why, and what to do next.
           </p>
@@ -403,15 +355,15 @@ function CorrelationDemo() {
                   <span className="text-base">{item.icon}</span>
                   <div>
                     <span className="text-xs text-zinc-500 uppercase tracking-wider">{item.source}</span>
-                    <p className="text-sm text-zinc-300 mt-0.5">{item.text}</p>
+                    <p className="text-sm text-fg-base mt-0.5">{item.text}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <p className="mt-4 text-sm text-zinc-600 italic">You: "Are these related? Let me check each tool..."</p>
+            <p className="mt-4 text-sm text-zinc-500 italic">You: "Are these related? Let me check each tool..."</p>
           </div>
 
-          {/* With */}
+          {/* With — terminal-style block, always dark */}
           <div className="rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6 shadow-[0_0_40px_rgba(124,58,237,0.06)]">
             <p className="text-sm font-semibold text-inari-accent mb-5 font-mono uppercase tracking-widest">
               With InariWatch — 1 correlated alert
@@ -448,7 +400,7 @@ function HowItWorks() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Get started</p>
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">Up in 2 minutes</h2>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">Up in 2 minutes</h2>
         </div>
 
         <div className="grid gap-12 lg:grid-cols-2 items-center">
@@ -479,15 +431,15 @@ function HowItWorks() {
                   {item.icon}
                 </div>
                 <div>
-                  <p className="text-xs font-mono text-zinc-700 mb-1">{item.step}</p>
-                  <h3 className="font-semibold text-white">{item.title}</h3>
-                  <p className="mt-1.5 text-sm text-zinc-400 leading-relaxed">{item.body}</p>
+                  <p className="text-xs font-mono text-zinc-500 mb-1">{item.step}</p>
+                  <h3 className="font-semibold text-fg-strong">{item.title}</h3>
+                  <p className="mt-1.5 text-sm text-fg-base leading-relaxed">{item.body}</p>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Terminal demo */}
+          {/* Terminal demo — always dark */}
           <div className="rounded-xl border border-inari-border bg-zinc-950 shadow-2xl overflow-hidden">
             <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
               <div className="flex gap-1.5">
@@ -597,8 +549,8 @@ function Pricing() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Pricing</p>
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">Simple pricing</h2>
-          <p className="mt-4 text-zinc-400">Start free. Upgrade when you need 24/7 coverage.</p>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">Simple pricing</h2>
+          <p className="mt-4 text-fg-base">Start free. Upgrade when you need 24/7 coverage.</p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -621,10 +573,10 @@ function Pricing() {
 
               <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">{plan.name}</p>
               <div className="mt-2 flex items-end gap-1">
-                <span className="text-4xl font-bold text-white">{plan.price}</span>
+                <span className="text-4xl font-bold text-fg-strong">{plan.price}</span>
                 <span className="pb-1 text-zinc-500 text-sm">{plan.period}</span>
               </div>
-              <p className="mt-2 text-sm text-zinc-500">{plan.description}</p>
+              <p className="mt-2 text-sm text-fg-base">{plan.description}</p>
 
               <Link href={plan.cta.href} className="mt-6 block">
                 <Button variant={plan.highlight ? "primary" : "outline"} className="w-full">
@@ -634,14 +586,14 @@ function Pricing() {
 
               <ul className="mt-8 space-y-3">
                 {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
+                  <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
                     {f}
                   </li>
                 ))}
                 {plan.missing.map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-700 line-through">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-800" />
+                  <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-500 line-through">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" />
                     {f}
                   </li>
                 ))}
@@ -651,7 +603,7 @@ function Pricing() {
         </div>
 
         <div className="mt-8 text-center">
-          <Link href="/pricing" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors underline underline-offset-4">
+          <Link href="/pricing" className="text-sm text-zinc-500 hover:text-fg-base transition-colors underline underline-offset-4">
             See full feature comparison →
           </Link>
         </div>
@@ -668,11 +620,11 @@ function Footer() {
       <div className="mx-auto max-w-6xl px-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
         <div className="flex items-center gap-2.5">
           <Image src="/logo-inari/favicon-96x96.png" alt="InariWatch" width={28} height={28} />
-          <span className="font-mono text-zinc-400 uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
+          <span className="font-mono text-fg-base uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
         </div>
-        <div className="flex items-center gap-6 text-sm text-zinc-600">
-          <Link href="/docs" className="hover:text-zinc-400 transition-colors">Docs</Link>
-          <a href="#" target="_blank" rel="noreferrer" className="hover:text-zinc-400 transition-colors">GitHub</a>
+        <div className="flex items-center gap-6 text-sm text-zinc-500">
+          <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
+          <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           <span>Built with Rust + Next.js</span>
         </div>
       </div>
