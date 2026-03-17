@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+export const runtime = "nodejs";
+
 // Production domains — override via env vars if needed
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "inariwatch.com";
 const APP_SUBDOMAIN = `app.${ROOT_DOMAIN}`;
