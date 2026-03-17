@@ -18,6 +18,11 @@
 
     --fg-strong:       #0f0f11;
     --fg-base:         #3f3f46;
+
+    /* inari marketing colors — light */
+    --inari-bg:        #f8fafc;
+    --inari-card:      #ffffff;
+    --inari-border:    #e4e4e7;
   }
 
   /* ── Dark theme ────────────────────────────────────────────────────────── */
@@ -35,6 +40,11 @@
 
     --fg-strong:       #ffffff;
     --fg-base:         #d4d4d8;
+
+    /* inari marketing colors — dark */
+    --inari-bg:        #09090b;
+    --inari-card:      #0d0d10;
+    --inari-border:    #1e1e22;
   }
 
   * {
@@ -72,6 +82,12 @@
 @layer utilities {
   /* Gradient text */
   .text-gradient {
+    background: linear-gradient(135deg, #0f0f11 0%, #52525b 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .dark .text-gradient {
     background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -100,6 +116,12 @@
 
   /* Grid pattern background */
   .bg-grid {
+    background-image:
+      linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .dark .bg-grid {
     background-image:
       linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
       linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);

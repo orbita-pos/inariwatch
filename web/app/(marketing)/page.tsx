@@ -31,13 +31,13 @@ function Nav() {
             height={36}
             className="shrink-0"
           />
-          <span className="font-mono font-bold text-white uppercase tracking-widest text-sm">INARIWATCH</span>
+          <span className="font-mono font-bold text-fg-strong uppercase tracking-widest text-sm">INARIWATCH</span>
         </Link>
 
-        <div className="hidden items-center gap-6 text-sm text-zinc-400 md:flex">
-          <Link href="#integrations"  className="hover:text-zinc-100 transition-colors">Integrations</Link>
-          <Link href="#ai"            className="hover:text-zinc-100 transition-colors">AI features</Link>
-          <Link href="#pricing"       className="hover:text-zinc-100 transition-colors">Pricing</Link>
+        <div className="hidden items-center gap-6 text-sm text-fg-base md:flex">
+          <Link href="#integrations"  className="hover:text-fg-strong transition-colors">Integrations</Link>
+          <Link href="#ai"            className="hover:text-fg-strong transition-colors">AI features</Link>
+          <Link href="#pricing"       className="hover:text-fg-strong transition-colors">Pricing</Link>
         </div>
 
         <div className="flex items-center gap-3">
@@ -45,7 +45,7 @@ function Nav() {
             href="#"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
+            className="flex items-center gap-1.5 text-sm text-fg-base hover:text-fg-strong transition-colors"
           >
             <Github className="h-4 w-4" />
             <span className="hidden sm:inline">GitHub</span>

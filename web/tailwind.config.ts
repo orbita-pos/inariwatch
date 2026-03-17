@@ -13,9 +13,9 @@ const config: Config = {
         inari: {
           accent:     "#7C3AED",
           "accent-dim": "rgba(124,58,237,0.06)",
-          bg:         "#09090b",
-          card:       "#0d0d10",
-          border:     "#1e1e22",
+          bg:         "var(--inari-bg)",
+          card:       "var(--inari-card)",
+          border:     "var(--inari-border)",
           muted:      "#52525b",
         },
         // ── Semantic theme tokens (respond to light/dark CSS vars) ───────────
