@@ -6,7 +6,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { SearchInput } from "./search-input";
+import { AlertsFilters } from "./alerts-filters";
 import { ExportButton } from "./export-button";
 import { LiveIndicator } from "./live-indicator";
 
@@ -30,65 +30,6 @@ const SEV_BAR: Record<string, string> = {
   info:     "bg-blue-400",
 };
 
-// ── Filter definitions ────────────────────────────────────────────────────────
-
-type FilterOption = { label: string; value: string };
-
-const SEVERITY_OPTIONS: FilterOption[] = [
-  { label: "All",      value: "all" },
-  { label: "Critical", value: "critical" },
-  { label: "Warning",  value: "warning" },
-  { label: "Info",     value: "info" },
-];
-const STATUS_OPTIONS: FilterOption[] = [
-  { label: "All",      value: "all" },
-  { label: "Open",     value: "open" },
-  { label: "Resolved", value: "resolved" },
-];
-const SOURCE_OPTIONS: FilterOption[] = [
-  { label: "All",      value: "all" },
-  { label: "GitHub",   value: "github" },
-  { label: "Vercel",   value: "vercel" },
-  { label: "Sentry",   value: "sentry" },
-  { label: "Uptime",   value: "uptime" },
-  { label: "Postgres", value: "postgres" },
-  { label: "npm",      value: "npm" },
-];
-
-// ── URL builder ───────────────────────────────────────────────────────────────
-
-function buildFilterUrl(
-  current: Record<string, string | string[] | undefined>,
-  key: string,
-  value: string,
-): string {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(current)) {
-    if (k === key) continue;
-    const val = Array.isArray(v) ? v[0] : v;
-    if (val) params.set(k, val);
-  }
-  if (value && value !== "all") params.set(key, value);
-  const qs = params.toString();
-  return qs ? `/alerts?${qs}` : "/alerts";
-}
-
-// ── Filter pill ───────────────────────────────────────────────────────────────
-
-function FilterPill({ option, isActive, href }: { option: FilterOption; isActive: boolean; href: string }) {
-  return (
-    <Link
-      href={href}
-      className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium transition-all ${
-        isActive
-          ? "border-[#333] bg-white/[0.07] text-fg-strong"
-          : "border-transparent text-zinc-500 hover:border-line-medium hover:text-fg-base"
-      }`}
-    >
-      {option.label}
-    </Link>
-  );
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -161,15 +102,7 @@ export default async function AlertsPage({
       </div>
 
       {/* ── Filters ────────────────────────────────────────────────────── */}
-      <div className="space-y-3 rounded-xl border border-line bg-surface p-4">
-        <SearchInput />
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5 sm:gap-y-2">
-          <FilterGroup label="Severity" options={SEVERITY_OPTIONS} active={severityFilter} params={params} paramKey="severity" />
-          <FilterGroup label="Status"   options={STATUS_OPTIONS}   active={statusFilter}   params={params} paramKey="status" />
-          <FilterGroup label="Source"   options={SOURCE_OPTIONS}   active={sourceFilter}   params={params} paramKey="source" />
-        </div>
-      </div>
+      <AlertsFilters severity={severityFilter} status={statusFilter} source={sourceFilter} />
 
       {/* ── List ───────────────────────────────────────────────────────── */}
       {allAlerts.length === 0 ? (
@@ -265,38 +198,6 @@ function Chip({ dot, label }: { dot: string; label: string }) {
     <div className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       <span className="text-xs tabular-nums text-zinc-400">{label}</span>
-    </div>
-  );
-}
-
-function FilterGroup({
-  label,
-  options,
-  active,
-  params,
-  paramKey,
-}: {
-  label: string;
-  options: FilterOption[];
-  active: string;
-  params: Record<string, string | string[] | undefined>;
-  paramKey: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="shrink-0 text-[11px] font-medium uppercase tracking-widest text-zinc-600">
-        {label}
-      </span>
-      <div className="flex flex-wrap items-center gap-0.5">
-        {options.map((opt) => (
-          <FilterPill
-            key={opt.value}
-            option={opt}
-            isActive={active === opt.value}
-            href={buildFilterUrl(params, paramKey, opt.value)}
-          />
-        ))}
-      </div>
     </div>
   );
 }

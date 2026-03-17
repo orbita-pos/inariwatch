@@ -46,15 +46,48 @@ export const accounts = pgTable("accounts", {
   expiresAt:         integer("expires_at"),
 });
 
+// ── Organizations (workspaces) ────────────────────────────────────────────────
+
+export const orgRoleEnum = pgEnum("org_role", ["owner", "admin", "member"]);
+
+export const organizations = pgTable("organizations", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  name:      text("name").notNull(),
+  slug:      text("slug").notNull().unique(),
+  ownerId:   uuid("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  avatarUrl: text("avatar_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const organizationMembers = pgTable("organization_members", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  userId:         uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  role:           orgRoleEnum("role").default("member").notNull(),
+  joinedAt:       timestamp("joined_at").defaultNow().notNull(),
+});
+
+export const organizationInvites = pgTable("organization_invites", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  email:          text("email").notNull(),
+  role:           orgRoleEnum("role").default("member").notNull(),
+  invitedBy:      uuid("invited_by").references(() => users.id).notNull(),
+  token:          text("token").notNull().unique(),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  expiresAt:      timestamp("expires_at").notNull(),
+});
+
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export const projects = pgTable("projects", {
-  id:          uuid("id").primaryKey().defaultRandom(),
-  userId:      uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  name:        text("name").notNull(),
-  slug:        text("slug").notNull().unique(),
-  description: text("description"),
-  createdAt:   timestamp("created_at").defaultNow().notNull(),
+  id:             uuid("id").primaryKey().defaultRandom(),
+  userId:         uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  name:           text("name").notNull(),
+  slug:           text("slug").notNull().unique(),
+  description:    text("description"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 
 export const projectIntegrations = pgTable("project_integrations", {
@@ -312,4 +345,7 @@ export type EscalationRule    = typeof escalationRules.$inferSelect;
 export type AuditLog          = typeof auditLogs.$inferSelect;
 export type OutgoingWebhook   = typeof outgoingWebhooks.$inferSelect;
 export type StatusPage          = typeof statusPages.$inferSelect;
-export type RemediationSession = typeof remediationSessions.$inferSelect;
+export type RemediationSession   = typeof remediationSessions.$inferSelect;
+export type Organization         = typeof organizations.$inferSelect;
+export type OrganizationMember   = typeof organizationMembers.$inferSelect;
+export type OrganizationInvite   = typeof organizationInvites.$inferSelect;

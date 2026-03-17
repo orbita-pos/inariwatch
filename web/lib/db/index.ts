@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { eq, or } from "drizzle-orm";
+import { eq, or, inArray } from "drizzle-orm";
 import * as schema from "./schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -9,26 +9,65 @@ export const db = drizzle(sql, { schema });
 export * from "./schema";
 
 /**
- * Returns all project IDs where the user is the owner OR an accepted member.
+ * Returns all project IDs where the user is the owner, a project member,
+ * or a member of the project's organization.
  */
 export async function getUserProjectIds(userId: string): Promise<string[]> {
-  // Projects owned by the user
-  const ownedProjects = await db
-    .select({ id: schema.projects.id })
-    .from(schema.projects)
-    .where(eq(schema.projects.userId, userId));
-
-  // Projects where user is an accepted member
-  const memberProjects = await db
-    .select({ projectId: schema.projectMembers.projectId })
-    .from(schema.projectMembers)
-    .where(eq(schema.projectMembers.userId, userId));
+  const [ownedProjects, memberProjects, orgMemberships] = await Promise.all([
+    db.select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(eq(schema.projects.userId, userId)),
+    db.select({ projectId: schema.projectMembers.projectId })
+      .from(schema.projectMembers)
+      .where(eq(schema.projectMembers.userId, userId)),
+    db.select({ organizationId: schema.organizationMembers.organizationId })
+      .from(schema.organizationMembers)
+      .where(eq(schema.organizationMembers.userId, userId)),
+  ]);
 
   const ids = new Set<string>();
   for (const p of ownedProjects) ids.add(p.id);
   for (const p of memberProjects) ids.add(p.projectId);
 
+  // Projects belonging to orgs the user is a member of
+  const orgIds = orgMemberships.map((m) => m.organizationId);
+  if (orgIds.length > 0) {
+    const orgProjects = await db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(inArray(schema.projects.organizationId, orgIds));
+    for (const p of orgProjects) ids.add(p.id);
+  }
+
   return Array.from(ids);
+}
+
+/**
+ * Returns organizations the user owns or is a member of.
+ */
+export async function getUserOrganizations(userId: string) {
+  const [owned, memberships] = await Promise.all([
+    db.select().from(schema.organizations).where(eq(schema.organizations.ownerId, userId)),
+    db.select({
+      id:        schema.organizations.id,
+      name:      schema.organizations.name,
+      slug:      schema.organizations.slug,
+      ownerId:   schema.organizations.ownerId,
+      avatarUrl: schema.organizations.avatarUrl,
+      createdAt: schema.organizations.createdAt,
+      role:      schema.organizationMembers.role,
+    })
+      .from(schema.organizationMembers)
+      .innerJoin(schema.organizations, eq(schema.organizationMembers.organizationId, schema.organizations.id))
+      .where(eq(schema.organizationMembers.userId, userId)),
+  ]);
+
+  // Merge — owner might also be a member row
+  const map = new Map<string, { id: string; name: string; slug: string; ownerId: string; avatarUrl: string | null; role: string }>();
+  for (const o of owned) map.set(o.id, { ...o, role: "owner" });
+  for (const m of memberships) if (!map.has(m.id)) map.set(m.id, { ...m, avatarUrl: m.avatarUrl });
+
+  return Array.from(map.values());
 }
 
 // ── Plan limits ──────────────────────────────────────────────────────────────

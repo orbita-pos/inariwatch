@@ -7,8 +7,10 @@ import { SidebarNav } from "./nav";
 import { MobileNav } from "./mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkspaceSwitcher } from "./workspace-switcher";
-import { db, alerts, users, getUserProjectIds } from "@/lib/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { PollingStatus } from "./polling-status";
+import { DashboardHeader } from "./dashboard-header";
+import { db, alerts, users, projectIntegrations, getUserProjectIds, getUserOrganizations } from "@/lib/db";
+import { eq, and, inArray, sql, max } from "drizzle-orm";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -31,24 +33,30 @@ export default async function DashboardLayout({ children }: { children: React.Re
     userPlan = (row?.plan as "free" | "pro" | "team") ?? "free";
   }
 
-  // Count unread alerts for this user's projects (owned + team member)
-  let unreadCount = 0;
-  if (userId) {
-    const projectIds = await getUserProjectIds(userId);
+  // Shared project IDs + organizations for sidebar
+  const [projectIds, organizations] = userId
+    ? await Promise.all([getUserProjectIds(userId), getUserOrganizations(userId)])
+    : [[], []];
 
-    if (projectIds.length > 0) {
-      const [row] = await db
-        .select({ count: sql<number>`count(*)` })
+  // Fetch last polling time + unread count in parallel
+  let lastCheckedAt: string | null = null;
+  let unreadCount = 0;
+
+  if (projectIds.length > 0) {
+    const [pollingRow, countRow] = await Promise.all([
+      db.select({ last: max(projectIntegrations.lastCheckedAt) })
+        .from(projectIntegrations)
+        .where(inArray(projectIntegrations.projectId, projectIds)),
+      db.select({ count: sql<number>`count(*)` })
         .from(alerts)
-        .where(
-          and(
-            inArray(alerts.projectId, projectIds),
-            eq(alerts.isRead, false),
-            eq(alerts.isResolved, false)
-          )
-        );
-      unreadCount = row?.count ?? 0;
-    }
+        .where(and(
+          inArray(alerts.projectId, projectIds),
+          eq(alerts.isRead, false),
+          eq(alerts.isResolved, false),
+        )),
+    ]);
+    lastCheckedAt = pollingRow[0]?.last?.toISOString() ?? null;
+    unreadCount   = countRow[0]?.count ?? 0;
   }
 
   return (
@@ -56,10 +64,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col border-r border-line bg-surface md:flex">
         {/* Workspace switcher */}
-        <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} />
+        <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} organizations={organizations} />
 
         {/* Nav */}
         <SidebarNav unreadAlerts={unreadCount} />
+
+        {/* Polling status */}
+        <PollingStatus lastCheckedAt={lastCheckedAt} />
 
         {/* User */}
         <div className="shrink-0 border-t border-line px-3 py-3">
@@ -99,6 +110,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Content */}
       <div className="flex flex-1 flex-col pt-14 pl-0 md:pt-0 md:pl-[220px]">
+        <DashboardHeader unreadAlerts={unreadCount} />
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
     </div>

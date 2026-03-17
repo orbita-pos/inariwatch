@@ -5,9 +5,11 @@ import { eq, inArray } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import {
   CheckCircle2, XCircle, Clock, Plus,
-  Github, Zap, AlertTriangle, GitBranch, Database, Package,
-  Terminal, Settings2, Unplug, Globe,
+  Terminal, Settings2, Unplug,
 } from "lucide-react";
+import {
+  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon,
+} from "@/components/brand-icons";
 import type { ElementType } from "react";
 import { Button } from "@/components/ui/button";
 import { ConnectModal }       from "./connect-modal";
@@ -27,35 +29,35 @@ const CATALOG = [
     service: "github",
     label:   "GitHub",
     desc:    "Stale PRs, failed CI runs, unreviewed pull requests",
-    icon:    Github,
+    icon:    GitHubIcon,
     mode:    "web" as const,
   },
   {
     service: "vercel",
     label:   "Vercel",
     desc:    "Failed deployments, build errors, preview failures",
-    icon:    Zap,
+    icon:    VercelIcon,
     mode:    "web" as const,
   },
   {
     service: "sentry",
     label:   "Sentry",
     desc:    "New errors, frequency spikes, affected users",
-    icon:    AlertTriangle,
+    icon:    SentryIcon,
     mode:    "web" as const,
   },
   {
     service: "uptime",
     label:   "Uptime Monitor",
     desc:    "HTTP endpoint health checks, response time monitoring",
-    icon:    Globe,
+    icon:    UptimeIcon,
     mode:    "web" as const,
   },
   {
     service: "git",
     label:   "Git local",
     desc:    "Unpushed commits, stale branches — runs on your machine",
-    icon:    GitBranch,
+    icon:    GitIcon,
     mode:    "cli" as const,
     cmd:     "inari add git",
   },
@@ -63,14 +65,14 @@ const CATALOG = [
     service: "postgres",
     label:   "PostgreSQL",
     desc:    "Slow queries, connection spikes, table growth",
-    icon:    Database,
+    icon:    PostgreSQLIcon,
     mode:    "web" as const,
   },
   {
     service: "npm",
     label:   "npm / Cargo",
     desc:    "CVE alerts on your dependencies",
-    icon:    Package,
+    icon:    NpmIcon,
     mode:    "web" as const,
   },
 ];
