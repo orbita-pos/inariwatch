@@ -30,7 +30,6 @@ export async function createProjectForOnboarding(
 
     revalidatePath("/projects");
     revalidatePath("/integrations");
-    revalidatePath("/dashboard");
 
     return { projectId: inserted.id };
   } catch (err: any) {
