@@ -572,16 +572,18 @@ function Pricing() {
     },
     {
       name: "Team",
-      price: "$29",
+      price: "$19",
       period: "/month",
       description: "For teams monitoring multiple projects.",
       highlight: false,
       cta: { label: "Start free trial", href: "/register?plan=team" },
       features: [
         "Everything in Pro",
-        "Unlimited projects",
-        "Multiple developers per project",
+        "Unlimited projects & integrations",
+        "Team members + roles",
         "90-day alert history",
+        "Status pages & escalation rules",
+        "Audit logs",
         "Priority support",
       ],
       missing: [],
@@ -644,6 +646,12 @@ function Pricing() {
               </ul>
             </div>
           ))}
+        </div>
+
+        <div className="mt-8 text-center">
+          <Link href="/pricing" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors underline underline-offset-4">
+            See full feature comparison →
+          </Link>
         </div>
       </div>
     </section>
