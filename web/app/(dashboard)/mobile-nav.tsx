@@ -12,9 +12,10 @@ interface MobileNavProps {
   unreadAlerts: number;
   userInitial: string;
   userName: string;
+  userEmail?: string;
 }
 
-export function MobileNav({ unreadAlerts, userInitial, userName }: MobileNavProps) {
+export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -157,6 +158,9 @@ export function MobileNav({ unreadAlerts, userInitial, userName }: MobileNavProp
               <p className="truncate text-sm font-medium text-fg-base">
                 {userName}
               </p>
+              {userEmail && userName !== userEmail && (
+                <p className="truncate text-xs text-zinc-500">{userEmail}</p>
+              )}
               <p className="text-xs text-zinc-600">Free plan</p>
             </div>
             <Link

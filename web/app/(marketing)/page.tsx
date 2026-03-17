@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ function Nav() {
             <Github className="h-4 w-4" />
             <span className="hidden sm:inline">GitHub</span>
           </Link>
+          <ThemeToggle />
           <Link href="/login">
             <Button variant="outline" size="sm">Sign in</Button>
           </Link>

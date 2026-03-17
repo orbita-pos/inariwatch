@@ -22,6 +22,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     "?";
 
   const userName = session.user?.name ?? session.user?.email ?? "User";
+  const userEmail = session.user?.email ?? "";
 
   // Count unread alerts for this user's projects (owned + team member)
   let unreadCount = 0;
@@ -76,6 +77,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
               <p className="truncate text-sm font-medium text-fg-base">
                 {session.user?.name ?? session.user?.email}
               </p>
+              {session.user?.name && session.user?.email && (
+                <p className="truncate text-xs text-zinc-500">{session.user.email}</p>
+              )}
               <p className="text-xs text-zinc-600">Free plan</p>
             </div>
             <div className="flex items-center gap-0.5">
@@ -97,6 +101,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         unreadAlerts={unreadCount}
         userInitial={initials}
         userName={userName}
+        userEmail={userEmail}
       />
 
       {/* Content */}
