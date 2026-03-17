@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import * as OTPAuth from "otpauth";
 import { db, users } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { rateLimit } from "@/lib/auth-rate-limit";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -46,6 +47,15 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
+
+        // Rate limit: 10 login attempts per email per 15 minutes
+        const rl = rateLimit("login", credentials.email.toLowerCase(), {
+          windowMs: 15 * 60_000,
+          max: 10,
+        });
+        if (!rl.allowed) {
+          throw new Error("TOO_MANY_ATTEMPTS");
+        }
 
         const [user] = await db
           .select()
@@ -135,6 +145,7 @@ export const authOptions: NextAuthOptions = {
   },
 
   pages: {
-    signIn: "/login",
+    signIn:  "/login",
+    signOut: "/signout",
   },
 };

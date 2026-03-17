@@ -1,5 +1,5 @@
 function Sk({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded bg-white/[0.05] ${className ?? ""}`} />;
+  return <div className={`animate-pulse rounded bg-black/[0.08] dark:bg-white/[0.05] ${className ?? ""}`} />;
 }
 
 export default function ProjectsLoading() {
@@ -13,7 +13,7 @@ export default function ProjectsLoading() {
         <Sk className="h-8 w-28 rounded-lg" />
       </div>
 
-      <div className="rounded-xl border border-[#1a1a1a] overflow-hidden divide-y divide-[#131313] bg-[#0a0a0a]">
+      <div className="rounded-xl border border-line overflow-hidden divide-y divide-line-subtle bg-surface">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="flex items-center gap-4 px-5 py-4">
             <Sk className="h-2 w-2 rounded-full shrink-0" />

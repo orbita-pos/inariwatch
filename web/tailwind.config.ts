@@ -18,6 +18,16 @@ const config: Config = {
           border:     "#1e1e22",
           muted:      "#52525b",
         },
+        // ── Semantic theme tokens (respond to light/dark CSS vars) ───────────
+        page:           "var(--bg-page)",
+        surface:        "var(--bg-card)",
+        "surface-inner":"var(--bg-card-inner)",
+        "surface-dim":  "var(--bg-card-elevated)",
+        line:           "var(--bd-default)",
+        "line-subtle":  "var(--bd-subtle)",
+        "line-medium":  "var(--bd-medium)",
+        "fg-strong":    "var(--fg-strong)",
+        "fg-base":      "var(--fg-base)",
       },
       fontFamily: {
         mono: ["'Geist Mono'", "ui-monospace", "monospace"],

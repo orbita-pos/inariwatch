@@ -3,23 +3,26 @@ import { authOptions } from "@/lib/auth";
 import { db, alerts, projects, projectIntegrations, getUserProjectIds } from "@/lib/db";
 import { eq, desc, inArray } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
-import { ArrowUpRight, FolderOpen } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Overview" };
 
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-inari-accent",
-  warning:  "bg-amber-400",
-  info:     "bg-blue-400",
-};
-const SEVERITY_TEXT: Record<string, string> = {
-  critical: "text-inari-accent",
-  warning:  "text-amber-400",
-  info:     "text-blue-400",
-};
+const SEV = {
+  critical: { dot: "bg-inari-accent",   text: "text-inari-accent",   bar: "bg-inari-accent" },
+  warning:  { dot: "bg-amber-400", text: "text-amber-400", bar: "bg-amber-400" },
+  info:     { dot: "bg-blue-400",  text: "text-blue-400",  bar: "bg-blue-400" },
+} as const;
+type Sev = keyof typeof SEV;
+
+function timeOfDay() {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 18) return "afternoon";
+  return "evening";
+}
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -30,177 +33,281 @@ export default async function DashboardPage() {
     ? await db.select().from(projects).where(eq(projects.userId, userId)).limit(10)
     : [];
 
-  // Redirect new users (no projects) to onboarding wizard
-  if (userId && userProjects.length === 0) {
-    redirect("/onboarding");
-  }
+  if (userId && userProjects.length === 0) redirect("/onboarding");
 
-  // Include team projects for alerts
   const projectIds = userId ? await getUserProjectIds(userId) : userProjects.map((p) => p.id);
 
-  const recentAlerts =
+  const [recentAlerts, integrationRows] =
     projectIds.length > 0
-      ? await db
-          .select()
-          .from(alerts)
-          .where(inArray(alerts.projectId, projectIds))
-          .orderBy(desc(alerts.createdAt))
-          .limit(8)
-      : [];
+      ? await Promise.all([
+          db.select().from(alerts).where(inArray(alerts.projectId, projectIds)).orderBy(desc(alerts.createdAt)).limit(8),
+          db.select({ id: projectIntegrations.id }).from(projectIntegrations).where(inArray(projectIntegrations.projectId, projectIds)).limit(1),
+        ])
+      : [[], []];
 
-  const hasProject       = userProjects.length > 0;
-  const hasIntegrations  =
-    projectIds.length > 0
-      ? (await db
-          .select({ id: projectIntegrations.id })
-          .from(projectIntegrations)
-          .where(inArray(projectIntegrations.projectId, projectIds))
-          .limit(1)
-        ).length > 0
-      : false;
-
-  const unreadCount   = recentAlerts.filter((a) => !a.isRead).length;
-  const criticalCount = recentAlerts.filter((a) => a.severity === "critical").length;
+  const hasProject      = userProjects.length > 0;
+  const hasIntegrations = integrationRows.length > 0;
+  const unreadCount     = recentAlerts.filter((a) => !a.isRead).length;
+  const criticalCount   = recentAlerts.filter((a) => a.severity === "critical").length;
+  const openCount       = recentAlerts.filter((a) => !a.isResolved).length;
 
   return (
     <div className="space-y-8">
 
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">Overview</h1>
-          <p className="text-sm text-zinc-500 mt-1">Welcome back, {name}</p>
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-fg-strong tracking-tight">
+            Good {timeOfDay()}, {name}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {hasIntegrations
+              ? `Monitoring ${userProjects.length} project${userProjects.length !== 1 ? "s" : ""}`
+              : "Connect an integration to start monitoring"}
+          </p>
         </div>
-        <span className="hidden shrink-0 font-mono text-xs text-zinc-600 sm:block">
-          {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-        </span>
+
+        {hasIntegrations && (
+          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-green-900/40 bg-green-950/20 px-3 py-1">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+            <span className="text-xs font-medium text-green-400">Watching</span>
+          </div>
+        )}
       </div>
 
-      {/* Stats */}
+      {/* ── Stats ────────────────────────────────────────────────────────── */}
       {hasProject && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Projects", value: userProjects.length, sub: "total" },
-            { label: "Alerts",   value: recentAlerts.length, sub: "last fetch" },
-            { label: "Unread",   value: unreadCount,         sub: "need attention", accent: unreadCount > 0 },
-            { label: "Critical", value: criticalCount,       sub: "high severity",  red: criticalCount > 0 },
-          ].map(({ label, value, sub, accent, red }) => (
-            <div key={label} className="flex flex-col gap-1 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-3 sm:px-5 sm:py-4">
-              <span className="text-xs text-zinc-500">{label}</span>
-              <span className={`text-2xl font-semibold tabular-nums ${
-                red ? "text-inari-accent" : accent ? "text-amber-400" : "text-white"
-              }`}>
-                {value}
-              </span>
-              <span className="text-xs text-zinc-600">{sub}</span>
-            </div>
-          ))}
+          <StatCard
+            label="Projects"
+            value={userProjects.length}
+            description="monitored"
+          />
+          <StatCard
+            label="Open"
+            value={openCount}
+            description="active alerts"
+          />
+          <StatCard
+            label="Unread"
+            value={unreadCount}
+            description="need attention"
+            accent={unreadCount > 0 ? "amber" : undefined}
+          />
+          <StatCard
+            label="Critical"
+            value={criticalCount}
+            description="high severity"
+            accent={criticalCount > 0 ? "red" : undefined}
+          />
         </div>
       )}
 
-      {/* Recent alerts */}
+      {/* ── Recent alerts ────────────────────────────────────────────────── */}
       {hasProject && (
         <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-zinc-200">Recent alerts</h2>
-            <Link href="/alerts" className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
-              View all <ArrowUpRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
+          <SectionHeader title="Recent alerts" href="/alerts" badge={recentAlerts.length} />
 
           {recentAlerts.length === 0 ? (
-            <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-5 py-10 text-center">
-              <p className="text-sm text-zinc-400">No alerts yet</p>
-              <p className="mt-1 text-sm text-zinc-600">
-                {hasIntegrations
+            <EmptyState
+              message={hasIntegrations ? "No alerts yet" : "No integrations connected"}
+              sub={
+                hasIntegrations
                   ? "InariWatch is watching your integrations. Alerts will appear here when something needs attention."
                   : "Connect an integration to start receiving alerts."
-                }
-              </p>
-            </div>
+              }
+              action={!hasIntegrations ? { label: "Connect now", href: "/integrations" } : undefined}
+            />
           ) : (
-            <div className="rounded-xl border border-[#1a1a1a] overflow-hidden divide-y divide-[#131313] bg-[#0a0a0a]">
-              {recentAlerts.map((alert) => (
-                <Link
-                  key={alert.id}
-                  href={`/alerts/${alert.id}`}
-                  className="group flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
-                >
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${SEVERITY_DOT[alert.severity] ?? "bg-zinc-600"}`} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-zinc-200 group-hover:text-white transition-colors">
-                      {alert.title}
-                      {!alert.isRead && (
-                        <span className="ml-2 inline-block h-1.5 w-1.5 rounded-full bg-inari-accent align-middle" />
-                      )}
-                    </p>
-                    {alert.body && (
-                      <p className="mt-0.5 truncate text-xs text-zinc-500">{alert.body}</p>
-                    )}
-                  </div>
-                  <div className="hidden shrink-0 items-center gap-1 md:flex">
-                    {alert.sourceIntegrations.slice(0, 2).map((src) => (
-                      <span key={src} className="rounded border border-[#222] bg-[#111] px-1.5 py-0.5 font-mono text-xs text-zinc-500">
-                        {src}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className={`text-xs font-medium ${SEVERITY_TEXT[alert.severity] ?? "text-zinc-500"}`}>
-                      {alert.severity}
-                    </p>
-                    <p className="font-mono text-xs text-zinc-600">
+            <div className="overflow-hidden rounded-xl border border-line">
+              {recentAlerts.map((alert) => {
+                const sev = SEV[(alert.severity as Sev)] ?? SEV.info;
+                return (
+                  <Link
+                    key={alert.id}
+                    href={`/alerts/${alert.id}`}
+                    className="group relative flex items-center gap-4 border-b border-line-subtle bg-surface px-4 py-3.5 transition-colors last:border-0 hover:bg-black/[0.025] dark:hover:bg-white/[0.025]"
+                  >
+                    {/* Severity bar */}
+                    <span className={`absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full ${sev.bar} opacity-70`} />
+
+                    {/* Dot */}
+                    <span className={`ml-1 h-2 w-2 shrink-0 rounded-full ${sev.dot}`} />
+
+                    {/* Content */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {!alert.isRead && (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />
+                        )}
+                        <p className="truncate text-sm font-medium text-fg-base group-hover:text-fg-strong transition-colors">
+                          {alert.title}
+                        </p>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-600">
+                        <span className={`font-medium ${sev.text}`}>{alert.severity}</span>
+                        <span>·</span>
+                        <span className={alert.isResolved ? "text-zinc-600" : "text-amber-500/70"}>
+                          {alert.isResolved ? "resolved" : "open"}
+                        </span>
+                        {alert.sourceIntegrations[0] && (
+                          <>
+                            <span>·</span>
+                            <span className="font-mono">{alert.sourceIntegrations[0]}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Time */}
+                    <span className="shrink-0 font-mono text-xs text-zinc-600 transition-colors group-hover:text-zinc-500">
                       {formatRelativeTime(alert.createdAt)}
-                    </p>
-                  </div>
-                </Link>
-              ))}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </section>
       )}
 
-      {/* Projects */}
-      {hasProject && (
+      {/* ── Projects ─────────────────────────────────────────────────────── */}
+      {hasProject && userProjects.length > 0 && (
         <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-zinc-200">Projects</h2>
-            <Link href="/projects" className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
-              View all <ArrowUpRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {userProjects.slice(0, 4).map((project) => (
+          <SectionHeader title="Projects" href="/projects" />
+
+          <div className="overflow-hidden rounded-xl border border-line">
+            {userProjects.slice(0, 5).map((project) => (
               <Link
                 key={project.id}
                 href="/projects"
-                className="group flex flex-col gap-2 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-4 hover:border-[#2a2a2a] transition-all"
+                className="group flex items-center gap-3 border-b border-line-subtle bg-surface px-4 py-3 transition-colors last:border-0 hover:bg-black/[0.025] dark:hover:bg-white/[0.025]"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FolderOpen className="h-3.5 w-3.5 text-zinc-600" />
-                    <span className="text-sm font-medium text-zinc-200 group-hover:text-white transition-colors">
-                      {project.name}
-                    </span>
-                  </div>
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                </div>
-                <p className="font-mono text-xs text-zinc-600">{project.slug}</p>
+                <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" />
+                <span className="flex-1 text-sm font-medium text-fg-base transition-colors group-hover:text-fg-strong">
+                  {project.name}
+                </span>
+                <span className="font-mono text-xs text-zinc-600">{project.slug}</span>
+                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-zinc-700 opacity-0 transition-opacity group-hover:opacity-100" />
               </Link>
             ))}
           </div>
         </section>
       )}
 
-      {/* Empty state */}
+      {/* ── No projects ──────────────────────────────────────────────────── */}
       {!hasProject && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[#1a1a1a] py-24 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-24 text-center">
           <span className="text-3xl text-zinc-800">◉</span>
           <p className="text-sm font-medium text-zinc-400">No projects yet</p>
           <p className="text-sm text-zinc-600">
-            Go to <Link href="/integrations" className="text-zinc-400 hover:text-white transition-colors underline underline-offset-2">Integrations</Link> to create your first project.
+            Go to{" "}
+            <Link
+              href="/integrations"
+              className="text-zinc-400 underline underline-offset-2 transition-colors hover:text-fg-strong"
+            >
+              Integrations
+            </Link>{" "}
+            to create your first project.
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function SectionHeader({
+  title,
+  href,
+  badge,
+}: {
+  title: string;
+  href: string;
+  badge?: number;
+}) {
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-fg-base">{title}</h2>
+        {badge !== undefined && badge > 0 && (
+          <span className="rounded-full border border-line-medium bg-surface-dim px-2 py-px font-mono text-[11px] text-zinc-500">
+            {badge}
+          </span>
+        )}
+      </div>
+      <Link
+        href={href}
+        className="flex items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-fg-base"
+      >
+        View all
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  description,
+  accent,
+}: {
+  label: string;
+  value: number;
+  description: string;
+  accent?: "red" | "amber";
+}) {
+  const numColor =
+    accent === "red"   ? "text-inari-accent" :
+    accent === "amber" ? "text-amber-400" :
+    "text-fg-strong";
+
+  const borderColor =
+    accent === "red"   ? "border-inari-accent/20" :
+    accent === "amber" ? "border-amber-900/50" :
+    "border-line";
+
+  const bg =
+    accent === "red"   ? "bg-inari-accent-dim" :
+    accent === "amber" ? "bg-amber-950/20" :
+    "bg-surface";
+
+  return (
+    <div className={`flex flex-col gap-1.5 rounded-xl border ${borderColor} ${bg} px-4 py-4`}>
+      <span className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">
+        {label}
+      </span>
+      <span className={`font-mono text-3xl font-semibold leading-none tabular-nums ${numColor}`}>
+        {value}
+      </span>
+      <span className="text-xs text-zinc-600">{description}</span>
+    </div>
+  );
+}
+
+function EmptyState({
+  message,
+  sub,
+  action,
+}: {
+  message: string;
+  sub: string;
+  action?: { label: string; href: string };
+}) {
+  return (
+    <div className="rounded-xl border border-line bg-surface px-5 py-10 text-center">
+      <p className="text-sm font-medium text-zinc-400">{message}</p>
+      <p className="mt-1 text-sm text-zinc-600">{sub}</p>
+      {action && (
+        <Link
+          href={action.href}
+          className="mt-3 inline-flex items-center gap-1 text-xs text-zinc-400 underline underline-offset-2 transition-colors hover:text-fg-strong"
+        >
+          {action.label}
+          <ArrowUpRight className="h-3 w-3" />
+        </Link>
       )}
     </div>
   );

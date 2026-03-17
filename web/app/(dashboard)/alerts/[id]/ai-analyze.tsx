@@ -29,8 +29,8 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
 
   if (!hasAIKey && !result) {
     return (
-      <section className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-[#1a1a1a] px-5 py-3">
+      <section className="rounded-xl border border-line bg-surface overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-line px-5 py-3">
           <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">AI Analysis</span>
         </div>
@@ -48,8 +48,8 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
   }
 
   return (
-    <section className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-      <div className="flex items-center justify-between border-b border-[#1a1a1a] px-5 py-3">
+    <section className="rounded-xl border border-line bg-surface overflow-hidden">
+      <div className="flex items-center justify-between border-b border-line px-5 py-3">
         <div className="flex items-center gap-2">
           <Sparkles className={`h-3.5 w-3.5 ${result ? "text-inari-accent" : "text-zinc-600"}`} />
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">AI Analysis</span>
@@ -64,7 +64,7 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
           <button
             onClick={handleAnalyze}
             disabled={isPending}
-            className="flex items-center gap-1.5 rounded-lg border border-[#222] bg-[#111] px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-fg-strong hover:border-zinc-600 transition-all disabled:opacity-50"
           >
             {isPending ? (
               <>
@@ -94,7 +94,7 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
         )}
 
         {result && !isPending && (
-          <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{result}</p>
+          <p className="text-sm text-fg-base leading-relaxed whitespace-pre-wrap">{result}</p>
         )}
 
         {!result && !isPending && !error && (

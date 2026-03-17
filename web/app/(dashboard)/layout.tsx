@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { SidebarNav } from "./nav";
 import { MobileNav } from "./mobile-nav";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { db, alerts, projects, getUserProjectIds } from "@/lib/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 
@@ -43,11 +44,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex min-h-screen bg-[#09090b]">
+    <div className="flex min-h-screen bg-page">
       {/* Desktop sidebar — hidden on mobile */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col border-r border-[#1a1a1a] bg-[#0a0a0a] md:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col border-r border-line bg-surface md:flex">
         {/* Logo */}
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-[#1a1a1a] px-5">
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-5">
           <Link href="/" className="flex items-center gap-2.5">
             <Image
               src="/logo-inari/favicon-96x96.png"
@@ -56,7 +57,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               height={36}
               className="shrink-0"
             />
-            <span className="font-mono text-sm font-semibold uppercase tracking-[0.15em] text-white">
+            <span className="font-mono text-sm font-semibold uppercase tracking-[0.15em] text-fg-strong">
               InariWatch
             </span>
           </Link>
@@ -66,24 +67,27 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <SidebarNav unreadAlerts={unreadCount} />
 
         {/* User */}
-        <div className="shrink-0 border-t border-[#1a1a1a] p-3">
+        <div className="shrink-0 border-t border-line p-3">
           <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-inari-accent text-[11px] font-bold text-white">
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-zinc-300">
+              <p className="truncate text-sm font-medium text-fg-base">
                 {session.user?.name ?? session.user?.email}
               </p>
               <p className="text-xs text-zinc-600">Free plan</p>
             </div>
-            <Link
-              href="/api/auth/signout"
-              className="text-zinc-600 hover:text-zinc-300 transition-colors"
-              title="Sign out"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </Link>
+            <div className="flex items-center gap-0.5">
+              <ThemeToggle />
+              <Link
+                href="/api/auth/signout"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-400 transition-colors"
+                title="Sign out"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       </aside>

@@ -43,8 +43,8 @@ export function PostmortemPanel({
   if (!isResolved || !hasAIKey) return null;
 
   return (
-    <section className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-      <div className="flex items-center justify-between border-b border-[#1a1a1a] px-5 py-3">
+    <section className="rounded-xl border border-line bg-surface overflow-hidden">
+      <div className="flex items-center justify-between border-b border-line px-5 py-3">
         <div className="flex items-center gap-2">
           <FileText className={`h-3.5 w-3.5 ${content ? "text-violet-400" : "text-zinc-600"}`} />
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Post-mortem</span>
@@ -58,7 +58,7 @@ export function PostmortemPanel({
           {content && (
             <button
               onClick={handleDownload}
-              className="flex items-center gap-1.5 rounded-lg border border-[#222] bg-[#111] px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:border-zinc-600 transition-all"
+              className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-fg-strong hover:border-zinc-600 transition-all"
             >
               <Download className="h-3 w-3" />
               Export .md
@@ -67,7 +67,7 @@ export function PostmortemPanel({
           <button
             onClick={handleGenerate}
             disabled={isPending}
-            className="flex items-center gap-1.5 rounded-lg border border-[#222] bg-[#111] px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-fg-strong hover:border-zinc-600 transition-all disabled:opacity-50"
           >
             {isPending ? (
               <>

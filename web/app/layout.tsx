@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+
+const BASE_URL = "https://inariwatch.com";
 
 export const metadata: Metadata = {
-  title:       { default: "InariWatch — Developer Monitoring", template: "%s | InariWatch" },
-  description: "InariWatch monitors GitHub, Vercel, Sentry and more. When something needs attention, you get one intelligent alert — not six.",
-  keywords:    ["developer monitoring", "alerting", "github", "vercel", "sentry", "devops"],
+  metadataBase:  new URL(BASE_URL),
+  title:         { default: "InariWatch — Developer Monitoring", template: "%s | InariWatch" },
+  description:   "InariWatch monitors GitHub, Vercel, Sentry and more. When something needs attention, you get one intelligent alert — not six.",
+  keywords:      ["developer monitoring", "alerting", "github", "vercel", "sentry", "devops"],
+  alternates:    { canonical: BASE_URL },
 
   icons: {
     icon: [
@@ -20,12 +25,13 @@ export const metadata: Metadata = {
 
   openGraph: {
     type:        "website",
+    url:         BASE_URL,
     siteName:    "InariWatch",
     title:       "InariWatch — Developer Monitoring",
     description: "Proactive alerts for GitHub, Vercel, Sentry and more. One intelligent alert instead of six.",
     images: [
       {
-        url:    "/favicon/web-app-manifest-512x512.png",
+        url:    "/logo-inari/web-app-manifest-512x512.png",
         width:  512,
         height: 512,
         alt:    "InariWatch logo",
@@ -34,17 +40,65 @@ export const metadata: Metadata = {
   },
 
   twitter: {
-    card:        "summary",
+    card:        "summary_large_image",
+    site:        "@inariwatch",
     title:       "InariWatch — Developer Monitoring",
     description: "Proactive alerts for GitHub, Vercel, Sentry and more.",
-    images:      ["/favicon/web-app-manifest-512x512.png"],
+    images:      ["/logo-inari/web-app-manifest-512x512.png"],
   },
+
+  robots: {
+    index:  true,
+    follow: true,
+    googleBot: { index: true, follow: true },
+  },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type":       "Organization",
+      "@id":         `${BASE_URL}/#organization`,
+      name:          "InariWatch",
+      url:           BASE_URL,
+      logo:          `${BASE_URL}/logo-inari/favicon-96x96.png`,
+      description:   "Developer monitoring platform. Proactive alerts for GitHub, Vercel, Sentry and more.",
+    },
+    {
+      "@type":       "WebSite",
+      "@id":         `${BASE_URL}/#website`,
+      url:           BASE_URL,
+      name:          "InariWatch",
+      publisher:     { "@id": `${BASE_URL}/#organization` },
+      potentialAction: {
+        "@type":       "SearchAction",
+        target:        `${BASE_URL}/alerts?q={search_term_string}`,
+        "query-input": "required name=search_term_string",
+      },
+    },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="bg-inari-bg text-zinc-100 antialiased">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
+      <body className="bg-page text-fg-base antialiased">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

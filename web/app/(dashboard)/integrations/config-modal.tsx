@@ -187,13 +187,13 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
 
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#222] bg-[#0d0d0d] shadow-[0_0_60px_rgba(0,0,0,0.7)] focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line-medium bg-surface-dim shadow-[0_0_60px_rgba(0,0,0,0.7)] focus:outline-none">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-[#1a1a1a] px-5 py-4">
-            <Dialog.Title className="text-sm font-semibold text-white capitalize">
+          <div className="flex items-center justify-between border-b border-line px-5 py-4">
+            <Dialog.Title className="text-sm font-semibold text-fg-strong capitalize">
               Configure {service} alerts
             </Dialog.Title>
-            <Dialog.Close className="rounded-md p-1 text-zinc-600 hover:text-zinc-300 transition-colors">
+            <Dialog.Close className="rounded-md p-1 text-zinc-600 hover:text-fg-base transition-colors">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
@@ -203,11 +203,11 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
               {alertTypes.map((type) => (
                 <div
                   key={type.key}
-                  className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-4 py-3.5"
+                  className="rounded-xl border border-line bg-surface px-4 py-3.5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-zinc-200">{type.label}</p>
+                      <p className="text-sm font-medium text-fg-base">{type.label}</p>
                       <p className="mt-0.5 text-[12px] text-zinc-600">{type.description}</p>
                     </div>
 
@@ -243,7 +243,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                               [type.key]: Number(e.target.value),
                             }))
                           }
-                          className="w-16 rounded-lg border border-[#222] bg-[#111] px-2 py-1 text-center text-sm text-zinc-100 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20"
+                          className="w-16 rounded-lg border border-line-medium bg-surface-dim px-2 py-1 text-center text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20"
                         />
                         <span className="text-[11px] text-zinc-600">{type.threshold.unit}</span>
                       </div>
@@ -253,7 +253,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
               ))}
             </div>
 
-            <div className="flex gap-2 border-t border-[#1a1a1a] px-5 py-4">
+            <div className="flex gap-2 border-t border-line px-5 py-4">
               <Dialog.Close asChild>
                 <Button variant="outline" className="flex-1" type="button">Cancel</Button>
               </Dialog.Close>

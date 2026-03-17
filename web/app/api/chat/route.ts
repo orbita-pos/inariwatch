@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { db, alerts, projects, remediationSessions, projectIntegrations, getUserProjectIds } from "@/lib/db";
 import { eq, and, desc, inArray, sql, gt } from "drizzle-orm";
 import { getUserAIKey } from "@/lib/ai/get-key";
-import { detectProvider } from "@/lib/ai/client";
+import { resolveModel } from "@/lib/ai/models";
+import type { AIProvider } from "@/lib/ai/client";
 
 const SYSTEM_OPS = `You are Inari AI, an ops copilot for a developer monitoring platform.
 You have access to the user's real alert, project, and remediation data (provided below).
@@ -148,13 +149,12 @@ export async function POST(req: NextRequest) {
   ];
 
   // Stream the response
-  const provider = detectProvider(aiKey.key);
-
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const response = await streamAI(aiKey.key, provider, SYSTEM_OPS, aiMessages);
+        const chatModel = resolveModel("chat", aiKey.provider, aiKey.modelPrefs);
+        const response = await streamAI(aiKey.key, aiKey.provider, SYSTEM_OPS, aiMessages, chatModel);
 
         for await (const chunk of response) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
@@ -227,21 +227,34 @@ ${integList}`;
 
 async function* streamAI(
   apiKey: string,
-  provider: "claude" | "openai",
+  provider: AIProvider,
   system: string,
-  messages: { role: "user" | "assistant"; content: string }[]
+  messages: { role: "user" | "assistant"; content: string }[],
+  model: string,
 ): AsyncGenerator<string> {
-  if (provider === "claude") {
-    yield* streamClaude(apiKey, system, messages);
-  } else {
-    yield* streamOpenAI(apiKey, system, messages);
+  switch (provider) {
+    case "claude":
+      yield* streamClaude(apiKey, system, messages, model);
+      break;
+    case "grok":
+      yield* streamOpenAICompat(apiKey, system, messages, model, "https://api.x.ai/v1");
+      break;
+    case "deepseek":
+      yield* streamOpenAICompat(apiKey, system, messages, model, "https://api.deepseek.com/v1");
+      break;
+    case "gemini":
+      yield* streamGemini(apiKey, system, messages, model);
+      break;
+    default:
+      yield* streamOpenAICompat(apiKey, system, messages, model, "https://api.openai.com/v1");
   }
 }
 
 async function* streamClaude(
   apiKey: string,
   system: string,
-  messages: { role: "user" | "assistant"; content: string }[]
+  messages: { role: "user" | "assistant"; content: string }[],
+  model: string,
 ): AsyncGenerator<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -251,7 +264,7 @@ async function* streamClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model,
       max_tokens: 1024,
       system,
       messages,
@@ -290,19 +303,21 @@ async function* streamClaude(
   }
 }
 
-async function* streamOpenAI(
+async function* streamOpenAICompat(
   apiKey: string,
   system: string,
-  messages: { role: "user" | "assistant"; content: string }[]
+  messages: { role: "user" | "assistant"; content: string }[],
+  model: string,
+  baseUrl: string,
 ): AsyncGenerator<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model,
       max_tokens: 1024,
       messages: [{ role: "system", content: system }, ...messages],
       stream: true,
@@ -310,7 +325,7 @@ async function* streamOpenAI(
     signal: AbortSignal.timeout(60000),
   });
 
-  if (!res.ok) throw new Error(`OpenAI API error (${res.status})`);
+  if (!res.ok) throw new Error(`API error (${res.status})`);
   if (!res.body) throw new Error("No response body");
 
   const reader = res.body.getReader();
@@ -333,6 +348,57 @@ async function* streamOpenAI(
           const parsed = JSON.parse(data);
           const content = parsed.choices?.[0]?.delta?.content;
           if (content) yield content;
+        } catch { /* skip */ }
+      }
+    }
+  }
+}
+
+async function* streamGemini(
+  apiKey: string,
+  system: string,
+  messages: { role: "user" | "assistant"; content: string }[],
+  model: string,
+): AsyncGenerator<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
+
+  const contents = messages.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents,
+      generationConfig: { maxOutputTokens: 1024 },
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!res.ok) throw new Error(`Gemini API error (${res.status})`);
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        try {
+          const parsed = JSON.parse(line.slice(6));
+          const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) yield text;
         } catch { /* skip */ }
       }
     }

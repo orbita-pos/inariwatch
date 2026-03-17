@@ -20,7 +20,7 @@ export function ChannelToggle({ channelId, isActive }: { channelId: string; isAc
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
         isActive
           ? "border-inari-accent/30 bg-inari-accent/20"
-          : "border-[#333] bg-[#1a1a1a]"
+          : "border-zinc-700 bg-line"
       } ${isPending ? "opacity-50" : "cursor-pointer"}`}
     >
       <span
@@ -82,7 +82,7 @@ export function SeverityFilter({
       value={minSeverity}
       onChange={handleChange}
       disabled={isPending}
-      className={`rounded-md border border-[#222] bg-[#111] px-2 py-1 text-xs text-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors ${
+      className={`rounded-md border border-line-medium bg-surface-dim px-2 py-1 text-xs text-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors ${
         isPending ? "opacity-50" : "cursor-pointer"
       }`}
       title="Minimum severity to notify"

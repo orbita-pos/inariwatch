@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import Image from "next/image";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { resetPassword } from "./actions";
 
@@ -12,7 +12,7 @@ function ResetPasswordForm() {
   const token = searchParams.get("token");
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError]     = useState("");
   const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -37,13 +37,8 @@ function ResetPasswordForm() {
   if (!token) {
     return (
       <div className="space-y-4 text-center">
-        <p className="text-sm text-red-400">
-          Invalid reset link. The token is missing.
-        </p>
-        <Link
-          href="/forgot-password"
-          className="inline-block text-sm text-inari-accent hover:brightness-125 transition-all"
-        >
+        <p className="text-sm text-red-400">Invalid reset link. The token is missing.</p>
+        <Link href="/forgot-password" className="inline-block text-sm text-inari-accent hover:brightness-125 transition-all">
           Request a new reset link
         </Link>
       </div>
@@ -61,14 +56,11 @@ function ResetPasswordForm() {
         <div>
           <h2 className="text-base font-medium text-white">Password updated</h2>
           <p className="mt-2 text-sm text-zinc-500">
-            Your password has been reset successfully. You can now sign in with your new password.
+            Your password has been reset. You can now sign in.
           </p>
         </div>
-        <Link
-          href="/login"
-          className="inline-block text-sm text-inari-accent hover:brightness-125 transition-all"
-        >
-          Sign in
+        <Link href="/login" className="inline-block text-sm text-inari-accent hover:brightness-125 transition-all">
+          Sign in →
         </Link>
       </div>
     );
@@ -76,10 +68,7 @@ function ResetPasswordForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <p className="text-sm text-zinc-400 leading-relaxed">
-        Choose a new password for your account.
-      </p>
-
+      <p className="text-sm text-zinc-400 leading-relaxed">Choose a new password for your account.</p>
       <div>
         <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider mb-1.5">
           New password
@@ -93,7 +82,6 @@ function ResetPasswordForm() {
           className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
         />
       </div>
-
       <div>
         <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider mb-1.5">
           Confirm password
@@ -108,17 +96,10 @@ function ResetPasswordForm() {
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-red-400 font-mono">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-400 font-mono">{error}</p>}
 
-      <Button
-        variant="primary"
-        className="w-full mt-2"
-        type="submit"
-        disabled={loading}
-      >
-        {loading ? "Resetting..." : "Reset password"}
+      <Button variant="primary" className="w-full mt-2" type="submit" disabled={loading}>
+        {loading ? "Resetting…" : "Reset password"}
       </Button>
     </form>
   );
@@ -126,21 +107,48 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-inari-bg px-4">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-radial-fade pointer-events-none" />
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-end bg-inari-bg">
+      {/* Full-bleed background image */}
+      <div className="absolute inset-0">
+        <Image
+          src="/login-side.png"
+          alt=""
+          fill
+          className="hidden object-cover object-center sm:block"
+          priority
+          quality={100}
+        />
+        <Image
+          src="/login-side-mobile.png"
+          alt=""
+          fill
+          className="block object-cover object-top sm:hidden"
+          priority
+          quality={90}
+        />
+        <div className="absolute inset-0 bg-radial-fade" />
+      </div>
 
-      <div className="relative w-full max-w-sm">
+      <div className="relative w-full max-w-sm px-4 py-12 sm:mr-16 lg:mr-24 xl:mr-32">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2.5 font-mono text-xl font-bold">
-            <span className="inari-dot text-inari-accent glow-accent-text">&#9673;</span>
-            <span className="text-white uppercase tracking-widest text-sm">KAIRO</span>
+          <Link href="/" className="inline-flex items-center gap-2.5">
+            <Image
+              src="/logo-inari/favicon-96x96.png"
+              alt="InariWatch"
+              width={36}
+              height={36}
+              className="shrink-0"
+            />
+            <span className="font-mono text-sm font-bold uppercase tracking-[0.15em] text-white">
+              InariWatch
+            </span>
           </Link>
-          <p className="mt-3 text-sm text-zinc-500">Set a new password</p>
+          <h1 className="mt-4 text-xl font-semibold text-white">Set a new password</h1>
+          <p className="mt-1.5 text-sm text-zinc-500">Almost there</p>
         </div>
 
-        <div className="rounded-2xl border border-inari-border bg-inari-card p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+        <div className="rounded-2xl border border-inari-border bg-inari-card/90 backdrop-blur-sm p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
           <Suspense fallback={<div className="h-48 animate-pulse rounded-lg bg-zinc-900" />}>
             <ResetPasswordForm />
           </Suspense>
@@ -149,7 +157,7 @@ export default function ResetPasswordPage() {
         <p className="mt-6 text-center text-sm text-zinc-600">
           Remember your password?{" "}
           <Link href="/login" className="text-zinc-400 hover:text-white transition-colors">
-            Sign in
+            Sign in →
           </Link>
         </p>
       </div>

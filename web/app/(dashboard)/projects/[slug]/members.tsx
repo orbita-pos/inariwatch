@@ -77,7 +77,7 @@ export function MembersSection({
         {isAdmin && (
           <button
             onClick={() => setShowInvite(!showInvite)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#222] bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-all"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all"
           >
             <UserPlus className="h-3.5 w-3.5" />
             Invite
@@ -85,7 +85,7 @@ export function MembersSection({
         )}
       </div>
 
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] divide-y divide-[#131313]">
+      <div className="rounded-xl border border-line bg-surface divide-y divide-line-subtle">
         {/* Owner */}
         {owner && (
           <div className="flex items-center gap-3 px-5 py-3.5">
@@ -93,7 +93,7 @@ export function MembersSection({
               {(owner.name?.[0] ?? owner.email[0]).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-zinc-300">
+              <p className="text-sm text-fg-base">
                 {owner.name ?? owner.email}
               </p>
               <p className="text-xs text-zinc-600">{owner.email}</p>
@@ -112,7 +112,7 @@ export function MembersSection({
               {(member.name?.[0] ?? member.email[0]).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-zinc-300">
+              <p className="text-sm text-fg-base">
                 {member.name ?? member.email}
               </p>
               <p className="text-xs text-zinc-600">{member.email}</p>
@@ -123,7 +123,7 @@ export function MembersSection({
                   value={member.role}
                   onChange={(e) => handleRoleChange(member.id, e.target.value)}
                   disabled={isPending}
-                  className="rounded-lg border border-[#222] bg-[#111] px-2 py-1 text-xs text-zinc-400 focus:border-inari-accent/40 focus:outline-none"
+                  className="rounded-lg border border-line-medium bg-surface-dim px-2 py-1 text-xs text-zinc-400 focus:border-inari-accent/40 focus:outline-none"
                 >
                   <option value="viewer">Viewer</option>
                   <option value="admin">Admin</option>
@@ -189,7 +189,7 @@ export function MembersSection({
       {showInvite && isAdmin && (
         <form
           onSubmit={handleInvite}
-          className="mt-3 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-5 py-4 space-y-3"
+          className="mt-3 rounded-xl border border-line bg-surface px-5 py-4 space-y-3"
         >
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
@@ -201,7 +201,7 @@ export function MembersSection({
               onChange={(e) => setEmail(e.target.value)}
               placeholder="teammate@company.com"
               required
-              className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
             />
           </div>
           <div className="space-y-1.5">
@@ -211,7 +211,7 @@ export function MembersSection({
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as "viewer" | "admin")}
-              className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-sm text-zinc-100 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
             >
               <option value="viewer">Viewer — can see alerts and integrations</option>
               <option value="admin">Admin — can manage integrations and invite members</option>
@@ -226,7 +226,7 @@ export function MembersSection({
             <button
               type="button"
               onClick={() => setShowInvite(false)}
-              className="flex-1 rounded-lg border border-[#222] px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="flex-1 rounded-lg border border-line-medium px-3 py-2 text-sm text-zinc-400 hover:text-fg-base transition-colors"
             >
               Cancel
             </button>

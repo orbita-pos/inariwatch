@@ -1,8 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs } from "@/lib/db";
-import { inArray } from "drizzle-orm";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { MessageSquare, Mail, Bell, Key, Monitor, Hash } from "lucide-react";
 import { GenerateDesktopTokenButton } from "./generate-token-button";
@@ -22,9 +21,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = { title: "Settings" };
 
 const PLAN_BADGE: Record<string, { label: string; color: string }> = {
-  free:  { label: "Free",  color: "text-zinc-400 border-zinc-800 bg-zinc-900" },
+  free:  { label: "Free",  color: "text-zinc-400 border-zinc-800 bg-zinc-900/60" },
   pro:   { label: "Pro",   color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
-  team:  { label: "Team",  color: "text-violet-400 border-violet-900 bg-violet-950/30" },
+  team:  { label: "Team",  color: "text-violet-400 border-violet-900/50 bg-violet-950/30" },
 };
 
 const CHANNEL_ICON: Record<string, React.ElementType> = {
@@ -38,68 +37,39 @@ export default async function SettingsPage() {
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
 
-  const [user] = userId
-    ? await db.select().from(users).where(eq(users.id, userId)).limit(1)
-    : [];
+  const [userRows, channels, keys, webhooks, auditEntries] = userId
+    ? await Promise.all([
+        db.select().from(users).where(eq(users.id, userId)).limit(1),
+        db.select().from(notificationChannels).where(eq(notificationChannels.userId, userId)),
+        db.select().from(apiKeys).where(eq(apiKeys.userId, userId)),
+        db.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.userId, userId)),
+        db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(desc(auditLogs.createdAt)).limit(30),
+      ])
+    : [[], [], [], [], []];
 
-  const channels = userId
-    ? await db.select().from(notificationChannels).where(eq(notificationChannels.userId, userId))
-    : [];
-
-  const keys = userId
-    ? await db.select().from(apiKeys).where(eq(apiKeys.userId, userId))
-    : [];
-
-  const [desktopKey] = userId
-    ? await db
-        .select()
-        .from(apiKeys)
-        .where(and(eq(apiKeys.userId, userId), eq(apiKeys.service, "desktop")))
-        .limit(1)
-    : [];
-
-  const webhooks = userId
-    ? await db.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.userId, userId))
-    : [];
-
-  // AI key: check if user has Claude or OpenAI key
-  const aiKeyRow = userId
-    ? await db
-        .select({ service: apiKeys.service })
-        .from(apiKeys)
-        .where(and(eq(apiKeys.userId, userId), inArray(apiKeys.service, ["claude", "openai"])))
-        .limit(1)
-        .then((rows) => rows[0] ?? null)
-    : null;
-
-  const auditEntries = userId
-    ? await db
-        .select()
-        .from(auditLogs)
-        .where(eq(auditLogs.userId, userId))
-        .orderBy(desc(auditLogs.createdAt))
-        .limit(30)
-    : [];
-
-  const plan = PLAN_BADGE[user?.plan ?? "free"] ?? PLAN_BADGE.free;
+  const user       = userRows[0];
+  const desktopKey = keys.find((k) => k.service === "desktop");
+  const AI_SERVICES = ["claude", "openai", "grok", "deepseek", "gemini"];
+  const aiKeyRow   = keys.find((k) => AI_SERVICES.includes(k.service)) ?? null;
+  const plan       = PLAN_BADGE[user?.plan ?? "free"] ?? PLAN_BADGE.free;
 
   return (
     <div className="max-w-[680px] space-y-8">
 
-      <h1 className="text-2xl font-semibold text-white tracking-tight">Settings</h1>
+      <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Settings</h1>
 
       <VerifyEmailBanner
         hasPassword={!!user?.passwordHash}
         emailVerifiedAt={user?.emailVerifiedAt ?? null}
       />
 
-      {/* ── Account ─────────────────────────────────────────────── */}
+      {/* ── Account ─────────────────────────────────────────────────────── */}
       <Section title="Account">
         <Row label="Name">
-          <span className="text-sm text-zinc-300">{user?.name ?? "—"}</span>
+          <span className="text-sm text-fg-base">{user?.name ?? "—"}</span>
         </Row>
         <Row label="Email">
-          <span className="text-sm text-zinc-300">{user?.email ?? session?.user?.email ?? "—"}</span>
+          <span className="text-sm text-fg-base">{user?.email ?? session?.user?.email ?? "—"}</span>
         </Row>
         <Row label="Plan">
           <div className="flex items-center gap-3">
@@ -118,7 +88,7 @@ export default async function SettingsPage() {
         </Row>
       </Section>
 
-      {/* ── Notifications ───────────────────────────────────────── */}
+      {/* ── Notifications ────────────────────────────────────────────────── */}
       <Section title="Notification channels">
         {channels.length === 0 ? (
           <div className="py-4 space-y-3">
@@ -137,39 +107,33 @@ export default async function SettingsPage() {
           </div>
         ) : (
           <div className="space-y-3 py-1">
-            <div className="divide-y divide-[#131313]">
+            <div className="divide-y divide-line-subtle">
               {channels.map((ch) => {
-                const chType = ch.type as string; // pg enum may not include "push"
-                const Icon = CHANNEL_ICON[chType] ?? Bell;
+                const chType = ch.type as string;
+                const Icon   = CHANNEL_ICON[chType] ?? Bell;
                 const config = ch.config as Record<string, string>;
                 return (
                   <div key={ch.id} className="flex items-center gap-3 py-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#222] bg-[#111] text-zinc-500">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500">
                       <Icon className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm capitalize text-zinc-300">
+                      <p className="text-sm capitalize text-fg-base">
                         {chType === "push" ? "Push" : chType}
-                        {config.bot_name && (
-                          <span className="ml-1.5 text-xs text-zinc-500">@{config.bot_name}</span>
-                        )}
-                        {config.email && (
-                          <span className="ml-1.5 text-xs text-zinc-500">{config.email}</span>
-                        )}
+                        {config.bot_name  && <span className="ml-1.5 text-xs text-zinc-600">@{config.bot_name}</span>}
+                        {config.email     && <span className="ml-1.5 text-xs text-zinc-600">{config.email}</span>}
                         {config.webhook_url && (
-                          <span className="ml-1.5 text-xs text-zinc-500">
-                            {config.webhook_url.replace(/^https:\/\/hooks\.slack\.com\/services\//, "").slice(0, 12)}...
+                          <span className="ml-1.5 text-xs text-zinc-600">
+                            {config.webhook_url.replace(/^https:\/\/hooks\.slack\.com\/services\//, "").slice(0, 12)}…
                           </span>
                         )}
-                        {chType === "push" && (
-                          <span className="ml-1.5 text-xs text-zinc-500">Browser</span>
-                        )}
+                        {chType === "push" && <span className="ml-1.5 text-xs text-zinc-600">Browser</span>}
                       </p>
-                      <p className="text-xs text-zinc-600">
+                      <p className="text-xs text-zinc-700">
                         {ch.verifiedAt ? `Verified ${formatRelativeTime(ch.verifiedAt)}` : "Not verified"}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <SeverityFilter channelId={ch.id} minSeverity={ch.minSeverity} />
                       <ChannelToggle channelId={ch.id} isActive={ch.isActive} />
                       <ChannelDeleteButton channelId={ch.id} />
@@ -179,16 +143,16 @@ export default async function SettingsPage() {
               })}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {!channels.some((ch) => ch.type === "telegram") && <ConnectTelegramButton />}
-              {!channels.some((ch) => ch.type === "email") && <ConnectEmailButton />}
-              {!channels.some((ch) => ch.type === "slack") && <ConnectSlackButton />}
-              {!channels.some((ch) => (ch.type as string) === "push") && <PushNotificationsButton />}
+              {!channels.some((ch) => ch.type === "telegram")          && <ConnectTelegramButton />}
+              {!channels.some((ch) => ch.type === "email")             && <ConnectEmailButton />}
+              {!channels.some((ch) => ch.type === "slack")             && <ConnectSlackButton />}
+              {!channels.some((ch) => (ch.type as string) === "push")  && <PushNotificationsButton />}
             </div>
           </div>
         )}
       </Section>
 
-      {/* ── API Keys ────────────────────────────────────────────── */}
+      {/* ── API Keys ─────────────────────────────────────────────────────── */}
       <Section title="API keys">
         {keys.length === 0 ? (
           <div className="py-4 text-center">
@@ -196,43 +160,42 @@ export default async function SettingsPage() {
             <p className="mt-1 text-sm text-zinc-600">Keys are added via the InariWatch CLI.</p>
           </div>
         ) : (
-          <div className="divide-y divide-[#131313]">
+          <div className="divide-y divide-line-subtle">
             {keys.map((k) => (
               <div key={k.id} className="flex items-center gap-3 py-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#222] bg-[#111] text-zinc-500">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500">
                   <Key className="h-4 w-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm capitalize text-zinc-300">{k.service}</p>
-                  <p className="font-mono text-xs text-zinc-600">••••••••••••••••••••</p>
+                  <p className="text-sm capitalize text-fg-base">{k.service}</p>
+                  <p className="font-mono text-xs text-zinc-700">••••••••••••••••••••</p>
                 </div>
-                <p className="text-xs font-mono text-zinc-600">
-                  {formatRelativeTime(k.createdAt)}
-                </p>
+                <p className="font-mono text-xs text-zinc-700">{formatRelativeTime(k.createdAt)}</p>
               </div>
             ))}
           </div>
         )}
       </Section>
 
-      {/* ── Desktop app ─────────────────────────────────────────── */}
+      {/* ── Desktop app ──────────────────────────────────────────────────── */}
       <Section title="Desktop app">
         <div className="py-3 space-y-3">
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#222] bg-[#111] text-zinc-500 mt-0.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500 mt-0.5">
               <Monitor className="h-4 w-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-zinc-300">Desktop token</p>
+              <p className="text-sm font-medium text-fg-base">Desktop token</p>
               <p className="mt-0.5 text-sm text-zinc-500">
                 Used by the InariWatch desktop app to poll for alerts in the background.
               </p>
               {desktopKey ? (
-                <p className="mt-1.5 font-mono text-xs text-zinc-500 tracking-wide">
-                  rdr_{"•".repeat(20)} <span className="text-zinc-600">— generated {formatRelativeTime(desktopKey.createdAt)}</span>
+                <p className="mt-1.5 font-mono text-xs text-zinc-600 tracking-wide">
+                  rdr_{"•".repeat(20)}{" "}
+                  <span className="text-zinc-700">— generated {formatRelativeTime(desktopKey.createdAt)}</span>
                 </p>
               ) : (
-                <p className="mt-1.5 text-sm text-zinc-600">No token yet.</p>
+                <p className="mt-1.5 text-sm text-zinc-700">No token yet.</p>
               )}
             </div>
           </div>
@@ -240,50 +203,51 @@ export default async function SettingsPage() {
           <GenerateDesktopTokenButton />
 
           {desktopKey && (
-            <div className="rounded-lg border border-[#1a1a1a] bg-[#080808] px-4 py-3 space-y-1.5">
-              <p className="text-xs text-zinc-500">Add to <span className="font-mono">~/.config/inari/desktop.toml</span></p>
-              <p className="font-mono text-sm text-zinc-500">api_url = <span className="text-zinc-400">"https://inariwatch.com"</span></p>
-              <p className="font-mono text-sm text-zinc-500">api_token = <span className="text-zinc-400">"your-token"</span></p>
+            <div className="rounded-lg border border-line bg-surface-inner px-4 py-3 space-y-1">
+              <p className="text-xs text-zinc-600">Add to <span className="font-mono">~/.config/inari/desktop.toml</span></p>
+              <p className="font-mono text-sm text-zinc-600">api_url = <span className="text-zinc-400">"https://inariwatch.com"</span></p>
+              <p className="font-mono text-sm text-zinc-600">api_token = <span className="text-zinc-400">"your-token"</span></p>
             </div>
           )}
         </div>
       </Section>
 
-      {/* ── AI key ───────────────────────────────────────────── */}
+      {/* ── AI analysis ──────────────────────────────────────────────────── */}
       <Section title="AI analysis">
         <AIKeySection
           hasKey={!!aiKeyRow}
           provider={aiKeyRow?.service ?? null}
+          modelPrefs={user?.aiModels as Record<string, string> | null}
         />
       </Section>
 
-      {/* ── Two-factor authentication ─────────────────────────── */}
+      {/* ── Security ─────────────────────────────────────────────────────── */}
       <Section title="Security">
         <TwoFactorSection enabled={user?.twoFactorEnabled ?? false} />
       </Section>
 
-      {/* ── Outgoing webhooks ─────────────────────────────────── */}
+      {/* ── Outgoing webhooks ────────────────────────────────────────────── */}
       <Section title="Outgoing webhooks">
         <WebhookSection webhooks={webhooks} />
       </Section>
 
-      {/* ── Audit log ─────────────────────────────────────────── */}
+      {/* ── Audit log ────────────────────────────────────────────────────── */}
       <Section title="Audit log">
         <AuditLogSection entries={auditEntries} />
       </Section>
 
-      {/* ── Danger zone ─────────────────────────────────────────── */}
+      {/* ── Danger zone ──────────────────────────────────────────────────── */}
       <Section title="Danger zone">
-        <div className="flex items-center justify-between rounded-lg border border-red-950/50 bg-red-950/10 px-4 py-3.5">
+        <div className="flex items-center justify-between rounded-lg border border-red-950/40 bg-red-950/10 px-4 py-3.5">
           <div>
-            <p className="text-sm font-medium text-zinc-300">Delete account</p>
+            <p className="text-sm font-medium text-fg-base">Delete account</p>
             <p className="mt-0.5 text-sm text-zinc-500">
               Permanently remove your account and all associated data.
             </p>
           </div>
           <button
             disabled
-            className="rounded-lg border border-red-900/30 px-3 py-1.5 text-sm font-medium text-red-800 cursor-not-allowed"
+            className="cursor-not-allowed rounded-lg border border-red-900/20 px-3 py-1.5 text-sm font-medium text-red-900"
             title="Contact support to delete your account"
           >
             Delete
@@ -294,11 +258,13 @@ export default async function SettingsPage() {
   );
 }
 
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">{title}</h2>
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-5 py-1 divide-y divide-[#131313]">
+      <h2 className="mb-3 text-[11px] font-medium uppercase tracking-widest text-zinc-600">{title}</h2>
+      <div className="overflow-hidden rounded-xl border border-line bg-surface px-5 divide-y divide-line-subtle">
         {children}
       </div>
     </section>
@@ -307,8 +273,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3.5 gap-4">
-      <span className="text-sm text-zinc-500 w-28 shrink-0">{label}</span>
+    <div className="flex items-center justify-between gap-4 py-3.5">
+      <span className="w-28 shrink-0 text-sm text-zinc-500">{label}</span>
       <div className="flex-1">{children}</div>
     </div>
   );

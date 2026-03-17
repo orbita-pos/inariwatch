@@ -29,17 +29,17 @@ export function CreateProjectModal({ children }: { children: React.ReactNode }) 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
 
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-inari-border bg-inari-card p-6 shadow-[0_0_60px_rgba(0,0,0,0.6)] focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-surface p-6 shadow-[0_0_60px_rgba(0,0,0,0.6)] focus:outline-none">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <Dialog.Title className="text-base font-semibold text-white">
+              <Dialog.Title className="text-base font-semibold text-fg-strong">
                 New project
               </Dialog.Title>
               <Dialog.Description className="mt-0.5 text-xs text-zinc-500">
                 A project groups your integrations and alerts together.
               </Dialog.Description>
             </div>
-            <Dialog.Close className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-colors">
+            <Dialog.Close className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-fg-base transition-colors">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
@@ -55,7 +55,7 @@ export function CreateProjectModal({ children }: { children: React.ReactNode }) 
                 placeholder="my-app"
                 required
                 autoFocus
-                className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
               />
               <p className="mt-1 text-xs text-zinc-600">
                 The slug is auto-generated from the name.
@@ -70,7 +70,7 @@ export function CreateProjectModal({ children }: { children: React.ReactNode }) 
                 name="description"
                 type="text"
                 placeholder="Production Next.js app"
-                className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
               />
             </div>
 

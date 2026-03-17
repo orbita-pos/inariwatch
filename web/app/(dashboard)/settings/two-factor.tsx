@@ -63,7 +63,7 @@ export function TwoFactorSection({ enabled }: Props) {
         <div className="flex items-center gap-3">
           <ShieldCheck className="h-4 w-4 text-green-400" />
           <div>
-            <p className="text-sm text-zinc-300">Two-factor authentication is enabled</p>
+            <p className="text-sm text-fg-base">Two-factor authentication is enabled</p>
             <p className="text-xs text-zinc-600">Your account is protected with TOTP</p>
           </div>
         </div>
@@ -80,7 +80,7 @@ export function TwoFactorSection({ enabled }: Props) {
         <div className="flex items-start gap-3">
           <ShieldCheck className="h-4 w-4 text-inari-accent mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-zinc-300">Set up authenticator app</p>
+            <p className="text-sm font-medium text-fg-base">Set up authenticator app</p>
             <p className="mt-0.5 text-xs text-zinc-600">
               Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)
             </p>
@@ -89,7 +89,7 @@ export function TwoFactorSection({ enabled }: Props) {
 
         {qrDataUrl && (
           <div className="flex justify-center">
-            <div className="rounded-xl border border-[#1a1a1a] bg-white p-3">
+            <div className="rounded-xl border border-line bg-white p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qrDataUrl} alt="QR Code" width={200} height={200} />
             </div>
@@ -97,9 +97,9 @@ export function TwoFactorSection({ enabled }: Props) {
         )}
 
         {secret && (
-          <div className="rounded-lg border border-[#1a1a1a] bg-[#080808] px-4 py-2.5">
+          <div className="rounded-lg border border-line bg-surface-inner px-4 py-2.5">
             <p className="text-xs text-zinc-600 mb-1">Or enter this secret manually:</p>
-            <p className="font-mono text-sm text-zinc-300 select-all break-all">{secret}</p>
+            <p className="font-mono text-sm text-fg-base select-all break-all">{secret}</p>
           </div>
         )}
 
@@ -113,7 +113,7 @@ export function TwoFactorSection({ enabled }: Props) {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               placeholder="000000"
-              className="w-32 rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-center font-mono text-lg text-zinc-100 tracking-widest placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none"
+              className="w-32 rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-center font-mono text-lg text-fg-base tracking-widest placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none"
             />
             <Button variant="primary" size="sm" onClick={handleVerify} disabled={isPending}>
               {isPending ? "Verifying…" : "Verify & Enable"}
@@ -137,7 +137,7 @@ export function TwoFactorSection({ enabled }: Props) {
       <div className="flex items-center gap-3">
         <ShieldOff className="h-4 w-4 text-zinc-600" />
         <div>
-          <p className="text-sm text-zinc-300">Two-factor authentication</p>
+          <p className="text-sm text-fg-base">Two-factor authentication</p>
           <p className="text-xs text-zinc-600">Add an extra layer of security to your account</p>
         </div>
       </div>

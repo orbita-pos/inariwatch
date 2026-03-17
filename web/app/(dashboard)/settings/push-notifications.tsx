@@ -79,7 +79,7 @@ export function PushNotificationsButton() {
         <button
           onClick={handleEnable}
           disabled={status === "loading"}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[#222] bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-all disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all disabled:opacity-40"
         >
           {status === "loading" ? (
             <>

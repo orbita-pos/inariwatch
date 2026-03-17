@@ -9,6 +9,7 @@ import { db, alerts, projects, remediationSessions } from "@/lib/db";
 import { eq, and, desc } from "drizzle-orm";
 import { callAI } from "./client";
 import { getProjectOwnerAIKey } from "./get-key";
+import { resolveModel } from "./models";
 import type { RemediationStep } from "@/lib/db/schema";
 
 const SYSTEM_POSTMORTEM = `You are an expert SRE writing a post-mortem document.
@@ -109,11 +110,12 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
     branch: remediation.branch,
   } : null;
 
+  const model = resolveModel("postmortem", aiKey.provider, aiKey.modelPrefs);
   const postmortem = await callAI(
     aiKey.key,
     SYSTEM_POSTMORTEM,
     [{ role: "user", content: buildPostmortemPrompt(alert, remData) }],
-    { maxTokens: 2048, timeout: 45000 }
+    { maxTokens: 2048, timeout: 45000, model, provider: aiKey.provider }
   );
 
   await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));

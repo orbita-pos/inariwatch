@@ -52,7 +52,7 @@ export function SearchInput() {
         value={value}
         onChange={handleChange}
         placeholder="Search alerts..."
-        className="h-8 w-full rounded-lg border border-inari-border bg-[#0a0a0a] pl-8 pr-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors sm:w-64"
+        className="h-8 w-full rounded-lg border border-line bg-surface pl-8 pr-3 text-sm text-fg-base placeholder:text-zinc-600 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors sm:w-64"
       />
     </div>
   );

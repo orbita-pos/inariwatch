@@ -2,8 +2,8 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, apiKeys, notificationChannels } from "@/lib/db";
-import { eq, and } from "drizzle-orm";
+import { db, apiKeys, notificationChannels, emailVerifications } from "@/lib/db";
+import { eq, and, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { encrypt, encryptConfig } from "@/lib/crypto";
@@ -11,9 +11,7 @@ import { verifyTelegramBot, detectChatId, sendTelegram } from "@/lib/notificatio
 import { verifySlackWebhook } from "@/lib/notifications/slack";
 import { sendVerificationEmail } from "@/lib/notifications/email";
 import { checkVerificationCooldown, trackVerificationSent } from "@/lib/notifications/rate-limit";
-
-// In-memory store for email verification codes (short-lived, resets on deploy)
-const pendingEmailCodes = new Map<string, { code: string; email: string; expiresAt: number }>();
+import { rateLimit } from "@/lib/auth-rate-limit";
 
 export async function generateDesktopToken(): Promise<{ token?: string; error?: string }> {
   const session = await getServerSession(authOptions);
@@ -224,6 +222,12 @@ export async function sendEmailCode(
 
   if (!email || !email.includes("@")) return { error: "Invalid email address." };
 
+  // Rate limit: max 5 code requests per 15 minutes per user
+  const rl = rateLimit("email-code", userId, { windowMs: 15 * 60_000, max: 5 });
+  if (!rl.allowed) {
+    return { error: `Too many attempts. Retry in ${rl.retryAfterSeconds}s.` };
+  }
+
   // Cooldown: 1 minute between verification emails
   const cooldown = checkVerificationCooldown(userId);
   if (!cooldown.allowed) {
@@ -238,11 +242,17 @@ export async function sendEmailCode(
 
   trackVerificationSent(userId);
 
-  // Store code for 10 minutes
-  pendingEmailCodes.set(userId, {
-    code,
-    email,
-    expiresAt: Date.now() + 10 * 60 * 1000,
+  // Delete any previous verification for this user
+  await db
+    .delete(emailVerifications)
+    .where(eq(emailVerifications.userId, userId));
+
+  // Store code + email in DB (survives deploys)
+  const tokenPayload = JSON.stringify({ code, email });
+  await db.insert(emailVerifications).values({
+    userId,
+    token: tokenPayload,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
   });
 
   return {};
@@ -255,18 +265,42 @@ export async function verifyEmailCode(
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) return { error: "Not authenticated." };
 
-  const pending = pendingEmailCodes.get(userId);
-  if (!pending) return { error: "No pending verification. Send a code first." };
-
-  if (Date.now() > pending.expiresAt) {
-    pendingEmailCodes.delete(userId);
-    return { error: "Code expired. Please send a new one." };
+  // Rate limit: max 10 verify attempts per 15 minutes per user
+  const rl = rateLimit("email-verify", userId, { windowMs: 15 * 60_000, max: 10 });
+  if (!rl.allowed) {
+    return { error: `Too many attempts. Retry in ${rl.retryAfterSeconds}s.` };
   }
 
-  if (pending.code !== code.trim()) return { error: "Invalid code." };
+  // Look up pending verification from DB
+  const [pending] = await db
+    .select()
+    .from(emailVerifications)
+    .where(
+      and(
+        eq(emailVerifications.userId, userId),
+        gt(emailVerifications.expiresAt, new Date())
+      )
+    )
+    .limit(1);
 
-  // Code is valid — save the channel
-  pendingEmailCodes.delete(userId);
+  if (!pending) return { error: "No pending verification or code expired. Send a new code." };
+
+  let storedCode: string;
+  let storedEmail: string;
+  try {
+    const parsed = JSON.parse(pending.token);
+    storedCode = parsed.code;
+    storedEmail = parsed.email;
+  } catch {
+    return { error: "Invalid verification state. Send a new code." };
+  }
+
+  if (storedCode !== code.trim()) return { error: "Invalid code." };
+
+  // Code is valid — clean up and save the channel
+  await db
+    .delete(emailVerifications)
+    .where(eq(emailVerifications.userId, userId));
 
   const [existing] = await db
     .select()
@@ -274,7 +308,7 @@ export async function verifyEmailCode(
     .where(and(eq(notificationChannels.userId, userId), eq(notificationChannels.type, "email")))
     .limit(1);
 
-  const config = encryptConfig({ email: pending.email });
+  const config = encryptConfig({ email: storedEmail });
 
   if (existing) {
     await db

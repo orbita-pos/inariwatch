@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Ask Inari" };
 
 export default async function ChatPage() {
   const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string })?.id;
+  const userId  = (session?.user as { id?: string })?.id;
   if (!userId) redirect("/login");
 
   const hasAIKey = (
@@ -22,7 +22,7 @@ export default async function ChatPage() {
   ).length > 0;
 
   return (
-    <div className="mx-auto max-w-[780px] h-[calc(100vh-theme(spacing.16))] flex flex-col">
+    <div className="mx-auto flex h-[calc(100vh-theme(spacing.16))] max-w-[780px] flex-col md:h-[calc(100vh-theme(spacing.8))]">
       <ChatInterface hasAIKey={hasAIKey} />
     </div>
   );

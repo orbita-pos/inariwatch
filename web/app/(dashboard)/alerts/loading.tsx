@@ -1,5 +1,5 @@
 function Sk({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded bg-white/[0.05] ${className ?? ""}`} />;
+  return <div className={`animate-pulse rounded bg-black/[0.08] dark:bg-white/[0.05] ${className ?? ""}`} />;
 }
 
 export default function AlertsLoading() {
@@ -12,9 +12,9 @@ export default function AlertsLoading() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#1a1a1a] overflow-hidden">
+      <div className="rounded-xl border border-line overflow-hidden">
         {/* Header */}
-        <div className="grid grid-cols-[24px_1fr_auto_auto] gap-3 border-b border-[#1a1a1a] bg-[#111] px-4 py-2.5">
+        <div className="grid grid-cols-[24px_1fr_auto_auto] gap-3 border-b border-line bg-surface-dim px-4 py-2.5">
           <span />
           <Sk className="h-3 w-10" />
           <Sk className="h-3 w-12 hidden md:block" />
@@ -22,7 +22,7 @@ export default function AlertsLoading() {
         </div>
 
         {/* Rows */}
-        <div className="divide-y divide-[#131313] bg-[#0a0a0a]">
+        <div className="divide-y divide-line-subtle bg-surface">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="grid grid-cols-[24px_1fr_auto_auto] items-center gap-3 px-4 py-3">
               <div className="flex justify-center">

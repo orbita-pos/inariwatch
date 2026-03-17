@@ -1,5 +1,5 @@
 function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded bg-zinc-800/60 ${className ?? ""}`} />;
+  return <div className={`animate-pulse rounded bg-black/[0.08] dark:bg-white/[0.05] ${className ?? ""}`} />;
 }
 
 export default function IntegrationsLoading() {
@@ -12,7 +12,7 @@ export default function IntegrationsLoading() {
       </div>
 
       {/* CLI hint */}
-      <div className="flex items-start gap-3 rounded-xl border border-inari-border bg-inari-card p-4">
+      <div className="flex items-start gap-3 rounded-xl border border-line bg-surface p-4">
         <Skeleton className="h-4 w-4 mt-0.5 shrink-0" />
         <div className="flex-1 space-y-2">
           <Skeleton className="h-4 w-3/4" />
@@ -25,7 +25,7 @@ export default function IntegrationsLoading() {
         <Skeleton className="h-3 w-44" />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-inari-border bg-inari-card p-5 space-y-3">
+            <div key={i} className="rounded-xl border border-line bg-surface p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <Skeleton className="h-8 w-8 rounded-lg" />
@@ -45,8 +45,8 @@ export default function IntegrationsLoading() {
       <div className="space-y-6">
         <Skeleton className="h-3 w-48" />
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-inari-border overflow-hidden">
-            <div className="flex items-center justify-between border-b border-inari-border bg-inari-card px-5 py-3">
+          <div key={i} className="rounded-xl border border-line overflow-hidden">
+            <div className="flex items-center justify-between border-b border-line bg-surface px-5 py-3">
               <div className="flex items-center gap-2">
                 <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-3 w-20" />
@@ -54,7 +54,7 @@ export default function IntegrationsLoading() {
               <Skeleton className="h-3 w-20" />
             </div>
             {Array.from({ length: 3 }).map((_, j) => (
-              <div key={j} className="flex items-center gap-6 border-b border-inari-border bg-inari-bg px-5 py-3 last:border-0">
+              <div key={j} className="flex items-center gap-6 border-b border-line bg-page px-5 py-3 last:border-0">
                 <Skeleton className="h-4 w-16" />
                 <Skeleton className="h-4 w-14" />
                 <Skeleton className="h-3 w-20 hidden md:block" />

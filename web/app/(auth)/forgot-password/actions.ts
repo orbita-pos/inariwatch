@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { db, users, passwordResetTokens } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications/email";
+import { rateLimit } from "@/lib/auth-rate-limit";
 
 export async function requestPasswordReset(
   formData: FormData
@@ -11,6 +12,16 @@ export async function requestPasswordReset(
   const email = formData.get("email") as string | null;
   if (!email || !email.includes("@")) {
     return { success: false, error: "Please enter a valid email address." };
+  }
+
+  // Rate limit: 3 reset requests per email per 15 minutes
+  const rl = rateLimit("password-reset", email.toLowerCase(), {
+    windowMs: 15 * 60_000,
+    max: 3,
+  });
+  if (!rl.allowed) {
+    // Still return success to not leak timing info
+    return { success: true };
   }
 
   // Look up user — if not found, still return success (don't leak existence)

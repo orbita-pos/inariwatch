@@ -10,6 +10,14 @@ function hasKey(): boolean {
   return KEY_HEX.length === 64;
 }
 
+// Fail loudly in production if encryption key is missing
+if (process.env.NODE_ENV === "production" && !hasKey()) {
+  throw new Error(
+    "ENCRYPTION_KEY is not set. All integration tokens would be stored in plaintext. " +
+    "Generate one with: openssl rand -hex 32"
+  );
+}
+
 /**
  * Encrypt a plaintext string with AES-256-GCM.
  * Returns a string in the format `enc:<iv_hex>:<tag_hex>:<ct_hex>`.

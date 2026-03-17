@@ -27,7 +27,7 @@ export function ConnectSlackButton() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-[#222] bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-all"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all"
       >
         <Plus className="h-3.5 w-3.5" />
         Connect Slack
@@ -36,11 +36,11 @@ export function ConnectSlackButton() {
   }
 
   return (
-    <div className="rounded-xl border border-[#1a1a1a] bg-[#080808] p-4 space-y-4">
+    <div className="rounded-xl border border-line bg-surface-inner p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Hash className="h-4 w-4 text-zinc-500" />
-          <span className="text-sm font-medium text-zinc-300">Connect Slack</span>
+          <span className="text-sm font-medium text-fg-base">Connect Slack</span>
         </div>
         <button
           onClick={() => { setOpen(false); setError(null); }}
@@ -58,7 +58,7 @@ export function ConnectSlackButton() {
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
             placeholder="https://hooks.slack.com/services/T.../B.../..."
-            className="w-full rounded-lg border border-[#222] bg-[#0a0a0a] px-3 py-2 text-[13px] text-zinc-300 placeholder:text-zinc-800 focus:outline-none focus:border-zinc-600 font-mono"
+            className="w-full rounded-lg border border-line-medium bg-surface px-3 py-2 text-[13px] text-fg-base placeholder:text-zinc-800 focus:outline-none focus:border-zinc-600 font-mono"
           />
           <p className="text-[11px] text-zinc-700">
             Create an <span className="text-zinc-500">Incoming Webhook</span> in your Slack workspace settings and paste the URL here.

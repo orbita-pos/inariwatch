@@ -151,7 +151,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center space-y-3">
           <MessageSquare className="h-10 w-10 text-zinc-700 mx-auto" />
-          <h2 className="text-lg font-semibold text-white">Ask Inari</h2>
+          <h2 className="text-lg font-semibold text-fg-strong">Ask Inari</h2>
           <p className="text-sm text-zinc-500 max-w-sm">
             Add a Claude or OpenAI API key in{" "}
             <a href="/settings" className="text-inari-accent hover:underline">Settings</a>{" "}
@@ -172,7 +172,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
               <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-inari-accent/10 mb-2">
                 <Sparkles className="h-6 w-6 text-inari-accent" />
               </div>
-              <h2 className="text-lg font-semibold text-white">Ask Inari anything</h2>
+              <h2 className="text-lg font-semibold text-fg-strong">Ask Inari anything</h2>
               <p className="text-sm text-zinc-500 max-w-md">
                 Chat with your monitoring data. Ask about alerts, incidents, system health, and patterns.
               </p>
@@ -184,7 +184,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 <button
                   key={s}
                   onClick={() => sendMessage(s)}
-                  className="rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2 text-xs text-zinc-400 hover:text-white hover:border-zinc-600 transition-all"
+                  className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-zinc-400 hover:text-fg-strong hover:border-zinc-600 transition-all"
                 >
                   {s}
                 </button>
@@ -215,7 +215,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                       Thinking…
                     </div>
                   ) : (
-                    <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words">
+                    <div className="text-sm text-fg-base leading-relaxed whitespace-pre-wrap break-words">
                       <ChatMarkdown content={msg.content} />
                     </div>
                   )}
@@ -228,7 +228,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-[#1a1a1a] pt-4 pb-2">
+      <div className="shrink-0 border-t border-line pt-4 pb-2">
         <form onSubmit={handleSubmit} className="relative">
           <div className="flex items-end gap-2">
             <div className="relative flex-1">
@@ -240,7 +240,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 placeholder="Ask about your systems..."
                 disabled={isStreaming}
                 rows={1}
-                className="w-full resize-none rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-4 py-3 pr-12 text-sm text-white placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-50 transition-colors"
+                className="w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 pr-12 text-sm text-fg-strong placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-50 transition-colors"
                 style={{ maxHeight: "120px", minHeight: "44px" }}
                 onInput={(e) => {
                   const el = e.currentTarget;
@@ -264,7 +264,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
               <button
                 type="button"
                 onClick={handleClear}
-                className="shrink-0 rounded-lg border border-[#1a1a1a] p-3 text-zinc-600 hover:text-zinc-400 hover:border-zinc-600 transition-colors"
+                className="shrink-0 rounded-lg border border-line p-3 text-zinc-600 hover:text-zinc-400 hover:border-zinc-600 transition-colors"
                 title="Clear chat"
               >
                 <Trash2 className="h-4 w-4" />
@@ -293,8 +293,8 @@ function ChatMarkdown({ content }: { content: string }) {
     if (line.startsWith("```")) {
       if (inCodeBlock) {
         elements.push(
-          <pre key={key++} className="my-2 rounded-lg bg-[#111] border border-[#1a1a1a] p-3 overflow-x-auto">
-            <code className="text-xs text-zinc-300 font-mono">{codeLines.join("\n")}</code>
+          <pre key={key++} className="my-2 rounded-lg bg-surface-dim border border-line p-3 overflow-x-auto">
+            <code className="text-xs text-fg-base font-mono">{codeLines.join("\n")}</code>
           </pre>
         );
         codeLines = [];
@@ -315,10 +315,10 @@ function ChatMarkdown({ content }: { content: string }) {
     } else if (line.startsWith("## ")) {
       elements.push(<h2 key={key++} className="text-base font-semibold text-zinc-200 mt-4 mb-2">{formatInline(line.slice(3))}</h2>);
     } else if (line.startsWith("# ")) {
-      elements.push(<h1 key={key++} className="text-lg font-semibold text-white mt-4 mb-2">{formatInline(line.slice(2))}</h1>);
+      elements.push(<h1 key={key++} className="text-lg font-semibold text-fg-strong mt-4 mb-2">{formatInline(line.slice(2))}</h1>);
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
       elements.push(
-        <div key={key++} className="flex gap-2 pl-2 text-sm text-zinc-300">
+        <div key={key++} className="flex gap-2 pl-2 text-sm text-fg-base">
           <span className="text-zinc-600 shrink-0">•</span>
           <span>{formatInline(line.slice(2))}</span>
         </div>
@@ -327,7 +327,7 @@ function ChatMarkdown({ content }: { content: string }) {
       const match = line.match(/^(\d+)\.\s(.*)$/);
       if (match) {
         elements.push(
-          <div key={key++} className="flex gap-2 pl-2 text-sm text-zinc-300">
+          <div key={key++} className="flex gap-2 pl-2 text-sm text-fg-base">
             <span className="text-zinc-500 shrink-0 tabular-nums">{match[1]}.</span>
             <span>{formatInline(match[2])}</span>
           </div>
@@ -342,15 +342,15 @@ function ChatMarkdown({ content }: { content: string }) {
         </div>
       );
     } else {
-      elements.push(<p key={key++} className="text-sm text-zinc-300 leading-relaxed">{formatInline(line)}</p>);
+      elements.push(<p key={key++} className="text-sm text-fg-base leading-relaxed">{formatInline(line)}</p>);
     }
   }
 
   // Close unclosed code block
   if (inCodeBlock && codeLines.length > 0) {
     elements.push(
-      <pre key={key++} className="my-2 rounded-lg bg-[#111] border border-[#1a1a1a] p-3 overflow-x-auto">
-        <code className="text-xs text-zinc-300 font-mono">{codeLines.join("\n")}</code>
+      <pre key={key++} className="my-2 rounded-lg bg-surface-dim border border-line p-3 overflow-x-auto">
+        <code className="text-xs text-fg-base font-mono">{codeLines.join("\n")}</code>
       </pre>
     );
   }
@@ -377,7 +377,7 @@ function formatInline(text: string): React.ReactNode {
     const codeMatch = remaining.match(/^`([^`]+)`/);
     if (codeMatch) {
       parts.push(
-        <code key={i++} className="rounded bg-[#111] border border-[#1a1a1a] px-1.5 py-0.5 text-xs font-mono text-zinc-400">
+        <code key={i++} className="rounded bg-surface-dim border border-line px-1.5 py-0.5 text-xs font-mono text-zinc-400">
           {codeMatch[1]}
         </code>
       );

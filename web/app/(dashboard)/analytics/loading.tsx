@@ -1,5 +1,5 @@
 function Sk({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return <div className={`animate-pulse rounded bg-white/[0.05] ${className ?? ""}`} style={style} />;
+  return <div className={`animate-pulse rounded bg-black/[0.08] dark:bg-white/[0.05] ${className ?? ""}`} style={style} />;
 }
 
 export default function AnalyticsLoading() {
@@ -14,7 +14,7 @@ export default function AnalyticsLoading() {
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex flex-col gap-2 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-5 py-4">
+          <div key={i} className="flex flex-col gap-2 rounded-xl border border-line bg-surface px-5 py-4">
             <Sk className="h-3 w-16" />
             <Sk className="h-7 w-12" />
             <Sk className="h-2.5 w-20" />
@@ -23,7 +23,7 @@ export default function AnalyticsLoading() {
       </div>
 
       {/* Bar chart */}
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-5">
+      <div className="rounded-xl border border-line bg-surface p-5">
         <div className="mb-4 flex items-center justify-between">
           <Sk className="h-4 w-24" />
           <div className="flex items-center gap-3">
@@ -50,7 +50,7 @@ export default function AnalyticsLoading() {
       {/* Two-column breakdown */}
       <div className="grid gap-3 md:grid-cols-2">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-5">
+          <div key={i} className="rounded-xl border border-line bg-surface p-5">
             <Sk className="mb-4 h-4 w-20" />
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, j) => (

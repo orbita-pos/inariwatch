@@ -102,14 +102,14 @@ export function ConnectModal({ service, label, projects, children }: Props) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
 
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#222] bg-[#0d0d0d] shadow-[0_0_60px_rgba(0,0,0,0.7)] focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line-medium bg-surface-dim shadow-[0_0_60px_rgba(0,0,0,0.7)] focus:outline-none">
 
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-[#1a1a1a] px-5 py-4">
-            <Dialog.Title className="text-sm font-semibold text-white">
+          <div className="flex items-center justify-between border-b border-line px-5 py-4">
+            <Dialog.Title className="text-sm font-semibold text-fg-strong">
               Connect {label}
             </Dialog.Title>
-            <Dialog.Close className="rounded-md p-1 text-zinc-600 hover:text-zinc-300 transition-colors">
+            <Dialog.Close className="rounded-md p-1 text-zinc-600 hover:text-fg-base transition-colors">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
@@ -130,7 +130,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                   <select
                     name="projectId"
                     required
-                    className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-sm text-zinc-100 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                   >
                     <option value="">Select a project…</option>
                     {projects.map((p) => (
@@ -151,7 +151,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder={cfg.placeholder}
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -163,7 +163,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="db_name"
                         placeholder="Production DB"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     {cfg.note && (
@@ -181,7 +181,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="package_json_url"
                         placeholder="https://raw.githubusercontent.com/owner/repo/main/package.json"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -193,7 +193,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="cargo_toml_url"
                         placeholder="https://raw.githubusercontent.com/owner/repo/main/Cargo.toml"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -205,7 +205,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="token"
                         placeholder="github_pat_…"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     {cfg.note && (
@@ -224,7 +224,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder={cfg.placeholder}
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -236,7 +236,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="endpoint_name"
                         placeholder="Production API"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -250,7 +250,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                           defaultValue={200}
                           min={100}
                           max={599}
-                          className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 text-sm text-zinc-100 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                          className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -263,7 +263,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                           defaultValue={10000}
                           min={1000}
                           max={60000}
-                          className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 text-sm text-zinc-100 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                          className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                         />
                       </div>
                     </div>
@@ -283,7 +283,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                           href={cfg.tokenUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center justify-between rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 text-sm text-zinc-300 hover:border-zinc-600 hover:text-white transition-all"
+                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-zinc-600 hover:text-fg-strong transition-all"
                         >
                           <span>Open {label} token page</span>
                           <ExternalLink className="h-3.5 w-3.5 text-zinc-600" />
@@ -292,7 +292,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
 
                       {/* Permissions */}
                       {cfg.permissions && cfg.permissions.length > 0 && (
-                        <div className="rounded-lg border border-[#1a1a1a] bg-[#080808] px-3 py-2.5 space-y-1.5">
+                        <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5 space-y-1.5">
                           <p className="text-[11px] text-zinc-700 mb-2">Select these permissions:</p>
                           {cfg.permissions.map((p) => (
                             <div key={p.label} className="flex items-center justify-between">
@@ -318,7 +318,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder={cfg.placeholder}
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                       {cfg.note && (
                         <p className="text-[11px] text-zinc-700">{cfg.note}</p>
@@ -337,7 +337,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
               </div>
 
               {/* Footer */}
-              <div className="flex gap-2 border-t border-[#1a1a1a] px-5 py-4">
+              <div className="flex gap-2 border-t border-line px-5 py-4">
                 <Dialog.Close asChild>
                   <Button variant="outline" className="flex-1" type="button">Cancel</Button>
                 </Dialog.Close>

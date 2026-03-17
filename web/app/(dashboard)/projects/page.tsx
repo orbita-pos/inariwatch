@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, projects, projectIntegrations, alerts } from "@/lib/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { Github, Zap, AlertTriangle, GitBranch, Bell, Plus, ExternalLink, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,6 @@ const SERVICE_ICON: Record<string, React.ElementType> = {
   git:     GitBranch,
 };
 
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-inari-accent",
-  warning:  "bg-amber-400",
-  info:     "bg-blue-400",
-};
-
 export default async function ProjectsPage() {
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
@@ -33,30 +27,35 @@ export default async function ProjectsPage() {
     ? await db.select().from(projects).where(eq(projects.userId, userId))
     : [];
 
-  const projectData = await Promise.all(
-    userProjects.map(async (project) => {
-      const [integrations, projectAlerts] = await Promise.all([
-        db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, project.id)),
-        db.select().from(alerts).where(eq(alerts.projectId, project.id)).orderBy(desc(alerts.createdAt)).limit(50),
-      ]);
-      return {
-        ...project,
-        integrations,
-        total:    projectAlerts.length,
-        unread:   projectAlerts.filter((a) => !a.isRead).length,
-        critical: projectAlerts.filter((a) => a.severity === "critical").length,
-        last:     projectAlerts[0] ?? null,
-      };
-    })
-  );
+  const projectIds = userProjects.map((p) => p.id);
+
+  const [allIntegrations, allAlerts] = projectIds.length > 0
+    ? await Promise.all([
+        db.select().from(projectIntegrations).where(inArray(projectIntegrations.projectId, projectIds)),
+        db.select().from(alerts).where(inArray(alerts.projectId, projectIds)).orderBy(desc(alerts.createdAt)),
+      ])
+    : [[], []];
+
+  const projectData = userProjects.map((project) => {
+    const integrations  = allIntegrations.filter((i) => i.projectId === project.id);
+    const projectAlerts = allAlerts.filter((a) => a.projectId === project.id).slice(0, 50);
+    return {
+      ...project,
+      integrations,
+      total:    projectAlerts.length,
+      unread:   projectAlerts.filter((a) => !a.isRead).length,
+      critical: projectAlerts.filter((a) => a.severity === "critical").length,
+      last:     projectAlerts[0] ?? null,
+    };
+  });
 
   return (
     <div className="space-y-6">
 
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Projects</h1>
+          <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Projects</h1>
           <p className="mt-1 text-sm text-zinc-500">
             {userProjects.length} project{userProjects.length !== 1 ? "s" : ""}
           </p>
@@ -68,10 +67,10 @@ export default async function ProjectsPage() {
         </CreateProjectModal>
       </div>
 
-      {/* Empty */}
+      {/* ── Empty ──────────────────────────────────────────────────────── */}
       {projectData.length === 0 && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[#1a1a1a] py-16 text-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#1a1a1a] bg-[#111]">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-20 text-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface-dim">
             <span className="text-base text-zinc-600">◉</span>
           </div>
           <div>
@@ -81,37 +80,41 @@ export default async function ProjectsPage() {
             </p>
           </div>
           <CreateProjectModal>
-            <Button variant="primary" size="sm" className="gap-1.5 mt-1">
+            <Button variant="primary" size="sm" className="mt-1 gap-1.5">
               <Plus className="h-3.5 w-3.5" /> Create first project
             </Button>
           </CreateProjectModal>
         </div>
       )}
 
-      {/* Project list */}
+      {/* ── Project list ───────────────────────────────────────────────── */}
       {projectData.length > 0 && (
-        <div className="rounded-xl border border-[#1a1a1a] overflow-hidden">
-          <div className="divide-y divide-[#131313] bg-[#0a0a0a]">
+        <div className="overflow-hidden rounded-xl border border-line">
+          <div className="divide-y divide-line-subtle bg-surface">
             {projectData.map((project) => (
-              <div key={project.id} className="group flex items-center gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors">
-
+              <div
+                key={project.id}
+                className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+              >
                 {/* Status dot */}
                 <span className={`h-2 w-2 shrink-0 rounded-full ${
-                  project.critical > 0 ? SEVERITY_DOT.critical :
-                  project.integrations.length > 0 ? "bg-green-500" : "bg-zinc-700"
+                  project.critical > 0     ? "bg-inari-accent" :
+                  project.integrations.length > 0 ? "bg-green-500" :
+                  "bg-zinc-700"
                 }`} />
 
                 {/* Main info */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-zinc-100">{project.name}</span>
+                    <span className="text-sm font-medium text-fg-strong">{project.name}</span>
                     <span className="font-mono text-xs text-zinc-600">{project.slug}</span>
                   </div>
+
                   {project.description && (
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{project.description}</p>
                   )}
 
-                  {/* Integration icons */}
+                  {/* Integration chips */}
                   {project.integrations.length > 0 && (
                     <div className="mt-1.5 flex items-center gap-1.5">
                       {project.integrations.map((integ) => {
@@ -121,8 +124,8 @@ export default async function ProjectsPage() {
                             key={integ.id}
                             className={`flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-xs transition-colors ${
                               integ.isActive
-                                ? "border-[#222] bg-[#111] text-zinc-500"
-                                : "border-[#1a1a1a] bg-transparent text-zinc-700"
+                                ? "border-line-medium bg-surface-dim text-zinc-500"
+                                : "border-line bg-transparent text-zinc-700"
                             }`}
                           >
                             <Icon className="h-3 w-3" />
@@ -135,60 +138,39 @@ export default async function ProjectsPage() {
                 </div>
 
                 {/* Alert counts */}
-                <div className="hidden shrink-0 items-center gap-5 text-center sm:flex">
-                  <div>
-                    <p className="text-sm font-semibold tabular-nums text-zinc-300">{project.total}</p>
-                    <p className="text-xs text-zinc-600">alerts</p>
-                  </div>
-                  <div>
-                    <p className={`text-sm font-semibold tabular-nums ${project.unread > 0 ? "text-amber-400" : "text-zinc-600"}`}>
-                      {project.unread}
-                    </p>
-                    <p className="text-xs text-zinc-600">unread</p>
-                  </div>
-                  <div>
-                    <p className={`text-sm font-semibold tabular-nums ${project.critical > 0 ? "text-inari-accent" : "text-zinc-600"}`}>
-                      {project.critical}
-                    </p>
-                    <p className="text-xs text-zinc-600">critical</p>
-                  </div>
+                <div className="hidden shrink-0 items-center gap-6 text-center sm:flex">
+                  <Stat value={project.total}    label="alerts"   />
+                  <Stat value={project.unread}   label="unread"   accent={project.unread > 0 ? "amber" : undefined} />
+                  <Stat value={project.critical} label="critical" accent={project.critical > 0 ? "red" : undefined} />
                 </div>
 
                 {/* Last alert */}
-                <div className="shrink-0 text-right hidden md:block">
+                <div className="hidden shrink-0 text-right md:block" style={{ width: "160px" }}>
                   {project.last ? (
                     <>
-                      <p className="text-xs text-zinc-400 line-clamp-1 max-w-[160px]">{project.last.title}</p>
+                      <p className="truncate text-xs text-zinc-400">{project.last.title}</p>
                       <p className="mt-0.5 font-mono text-xs text-zinc-600">
                         {formatRelativeTime(project.last.createdAt)}
                       </p>
                     </>
                   ) : (
-                    <p className="text-xs text-zinc-600">No alerts</p>
+                    <p className="text-xs text-zinc-700">No alerts</p>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Link
-                    href={`/projects/${project.slug}`}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors"
-                    title="Team members"
-                  >
+                <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <ActionBtn href={`/projects/${project.slug}`} title="Team members">
                     <Users className="h-3.5 w-3.5" />
-                  </Link>
-                  <Link
-                    href="/alerts"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors"
-                    title="View alerts"
-                  >
+                  </ActionBtn>
+                  <ActionBtn href="/alerts" title="View alerts">
                     <ExternalLink className="h-3.5 w-3.5" />
-                  </Link>
+                  </ActionBtn>
                   <form action={deleteProject.bind(null, project.id)}>
                     <button
                       type="submit"
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-400/[0.06] transition-colors"
                       title="Delete project"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -200,5 +182,34 @@ export default async function ProjectsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function Stat({ value, label, accent }: { value: number; label: string; accent?: "amber" | "red" }) {
+  return (
+    <div>
+      <p className={`text-sm font-semibold tabular-nums ${
+        accent === "red"   ? "text-inari-accent" :
+        accent === "amber" ? "text-amber-400" :
+        "text-zinc-500"
+      }`}>
+        {value}
+      </p>
+      <p className="text-xs text-zinc-700">{label}</p>
+    </div>
+  );
+}
+
+function ActionBtn({ href, title, children }: { href: string; title: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      title={title}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-black/[0.06] dark:hover:bg-white/[0.06] hover:text-fg-base"
+    >
+      {children}
+    </Link>
   );
 }

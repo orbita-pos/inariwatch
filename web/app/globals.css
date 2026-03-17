@@ -3,8 +3,38 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── Light theme (default) ─────────────────────────────────────────────── */
   :root {
+    color-scheme: light;
+
+    --bg-page:         #f8fafc;
+    --bg-card:         #ffffff;
+    --bg-card-inner:   #f4f4f5;
+    --bg-card-elevated:#efefef;
+
+    --bd-default:      #e4e4e7;
+    --bd-subtle:       #f0f0f0;
+    --bd-medium:       #d4d4d8;
+
+    --fg-strong:       #0f0f11;
+    --fg-base:         #3f3f46;
+  }
+
+  /* ── Dark theme ────────────────────────────────────────────────────────── */
+  .dark {
     color-scheme: dark;
+
+    --bg-page:         #09090b;
+    --bg-card:         #0a0a0a;
+    --bg-card-inner:   #080808;
+    --bg-card-elevated:#111111;
+
+    --bd-default:      #1a1a1a;
+    --bd-subtle:       #131313;
+    --bd-medium:       #222222;
+
+    --fg-strong:       #ffffff;
+    --fg-base:         #d4d4d8;
   }
 
   * {
@@ -15,8 +45,8 @@
 
   html {
     font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
-    background-color: #09090b;
-    color: #e4e4e7;
+    background-color: var(--bg-page);
+    color: var(--fg-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -26,6 +56,11 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+  .dark ::-webkit-scrollbar-thumb { background: #27272a; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+  :not(.dark) ::-webkit-scrollbar-thumb { background: #d4d4d8; }
+  :not(.dark) ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
 
   /* Focus ring */
   :focus-visible {

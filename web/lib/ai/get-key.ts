@@ -1,48 +1,60 @@
-import { db, apiKeys, projects } from "@/lib/db";
-import { eq, and } from "drizzle-orm";
-import { detectProvider, type AIProvider } from "./client";
+import { db, apiKeys, projects, users } from "@/lib/db";
+import { eq, and, inArray } from "drizzle-orm";
+import type { AIProvider } from "./client";
 import { decrypt } from "@/lib/crypto";
+import type { AIModelPreferences } from "./models";
 
-/**
- * Fetch the user's AI key from the database.
- * Prefers Claude key; falls back to OpenAI.
- */
-export async function getUserAIKey(userId: string): Promise<{
+export interface AIKeyResult {
   key: string;
   provider: AIProvider;
-} | null> {
-  // Prefer Claude key
-  const [claudeRow] = await db
-    .select({ keyEncrypted: apiKeys.keyEncrypted })
-    .from(apiKeys)
-    .where(and(eq(apiKeys.userId, userId), eq(apiKeys.service, "claude")))
-    .limit(1);
+  modelPrefs: AIModelPreferences | null;
+}
 
-  if (claudeRow) {
-    return { key: decrypt(claudeRow.keyEncrypted), provider: "claude" };
-  }
+const AI_SERVICES: AIProvider[] = ["claude", "openai", "grok", "deepseek", "gemini"];
+// Priority order: claude → openai → grok → deepseek → gemini
+const PRIORITY: Record<AIProvider, number> = {
+  claude: 0, openai: 1, grok: 2, deepseek: 3, gemini: 4,
+};
 
-  // Fall back to OpenAI
-  const [openaiRow] = await db
-    .select({ keyEncrypted: apiKeys.keyEncrypted })
-    .from(apiKeys)
-    .where(and(eq(apiKeys.userId, userId), eq(apiKeys.service, "openai")))
-    .limit(1);
+/**
+ * Fetch the user's AI key + model preferences from the database.
+ * Uses first available key in priority order: claude → openai → grok → deepseek → gemini.
+ */
+export async function getUserAIKey(userId: string): Promise<AIKeyResult | null> {
+  const [rows, [userRow]] = await Promise.all([
+    db.select({ keyEncrypted: apiKeys.keyEncrypted, service: apiKeys.service })
+      .from(apiKeys)
+      .where(and(
+        eq(apiKeys.userId, userId),
+        inArray(apiKeys.service, AI_SERVICES as string[])
+      )),
+    db.select({ aiModels: users.aiModels })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
+  ]);
 
-  if (openaiRow) {
-    return { key: decrypt(openaiRow.keyEncrypted), provider: "openai" };
-  }
+  if (rows.length === 0) return null;
 
-  return null;
+  const modelPrefs = (userRow?.aiModels as AIModelPreferences | null) ?? null;
+
+  // Pick the highest-priority key
+  const sorted = rows.sort(
+    (a, b) => (PRIORITY[a.service as AIProvider] ?? 99) - (PRIORITY[b.service as AIProvider] ?? 99)
+  );
+  const best = sorted[0];
+
+  return {
+    key: decrypt(best.keyEncrypted),
+    provider: best.service as AIProvider,
+    modelPrefs,
+  };
 }
 
 /**
  * Get project owner's AI key — used in background/cron tasks.
  */
-export async function getProjectOwnerAIKey(projectId: string): Promise<{
-  key: string;
-  provider: AIProvider;
-} | null> {
+export async function getProjectOwnerAIKey(projectId: string): Promise<AIKeyResult | null> {
   const [project] = await db
     .select({ userId: projects.userId })
     .from(projects)

@@ -50,14 +50,14 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
           </p>
         </div>
       ) : (
-        <div className="divide-y divide-[#131313]">
+        <div className="divide-y divide-line-subtle">
           {webhooks.map((wh) => (
             <div key={wh.id} className="flex items-center gap-3 py-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#222] bg-[#111] text-zinc-500">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500">
                 <Globe className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-zinc-300 font-mono truncate">{wh.url}</p>
+                <p className="text-sm text-fg-base font-mono truncate">{wh.url}</p>
                 <p className="text-xs text-zinc-600">
                   {wh.events.join(", ")} &middot; {wh.isActive ? "Active" : "Inactive"}
                 </p>
@@ -76,7 +76,7 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
       )}
 
       {showForm && (
-        <div className="space-y-3 rounded-lg border border-[#1a1a1a] bg-[#080808] p-4">
+        <div className="space-y-3 rounded-lg border border-line bg-surface-inner p-4">
           <div className="space-y-1.5">
             <label className="text-xs text-zinc-500">Endpoint URL</label>
             <input
@@ -84,7 +84,7 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com/webhook"
-              className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none"
+              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base font-mono placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none"
             />
           </div>
           <div className="space-y-1.5">

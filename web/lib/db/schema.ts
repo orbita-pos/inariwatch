@@ -29,6 +29,7 @@ export const users = pgTable("users", {
   emailVerifiedAt:  timestamp("email_verified_at"),
   totpSecret:       text("totp_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  aiModels:         jsonb("ai_models"),
   createdAt:        timestamp("created_at").defaultNow().notNull(),
   updatedAt:        timestamp("updated_at").defaultNow().notNull(),
 });

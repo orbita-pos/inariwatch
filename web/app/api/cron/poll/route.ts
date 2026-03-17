@@ -7,7 +7,7 @@ import { pollSentry, type SentryAlertConfig } from "@/lib/pollers/sentry";
 import { pollUptime, type UptimeEndpoint, type UptimeAlertConfig } from "@/lib/pollers/uptime";
 import { pollPostgres, type PostgresConfig, type PostgresAlertConfig } from "@/lib/pollers/postgres";
 import { pollNpmAudit, type NpmAuditConfig, type NpmAuditAlertConfig } from "@/lib/pollers/npm-audit";
-import { processNotificationQueue } from "@/lib/notifications/send";
+import { processNotificationQueue, processEmailDigests } from "@/lib/notifications/send";
 import { createAlertIfNew, markIntegrationSuccess } from "@/lib/webhooks/shared";
 import { correlateProjectAlerts } from "@/lib/ai/correlate";
 import { runAnomalyEngine } from "@/lib/pollers/anomaly";
@@ -46,70 +46,74 @@ export async function GET(req: Request) {
   // Track new alerts per project for AI correlation
   const newAlertsByProject = new Map<string, Alert[]>();
 
-  for (const integ of integrations) {
-    try {
-      const cfg = decryptConfig(integ.configEncrypted);
-      const token = cfg.token as string | undefined;
-      if (!token && !["uptime", "postgres", "npm"].includes(integ.service)) continue;
+  // Poll all integrations in parallel — eliminates sequential waterfall
+  async function pollIntegration(integ: typeof integrations[number]) {
+    const cfg = decryptConfig(integ.configEncrypted);
+    const token = cfg.token as string | undefined;
+    if (!token && !["uptime", "postgres", "npm"].includes(integ.service)) return [];
 
-      const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
+    const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
+    let newAlerts: Omit<NewAlert, "projectId">[] = [];
 
-      let newAlerts: Omit<NewAlert, "projectId">[] = [];
-
-      if (integ.service === "github") {
-        const owner = (cfg.owner as string) ?? "";
-        newAlerts = await pollGitHub(token!, owner, alertConfig as GithubAlertConfig);
-      } else if (integ.service === "vercel") {
-        const teamId = (cfg.teamId as string) ?? "";
-        newAlerts = await pollVercel(token!, teamId, alertConfig as VercelAlertConfig);
-      } else if (integ.service === "sentry") {
-        const org = (cfg.org as string) ?? "";
-        newAlerts = await pollSentry(token!, org, alertConfig as SentryAlertConfig);
-      } else if (integ.service === "uptime") {
-        const endpoints = (cfg.endpoints ?? []) as UptimeEndpoint[];
-        if (endpoints.length > 0) {
-          newAlerts = await pollUptime(endpoints, alertConfig as UptimeAlertConfig);
-        }
-      } else if (integ.service === "postgres") {
-        const connString = cfg.connectionString as string | undefined;
-        if (connString) {
-          newAlerts = await pollPostgres(
-            { connectionString: connString, name: (cfg.name as string) || "PostgreSQL" } as PostgresConfig,
-            alertConfig as PostgresAlertConfig
-          );
-        }
-      } else if (integ.service === "npm") {
-        newAlerts = await pollNpmAudit(
-          {
-            packageJsonUrl: cfg.packageJsonUrl as string | undefined,
-            cargoTomlUrl: cfg.cargoTomlUrl as string | undefined,
-            token: token,
-          } as NpmAuditConfig,
-          alertConfig as NpmAuditAlertConfig
+    if (integ.service === "github") {
+      const owner = (cfg.owner as string) ?? "";
+      newAlerts = await pollGitHub(token!, owner, alertConfig as GithubAlertConfig);
+    } else if (integ.service === "vercel") {
+      const teamId = (cfg.teamId as string) ?? "";
+      newAlerts = await pollVercel(token!, teamId, alertConfig as VercelAlertConfig);
+    } else if (integ.service === "sentry") {
+      const org = (cfg.org as string) ?? "";
+      newAlerts = await pollSentry(token!, org, alertConfig as SentryAlertConfig);
+    } else if (integ.service === "uptime") {
+      const endpoints = (cfg.endpoints ?? []) as UptimeEndpoint[];
+      if (endpoints.length > 0) {
+        newAlerts = await pollUptime(endpoints, alertConfig as UptimeAlertConfig);
+      }
+    } else if (integ.service === "postgres") {
+      const connString = cfg.connectionString as string | undefined;
+      if (connString) {
+        newAlerts = await pollPostgres(
+          { connectionString: connString, name: (cfg.name as string) || "PostgreSQL" } as PostgresConfig,
+          alertConfig as PostgresAlertConfig
         );
       }
+    } else if (integ.service === "npm") {
+      newAlerts = await pollNpmAudit(
+        {
+          packageJsonUrl: cfg.packageJsonUrl as string | undefined,
+          cargoTomlUrl: cfg.cargoTomlUrl as string | undefined,
+          token: token,
+        } as NpmAuditConfig,
+        alertConfig as NpmAuditAlertConfig
+      );
+    }
 
-      for (const alert of newAlerts) {
-        const result = await createAlertIfNew(alert, integ.projectId);
-        if (result) {
+    await markIntegrationSuccess(integ.id);
+    return newAlerts.map((a) => ({ ...a, projectId: integ.projectId }));
+  }
+
+  const results = await Promise.allSettled(integrations.map((integ) => pollIntegration(integ)));
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const integ = integrations[i];
+    if (result.status === "fulfilled") {
+      for (const { projectId, ...alert } of result.value) {
+        const inserted = await createAlertIfNew(alert, projectId);
+        if (inserted) {
           created++;
-          const group = newAlertsByProject.get(integ.projectId) ?? [];
-          group.push(result);
-          newAlertsByProject.set(integ.projectId, group);
+          const group = newAlertsByProject.get(projectId) ?? [];
+          group.push(inserted);
+          newAlertsByProject.set(projectId, group);
         }
       }
-
-      await markIntegrationSuccess(integ.id);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+    } else {
+      const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
       errors.push(`${integ.service}/${integ.id}: ${errMsg}`);
-      await db
-        .update(projectIntegrations)
-        .set({
-          lastCheckedAt: new Date(),
-          errorCount: (integ.errorCount ?? 0) + 1,
-        })
-        .where(eq(projectIntegrations.id, integ.id));
+      db.update(projectIntegrations)
+        .set({ lastCheckedAt: new Date(), errorCount: (integ.errorCount ?? 0) + 1 })
+        .where(eq(projectIntegrations.id, integ.id))
+        .catch(() => {});
     }
   }
 
@@ -132,17 +136,26 @@ export async function GET(req: Request) {
   }
 
   // Process notification queue in one batch after all alerts are created
+  // 1. Immediate: critical emails + all push/telegram/slack
+  // 2. Digest: batched non-critical emails → one email per user
   let notifyResult = { sent: 0, failed: 0, skipped: 0 };
+  let digestResult = { sent: 0, failed: 0 };
   try {
     notifyResult = await processNotificationQueue();
   } catch {
     // Queue processing failure should not break the cron response
+  }
+  try {
+    digestResult = await processEmailDigests();
+  } catch {
+    // Digest processing failure should not break the cron response
   }
 
   return NextResponse.json({
     ok: true,
     created,
     notifications: notifyResult,
+    digests: digestResult,
     errors,
   });
 }

@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_REMEDIATOR, buildDiagnosePrompt, buildFixPrompt } from "./prompts";
 import { getProjectOwnerAIKey } from "./get-key";
+import { resolveModel } from "./models";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import type { RemediationStep } from "@/lib/db/schema";
@@ -179,6 +180,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     steps = await pushStep(sessionId, steps,
       makeStep("diagnose", "AI is diagnosing the root cause and identifying affected files..."), emit);
 
+    const remModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
     const diagRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
       { role: "user", content: buildDiagnosePrompt({
         title: alert.title,
@@ -186,7 +188,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         sourceIntegrations: alert.sourceIntegrations,
         aiReasoning: alert.aiReasoning,
       }, repoFiles) },
-    ], { maxTokens: 600, timeout: 45000 });
+    ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: string };
     try {
@@ -237,7 +239,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
       const fixRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
         { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt) },
-      ], { maxTokens: 4096, timeout: 60000 });
+      ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
 
       let fix: { explanation: string; files: { path: string; content: string }[] };
       try {

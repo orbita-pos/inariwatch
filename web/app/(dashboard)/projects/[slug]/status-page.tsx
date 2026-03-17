@@ -37,7 +37,7 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
       <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
         Public Status Page
       </h2>
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-5 py-4">
+      <div className="rounded-xl border border-line bg-surface px-5 py-4">
         {statusPage ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -105,7 +105,7 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="My App Status"
-                  className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none"
+                  className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none"
                 />
               </div>
               <div className="space-y-1.5">
@@ -117,7 +117,7 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
                     value={slug}
                     onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                     placeholder="my-app"
-                    className="flex-1 rounded-lg border border-[#222] bg-[#111] px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none"
+                    className="flex-1 rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base font-mono placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none"
                   />
                 </div>
               </div>

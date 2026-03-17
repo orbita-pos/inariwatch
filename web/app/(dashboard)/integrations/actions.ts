@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import { generateWebhookSecret } from "@/lib/webhooks/shared";
 import { logAudit } from "@/lib/audit";
 import { encrypt, encryptConfig, decryptConfig } from "@/lib/crypto";
+import { validatePublicUrl } from "@/lib/url-validation";
 
 // ── Token validation + auto-discovery ────────────────────────────────────────
 
@@ -139,12 +140,13 @@ export async function connectIntegration(
       const endpointUrl = formData.get("endpoint_url") as string;
       if (!endpointUrl) return { error: "Endpoint URL is required." };
 
-      // Validate URL
-      try { new URL(endpointUrl); } catch { return { error: "Invalid URL." }; }
+      // Validate URL — block SSRF (private IPs, non-http protocols)
+      const urlCheck = validatePublicUrl(endpointUrl);
+      if (!urlCheck.valid) return { error: urlCheck.error! };
 
       const endpointName = (formData.get("endpoint_name") as string) || new URL(endpointUrl).hostname;
       const expectedStatus = Number(formData.get("expected_status")) || 200;
-      const timeoutMs = Number(formData.get("timeout_ms")) || 10000;
+      const timeoutMs = Math.max(1000, Math.min(60000, Number(formData.get("timeout_ms")) || 10000));
 
       config = {
         endpoints: [{

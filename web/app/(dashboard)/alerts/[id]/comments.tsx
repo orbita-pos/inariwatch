@@ -69,8 +69,8 @@ export function CommentsSection({ alertId, comments, currentUserId }: CommentsSe
   };
 
   return (
-    <section className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-      <div className="border-b border-[#1a1a1a] px-5 py-3">
+    <section className="rounded-xl border border-line bg-surface overflow-hidden">
+      <div className="border-b border-line px-5 py-3">
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
           Comments{comments.length > 0 ? ` (${comments.length})` : ""}
         </span>
@@ -102,7 +102,7 @@ export function CommentsSection({ alertId, comments, currentUserId }: CommentsSe
             rows={3}
             maxLength={2000}
             disabled={isAdding}
-            className="w-full rounded-lg border border-[#1a1a1a] bg-[#080808] px-3.5 py-2.5 text-sm text-zinc-300 placeholder:text-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 resize-none disabled:opacity-50 transition-colors"
+            className="w-full rounded-lg border border-line bg-surface-inner px-3.5 py-2.5 text-sm text-fg-base placeholder:text-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 resize-none disabled:opacity-50 transition-colors"
           />
           {error && (
             <p className="text-xs text-red-400">{error}</p>
@@ -147,7 +147,7 @@ function CommentCard({ comment, isOwn }: { comment: Comment; isOwn: boolean }) {
   const avatarColor = getAvatarColor(comment.userId);
 
   return (
-    <div className={`rounded-lg border border-[#1a1a1a] bg-[#080808] px-4 py-3 ${isDeleting ? "opacity-50" : ""}`}>
+    <div className={`rounded-lg border border-line bg-surface-inner px-4 py-3 ${isDeleting ? "opacity-50" : ""}`}>
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-white ${avatarColor}`}>
@@ -157,7 +157,7 @@ function CommentCard({ comment, isOwn }: { comment: Comment; isOwn: boolean }) {
         <div className="flex-1 min-w-0">
           {/* Header */}
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-zinc-300">
+            <span className="text-sm font-medium text-fg-base">
               {comment.userName ?? comment.userEmail}
             </span>
             <span className="text-xs text-zinc-700">

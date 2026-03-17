@@ -179,8 +179,8 @@ export function RemediationPanel({
   // Don't show panel if no AI key or no GitHub integration
   if (!hasAIKey || !hasGitHub) {
     return (
-      <section className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-[#1a1a1a]">
+      <section className="rounded-xl border border-line bg-surface overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-line">
           <Wrench className="h-4 w-4 text-zinc-500" />
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">AI Remediation</span>
         </div>
@@ -267,7 +267,7 @@ export function RemediationPanel({
                 <div key={step.id} className="flex items-start gap-2.5">
                   <div className="mt-0.5 shrink-0">{STEP_ICON[step.status]}</div>
                   <p className={`text-sm leading-relaxed ${
-                    step.status === "failed" ? "text-red-400" : "text-zinc-300"
+                    step.status === "failed" ? "text-red-400" : "text-fg-base"
                   }`}>
                     {step.message}
                   </p>
@@ -310,7 +310,7 @@ export function RemediationPanel({
                 </button>
                 <button
                   onClick={handleCancel}
-                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-fg-base hover:border-zinc-600 transition-colors"
                 >
                   <X className="h-4 w-4" />
                   Dismiss
@@ -343,7 +343,7 @@ export function RemediationPanel({
           {(state.status === "failed" || state.status === "cancelled") && (
             <button
               onClick={handleRetry}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-fg-base hover:border-zinc-600 transition-colors"
             >
               <RotateCcw className="h-4 w-4" />
               Try again

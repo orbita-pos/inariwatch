@@ -6,6 +6,7 @@ import { db, alerts, projects } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { getUserAIKey } from "@/lib/ai/get-key";
 import { callAI } from "@/lib/ai/client";
+import { resolveModel } from "@/lib/ai/models";
 import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "@/lib/ai/prompts";
 import { revalidatePath } from "next/cache";
 
@@ -47,9 +48,10 @@ export async function analyzeAlert(
 
   let reasoning: string;
   try {
+    const model = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
     reasoning = await callAI(aiKey.key, SYSTEM_ANALYZER, [
       { role: "user", content: prompt },
-    ]);
+    ], { model, provider: aiKey.provider });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "AI call failed";
     return { error: msg };

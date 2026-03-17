@@ -7,6 +7,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { callAI } from "@/lib/ai/client";
 import { getProjectOwnerAIKey } from "@/lib/ai/get-key";
+import { resolveModel } from "@/lib/ai/models";
 import type { RemediationStep } from "@/lib/db/schema";
 
 const SYSTEM_POSTMORTEM = `You are an expert SRE writing a post-mortem document.
@@ -80,9 +81,10 @@ Generate the post-mortem with these sections:
 Be specific. Use the actual data above.`;
 
   try {
+    const model = resolveModel("postmortem", aiKey.provider, aiKey.modelPrefs);
     const postmortem = await callAI(aiKey.key, SYSTEM_POSTMORTEM, [
       { role: "user", content: prompt },
-    ], { maxTokens: 2048, timeout: 45000 });
+    ], { maxTokens: 2048, timeout: 45000, model });
 
     // Persist to DB
     await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));

@@ -44,7 +44,7 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
                     ? "border-inari-accent bg-inari-accent text-white"
                     : isActive
                     ? "border-inari-accent bg-inari-accent/10 text-inari-accent"
-                    : "border-[#2a2a2a] bg-transparent text-zinc-600"
+                    : "border-line-medium bg-transparent text-zinc-600"
                 }`}
               >
                 {isCompleted ? <Check className="h-3.5 w-3.5" /> : step.num}
@@ -63,7 +63,7 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
               <div className="mx-3 mb-5 h-[2px] w-12 sm:w-16">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    isCompleted ? "bg-inari-accent" : "bg-[#2a2a2a]"
+                    isCompleted ? "bg-inari-accent" : "bg-line-medium"
                   }`}
                 />
               </div>
@@ -81,7 +81,7 @@ function ProgressBar({ currentStep, totalSteps }: { currentStep: number; totalSt
   const progress = ((currentStep - 1) / (totalSteps - 1)) * 100;
 
   return (
-    <div className="h-1 w-full rounded-full bg-[#1a1a1a] overflow-hidden">
+    <div className="h-1 w-full rounded-full bg-line overflow-hidden">
       <div
         className="h-full rounded-full bg-inari-accent transition-all duration-500 ease-out"
         style={{ width: `${progress}%` }}
@@ -201,14 +201,14 @@ function IntegrationCard({
   }
 
   return (
-    <div className="rounded-xl border border-inari-border bg-[#0a0a0a] transition-all">
+    <div className="rounded-xl border border-line bg-surface transition-all">
       {/* Header (clickable to expand) */}
       <button
         type="button"
         onClick={() => { setExpanded(!expanded); setError(""); }}
-        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-white/[0.02]"
+        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-border bg-zinc-900 text-zinc-300 shrink-0">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-zinc-900 text-zinc-300 shrink-0">
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
@@ -224,7 +224,7 @@ function IntegrationCard({
 
       {/* Expanded token input */}
       {expanded && (
-        <div className="border-t border-inari-border px-4 pb-4 pt-3 space-y-3">
+        <div className="border-t border-line px-4 pb-4 pt-3 space-y-3">
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
               {service.tokenLabel}
@@ -244,7 +244,7 @@ function IntegrationCard({
             onChange={(e) => setToken(e.target.value)}
             placeholder={service.placeholder}
             autoComplete="off"
-            className="w-full rounded-lg border border-[#222] bg-[#111] px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+            className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
           />
 
           {error && (
@@ -399,7 +399,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 <FolderPlus className="h-7 w-7 text-inari-accent" />
               </div>
 
-              <h2 className="text-xl font-semibold text-white mb-2">
+              <h2 className="text-xl font-semibold text-fg-strong mb-2">
                 Welcome, {userName}
               </h2>
               <p className="text-sm text-zinc-500 mb-8 max-w-sm">
@@ -420,7 +420,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                     onKeyDown={handleKeyDown}
                     placeholder="my-app"
                     autoFocus
-                    className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                    className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
                   />
                   {projectName.trim() && (
                     <p className="mt-1.5 text-xs text-zinc-600">
@@ -465,7 +465,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
           {/* ── Step 2: Connect Integrations ────────────────────────────────── */}
           <StepContainer active={currentStep === 2}>
             <div className="flex flex-col items-center text-center">
-              <h2 className="text-xl font-semibold text-white mb-2">
+              <h2 className="text-xl font-semibold text-fg-strong mb-2">
                 Connect your services
               </h2>
               <p className="text-sm text-zinc-500 mb-6 max-w-sm">
@@ -520,7 +520,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 <Bell className="h-7 w-7 text-inari-accent" />
               </div>
 
-              <h2 className="text-xl font-semibold text-white mb-2">
+              <h2 className="text-xl font-semibold text-fg-strong mb-2">
                 Stay in the loop
               </h2>
               <p className="text-sm text-zinc-500 mb-8 max-w-sm">
@@ -530,8 +530,8 @@ export function OnboardingWizard({ userName }: { userName: string }) {
 
               <div className="w-full max-w-sm space-y-3 mb-8">
                 {/* Telegram card */}
-                <div className="flex items-center gap-3 rounded-xl border border-inari-border bg-[#0a0a0a] p-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-border bg-zinc-900 text-zinc-400 shrink-0">
+                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-zinc-900 text-zinc-400 shrink-0">
                     <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-1.99 1.27-5.62 3.72-.53.36-1.01.54-1.44.53-.47-.01-1.38-.27-2.06-.49-.83-.27-1.49-.42-1.43-.88.03-.24.37-.49 1.02-.75 3.99-1.73 6.65-2.87 7.97-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.53.17.14.12.18.28.2.45-.01.06.01.24 0 .38z" />
                     </svg>
@@ -543,8 +543,8 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 </div>
 
                 {/* Email card */}
-                <div className="flex items-center gap-3 rounded-xl border border-inari-border bg-[#0a0a0a] p-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-border bg-zinc-900 text-zinc-400 shrink-0">
+                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-zinc-900 text-zinc-400 shrink-0">
                     <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
                       <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
                     </svg>
@@ -587,7 +587,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 <Sparkles className="h-8 w-8 text-inari-accent" />
               </div>
 
-              <h2 className="text-2xl font-semibold text-white mb-2">
+              <h2 className="text-2xl font-semibold text-fg-strong mb-2">
                 You&apos;re all set!
               </h2>
               <p className="text-sm text-zinc-500 mb-2 max-w-sm">

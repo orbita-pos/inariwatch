@@ -1,20 +1,20 @@
 {
-  "name": "Kairo — Developer Monitoring",
-  "short_name": "Kairo",
-  "description": "Proactive alerts for GitHub, Vercel, Sentry and more.",
-  "start_url": "/dashboard",
+  "name": "InariWatch — Developer Monitoring",
+  "short_name": "InariWatch",
+  "description": "Proactive alerts for GitHub, Vercel, Sentry and more. One intelligent alert instead of six.",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",
-  "theme_color": "#7C3AED",
+  "theme_color": "#09090b",
   "icons": [
     {
-      "src": "/logo-kairo/web-app-manifest-192x192.png",
+      "src": "/logo-inari/web-app-manifest-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/logo-kairo/web-app-manifest-512x512.png",
+      "src": "/logo-inari/web-app-manifest-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

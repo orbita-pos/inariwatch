@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /alerts/
+Disallow: /integrations/
+Disallow: /projects/
+Disallow: /settings/
+Disallow: /chat/
+
+Sitemap: https://inariwatch.com/sitemap.xml

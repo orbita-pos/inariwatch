@@ -1,10 +1,11 @@
-import { db, notificationChannels, notificationLogs, notificationQueue, projects, severityMeetsMinimum } from "@/lib/db";
-import { eq, and, lte, asc } from "drizzle-orm";
+import { db, notificationChannels, notificationLogs, notificationQueue, alerts as alertsTable, projects, severityMeetsMinimum } from "@/lib/db";
+import { eq, and, lte, asc, inArray } from "drizzle-orm";
 import { sendTelegram } from "./telegram";
 import { sendSlack } from "./slack";
 import { sendPushNotification } from "./push";
 import { sendEmail } from "./email";
 import { checkEmailRateLimit, isEmailSuppressed } from "./rate-limit";
+import { formatBatchDigestEmail } from "./digest-email";
 import { signValue } from "@/lib/webhooks/shared";
 import { decryptConfig } from "@/lib/crypto";
 import type { Alert } from "@/lib/db";
@@ -99,7 +100,7 @@ function formatAlertEmail(
           <!-- Header -->
           <tr>
             <td align="center" style="padding-bottom: 32px;">
-              <span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #7C3AED;">KAIRO</span>
+              <span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #e63946;">INARIWATCH</span>
             </td>
           </tr>
 
@@ -149,7 +150,7 @@ function formatAlertEmail(
             <td align="center" style="padding: 28px 0 0 0;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td align="center" style="background-color: #7C3AED; border-radius: 24px;">
+                  <td align="center" style="background-color: #e63946; border-radius: 24px;">
                     <a href="${dashboardUrl}" target="_blank" style="display: inline-block; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #ffffff; padding: 12px 32px; text-decoration: none;">View in InariWatch</a>
                   </td>
                 </tr>
@@ -164,7 +165,7 @@ function formatAlertEmail(
                 <tr>
                   <td style="border-top: 1px solid #1e1e22; padding-top: 24px; text-align: center;">
                     <p style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; color: #3f3f46; margin: 0 0 6px 0;">
-                      <span style="color: #7C3AED; font-weight: 600; letter-spacing: 1px;">KAIRO</span> &nbsp;&mdash;&nbsp; Proactive developer monitoring
+                      <span style="color: #e63946; font-weight: 600; letter-spacing: 1px;">INARIWATCH</span> &nbsp;&mdash;&nbsp; Proactive developer monitoring
                     </p>
                     <a href="${unsubscribeUrl}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 11px; color: #52525b; text-decoration: underline;">
                       Unsubscribe from email alerts
@@ -187,8 +188,14 @@ function formatAlertEmail(
 // ── Queue-based notification system ─────────────────────────────────────────
 
 /**
- * Enqueue notifications for a new alert. Does NOT send them immediately.
- * Priority is derived from alert severity (critical=0, warning=1, info=2).
+ * Enqueue notifications for a new alert.
+ *
+ * Smart email routing:
+ * - Push / Telegram / Slack → always immediate (free channels)
+ * - Email + critical severity → immediate (never delay a critical alert)
+ * - Email + non-critical → status "digest" (batched every cron cycle, ~5 min)
+ *
+ * This reduces email volume by ~75% while guaranteeing zero-delay on critical.
  */
 export async function enqueueAlert(alert: Alert): Promise<number> {
   const [project] = await db
@@ -210,12 +217,16 @@ export async function enqueueAlert(alert: Alert): Promise<number> {
   if (activeChannels.length === 0) return 0;
 
   const priority = SEVERITY_PRIORITY[alert.severity] ?? 1;
+  const isCritical = alert.severity === "critical";
 
   for (const channel of activeChannels) {
+    // Email non-critical → digest batch; everything else → immediate
+    const isDigest = channel.type === "email" && !isCritical;
+
     await db.insert(notificationQueue).values({
       alertId: alert.id,
       channelId: channel.id,
-      status: "pending",
+      status: isDigest ? "digest" : "pending",
       priority,
     });
   }
@@ -437,6 +448,180 @@ async function markQueueItem(id: string, status: string, error?: string) {
     .update(notificationQueue)
     .set({ status, error })
     .where(eq(notificationQueue.id, id));
+}
+
+// ── Email digest processor ───────────────────────────────────────────────────
+
+/**
+ * Process batched email notifications.
+ *
+ * Groups all "digest" queue items by channel (= same user email),
+ * renders ONE digest email per user with all pending alerts,
+ * and sends it. Runs every cron cycle (~5 min).
+ *
+ * Result: user gets max 1 email per 5 minutes instead of N individual emails.
+ * Critical alerts bypass this entirely and are sent immediately.
+ */
+export async function processEmailDigests(): Promise<{ sent: number; failed: number }> {
+  let sent = 0;
+  let failed = 0;
+
+  // Fetch all digest-pending email items
+  const items = await db
+    .select()
+    .from(notificationQueue)
+    .where(eq(notificationQueue.status, "digest"))
+    .orderBy(asc(notificationQueue.priority), asc(notificationQueue.createdAt))
+    .limit(200);
+
+  if (items.length === 0) return { sent: 0, failed: 0 };
+
+  // Group by channelId (one email per user channel)
+  const byChannel = new Map<string, typeof items>();
+  for (const item of items) {
+    const group = byChannel.get(item.channelId) ?? [];
+    group.push(item);
+    byChannel.set(item.channelId, group);
+  }
+
+  for (const [channelId, queueItems] of byChannel) {
+    // Load channel
+    const [channel] = await db
+      .select()
+      .from(notificationChannels)
+      .where(eq(notificationChannels.id, channelId))
+      .limit(1);
+
+    if (!channel || !channel.isActive || channel.type !== "email") {
+      const ids = queueItems.map((q) => q.id);
+      await db
+        .update(notificationQueue)
+        .set({ status: "failed", error: "Channel inactive or not email" })
+        .where(inArray(notificationQueue.id, ids));
+      failed += ids.length;
+      continue;
+    }
+
+    const config = decryptConfig(channel.config) as Record<string, string>;
+
+    // Check suppression
+    if (await isEmailSuppressed(config.email)) {
+      const ids = queueItems.map((q) => q.id);
+      await db
+        .update(notificationQueue)
+        .set({ status: "failed", error: "Email suppressed" })
+        .where(inArray(notificationQueue.id, ids));
+      failed += ids.length;
+      continue;
+    }
+
+    // Check rate limit
+    const [project] = await db
+      .select({ userId: projects.userId })
+      .from(projects)
+      .innerJoin(alertsTable, eq(alertsTable.projectId, projects.id))
+      .where(eq(alertsTable.id, queueItems[0].alertId))
+      .limit(1);
+
+    if (project) {
+      const rateCheck = await checkEmailRateLimit(project.userId);
+      if (!rateCheck.allowed) {
+        // Reschedule — will be picked up next cron cycle
+        continue;
+      }
+    }
+
+    // Load all alerts for this batch
+    const alertIds = queueItems.map((q) => q.alertId);
+    const digestAlerts = await db
+      .select()
+      .from(alertsTable)
+      .where(inArray(alertsTable.id, alertIds));
+
+    if (digestAlerts.length === 0) {
+      const ids = queueItems.map((q) => q.id);
+      await db
+        .update(notificationQueue)
+        .set({ status: "failed", error: "No alerts found" })
+        .where(inArray(notificationQueue.id, ids));
+      failed += ids.length;
+      continue;
+    }
+
+    // Load project names for the alerts
+    const projectIds = [...new Set(digestAlerts.map((a) => a.projectId))];
+    const projectRows = await db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(inArray(projects.id, projectIds));
+    const projectMap = new Map(projectRows.map((p) => [p.id, p.name]));
+
+    // Pre-create log entry for tracking
+    const [logEntry] = await db
+      .insert(notificationLogs)
+      .values({
+        alertId: digestAlerts[0].id, // reference first alert
+        channelId,
+        status: "pending",
+      })
+      .returning();
+
+    // Build and send
+    const unsubToken = signValue(config.email.toLowerCase());
+    const unsubscribeUrl = `${APP_URL}/api/notifications/unsubscribe?email=${encodeURIComponent(config.email)}&token=${unsubToken}`;
+
+    let subject: string;
+    let html: string;
+
+    if (digestAlerts.length === 1) {
+      // Single alert — use individual email format
+      const alert = digestAlerts[0];
+      subject = `[${alert.severity.toUpperCase()}] ${alert.title}`;
+      html = formatAlertEmail(alert, projectMap.get(alert.projectId) ?? "Unknown", unsubscribeUrl, logEntry.id);
+    } else {
+      // Multiple alerts — use batch digest format
+      const criticalCount = digestAlerts.filter((a) => a.severity === "critical").length;
+      subject = `${digestAlerts.length} new alerts${criticalCount > 0 ? ` (${criticalCount} critical)` : ""}`;
+      html = formatBatchDigestEmail(
+        digestAlerts.map((a) => ({
+          id: a.id,
+          title: a.title,
+          severity: a.severity,
+          project: projectMap.get(a.projectId) ?? "Unknown",
+          createdAt: a.createdAt,
+        })),
+        unsubscribeUrl,
+        logEntry.id
+      );
+    }
+
+    const result = await sendEmail({ email: config.email }, subject, html, { unsubscribeUrl });
+
+    const ids = queueItems.map((q) => q.id);
+    if (result.ok) {
+      await db
+        .update(notificationQueue)
+        .set({ status: "sent" })
+        .where(inArray(notificationQueue.id, ids));
+      await db
+        .update(notificationLogs)
+        .set({ status: "sent", sentAt: new Date() })
+        .where(eq(notificationLogs.id, logEntry.id));
+      sent += ids.length;
+    } else {
+      await db
+        .update(notificationQueue)
+        .set({ status: "failed", error: result.error })
+        .where(inArray(notificationQueue.id, ids));
+      await db
+        .update(notificationLogs)
+        .set({ status: "failed", error: result.error })
+        .where(eq(notificationLogs.id, logEntry.id));
+      failed += ids.length;
+    }
+  }
+
+  return { sent, failed };
 }
 
 // ── Legacy sync method (kept for backwards compat, now uses queue) ──────────
