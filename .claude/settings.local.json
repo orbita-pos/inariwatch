@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd:*)",
+      "WebFetch(domain:vercel.com)",
+      "WebFetch(domain:geist.vercel.app)",
+      "Bash(grep:*)",
+      "WebFetch(domain:openclaw.ai)",
+      "Bash(curl:*)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:docs.sentry.io)",
+      "WebFetch(domain:docs.vercel.com)",
+      "WebSearch",
+      "Bash(cargo install:*)",
+      "Bash(cargo tauri:*)",
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(mkdir:*)",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(find:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

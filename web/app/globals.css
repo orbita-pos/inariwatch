@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+    background-color: #09090b;
+    color: #e4e4e7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+  /* Focus ring */
+  :focus-visible {
+    outline: 2px solid rgba(124, 58, 237, 0.5);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-accent {
+    background: linear-gradient(135deg, #7C3AED 0%, #9F67FF 60%, #B794F6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Glow effects */
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.2), 0 0 60px rgba(124, 58, 237, 0.08);
+  }
+
+  .glow-accent-sm {
+    box-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
+  }
+
+  .glow-accent-text {
+    text-shadow: 0 0 24px rgba(124, 58, 237, 0.6);
+  }
+
+  /* Grid pattern background */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Radial gradient mask */
+  .bg-radial-fade {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(124,58,237,0.07) 0%, transparent 70%);
+  }
+
+  /* Terminal cursor blink */
+  .cursor::after {
+    content: "▋";
+    animation: blink 1s step-end infinite;
+    color: #7C3AED;
+  }
+
+  /* InariWatch logo dot pulse ring */
+  .inari-dot {
+    position: relative;
+    display: inline-block;
+    line-height: 1;
+  }
+
+  .inari-dot::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1px solid rgba(124, 58, 237, 0.5);
+    animation: inari-ring 2.5s ease-out infinite;
+    pointer-events: none;
+  }
+
+  /* InariWatch concentric circles background */
+  .inari-visual {
+    position: relative;
+    width: 700px;
+    height: 700px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, transparent 19.5%, rgba(124,58,237,0.06) 20%, transparent 20.5%),
+      radial-gradient(circle, transparent 34.5%, rgba(124,58,237,0.05) 35%, transparent 35.5%),
+      radial-gradient(circle, transparent 49.5%, rgba(124,58,237,0.04) 50%, transparent 50.5%),
+      radial-gradient(circle, transparent 64.5%, rgba(124,58,237,0.03) 65%, transparent 65.5%),
+      radial-gradient(circle, transparent 79.5%, rgba(124,58,237,0.02) 80%, transparent 80.5%);
+    flex-shrink: 0;
+  }
+
+  .inari-visual::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg 320deg,
+      rgba(124, 58, 237, 0.07) 320deg 350deg,
+      rgba(124, 58, 237, 0.02) 350deg 360deg
+    );
+    animation: inari-spin 8s linear infinite;
+  }
+}
+
+/* Keyframes */
+@keyframes inari-ring {
+  0%   { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+@keyframes inari-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

@@ -1,0 +1,24 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Environment variables — NEVER commit ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Next.js ───────────────────────────────────────────────────────────────────
+web/.next/
+web/out/
+web/dist/
+
+# ── Rust / CLI & Desktop ──────────────────────────────────────────────────────
+cli/target/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Drizzle ───────────────────────────────────────────────────────────────────
+web/lib/db/migrations/meta/
