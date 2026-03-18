@@ -14,36 +14,36 @@ export const authOptions: NextAuthOptions = {
 
   providers: [
     GitHubProvider({
-      clientId:     process.env.GITHUB_CLIENT_ID!,
+      clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
     }),
 
     // Google OAuth (optional — only enabled if env vars are set)
     ...(process.env.GOOGLE_CLIENT_ID
       ? [
-          GoogleProvider({
-            clientId:     process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-          }),
-        ]
+        GoogleProvider({
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        }),
+      ]
       : []),
 
     // GitLab OAuth (optional — only enabled if env vars are set)
     ...(process.env.GITLAB_CLIENT_ID
       ? [
-          GitLabProvider({
-            clientId:     process.env.GITLAB_CLIENT_ID,
-            clientSecret: process.env.GITLAB_CLIENT_SECRET!,
-          }),
-        ]
+        GitLabProvider({
+          clientId: process.env.GITLAB_CLIENT_ID,
+          clientSecret: process.env.GITLAB_CLIENT_SECRET!,
+        }),
+      ]
       : []),
 
     CredentialsProvider({
       name: "credentials",
       credentials: {
-        email:    { label: "Email",    type: "email" },
+        email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        totp:     { label: "2FA Code", type: "text" },
+        totp: { label: "2FA Code", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -104,24 +104,26 @@ export const authOptions: NextAuthOptions = {
         const email = token.email;
         if (!email) return token;
 
-        let [dbUser] = await db
+        const result = await db
           .select()
           .from(users)
           .where(eq(users.email, email))
           .limit(1);
 
+        let dbUser = result[0];
+
         if (!dbUser) {
-          const [inserted] = await db
+          const insertedResult = await db
             .insert(users)
             .values({
               email,
               name: token.name ?? null,
             })
             .returning();
-          dbUser = inserted;
+
+          dbUser = (insertedResult as typeof users.$inferSelect[])[0];
         }
 
-        // Store OUR UUID (not GitHub's numeric id) in the token
         token.id = dbUser.id;
       }
 
@@ -145,7 +147,7 @@ export const authOptions: NextAuthOptions = {
   },
 
   pages: {
-    signIn:  "/login",
+    signIn: "/login",
     signOut: "/signout",
   },
 };
