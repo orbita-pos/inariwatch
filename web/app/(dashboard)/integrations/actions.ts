@@ -257,7 +257,7 @@ export async function connectIntegration(
 
 export async function saveAlertConfig(
   integrationId: string,
-  alertConfig: Record<string, Record<string, unknown>>
+  alertConfig: Record<string, unknown>
 ): Promise<void> {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string })?.id;
@@ -313,4 +313,64 @@ export async function disconnectIntegration(integrationId: string): Promise<void
   logAudit({ userId, action: "integration.disconnect", resource: "integration", resourceId: integrationId });
   revalidatePath("/integrations");
   revalidatePath("/dashboard");
+}
+
+export async function fetchIntegrationOptions(
+  integrationId: string
+): Promise<{ label: string; value: string }[]> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return [];
+
+  const [integ] = await db
+    .select({ service: projectIntegrations.service, configEncrypted: projectIntegrations.configEncrypted, projectId: projectIntegrations.projectId })
+    .from(projectIntegrations)
+    .where(eq(projectIntegrations.id, integrationId))
+    .limit(1);
+  if (!integ) return [];
+
+  // Verify ownership
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, integ.projectId), eq(projects.userId, userId)))
+    .limit(1);
+  if (!project) return [];
+
+  const cfg = decryptConfig(integ.configEncrypted);
+  const token = cfg.token as string;
+
+  try {
+    if (integ.service === "github") {
+      const res = await fetch(
+        "https://api.github.com/user/repos?affiliation=owner,collaborator&per_page=50&sort=pushed",
+        {
+          headers: { Authorization: `Bearer ${token}`, "User-Agent": "InariWatch-Monitor/1.0" },
+        }
+      );
+      if (!res.ok) return [];
+      const repos: { full_name: string; name: string }[] = await res.json();
+      return repos.map((r) => ({ label: r.full_name, value: r.full_name }));
+    }
+    if (integ.service === "vercel") {
+      const teamId = cfg.teamId as string | undefined;
+      const teamQuery = teamId ? `?teamId=${teamId}` : "";
+      const res = await fetch(`https://api.vercel.com/v9/projects${teamQuery}&limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return [];
+      const data: { projects: { name: string }[] } = await res.json();
+      return (data.projects ?? []).map((p) => ({ label: p.name, value: p.name }));
+    }
+    if (integ.service === "sentry") {
+      const org = cfg.org as string;
+      const res = await fetch(`https://sentry.io/api/0/organizations/${org}/projects/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return [];
+      const sentryProjects: { slug: string; name: string }[] = await res.json();
+      return sentryProjects.map((p) => ({ label: p.name, value: p.slug }));
+    }
+  } catch { /* ignore */ }
+  return [];
 }

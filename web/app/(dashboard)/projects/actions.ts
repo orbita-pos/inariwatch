@@ -39,9 +39,10 @@ export async function createProject(
       .replace(/[^a-z0-9-]/g, "")
       .slice(0, 48);
 
-    const description = (formData.get("description") as string)?.trim() || null;
+    const description    = (formData.get("description") as string)?.trim() || null;
+    const organizationId = (formData.get("organizationId") as string)?.trim() || null;
 
-    await db.insert(projects).values({ userId, name, slug, description });
+    await db.insert(projects).values({ userId, name, slug, description, organizationId });
 
     revalidatePath("/projects");
     revalidatePath("/integrations");

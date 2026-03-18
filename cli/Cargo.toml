@@ -1,11 +1,11 @@
 [package]
-name = "kairo"
+name = "inariwatch"
 version = "0.1.0"
 edition = "2021"
 description = "Proactive developer monitoring orchestrator"
 
 [[bin]]
-name = "kairo"
+name = "inariwatch"
 path = "src/main.rs"
 
 [dependencies]

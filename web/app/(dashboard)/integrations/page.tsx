@@ -1,7 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, projects, projectIntegrations } from "@/lib/db";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, isNull, and } from "drizzle-orm";
+import { getActiveOrgId } from "@/lib/workspace";
 import { formatRelativeTime } from "@/lib/utils";
 import {
   CheckCircle2, XCircle, Clock, Plus,
@@ -83,8 +84,12 @@ export default async function IntegrationsPage() {
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
 
+  const activeOrgId = await getActiveOrgId();
+
   const userProjects = userId
-    ? await db.select().from(projects).where(eq(projects.userId, userId))
+    ? activeOrgId
+      ? await db.select().from(projects).where(eq(projects.organizationId, activeOrgId))
+      : await db.select().from(projects).where(and(eq(projects.userId, userId), isNull(projects.organizationId)))
     : [];
 
   const projectIds     = userProjects.map((p) => p.id);
@@ -109,7 +114,7 @@ export default async function IntegrationsPage() {
             Connect your services. InariWatch polls them every 5 minutes and surfaces alerts automatically.
           </p>
         </div>
-        <CreateProjectModal>
+        <CreateProjectModal organizationId={activeOrgId}>
           <Button variant="primary" size="sm" className="shrink-0 gap-1.5">
             <Plus className="h-3.5 w-3.5" /> New project
           </Button>
@@ -128,7 +133,7 @@ export default async function IntegrationsPage() {
               Create a project to start connecting integrations.
             </p>
           </div>
-          <CreateProjectModal>
+          <CreateProjectModal organizationId={activeOrgId}>
             <Button variant="primary" size="sm" className="mt-1 gap-1.5">
               <Plus className="h-3.5 w-3.5" /> Create first project
             </Button>

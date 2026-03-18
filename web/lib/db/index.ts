@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { eq, or, inArray } from "drizzle-orm";
+import { eq, or, inArray, and, isNull } from "drizzle-orm";
 import * as schema from "./schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -43,6 +43,29 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 }
 
 /**
+ * Returns project IDs scoped to the active workspace.
+ * - orgId = null → personal workspace (only user-owned projects without an org)
+ * - orgId = uuid → org workspace (only projects belonging to that org)
+ */
+export async function getWorkspaceProjectIds(userId: string, orgId: string | null): Promise<string[]> {
+  if (orgId === null) {
+    // Personal: projects owned by user with no organizationId
+    const rows = await db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.userId, userId), isNull(schema.projects.organizationId)));
+    return rows.map((r) => r.id);
+  } else {
+    // Org workspace: all projects in this org
+    const rows = await db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(eq(schema.projects.organizationId, orgId));
+    return rows.map((r) => r.id);
+  }
+}
+
+/**
  * Returns organizations the user owns or is a member of.
  */
 export async function getUserOrganizations(userId: string) {
@@ -73,9 +96,8 @@ export async function getUserOrganizations(userId: string) {
 // ── Plan limits ──────────────────────────────────────────────────────────────
 
 export const PLAN_LIMITS: Record<string, { maxProjects: number; maxIntegrations: number; pollIntervalLabel: string }> = {
-  free: { maxProjects: 2, maxIntegrations: 3, pollIntervalLabel: "Every 30 min" },
+  free: { maxProjects: 1, maxIntegrations: 2, pollIntervalLabel: "Every 30 min" },
   pro:  { maxProjects: 10, maxIntegrations: 20, pollIntervalLabel: "Every 5 min" },
-  team: { maxProjects: 50, maxIntegrations: 100, pollIntervalLabel: "Every 5 min" },
 };
 
 // ── Severity ordering ────────────────────────────────────────────────────────

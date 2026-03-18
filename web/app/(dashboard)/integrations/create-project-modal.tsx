@@ -6,7 +6,7 @@ import { X, FolderPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createProject } from "../projects/actions";
 
-export function CreateProjectModal({ children }: { children: React.ReactNode }) {
+export function CreateProjectModal({ children, organizationId }: { children: React.ReactNode; organizationId?: string | null }) {
   const [open, setOpen]    = useState(false);
   const [error, setError]  = useState("");
   const [isPending, start] = useTransition();
@@ -15,6 +15,7 @@ export function CreateProjectModal({ children }: { children: React.ReactNode }) 
     e.preventDefault();
     setError("");
     const formData = new FormData(e.currentTarget);
+    if (organizationId) formData.set("organizationId", organizationId);
     start(async () => {
       const result = await createProject(formData);
       if (result.error) setError(result.error);

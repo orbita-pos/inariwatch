@@ -16,14 +16,14 @@ import { WebhookSection } from "./webhook-section";
 import { AuditLogSection } from "./audit-log-section";
 import { TwoFactorSection } from "./two-factor";
 import { AIKeySection } from "./ai-key";
+import { ProGate } from "@/components/pro-gate";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Settings" };
 
 const PLAN_BADGE: Record<string, { label: string; color: string }> = {
-  free:  { label: "Free",  color: "text-zinc-400 border-zinc-800 bg-zinc-900/60" },
-  pro:   { label: "Pro",   color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
-  team:  { label: "Team",  color: "text-violet-400 border-violet-900/50 bg-violet-950/30" },
+  free: { label: "Free", color: "text-zinc-400 border-zinc-800 bg-zinc-900/60" },
+  pro:  { label: "Pro",  color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
 };
 
 const CHANNEL_ICON: Record<string, React.ElementType> = {
@@ -48,9 +48,13 @@ export default async function SettingsPage() {
     : [[], [], [], [], []];
 
   const user       = userRows[0];
+  const isPro      = user?.plan === "pro";
   const desktopKey = keys.find((k) => k.service === "desktop");
-  const AI_SERVICES = ["claude", "openai", "grok", "deepseek", "gemini"];
-  const aiKeyRow   = keys.find((k) => AI_SERVICES.includes(k.service)) ?? null;
+  const AI_PRIORITY: Record<string, number> = { claude: 0, openai: 1, grok: 2, deepseek: 3, gemini: 4 };
+  const AI_SERVICES = Object.keys(AI_PRIORITY);
+  const aiKeyRow = keys
+    .filter((k) => AI_SERVICES.includes(k.service))
+    .sort((a, b) => (AI_PRIORITY[a.service] ?? 99) - (AI_PRIORITY[b.service] ?? 99))[0] ?? null;
   const plan       = PLAN_BADGE[user?.plan ?? "free"] ?? PLAN_BADGE.free;
 
   return (
@@ -89,6 +93,7 @@ export default async function SettingsPage() {
       </Section>
 
       {/* ── Notifications ────────────────────────────────────────────────── */}
+      <ProGate isPro={isPro} feature="Notification channels">
       <Section title="Notification channels">
         {channels.length === 0 ? (
           <div className="py-4 space-y-3">
@@ -151,6 +156,7 @@ export default async function SettingsPage() {
           </div>
         )}
       </Section>
+      </ProGate>
 
       {/* ── API Keys ─────────────────────────────────────────────────────── */}
       <Section title="API keys">
@@ -178,6 +184,7 @@ export default async function SettingsPage() {
       </Section>
 
       {/* ── Desktop app ──────────────────────────────────────────────────── */}
+      <ProGate isPro={isPro} feature="Desktop app">
       <Section title="Desktop app">
         <div className="py-3 space-y-3">
           <div className="flex items-start gap-3">
@@ -211,15 +218,19 @@ export default async function SettingsPage() {
           )}
         </div>
       </Section>
+      </ProGate>
 
       {/* ── AI analysis ──────────────────────────────────────────────────── */}
+      <ProGate isPro={isPro} feature="AI analysis">
       <Section title="AI analysis">
         <AIKeySection
           hasKey={!!aiKeyRow}
           provider={aiKeyRow?.service ?? null}
+          savedProviders={keys.filter((k) => AI_SERVICES.includes(k.service)).map((k) => k.service)}
           modelPrefs={user?.aiModels as Record<string, string> | null}
         />
       </Section>
+      </ProGate>
 
       {/* ── Security ─────────────────────────────────────────────────────── */}
       <Section title="Security">
@@ -227,14 +238,18 @@ export default async function SettingsPage() {
       </Section>
 
       {/* ── Outgoing webhooks ────────────────────────────────────────────── */}
+      <ProGate isPro={isPro} feature="Outgoing webhooks">
       <Section title="Outgoing webhooks">
         <WebhookSection webhooks={webhooks} />
       </Section>
+      </ProGate>
 
       {/* ── Audit log ────────────────────────────────────────────────────── */}
+      <ProGate isPro={isPro} feature="Audit log">
       <Section title="Audit log">
         <AuditLogSection entries={auditEntries} />
       </Section>
+      </ProGate>
 
       {/* ── Danger zone ──────────────────────────────────────────────────── */}
       <Section title="Danger zone">

@@ -11,7 +11,7 @@ pub async fn run(
     let mut cfg = config::load()?;
 
     if show || (ai_key.is_none() && model.is_none()) {
-        println!("{}", "kairo config".bold());
+        println!("{}", "inariwatch config".bold());
         println!();
 
         let key_display = cfg.global.ai_key.as_ref().map_or_else(

@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, getUserProjectIds } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, getWorkspaceProjectIds } from "@/lib/db";
+import { getActiveOrgId } from "@/lib/workspace";
 import { eq, desc, inArray } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { ArrowUpRight } from "lucide-react";
@@ -35,7 +36,7 @@ export default async function DashboardPage() {
 
   if (userId && userProjects.length === 0) redirect("/onboarding");
 
-  const projectIds = userId ? await getUserProjectIds(userId) : userProjects.map((p) => p.id);
+  const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : userProjects.map((p) => p.id);
 
   const [recentAlerts, integrationRows] =
     projectIds.length > 0

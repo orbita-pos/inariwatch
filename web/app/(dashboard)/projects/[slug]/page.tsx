@@ -19,6 +19,7 @@ import { MembersSection } from "./members";
 import { MaintenanceSection } from "./maintenance";
 import { EscalationSection } from "./escalation";
 import { StatusPageSection } from "./status-page";
+import { ProGate } from "@/components/pro-gate";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Project" };
@@ -63,12 +64,14 @@ export default async function ProjectDetailPage({
     isAdmin = member.role === "admin";
   }
 
-  // Get owner info
+  // Get owner info + plan (plan gates Pro features for the project)
   const [owner] = await db
-    .select({ id: users.id, name: users.name, email: users.email })
+    .select({ id: users.id, name: users.name, email: users.email, plan: users.plan })
     .from(users)
     .where(eq(users.id, project.userId))
     .limit(1);
+
+  const isPro = owner?.plan === "pro";
 
   // Get members with user info
   const members = await db
@@ -145,24 +148,26 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
-      <MembersSection
-        projectId={project.id}
-        isAdmin={isAdmin}
-        owner={owner ? { name: owner.name, email: owner.email } : null}
-        members={members.map((m) => ({
-          id: m.id,
-          name: m.userName,
-          email: m.userEmail,
-          role: m.role,
-          acceptedAt: m.acceptedAt,
-        }))}
-        pendingInvites={pendingInvites.map((i) => ({
-          id: i.id,
-          email: i.email,
-          role: i.role,
-          createdAt: i.createdAt,
-        }))}
-      />
+      <ProGate isPro={isPro} feature="Team members">
+        <MembersSection
+          projectId={project.id}
+          isAdmin={isAdmin}
+          owner={owner ? { name: owner.name, email: owner.email } : null}
+          members={members.map((m) => ({
+            id: m.id,
+            name: m.userName,
+            email: m.userEmail,
+            role: m.role,
+            acceptedAt: m.acceptedAt,
+          }))}
+          pendingInvites={pendingInvites.map((i) => ({
+            id: i.id,
+            email: i.email,
+            role: i.role,
+            createdAt: i.createdAt,
+          }))}
+        />
+      </ProGate>
 
       <MaintenanceSection
         projectId={project.id}
@@ -176,34 +181,38 @@ export default async function ProjectDetailPage({
         }))}
       />
 
-      <EscalationSection
-        projectId={project.id}
-        isAdmin={isAdmin}
-        rules={eRules.map((r) => ({
-          id: r.id,
-          channelId: r.channelId,
-          delaySec: r.delaySec,
-          minSeverity: r.minSeverity,
-          isActive: r.isActive,
-          createdAt: r.createdAt,
-        }))}
-        channels={userChannels.map((ch) => ({
-          id: ch.id,
-          type: ch.type,
-          config: ch.config as Record<string, string>,
-        }))}
-      />
+      <ProGate isPro={isPro} feature="Escalation rules">
+        <EscalationSection
+          projectId={project.id}
+          isAdmin={isAdmin}
+          rules={eRules.map((r) => ({
+            id: r.id,
+            channelId: r.channelId,
+            delaySec: r.delaySec,
+            minSeverity: r.minSeverity,
+            isActive: r.isActive,
+            createdAt: r.createdAt,
+          }))}
+          channels={userChannels.map((ch) => ({
+            id: ch.id,
+            type: ch.type,
+            config: ch.config as Record<string, string>,
+          }))}
+        />
+      </ProGate>
 
-      <StatusPageSection
-        projectId={project.id}
-        isAdmin={isAdmin}
-        statusPage={statusPage ? {
-          id: statusPage.id,
-          slug: statusPage.slug,
-          title: statusPage.title,
-          isPublic: statusPage.isPublic,
-        } : null}
-      />
+      <ProGate isPro={isPro} feature="Status page">
+        <StatusPageSection
+          projectId={project.id}
+          isAdmin={isAdmin}
+          statusPage={statusPage ? {
+            id: statusPage.id,
+            slug: statusPage.slug,
+            title: statusPage.title,
+            isPublic: statusPage.isPublic,
+          } : null}
+        />
+      </ProGate>
     </div>
   );
 }

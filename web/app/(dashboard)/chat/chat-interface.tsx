@@ -18,28 +18,42 @@ const SUGGESTIONS = [
 ];
 
 export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[] | null>(null);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Load from localStorage after hydration
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    try {
+      const stored = localStorage.getItem("inari-chat-history");
+      setMessages(stored ? JSON.parse(stored) : []);
+    } catch { setMessages([]); }
+  }, []);
+
+  // Persist to localStorage on every change
+  useEffect(() => {
+    if (messages === null) return;
+    try { localStorage.setItem("inari-chat-history", JSON.stringify(messages)); } catch { /* ignore */ }
   }, [messages]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (messages !== null) messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    if (messages !== null) inputRef.current?.focus();
+  }, [messages]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || isStreaming) return;
+    if (!text.trim() || isStreaming || messages === null) return;
 
     const userMsg: Message = { id: `u_${Date.now()}`, role: "user", content: text.trim() };
     const assistantMsg: Message = { id: `a_${Date.now()}`, role: "assistant", content: "" };
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setMessages((prev) => [...(prev ?? []), userMsg, assistantMsg]);
     setInput("");
     setIsStreaming(true);
 
@@ -57,7 +71,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
       if (!res.ok) {
         const err = await res.text();
         setMessages((prev) =>
-          prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: `Error: ${err}` } : m))
+          (prev ?? []).map((m) => (m.id === assistantMsg.id ? { ...m, content: `Error: ${err}` } : m))
         );
         setIsStreaming(false);
         return;
@@ -68,7 +82,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
       if (contentType.includes("application/json")) {
         const data = await res.json();
         setMessages((prev) =>
-          prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: data.content } : m))
+          (prev ?? []).map((m) => (m.id === assistantMsg.id ? { ...m, content: data.content } : m))
         );
         setIsStreaming(false);
         return;
@@ -97,14 +111,14 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
               const parsed = JSON.parse(data);
               if (parsed.content) {
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsg.id ? { ...m, content: m.content + parsed.content } : m
+                  (prev ?? []).map((m) =>
+                    m.id === assistantMsg.id ? { ...m, content: (m.content ?? "") + parsed.content } : m
                   )
                 );
               }
               if (parsed.error) {
                 setMessages((prev) =>
-                  prev.map((m) =>
+                  (prev ?? []).map((m) =>
                     m.id === assistantMsg.id ? { ...m, content: `Error: ${parsed.error}` } : m
                   )
                 );
@@ -116,7 +130,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setMessages((prev) =>
-          prev.map((m) =>
+          (prev ?? []).map((m) =>
             m.id === assistantMsg.id ? { ...m, content: "Connection failed. Please try again." } : m
           )
         );
@@ -144,16 +158,17 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
       setIsStreaming(false);
     }
     setMessages([]);
+    try { localStorage.removeItem("inari-chat-history"); } catch { /* ignore */ }
   }
 
   if (!hasAIKey) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center space-y-3">
           <MessageSquare className="h-10 w-10 text-zinc-700 mx-auto" />
           <h2 className="text-lg font-semibold text-fg-strong">Ask Inari</h2>
           <p className="text-sm text-zinc-500 max-w-sm">
-            Add a Claude or OpenAI API key in{" "}
+            Add an AI API key (Claude, OpenAI, DeepSeek, Grok, or Gemini) in{" "}
             <a href="/settings" className="text-inari-accent hover:underline">Settings</a>{" "}
             to chat with your monitoring data.
           </p>
@@ -162,8 +177,26 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
     );
   }
 
+  if (messages === null) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto min-h-0 py-4 space-y-4 px-2">
+          {[80, 55, 90, 60, 75].map((w, i) => (
+            <div key={i} className={`flex gap-3 ${i % 2 === 0 ? "" : "flex-row-reverse"}`}>
+              <div className="h-6 w-6 shrink-0 rounded-full bg-zinc-800 animate-pulse" />
+              <div className={`h-4 rounded-lg bg-zinc-800 animate-pulse`} style={{ width: `${w}%` }} />
+            </div>
+          ))}
+        </div>
+        <div className="shrink-0 border-t border-line pt-3 pb-3">
+          <div className="h-11 w-full rounded-xl bg-zinc-800 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <>
+    <div className="flex h-full flex-col overflow-hidden">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {messages.length === 0 ? (
@@ -228,9 +261,9 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-line pt-4 pb-2">
-        <form onSubmit={handleSubmit} className="relative">
-          <div className="flex items-end gap-2">
+      <div className="shrink-0 border-t border-line pt-3 pb-3">
+        <form onSubmit={handleSubmit}>
+          <div className="flex gap-2" style={{ alignItems: "stretch" }}>
             <div className="relative flex-1">
               <textarea
                 ref={inputRef}
@@ -240,8 +273,8 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 placeholder="Ask about your systems..."
                 disabled={isStreaming}
                 rows={1}
-                className="w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 pr-12 text-sm text-fg-strong placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-50 transition-colors"
-                style={{ maxHeight: "120px", minHeight: "44px" }}
+                className="w-full resize-none overflow-hidden rounded-xl border border-line bg-surface px-4 py-3 pr-12 text-sm text-fg-strong placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-50 transition-colors"
+                style={{ maxHeight: "120px", minHeight: "44px", display: "block" }}
                 onInput={(e) => {
                   const el = e.currentTarget;
                   el.style.height = "auto";
@@ -251,7 +284,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
               <button
                 type="submit"
                 disabled={!input.trim() || isStreaming}
-                className="absolute right-2 bottom-2 rounded-lg bg-inari-accent p-1.5 text-white disabled:opacity-30 hover:bg-inari-accent/80 transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg bg-inari-accent p-1.5 text-white disabled:opacity-30 hover:bg-inari-accent/80 transition-colors"
               >
                 {isStreaming ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -260,15 +293,17 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 )}
               </button>
             </div>
-            {messages.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClear}
-                className="shrink-0 rounded-lg border border-line p-3 text-zinc-600 hover:text-zinc-400 hover:border-zinc-600 transition-colors"
-                title="Clear chat"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+            {messages.length > 0 && messages !== null && (
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-zinc-600 hover:text-zinc-400 hover:border-zinc-600 transition-colors"
+                  title="Clear chat"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             )}
           </div>
         </form>
@@ -276,7 +311,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
           InariWatch AI queries your real monitoring data. Responses may not always be accurate.
         </p>
       </div>
-    </>
+    </div>
   );
 }
 

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, apiKeys } from "@/lib/db";
+import { db, apiKeys, users } from "@/lib/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { ProGate } from "@/components/pro-gate";
 import { ChatInterface } from "./chat-interface";
 
 export const metadata: Metadata = { title: "Ask Inari" };
@@ -13,17 +14,22 @@ export default async function ChatPage() {
   const userId  = (session?.user as { id?: string })?.id;
   if (!userId) redirect("/login");
 
-  const hasAIKey = (
+  const [userRow] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
+  const isPro = userRow?.plan === "pro";
+
+  const hasAIKey = isPro && (
     await db
       .select({ id: apiKeys.id })
       .from(apiKeys)
-      .where(and(eq(apiKeys.userId, userId), inArray(apiKeys.service, ["claude", "openai"])))
+      .where(and(eq(apiKeys.userId, userId), inArray(apiKeys.service, ["claude", "openai", "grok", "deepseek", "gemini"])))
       .limit(1)
   ).length > 0;
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-theme(spacing.16))] max-w-[780px] flex-col md:h-[calc(100vh-theme(spacing.8))]">
-      <ChatInterface hasAIKey={hasAIKey} />
+    <div className="mx-auto flex h-full max-w-[780px] flex-col">
+      <ProGate isPro={isPro} feature="Ask Inari">
+        <ChatInterface hasAIKey={hasAIKey} />
+      </ProGate>
     </div>
   );
 }

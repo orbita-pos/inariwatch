@@ -42,6 +42,7 @@ export function MarketingNav() {
           <Link href="#integrations" className="hover:text-white transition-colors">Integrations</Link>
           <Link href="#ai"           className="hover:text-white transition-colors">AI features</Link>
           <Link href="#pricing"      className="hover:text-white transition-colors">Pricing</Link>
+          <Link href="/docs"         className="hover:text-white transition-colors">Docs</Link>
         </div>
 
         <div className="flex items-center gap-3">

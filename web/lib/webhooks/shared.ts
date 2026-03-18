@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { db, alerts, projectIntegrations, maintenanceWindows } from "@/lib/db";
+import { db, alerts, projectIntegrations, projects, users, maintenanceWindows } from "@/lib/db";
 import { eq, and, gt, lte, gte } from "drizzle-orm";
 import { enqueueAlert } from "@/lib/notifications/send";
 import { dispatchOutgoingWebhooks } from "@/lib/webhooks/outgoing";
@@ -37,9 +37,14 @@ export function verifySignature(
  * Returns the integration row or null if not found / inactive.
  */
 export async function loadIntegration(integrationId: string) {
-  const [integ] = await db
-    .select()
+  const [row] = await db
+    .select({
+      integ: projectIntegrations,
+      userPlan: users.plan,
+    })
     .from(projectIntegrations)
+    .innerJoin(projects, eq(projectIntegrations.projectId, projects.id))
+    .innerJoin(users, eq(projects.userId, users.id))
     .where(
       and(
         eq(projectIntegrations.id, integrationId),
@@ -48,11 +53,12 @@ export async function loadIntegration(integrationId: string) {
     )
     .limit(1);
 
-  if (!integ) return null;
+  if (!row) return null;
   // Decrypt webhookSecret for signature verification
   return {
-    ...integ,
-    webhookSecret: integ.webhookSecret ? decrypt(integ.webhookSecret) : null,
+    ...row.integ,
+    webhookSecret: row.integ.webhookSecret ? decrypt(row.integ.webhookSecret) : null,
+    userPlan: row.userPlan,
   };
 }
 

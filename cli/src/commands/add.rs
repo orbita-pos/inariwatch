@@ -25,7 +25,7 @@ pub async fn run(integration: &str) -> Result<()> {
 // ── GitHub ────────────────────────────────────────────────────────────────────
 
 async fn add_github() -> Result<()> {
-    println!("{}", "kairo add github".bold());
+    println!("{}", "inariwatch add github".bold());
     println!("Connect your GitHub repository\n");
 
     let mut cfg = config::load()?;
@@ -65,14 +65,14 @@ async fn add_github() -> Result<()> {
     cfg.projects[idx].integrations.github = Some(gh_cfg);
     config::save(&cfg)?;
     println!("\n{} GitHub added to {}.", "✓".green(), cfg.projects[idx].name.bold());
-    println!("Run {} to start monitoring.", "kairo watch".cyan());
+    println!("Run {} to start monitoring.", "inariwatch watch".cyan());
     Ok(())
 }
 
 // ── Vercel ────────────────────────────────────────────────────────────────────
 
 async fn add_vercel() -> Result<()> {
-    println!("{}", "kairo add vercel".bold());
+    println!("{}", "inariwatch add vercel".bold());
     println!("Connect your Vercel project\n");
 
     let mut cfg = config::load()?;
@@ -106,7 +106,7 @@ async fn add_vercel() -> Result<()> {
             });
             config::save(&cfg)?;
             println!("\n{} Vercel added to {}.", "✓".green(), cfg.projects[idx].name.bold());
-            println!("Run {} to start monitoring.", "kairo watch".cyan());
+            println!("Run {} to start monitoring.", "inariwatch watch".cyan());
         }
         Err(e) => println!("{} {}", "✗".red(), e),
     }
@@ -116,7 +116,7 @@ async fn add_vercel() -> Result<()> {
 // ── Sentry ────────────────────────────────────────────────────────────────────
 
 async fn add_sentry() -> Result<()> {
-    println!("{}", "kairo add sentry".bold());
+    println!("{}", "inariwatch add sentry".bold());
     println!("Connect your Sentry project\n");
 
     let mut cfg = config::load()?;
@@ -150,14 +150,14 @@ async fn add_sentry() -> Result<()> {
     cfg.projects[idx].integrations.sentry = Some(sentry_cfg);
     config::save(&cfg)?;
     println!("\n{} Sentry added to {}.", "✓".green(), cfg.projects[idx].name.bold());
-    println!("Run {} to start monitoring.", "kairo watch".cyan());
+    println!("Run {} to start monitoring.", "inariwatch watch".cyan());
     Ok(())
 }
 
 // ── Git local ─────────────────────────────────────────────────────────────────
 
 async fn add_git() -> Result<()> {
-    println!("{}", "kairo add git".bold());
+    println!("{}", "inariwatch add git".bold());
     println!("Monitor your local git repository\n");
 
     let mut cfg = config::load()?;
@@ -217,6 +217,6 @@ async fn add_git() -> Result<()> {
     cfg.projects[idx].integrations.git = Some(git_cfg);
     config::save(&cfg)?;
     println!("\n{} Git monitoring added to {}.", "✓".green(), cfg.projects[idx].name.bold());
-    println!("Run {} to start monitoring.", "kairo watch".cyan());
+    println!("Run {} to start monitoring.", "inariwatch watch".cyan());
     Ok(())
 }

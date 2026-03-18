@@ -21,7 +21,7 @@ pub async fn run(channel: &str) -> Result<()> {
 }
 
 async fn connect_telegram() -> Result<()> {
-    println!("{}", "kairo connect telegram".bold());
+    println!("{}", "inariwatch connect telegram".bold());
     println!("Connect your Telegram bot\n");
 
     let mut cfg = config::load()?;

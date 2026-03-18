@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Sparkles, Trash2, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { saveAIKey, deleteAIKey, saveModelPreferences } from "./ai-key-actions";
+import { saveAIKey, deleteAIKeyByProvider, setActiveAIProvider, saveModelPreferences } from "./ai-key-actions";
 import {
   TASK_LABELS, CLAUDE_MODELS, OPENAI_MODELS, GROK_MODELS, DEEPSEEK_MODELS, GEMINI_MODELS,
   DEFAULT_MODEL_PREFS,
@@ -14,6 +14,7 @@ import type { AIProvider } from "@/lib/ai/client";
 interface Props {
   hasKey: boolean;
   provider: string | null;
+  savedProviders: string[];
   modelPrefs: Record<string, string> | null;
 }
 
@@ -58,7 +59,7 @@ function detectKeyProvider(key: string): AIProvider | "ambiguous" | null {
   return null;
 }
 
-export function AIKeySection({ hasKey, provider, modelPrefs }: Props) {
+export function AIKeySection({ hasKey, provider, savedProviders, modelPrefs }: Props) {
   const [showForm, setShowForm] = useState(!hasKey);
   const [key, setKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -92,10 +93,10 @@ export function AIKeySection({ hasKey, provider, modelPrefs }: Props) {
     });
   };
 
-  const handleDelete = () => {
+  const handleDelete = (p: string) => {
     start(async () => {
-      await deleteAIKey();
-      setShowForm(true);
+      await deleteAIKeyByProvider(p);
+      if (savedProviders.length <= 1) setShowForm(true);
     });
   };
 
@@ -123,34 +124,52 @@ export function AIKeySection({ hasKey, provider, modelPrefs }: Props) {
 
     return (
       <div className="space-y-0 divide-y divide-line-subtle">
-        {/* Key status */}
-        <div className="flex items-center justify-between gap-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim">
-              <Sparkles className="h-4 w-4 text-inari-accent" />
+        {/* Saved keys list */}
+        {savedProviders.map((p) => (
+          <div key={p} className="flex items-center justify-between gap-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim">
+                <Sparkles className={`h-4 w-4 ${p === provider ? "text-inari-accent" : "text-zinc-600"}`} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-fg-base">
+                  {PROVIDER_LABELS[p] ?? p}
+                  {p === provider && (
+                    <span className="ml-2 rounded-full bg-inari-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-inari-accent">active</span>
+                  )}
+                </p>
+                <p className="text-xs text-zinc-600">
+                  {p === provider ? "Used for AI analysis and chat" : "Saved — inactive"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-fg-base">
-                {PROVIDER_LABELS[provider ?? ""] ?? provider} key connected
-              </p>
-              <p className="text-xs text-zinc-600">
-                AI analysis and correlation are active
-              </p>
+            <div className="flex items-center gap-1">
+              {p !== provider && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => start(async () => { await setActiveAIProvider(p); })}
+                >
+                  Use this
+                </Button>
+              )}
+              <button
+                onClick={() => handleDelete(p)}
+                disabled={isPending}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-400/[0.06] transition-colors"
+                title={`Remove ${PROVIDER_LABELS[p]} key`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
-              Replace
-            </Button>
-            <button
-              onClick={handleDelete}
-              disabled={isPending}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-400/[0.06] transition-colors"
-              title="Remove AI key"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
+        ))}
+        {/* Add another key */}
+        <div className="py-3">
+          <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
+            Add another key
+          </Button>
         </div>
 
         {/* Model preferences */}

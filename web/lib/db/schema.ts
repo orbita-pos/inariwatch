@@ -11,7 +11,7 @@ import {
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
-export const planEnum          = pgEnum("plan",              ["free", "pro", "team"]);
+export const planEnum          = pgEnum("plan",              ["free", "pro"]);
 export const severityEnum      = pgEnum("severity",          ["critical", "warning", "info"]);
 export const notifTypeEnum     = pgEnum("notification_type", ["telegram", "whatsapp", "email", "slack"]);
 export const integrationEnum   = pgEnum("integration",       ["github", "vercel", "sentry", "postgres", "git", "npm"]);
@@ -30,6 +30,7 @@ export const users = pgTable("users", {
   totpSecret:       text("totp_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
   aiModels:         jsonb("ai_models"),
+  activeOrgId:      uuid("active_org_id").references(() => organizations.id, { onDelete: "set null" }),
   createdAt:        timestamp("created_at").defaultNow().notNull(),
   updatedAt:        timestamp("updated_at").defaultNow().notNull(),
 });

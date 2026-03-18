@@ -4,6 +4,7 @@ export interface GithubAlertConfig {
   stale_pr?:      { enabled: boolean; days: number };
   failed_ci?:     { enabled: boolean };
   unreviewed_pr?: { enabled: boolean; hours: number };
+  repoFilter?:    string[];
 }
 
 interface Repo {
@@ -55,7 +56,12 @@ export async function pollGitHub(
   if (!reposRes.ok) return results;
   const repos: Repo[] = await reposRes.json();
 
-  for (const repo of repos.slice(0, 15)) {
+  const repoFilter = config.repoFilter;
+  const filteredRepos = repoFilter && repoFilter.length > 0
+    ? repos.filter((r) => repoFilter.includes(r.full_name))
+    : repos.slice(0, 15);
+
+  for (const repo of filteredRepos) {
     // ── Failed CI ──────────────────────────────────────────────────────────────
     if (checkCi) {
       const ciRes = await gh(token, `/repos/${repo.full_name}/commits/${repo.default_branch}/check-runs?per_page=20`);

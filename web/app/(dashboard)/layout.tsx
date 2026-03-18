@@ -9,7 +9,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { PollingStatus } from "./polling-status";
 import { DashboardHeader } from "./dashboard-header";
-import { db, alerts, users, projectIntegrations, getUserProjectIds, getUserOrganizations } from "@/lib/db";
+import { db, alerts, users, projectIntegrations, getUserOrganizations, getWorkspaceProjectIds } from "@/lib/db";
+import { getActiveOrgId } from "@/lib/workspace";
 import { eq, and, inArray, sql, max } from "drizzle-orm";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -27,15 +28,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const userEmail = session.user?.email ?? "";
 
   // Fetch user plan
-  let userPlan: "free" | "pro" | "team" = "free";
+  let userPlan: "free" | "pro" = "free";
   if (userId) {
     const [row] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
-    userPlan = (row?.plan as "free" | "pro" | "team") ?? "free";
+    userPlan = (row?.plan as "free" | "pro") ?? "free";
   }
+  const isPro = userPlan === "pro";
 
   // Shared project IDs + organizations for sidebar
+  const activeOrgId = await getActiveOrgId();
   const [projectIds, organizations] = userId
-    ? await Promise.all([getUserProjectIds(userId), getUserOrganizations(userId)])
+    ? await Promise.all([getWorkspaceProjectIds(userId, activeOrgId), getUserOrganizations(userId)])
     : [[], []];
 
   // Fetch last polling time + unread count in parallel
@@ -60,11 +63,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex min-h-screen bg-page">
+    <div className="flex h-screen overflow-hidden bg-page">
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col border-r border-line bg-surface md:flex">
         {/* Workspace switcher */}
-        <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} organizations={organizations} />
+        <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} organizations={organizations} activeOrgId={activeOrgId} />
 
         {/* Nav */}
         <SidebarNav unreadAlerts={unreadCount} />
@@ -109,9 +112,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
       />
 
       {/* Content */}
-      <div className="flex flex-1 flex-col pt-14 pl-0 md:pt-0 md:pl-[220px]">
+      <div className="flex flex-1 flex-col overflow-hidden pt-14 pl-0 md:pt-0 md:pl-[220px]">
         <DashboardHeader unreadAlerts={unreadCount} />
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
     if cfg.projects.is_empty() {
         println!(
             "No projects. Run {} to get started.",
-            "kairo init".cyan()
+            "inariwatch init".cyan()
         );
         return Ok(());
     }
@@ -94,7 +94,7 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
         None => println!(
             "AI  {} — run {} to enable smart correlation",
             "not configured".dimmed(),
-            "kairo config --ai-key <key>".cyan()
+            "inariwatch config --ai-key <key>".cyan()
         ),
     }
 

@@ -113,6 +113,32 @@ export async function deleteAIKey(): Promise<void> {
   revalidatePath("/settings");
 }
 
+export async function setActiveAIProvider(provider: string): Promise<void> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId || !AI_SERVICES.includes(provider)) return;
+
+  const [userRow] = await db.select({ aiModels: users.aiModels }).from(users).where(eq(users.id, userId)).limit(1);
+  const current = (userRow?.aiModels ?? {}) as Record<string, string>;
+
+  await db.update(users).set({ aiModels: { ...current, activeProvider: provider }, updatedAt: new Date() }).where(eq(users.id, userId));
+  revalidatePath("/settings");
+}
+
+export async function deleteAIKeyByProvider(provider: string): Promise<void> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return;
+
+  if (!AI_SERVICES.includes(provider)) return;
+
+  await db.delete(apiKeys).where(
+    and(eq(apiKeys.userId, userId), eq(apiKeys.service, provider))
+  );
+
+  revalidatePath("/settings");
+}
+
 export async function saveModelPreferences(
   prefs: AIModelPreferences
 ): Promise<{ error?: string }> {

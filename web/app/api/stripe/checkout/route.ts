@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const plan = body.plan as string;
 
-    if (plan !== "pro" && plan !== "team") {
-      return NextResponse.json({ error: "Invalid plan. Must be 'pro' or 'team'." }, { status: 400 });
+    if (plan !== "pro") {
+      return NextResponse.json({ error: "Invalid plan. Must be 'pro'." }, { status: 400 });
     }
 
     const priceId = PRICE_IDS[plan];

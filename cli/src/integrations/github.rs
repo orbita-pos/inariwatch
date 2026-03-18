@@ -74,7 +74,7 @@ impl GitHubClient {
             .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.token))
-            .header("User-Agent", "kairo-cli/0.1.0")
+            .header("User-Agent", "inariwatch-cli/0.1.0")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()

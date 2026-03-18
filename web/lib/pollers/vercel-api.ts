@@ -3,6 +3,7 @@ import type { NewAlert } from "@/lib/db";
 export interface VercelAlertConfig {
   failed_production?: { enabled: boolean };
   failed_preview?:    { enabled: boolean };
+  projectFilter?:     string[];
 }
 
 interface Deployment {
@@ -39,8 +40,11 @@ export async function pollVercel(
 
   const { deployments }: { deployments: Deployment[] } = await res.json();
 
+  const projectFilter = config.projectFilter;
+
   for (const dep of deployments) {
     if (dep.state !== "ERROR" && dep.state !== "CANCELED") continue;
+    if (projectFilter && projectFilter.length > 0 && !projectFilter.includes(dep.name)) continue;
 
     const isProduction = dep.target === "production";
     if (isProduction && !checkProd)    continue;

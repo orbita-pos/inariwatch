@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   if (!aiKey) {
     return Response.json({
       role: "assistant",
-      content: "You need to add a Claude or OpenAI API key in **Settings → AI** to use the chat.",
+      content: "You need to add an AI API key in **Settings → AI** to use the chat. Supported providers: Claude, OpenAI, Grok, DeepSeek, and Gemini.",
     });
   }
 
@@ -273,6 +273,9 @@ async function* streamClaude(
     signal: AbortSignal.timeout(60000),
   });
 
+  if (res.status === 402) throw new Error("Your Claude API balance has run out. Add credits at console.anthropic.com.");
+  if (res.status === 401) throw new Error("Invalid Claude API key. Replace it in Settings → AI.");
+  if (res.status === 429) throw new Error("Claude rate limit reached. Try again in a moment.");
   if (!res.ok) throw new Error(`Claude API error (${res.status})`);
   if (!res.body) throw new Error("No response body");
 
@@ -325,6 +328,9 @@ async function* streamOpenAICompat(
     signal: AbortSignal.timeout(60000),
   });
 
+  if (res.status === 402) throw new Error("Your API balance has run out. Add credits to your account.");
+  if (res.status === 401) throw new Error("Invalid API key. Replace it in Settings → AI.");
+  if (res.status === 429) throw new Error("Rate limit reached. Try again in a moment.");
   if (!res.ok) throw new Error(`API error (${res.status})`);
   if (!res.body) throw new Error("No response body");
 
@@ -378,6 +384,8 @@ async function* streamGemini(
     signal: AbortSignal.timeout(60000),
   });
 
+  if (res.status === 402 || res.status === 429) throw new Error("Gemini quota exceeded. Check your usage at aistudio.google.com.");
+  if (res.status === 401 || res.status === 403) throw new Error("Invalid Gemini API key. Replace it in Settings → AI.");
   if (!res.ok) throw new Error(`Gemini API error (${res.status})`);
   if (!res.body) throw new Error("No response body");
 

@@ -25,8 +25,8 @@ pub struct Alert {
 pub fn db_path() -> PathBuf {
     data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("kairo")
-        .join("kairo.db")
+        .join("inariwatch")
+        .join("inariwatch.db")
 }
 
 pub fn open() -> Result<Connection> {

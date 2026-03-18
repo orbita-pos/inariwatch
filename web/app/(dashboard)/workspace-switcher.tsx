@@ -1,23 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronDown, Settings, UserPlus, Zap, Plus, Building2 } from "lucide-react";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { InviteMembersDialog } from "./invite-members-dialog";
+import { switchWorkspace } from "./switch-workspace-action";
 
 const PLAN_LABEL: Record<string, string> = {
-  free:  "Free plan",
-  pro:   "Pro plan",
-  team:  "Team plan",
+  free: "Free plan",
+  pro:  "Pro plan",
 };
 
 const PLAN_COLOR: Record<string, string> = {
-  free:  "text-zinc-500",
-  pro:   "text-inari-accent",
-  team:  "text-emerald-500",
+  free: "text-zinc-500",
+  pro:  "text-inari-accent",
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -38,11 +38,14 @@ export interface OrgItem {
 interface WorkspaceSwitcherProps {
   userName:       string;
   userEmail:      string;
-  plan:           "free" | "pro" | "team";
+  plan:           "free" | "pro";
   organizations:  OrgItem[];
+  activeOrgId:    string | null;
 }
 
-export function WorkspaceSwitcher({ userName, userEmail, plan, organizations }: WorkspaceSwitcherProps) {
+export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, activeOrgId }: WorkspaceSwitcherProps) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteOrg, setInviteOrg] = useState<OrgItem | null>(null);
@@ -50,8 +53,6 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations }: 
 
   const personalName = userName !== userEmail ? `${userName.split(" ")[0]}'s workspace` : "My workspace";
 
-  // For now, "active" workspace is always personal (no routing by org yet)
-  const [activeOrgId] = useState<string | null>(null);
   const activeOrg = organizations.find((o) => o.id === activeOrgId) ?? null;
   const activeName = activeOrg?.name ?? personalName;
 
@@ -99,7 +100,16 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations }: 
           >
             {/* Personal workspace */}
             <div className="px-1.5 mb-1">
-              <button className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-inner transition-colors">
+              <button
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-inner transition-colors"
+                onClick={() => {
+                  startTransition(async () => {
+                    await switchWorkspace(null);
+                    router.refresh();
+                    setMenuOpen(false);
+                  });
+                }}
+              >
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md overflow-hidden">
                   <Image src="/logo-inari/favicon-96x96.png" alt="" width={28} height={28} />
                 </div>
@@ -123,6 +133,13 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations }: 
                     <button
                       key={org.id}
                       className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-inner transition-colors"
+                      onClick={() => {
+                        startTransition(async () => {
+                          await switchWorkspace(org.id);
+                          router.refresh();
+                          setMenuOpen(false);
+                        });
+                      }}
                     >
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-inari-accent/10 text-inari-accent">
                         <Building2 className="h-3.5 w-3.5" />

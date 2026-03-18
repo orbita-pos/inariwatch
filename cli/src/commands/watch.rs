@@ -41,7 +41,7 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
     let cfg = config::load()?;
 
     if cfg.projects.is_empty() {
-        println!("{} No projects. Run {} first.", "✗".red(), "kairo init".cyan());
+        println!("{} No projects. Run {} first.", "✗".red(), "inariwatch init".cyan());
         return Ok(());
     }
 
@@ -53,7 +53,7 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
             .clone()
     } else {
         config::current_project(&cfg)
-            .ok_or_else(|| anyhow::anyhow!("No project. Run kairo init."))?
+            .ok_or_else(|| anyhow::anyhow!("No project. Run inariwatch init."))?
             .clone()
     };
 
@@ -67,7 +67,7 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
             "{} No integrations for {}. Run {} to add one.",
             "✗".red(),
             project.name.bold(),
-            "kairo add github".cyan()
+            "inariwatch add github".cyan()
         );
         return Ok(());
     }
@@ -79,14 +79,14 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
         );
         println!(
             "  Run {} to enable Telegram.\n",
-            "kairo connect telegram".cyan()
+            "inariwatch connect telegram".cyan()
         );
     }
 
     let ai_status = if cfg.global.ai_key.is_some() {
         format!("AI {}", "ON".green())
     } else {
-        format!("AI {} (set with `kairo config --ai-key`)", "OFF".dimmed())
+        format!("AI {} (set with `inariwatch config --ai-key`)", "OFF".dimmed())
     };
 
     println!(

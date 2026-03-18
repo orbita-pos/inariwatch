@@ -12,10 +12,15 @@ import {
   GitPullRequest,
   FileText,
   Wrench,
+  ArrowRight,
+  XCircle,
+  RefreshCw,
+  GitBranch,
+  Shield,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { MarketingNav } from "./marketing-nav";
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
@@ -29,7 +34,6 @@ function Nav() {
 function Hero() {
   return (
     <section className="relative overflow-hidden min-h-[680px] lg:min-h-[780px] flex items-center">
-      {/* Fox hero image — full bleed, responsive source */}
       <div className="absolute inset-0">
         <Image
           src="/hero-fox-2k.png"
@@ -47,41 +51,39 @@ function Hero() {
           priority
           quality={90}
         />
-        {/* Left gradient: dark → transparent so text is readable, fox stays visible */}
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/90 via-[52%] to-black/10" />
-        {/* Bottom fade into the next section */}
         <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-inari-bg to-transparent" />
-        {/* Top fade for nav readability */}
         <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black/60 to-transparent" />
       </div>
 
-      {/* Content — left half */}
       <div className="relative w-full pt-32 pb-24">
         <div className="mx-auto max-w-6xl px-6">
           <div className="max-w-xl">
-            {/* Headline */}
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-inari-accent/30 bg-inari-accent/10 px-3 py-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-inari-accent animate-pulse" />
+              <span className="text-xs font-mono text-inari-accent">AI writes the fix while you sleep</span>
+            </div>
+
             <h1 className="text-5xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl leading-[1.05]">
-              Your codebase,
+              Your CI broke.
               <br />
-              <span className="text-gradient-accent glow-accent-text">watched.</span>
+              <span className="text-gradient-accent glow-accent-text">PR is already open.</span>
             </h1>
 
             <p className="mt-6 text-lg text-zinc-300 leading-relaxed max-w-md">
               InariWatch monitors GitHub, Vercel, Sentry, and more.
-              When something breaks, you get{" "}
-              <span className="text-white">one smart alert</span> — not six.
+              When something breaks, AI reads your code, writes the fix,
+              waits for CI, and opens a PR.{" "}
+              <span className="text-white">You just approve.</span>
             </p>
 
-            {/* CTAs */}
             <div className="mt-10 flex flex-col gap-3 max-w-md">
-              {/* Cloud — primary */}
               <Link href="/register" className="w-full">
                 <Button variant="primary" className="w-full py-3 text-base">
-                  Get started free — no install required
+                  Start free — no install required
+                  <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
-
-              {/* CLI — equally prominent */}
               <div className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-black/50 backdrop-blur-sm px-4 py-3 font-mono text-sm hover:border-white/20 transition-colors">
                 <span className="text-inari-accent select-none">$</span>
                 <span className="flex-1 text-zinc-300">curl -fsSL https://get.inariwatch.com | sh</span>
@@ -89,19 +91,18 @@ function Hero() {
               </div>
             </div>
 
-            {/* Social proof */}
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/50">
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                Runs local or 24/7 cloud
+                BYOK — your AI key, your costs
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                BYOK — your AI key
+                Claude, OpenAI, Grok, DeepSeek, Gemini
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                Single binary, zero deps
+                14-day free trial, no card
               </span>
             </div>
           </div>
@@ -115,10 +116,10 @@ function Hero() {
 
 function StatsBar() {
   const stats = [
-    { value: "6",    label: "integrations" },
-    { value: "5 min", label: "poll interval" },
-    { value: "5",    label: "AI features" },
-    { value: "24/7", label: "cloud monitoring" },
+    { value: "6", label: "integrations monitored" },
+    { value: "5 min", label: "cloud poll interval" },
+    { value: "3×", label: "CI retry loop" },
+    { value: "5", label: "AI providers supported" },
   ];
 
   return (
@@ -137,18 +138,288 @@ function StatsBar() {
   );
 }
 
+// ── Remediation walkthrough ───────────────────────────────────────────────────
+
+function RemediationWalkthrough() {
+  const steps = [
+    {
+      icon: <Activity className="h-4 w-4" />,
+      n: "01",
+      title: "Alert fires",
+      desc: "CI fails, deploy errors, Sentry regression — caught in real time via webhook or 5-min poll.",
+    },
+    {
+      icon: <Brain className="h-4 w-4" />,
+      n: "02",
+      title: "AI reads your code",
+      desc: "Connects to your repo, fetches relevant files, diagnoses the root cause from the actual stack.",
+    },
+    {
+      icon: <Wrench className="h-4 w-4" />,
+      n: "03",
+      title: "Fix generated",
+      desc: "AI writes the code change with a plain-English explanation — not a generic suggestion, an actual diff.",
+    },
+    {
+      icon: <RefreshCw className="h-4 w-4" />,
+      n: "04",
+      title: "CI validated (with retry)",
+      desc: "Pushes to a branch, monitors CI. If it fails, reads the logs and tries a different fix — up to 3×.",
+    },
+    {
+      icon: <GitBranch className="h-4 w-4" />,
+      n: "05",
+      title: "PR opened",
+      desc: "When CI passes, opens a PR with full context. You get a notification. One click to approve.",
+    },
+  ];
+
+  return (
+    <section className="py-24 border-t border-inari-border bg-inari-card/20">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-14 max-w-xl">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">AI Remediation</p>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
+            Monitoring tools tell you what broke.
+            <br />
+            <span className="text-inari-accent">InariWatch fixes it.</span>
+          </h2>
+          <p className="mt-4 text-fg-base">
+            No other monitoring tool closes the loop from alert to merged fix.
+            Here's exactly what happens the moment something breaks.
+          </p>
+        </div>
+
+        {/* Steps */}
+        <div className="grid gap-4 sm:grid-cols-5 mb-10">
+          {steps.map((step, i) => (
+            <div key={step.n} className="relative flex flex-col gap-3 rounded-xl border border-inari-border bg-inari-card p-5">
+              {i < steps.length - 1 && (
+                <div className="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 z-10">
+                  <ArrowRight className="h-4 w-4 text-zinc-700" />
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-inari-accent/10 text-inari-accent">
+                  {step.icon}
+                </div>
+                <span className="font-mono text-[11px] text-zinc-600">{step.n}</span>
+              </div>
+              <p className="text-sm font-semibold text-fg-strong">{step.title}</p>
+              <p className="text-xs text-zinc-500 leading-relaxed">{step.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Terminal showing live remediation */}
+        <div className="rounded-xl border border-inari-accent/25 bg-zinc-950 overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.08)]">
+          <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
+            <div className="flex gap-1.5">
+              <div className="h-3 w-3 rounded-full bg-red-500/80" />
+              <div className="h-3 w-3 rounded-full bg-yellow-500/70" />
+              <div className="h-3 w-3 rounded-full bg-green-500/70" />
+            </div>
+            <span className="ml-2 font-mono text-xs text-zinc-500">InariWatch — Live remediation</span>
+          </div>
+          <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-inari-border">
+            {/* Left: alert */}
+            <div className="p-5 font-mono text-sm leading-7">
+              <p className="text-zinc-500 text-xs mb-3 uppercase tracking-widest">03:12 — alert received</p>
+              <p>
+                <span className="text-inari-accent">🔴 </span>
+                <span className="text-white font-semibold">CI failing on main</span>
+              </p>
+              <p className="text-zinc-500">  TypeError: Cannot read 'user' of undefined</p>
+              <p className="text-zinc-500">  auth/session.ts:84 · build #1247</p>
+              <p className="text-zinc-500">  Triggered by: PR #61 merged 4 min ago</p>
+              <br />
+              <p className="text-zinc-600">→ Starting AI remediation...</p>
+              <p className="text-zinc-600">→ Reading auth/session.ts, lib/auth.ts</p>
+              <p className="text-zinc-600">→ Generating fix...</p>
+              <p className="text-zinc-600">→ Pushing branch fix/session-null-check</p>
+              <p className="text-zinc-600">→ Waiting for CI...</p>
+              <p className="text-green-500">→ CI passed ✓</p>
+              <p className="text-inari-accent font-semibold">→ PR #62 opened</p>
+            </div>
+            {/* Right: PR description */}
+            <div className="p-5 font-mono text-sm leading-relaxed">
+              <p className="text-zinc-500 text-xs mb-3 uppercase tracking-widest">03:14 — PR ready for review</p>
+              <p className="text-white font-semibold">fix: add null check for session.user</p>
+              <br />
+              <p className="text-zinc-400">Root cause: PR #61 refactored the session</p>
+              <p className="text-zinc-400">object but auth/session.ts still assumed</p>
+              <p className="text-zinc-400">user was always defined on the response.</p>
+              <br />
+              <p className="text-zinc-400">Changed:</p>
+              <p className="text-red-400/80">  - return session.user.id</p>
+              <p className="text-green-400/80">  + return session.user?.id ?? null</p>
+              <br />
+              <p className="text-zinc-600">CI: ✓ all checks passed</p>
+              <p className="text-inari-accent">Waiting for your approval →</p>
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-5 text-center text-sm text-zinc-600">
+          From alert to ready-to-merge PR in under 2 minutes. While you were sleeping.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+// ── Why not native alerts ─────────────────────────────────────────────────────
+
+function WhyNotNative() {
+  return (
+    <section className="py-24 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mb-14 max-w-xl">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Why InariWatch</p>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
+            "I already get alerts from all my tools."
+          </h2>
+          <p className="mt-4 text-fg-base">
+            You should — tools like GitHub, Vercel, and Sentry are great at what they do.
+            InariWatch connects those signals, identifies the root cause instantly, and resolves issues before they escalate.          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 mb-12">
+          {/* Without */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
+            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-5">
+              Native alerts — today
+            </p>
+
+            <div className="space-y-3">
+              {[
+                { src: "GitHub", icon: "📧", text: "Workflow failed on main" },
+                { src: "Vercel", icon: "📧", text: "Production deploy errored" },
+                { src: "Sentry", icon: "📧", text: "TypeError: 23 new events" },
+              ].map((item) => (
+                <div
+                  key={item.src}
+                  className="flex items-start gap-3 rounded-lg border border-inari-border bg-inari-card p-3"
+                >
+                  <span>{item.icon}</span>
+                  <div>
+                    <span className="text-xs text-zinc-600 uppercase tracking-wider">
+                      {item.src}
+                    </span>
+                    <p className="text-sm text-fg-base mt-0.5">{item.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-1.5">
+              {[
+                "Each tool provides a valuable signal",
+                "Signals remain isolated across tools",
+                "Investigation happens manually",
+                "Resolution depends on availability",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="flex items-center gap-2 text-sm text-zinc-600"
+                >
+                  <XCircle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* With InariWatch */}
+          <div className="rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6">
+            <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-5">
+              With InariWatch
+            </p>
+
+            <div className="rounded-lg border border-inari-border bg-zinc-950 p-4 font-mono text-sm mb-4">
+              <p className="text-inari-accent font-semibold">
+                🔴 Deploy failure caused by TypeError
+              </p>
+              <p className="text-zinc-400 mt-2 text-xs leading-relaxed">
+                PR #61 modified session handling → deploy failed →<br />
+                TypeError at auth/session.ts:84 · 23 users affected
+              </p>
+              <p className="text-inari-accent text-xs mt-2">
+                PR #62 ready to merge → CI ✓
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              {[
+                "Signals automatically correlated across your stack",
+                "Root cause identified instantly",
+                "Fix prepared and validated",
+                "Issues resolved — even while you sleep",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="flex items-center gap-2 text-sm text-fg-base"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-inari-accent" />
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Comparison table */}
+        <div className="overflow-hidden rounded-xl border border-inari-border">
+          <div className="grid grid-cols-3 border-b border-inari-border bg-inari-card px-4 py-3">
+            <div className="text-xs text-zinc-500 font-medium">Capability</div>
+            {["Datadog / PagerDuty", "InariWatch"].map((h, i) => (
+              <div key={h} className={`text-xs font-medium text-center ${i === 1 ? "text-inari-accent" : "text-zinc-500"}`}>{h}</div>
+            ))}
+          </div>
+          {[
+            { cap: "Alert aggregation", dd: true, us: true },
+            { cap: "Cross-service correlation", dd: false, us: true },
+            { cap: "Root cause AI analysis", dd: "Paid", us: "BYOK" },
+            { cap: "Writes code fix", dd: false, us: true },
+            { cap: "Pushes branch + waits for CI", dd: false, us: true },
+            { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
+            { cap: "Anomaly detection", dd: "Paid", us: true },
+            { cap: "Open source CLI", dd: false, us: true },
+            { cap: "BYOK (your AI key)", dd: false, us: true },
+          ].map((row, idx) => (
+            <div key={row.cap} className={`grid grid-cols-3 border-b border-inari-border last:border-0 px-4 py-3 ${idx % 2 === 0 ? "bg-inari-bg" : "bg-inari-card/30"}`}>
+              <span className="text-sm text-fg-base">{row.cap}</span>
+              {[row.dd, row.us].map((val, i) => (
+                <div key={i} className="flex items-center justify-center">
+                  {typeof val === "boolean" ? (
+                    val
+                      ? <CheckCircle2 className={`h-4 w-4 ${i === 1 ? "text-inari-accent" : "text-inari-accent/50"}`} />
+                      : <XCircle className="h-4 w-4 text-zinc-700 opacity-40" />
+                  ) : (
+                    <span className={`text-xs font-medium ${i === 1 ? "text-inari-accent" : "text-zinc-500"}`}>{val}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Integrations ──────────────────────────────────────────────────────────────
 
 function Integrations() {
   const integrations = [
     {
       name: "GitHub",
-      alerts: ["Failed CI checks", "Stale & unreviewed PRs", "Pre-deploy risk assessment"],
+      alerts: ["Failed CI checks", "Stale & unreviewed PRs", "Pre-deploy risk on PRs"],
       status: "live",
     },
     {
       name: "Vercel",
-      alerts: ["Failed production deploys", "Failed preview deploys"],
+      alerts: ["Failed production deploys", "Failed preview deploys", "Instant rollback"],
       status: "live",
     },
     {
@@ -158,33 +429,32 @@ function Integrations() {
     },
     {
       name: "Uptime",
-      alerts: ["Endpoint downtime", "Slow response time"],
+      alerts: ["Endpoint downtime", "Slow response time (configurable)"],
       status: "live",
     },
     {
       name: "PostgreSQL",
       alerts: ["Connection failures", "High connections", "Long-running queries"],
-      status: "soon",
+      status: "live",
     },
     {
       name: "npm / Cargo",
       alerts: ["Critical CVEs", "High-severity vulnerabilities"],
-      status: "soon",
+      status: "live",
     },
   ];
 
   return (
     <section id="integrations" className="py-24 border-t border-inari-border overflow-hidden">
       <div className="mx-auto max-w-6xl px-6">
-        {/* Header */}
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Integrations</p>
           <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-            Connects to everything in your stack
+            Monitors your entire stack
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
-            One place for all your alerts. InariWatch polls every 5 minutes and
-            surfaces what matters — already correlated.
+            GitHub CI, Vercel deploys, Sentry errors, uptime, database health,
+            dependency vulnerabilities — all in one place, already correlated.
           </p>
         </div>
 
@@ -201,28 +471,17 @@ function Integrations() {
             <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-inari-bg to-transparent" />
           </div>
 
-          {/* Integration cards */}
           <div className="grid gap-3 sm:grid-cols-2">
             {integrations.map((item) => (
               <div
                 key={item.name}
-                className={`rounded-xl border bg-inari-card p-5 transition-all ${
-                  item.status === "live"
-                    ? "border-inari-border hover:border-inari-accent/30 hover:shadow-[0_0_20px_rgba(124,58,237,0.06)]"
-                    : "border-inari-border opacity-50"
-                }`}
+                className="rounded-xl border border-inari-border bg-inari-card p-5 hover:border-inari-accent/30 hover:shadow-[0_0_20px_rgba(124,58,237,0.06)] transition-all"
               >
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-fg-strong">{item.name}</h3>
-                  {item.status === "live" ? (
-                    <span className="text-xs font-mono text-inari-accent bg-inari-accent-dim px-2 py-0.5 rounded-full border border-inari-accent/20">
-                      live
-                    </span>
-                  ) : (
-                    <span className="text-xs font-mono text-zinc-600 bg-zinc-800/60 px-2 py-0.5 rounded-full">
-                      soon
-                    </span>
-                  )}
+                  <span className="text-xs font-mono text-inari-accent bg-inari-accent-dim px-2 py-0.5 rounded-full border border-inari-accent/20">
+                    live
+                  </span>
                 </div>
                 <ul className="space-y-1">
                   {item.alerts.map((a) => (
@@ -246,39 +505,41 @@ function Integrations() {
 function AIFeatures() {
   const features = [
     {
-      icon: <GitPullRequest className="h-5 w-5" />,
-      title: "Pre-deploy Risk Assessment",
-      body: "AI analyzes every PR diff against your incident history and posts a risk report directly on GitHub before you merge.",
-      tag: "GitHub PRs",
+      icon: <Wrench className="h-5 w-5" />,
+      title: "AI Code Remediation",
+      body: "Reads your repo, writes the fix, pushes a branch, waits for CI. If CI fails, reads the logs and retries with a different approach — up to 3 times. Opens the PR only when it passes.",
+      tag: "Unique",
+      highlight: true,
     },
     {
-      icon: <Wrench className="h-5 w-5" />,
-      title: "AI Auto-Remediation",
-      body: "When an alert fires, AI diagnoses the root cause, proposes a fix, opens a branch and waits for CI to pass before merging.",
-      tag: "Auto-fix",
+      icon: <GitPullRequest className="h-5 w-5" />,
+      title: "Pre-deploy Risk Assessment",
+      body: "AI reads every PR diff against your actual incident history and posts a risk score (Low / Medium / High) directly on GitHub before you merge. No config needed.",
+      tag: "GitHub PRs",
+      highlight: true,
     },
     {
       icon: <TrendingUp className="h-5 w-5" />,
       title: "Anomaly Detection",
-      body: "Detects alert frequency spikes, repeating failure loops, integration degradation, and unusual silence — before they escalate.",
+      body: "Detects alert frequency spikes (3–5× vs baseline), repeating failure loops, integration degradation, and silent projects — proactively, before they escalate.",
       tag: "Proactive",
+    },
+    {
+      icon: <Brain className="h-5 w-5" />,
+      title: "Alert Correlation",
+      body: "When Vercel fails and Sentry spikes at the same time, AI groups them into one correlated alert with a single root cause. 5 alerts become 1 actionable message.",
+      tag: "Smart alerts",
     },
     {
       icon: <MessageSquare className="h-5 w-5" />,
       title: "Ask Inari",
-      body: "Chat with your live monitoring data. \"What failed this week?\", \"Which integration has the most errors?\" — Inari knows.",
-      tag: "Ops chat",
-    },
-    {
-      icon: <Brain className="h-5 w-5" />,
-      title: "AI Correlation",
-      body: "Groups related alerts from different services into one correlated report with a single root cause and next action.",
-      tag: "Smart alerts",
+      body: "Chat with your live monitoring data. \"What failed this week?\", \"Which integration has the most errors?\", \"Summarize last night's incidents.\" Inari has the context.",
+      tag: "Ops copilot",
     },
     {
       icon: <FileText className="h-5 w-5" />,
       title: "Auto Post-mortems",
-      body: "When an incident resolves, AI automatically generates a full post-mortem: timeline, root cause, impact, and prevention steps.",
+      body: "When an incident resolves, AI generates a full post-mortem: timeline, root cause, impact, resolution steps, and prevention measures — ready to share.",
       tag: "Incidents",
     },
   ];
@@ -286,15 +547,14 @@ function AIFeatures() {
   return (
     <section id="ai" className="py-24 border-t border-inari-border">
       <div className="mx-auto max-w-6xl px-6">
-        {/* Header */}
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">AI-powered</p>
           <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-            Not just alerts — intelligence
+            Not just alerts — actions
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
-            Bring your own AI key (Claude or OpenAI). InariWatch uses it to
-            turn raw events into decisions.
+            Bring your own AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini).
+            InariWatch uses it to turn raw events into decisions — and decisions into PRs.
           </p>
         </div>
 
@@ -302,13 +562,20 @@ function AIFeatures() {
           {features.map((f) => (
             <div
               key={f.title}
-              className="group rounded-xl border border-inari-border bg-inari-card p-6 transition-all hover:border-inari-accent/30 hover:shadow-[0_0_24px_rgba(124,58,237,0.07)]"
+              className={`group rounded-xl border p-6 transition-all hover:shadow-[0_0_24px_rgba(124,58,237,0.07)] ${f.highlight
+                ? "border-inari-accent/30 bg-inari-accent-dim hover:border-inari-accent/50"
+                : "border-inari-border bg-inari-card hover:border-inari-accent/30"
+                }`}
             >
               <div className="mb-4 flex items-center justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-border bg-inari-bg text-inari-accent group-hover:border-inari-accent/30 transition-colors">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-lg border text-inari-accent transition-colors ${f.highlight ? "border-inari-accent/30 bg-inari-accent/10" : "border-inari-border bg-inari-bg group-hover:border-inari-accent/30"
+                  }`}>
                   {f.icon}
                 </div>
-                <span className="text-xs font-mono text-zinc-600 bg-zinc-800/50 px-2 py-0.5 rounded-full">
+                <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${f.highlight
+                  ? "text-inari-accent bg-inari-accent/10 border border-inari-accent/20"
+                  : "text-zinc-600 bg-zinc-800/50"
+                  }`}>
                   {f.tag}
                 </span>
               </div>
@@ -334,22 +601,21 @@ function CorrelationDemo() {
             One alert instead of six
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
-            Every tool fires its own notification. InariWatch connects the dots so
-            you understand what happened, why, and what to do next.
+            Each tool does its job — GitHub watches CI, Vercel watches deploys,
+            Sentry watches errors. InariWatch connects them.
           </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Without */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
             <p className="text-sm font-semibold text-zinc-500 mb-5 font-mono uppercase tracking-widest">
-              Without InariWatch — 3 notifications
+              Without InariWatch — 3 separate notifications
             </p>
             <div className="space-y-3">
               {[
-                { icon: "🔴", source: "Sentry",  text: "TypeError in auth.ts:47 — 23 users" },
-                { icon: "🔴", source: "Vercel",  text: "Deploy failed — my-app production" },
-                { icon: "⚠️", source: "GitHub",  text: "PR #47 merged 2h ago" },
+                { icon: "🔴", source: "Sentry", text: "TypeError in auth.ts:47 — 23 users" },
+                { icon: "🔴", source: "Vercel", text: "Deploy failed — my-app production" },
+                { icon: "⚠️", source: "GitHub", text: "PR #47 merged 2h ago" },
               ].map((item) => (
                 <div key={item.source} className="flex items-start gap-3 rounded-lg border border-inari-border bg-inari-card p-3">
                   <span className="text-base">{item.icon}</span>
@@ -363,7 +629,6 @@ function CorrelationDemo() {
             <p className="mt-4 text-sm text-zinc-500 italic">You: "Are these related? Let me check each tool..."</p>
           </div>
 
-          {/* With — terminal-style block, always dark */}
           <div className="rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6 shadow-[0_0_40px_rgba(124,58,237,0.06)]">
             <p className="text-sm font-semibold text-inari-accent mb-5 font-mono uppercase tracking-widest">
               With InariWatch — 1 correlated alert
@@ -380,11 +645,11 @@ function CorrelationDemo() {
                   <span className="text-inari-accent">Root cause:</span> OAuth middleware broke session handling
                 </p>
                 <p className="text-zinc-400 mt-1">
-                  <span className="text-inari-accent">Next step:</span> Revert PR #47 or patch the middleware
+                  <span className="text-inari-accent">Fix:</span> PR #48 opened — CI passing ✓
                 </p>
               </div>
             </div>
-            <p className="mt-4 text-sm text-zinc-500 italic">One message, full context, clear next action.</p>
+            <p className="mt-4 text-sm text-zinc-500 italic">One message, full context, PR already ready.</p>
           </div>
         </div>
       </div>
@@ -404,26 +669,31 @@ function HowItWorks() {
         </div>
 
         <div className="grid gap-12 lg:grid-cols-2 items-center">
-          {/* Steps */}
           <div className="space-y-10">
             {[
               {
                 step: "01",
                 icon: <Terminal className="h-5 w-5" />,
                 title: "Install the CLI or open the dashboard",
-                body: "One curl command gets the local CLI. Or sign up for the cloud dashboard — no install required.",
+                body: "One curl command for the local CLI. Or sign up for the web dashboard — no install, no card.",
               },
               {
                 step: "02",
                 icon: <Zap className="h-5 w-5" />,
                 title: "Connect your stack",
-                body: "Paste a GitHub token, Vercel token, or Sentry key. InariWatch auto-detects your repos and projects.",
+                body: "Paste a GitHub token, Vercel token, or Sentry key. InariWatch auto-detects your repos, projects, and orgs.",
               },
               {
                 step: "03",
+                icon: <Shield className="h-5 w-5" />,
+                title: "Add your AI key (optional)",
+                body: "Connect Claude, OpenAI, Grok, DeepSeek, or Gemini. Your key goes directly to the provider — we never proxy it.",
+              },
+              {
+                step: "04",
                 icon: <Activity className="h-5 w-5" />,
-                title: "Get smart alerts",
-                body: "InariWatch polls every 5 minutes, correlates events with AI, and sends one actionable alert to Telegram, Slack, or email.",
+                title: "Incidents handled automatically",
+                body: "InariWatch monitors 24/7, correlates events, and when something breaks — diagnoses, fixes, and opens a PR.",
               },
             ].map((item) => (
               <div key={item.step} className="flex gap-5">
@@ -439,7 +709,6 @@ function HowItWorks() {
             ))}
           </div>
 
-          {/* Terminal demo — always dark */}
           <div className="rounded-xl border border-inari-border bg-zinc-950 shadow-2xl overflow-hidden">
             <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
               <div className="flex gap-1.5">
@@ -447,7 +716,7 @@ function HowItWorks() {
                 <div className="h-3 w-3 rounded-full bg-yellow-500/70" />
                 <div className="h-3 w-3 rounded-full bg-green-500/70" />
               </div>
-              <span className="ml-2 font-mono text-xs text-zinc-500">inari watch</span>
+              <span className="ml-2 font-mono text-xs text-zinc-500">inariwatch watch</span>
             </div>
             <div className="p-5 font-mono text-sm leading-7 space-y-0.5">
               <p>
@@ -459,24 +728,21 @@ function HowItWorks() {
               </p>
               <p className="text-zinc-600">  Polling every 60s. Ctrl+C to stop.</p>
               <br />
-              <p><span className="text-zinc-600">10:41:01  </span><span className="text-green-500">✓</span><span className="text-zinc-600"> all clear</span></p>
-              <p><span className="text-zinc-600">10:42:01  </span><span className="text-green-500">✓</span><span className="text-zinc-600"> all clear</span></p>
-              <p><span className="text-zinc-600">10:43:01  </span><span className="text-zinc-100">📨</span><span className="text-zinc-300"> 1 alert sent</span></p>
+              <p><span className="text-zinc-600">03:11  </span><span className="text-green-500">✓</span><span className="text-zinc-600"> all clear</span></p>
+              <p><span className="text-zinc-600">03:12  </span><span className="text-zinc-100">📨</span><span className="text-zinc-300"> 1 alert — remediating</span></p>
               <br />
               <p>
                 <span className="text-inari-accent">🔴 </span>
-                <span className="text-white font-semibold">Deploy failed + new Sentry error</span>
-                <span className="text-zinc-600 text-xs"> [2 correlated]</span>
+                <span className="text-white font-semibold">CI failing on main</span>
               </p>
-              <p className="text-zinc-500">  Root cause: PR #47 broke OAuth session handling</p>
-              <p className="text-zinc-500">  23 users affected · auth.ts:47 · 2h ago</p>
-              <p className="text-zinc-500">  Next: revert PR #47 or patch auth middleware</p>
+              <p className="text-zinc-500">  Root: session.user null after PR #61</p>
+              <p className="text-zinc-500">  Fix: null check added · CI ✓</p>
+              <p className="text-inari-accent">  PR #62 opened — waiting for approval</p>
               <br />
               <p className="flex items-center gap-1">
-                <span className="text-zinc-600">10:44:01  </span>
+                <span className="text-zinc-600">03:13  </span>
                 <span className="text-green-500">✓</span>
                 <span className="text-zinc-600"> all clear</span>
-                <span className="cursor ml-1 text-inari-accent" />
               </p>
             </div>
           </div>
@@ -491,54 +757,54 @@ function HowItWorks() {
 function Pricing() {
   const plans = [
     {
-      name: "Local",
+      name: "Local CLI",
       price: "Free",
       period: "forever",
-      description: "CLI runs on your machine. Data stays local.",
+      description: "Open source Rust CLI. Runs on your machine, data stays local.",
       highlight: false,
       cta: { label: "Install CLI", href: "#" },
       features: [
-        "Open source CLI",
-        "GitHub, Vercel, Sentry, Git",
+        "GitHub, Vercel, Sentry, local git",
+        "Unlimited local projects",
         "Telegram notifications",
         "AI correlation (BYOK)",
-        "Works while laptop is on",
+        "Single binary, zero deps",
       ],
-      missing: ["Web dashboard", "24/7 monitoring"],
+      missing: ["Web dashboard", "24/7 monitoring", "AI remediation"],
+    },
+    {
+      name: "Web Free",
+      price: "$0",
+      period: "/month",
+      description: "Try the cloud dashboard with 30-min polling.",
+      highlight: false,
+      cta: { label: "Get started", href: "/register" },
+      features: [
+        "Web dashboard (7-day history)",
+        "1 project, 2 integrations",
+        "30-min cloud polling, 24/7",
+        "Telegram notifications",
+      ],
+      missing: ["AI features", "5-min polling", "Slack / Email / Push"],
     },
     {
       name: "Pro",
       price: "$9",
       period: "/month",
-      description: "Cloud orchestrator running 24/7 on our servers.",
+      description: "Full autonomous incident response. Fixes code while you sleep.",
       highlight: true,
-      cta: { label: "Start free trial", href: "/register" },
+      cta: { label: "Start 14-day free trial", href: "/register" },
       features: [
-        "Everything in Local",
-        "24/7 cloud monitoring",
-        "Web dashboard + alert history",
-        "AI risk assessment + remediation",
+        "AI writes & pushes code fixes",
+        "CI retry loop (up to 3×)",
+        "Pre-deploy risk on every PR",
         "Anomaly detection",
-        "Up to 5 projects",
-        "Telegram, Slack & email",
-      ],
-      missing: [],
-    },
-    {
-      name: "Team",
-      price: "$19",
-      period: "/month",
-      description: "For teams monitoring multiple projects.",
-      highlight: false,
-      cta: { label: "Start free trial", href: "/register?plan=team" },
-      features: [
-        "Everything in Pro",
-        "Unlimited projects & integrations",
-        "Team members + roles",
-        "90-day alert history",
-        "Status pages & escalation rules",
-        "Audit logs",
-        "Priority support",
+        "Vercel instant rollback",
+        "5-min polling + real-time webhooks",
+        "10 projects, 20 integrations",
+        "All notifications (Slack, Email, Push)",
+        "Analytics, comments, export",
+        "Teams, status pages, audit log",
       ],
       missing: [],
     },
@@ -550,18 +816,19 @@ function Pricing() {
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Pricing</p>
           <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">Simple pricing</h2>
-          <p className="mt-4 text-fg-base">Start free. Upgrade when you need 24/7 coverage.</p>
+          <p className="mt-4 text-fg-base">
+            Start free with the CLI or web dashboard. Upgrade when you want incidents handled for you.
+          </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           {plans.map((plan) => (
             <div
               key={plan.name}
-              className={`relative rounded-2xl border p-8 transition-all ${
-                plan.highlight
-                  ? "border-inari-accent/40 bg-inari-accent-dim shadow-[0_0_50px_rgba(124,58,237,0.10)]"
-                  : "border-inari-border bg-inari-card"
-              }`}
+              className={`relative rounded-2xl border p-8 transition-all flex flex-col ${plan.highlight
+                ? "border-inari-accent/40 bg-inari-accent-dim shadow-[0_0_50px_rgba(124,58,237,0.10)]"
+                : "border-inari-border bg-inari-card"
+                }`}
             >
               {plan.highlight && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -571,33 +838,35 @@ function Pricing() {
                 </div>
               )}
 
-              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">{plan.name}</p>
-              <div className="mt-2 flex items-end gap-1">
-                <span className="text-4xl font-bold text-fg-strong">{plan.price}</span>
-                <span className="pb-1 text-zinc-500 text-sm">{plan.period}</span>
-              </div>
-              <p className="mt-2 text-sm text-fg-base">{plan.description}</p>
+              <div className="flex-1">
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">{plan.name}</p>
+                <div className="mt-2 flex items-end gap-1">
+                  <span className="text-4xl font-bold text-fg-strong">{plan.price}</span>
+                  <span className="pb-1 text-zinc-500 text-sm">{plan.period}</span>
+                </div>
+                <p className="mt-2 text-sm text-fg-base">{plan.description}</p>
 
-              <Link href={plan.cta.href} className="mt-6 block">
+                <ul className="mt-7 space-y-2.5">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
+                      <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${plan.highlight ? "text-inari-accent" : "text-inari-accent/70"}`} />
+                      {f}
+                    </li>
+                  ))}
+                  {plan.missing.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-600">
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 opacity-30" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <Link href={plan.cta.href} className="mt-8 block">
                 <Button variant={plan.highlight ? "primary" : "outline"} className="w-full">
                   {plan.cta.label}
                 </Button>
               </Link>
-
-              <ul className="mt-8 space-y-3">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
-                    {f}
-                  </li>
-                ))}
-                {plan.missing.map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-500 line-through">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
             </div>
           ))}
         </div>
@@ -623,6 +892,7 @@ function Footer() {
           <span className="font-mono text-fg-base uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
         </div>
         <div className="flex items-center gap-6 text-sm text-zinc-500">
+          <Link href="/pricing" className="hover:text-fg-base transition-colors">Pricing</Link>
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
           <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           <span>Built with Rust + Next.js</span>
@@ -641,6 +911,8 @@ export default function LandingPage() {
       <main>
         <Hero />
         <StatsBar />
+        <RemediationWalkthrough />
+        <WhyNotNative />
         <Integrations />
         <AIFeatures />
         <CorrelationDemo />

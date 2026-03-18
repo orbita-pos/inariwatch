@@ -5,7 +5,7 @@ use dialoguer::Input;
 use crate::config::{self, Integrations, Notifications, ProjectConfig};
 
 pub async fn run() -> Result<()> {
-    println!("{}", "kairo init".bold());
+    println!("{}", "inariwatch init".bold());
     println!("Setting up a new project\n");
 
     let mut cfg = config::load().unwrap_or_default();
@@ -22,7 +22,7 @@ pub async fn run() -> Result<()> {
             "✗".red(),
             name
         );
-        println!("  Run {} to add integrations.", "kairo add github".cyan());
+        println!("  Run {} to add integrations.", "inariwatch add github".cyan());
         return Ok(());
     }
 
@@ -47,12 +47,12 @@ pub async fn run() -> Result<()> {
 
     println!("\n{} Project {} created.", "✓".green(), name.bold());
     println!("\nNext steps:");
-    println!("  {}  — add GitHub monitoring", "kairo add github".cyan());
+    println!("  {}  — add GitHub monitoring", "inariwatch add github".cyan());
     println!(
         "  {}  — connect Telegram notifications",
-        "kairo connect telegram".cyan()
+        "inariwatch connect telegram".cyan()
     );
-    println!("  {}          — start monitoring", "kairo watch".cyan());
+    println!("  {}          — start monitoring", "inariwatch watch".cyan());
 
     Ok(())
 }

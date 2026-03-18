@@ -14,7 +14,7 @@ use crate::config::Config;
 /// - If multiple, try to match current directory, else show a selector.
 pub fn pick_project(cfg: &Config) -> Result<usize> {
     if cfg.projects.is_empty() {
-        anyhow::bail!("No projects found. Run `kairo init` first.");
+        anyhow::bail!("No projects found. Run `inariwatch init` first.");
     }
 
     if cfg.projects.len() == 1 {

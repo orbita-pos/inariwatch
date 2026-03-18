@@ -20,7 +20,7 @@ pub async fn run(limit: usize, project_name: Option<String>) -> Result<()> {
     if alerts.is_empty() {
         println!(
             "No alerts yet. Run {} to start monitoring.",
-            "kairo watch".cyan()
+            "inariwatch watch".cyan()
         );
         return Ok(());
     }

@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, getUserProjectIds } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, users, getWorkspaceProjectIds } from "@/lib/db";
+import { getActiveOrgId } from "@/lib/workspace";
 import { eq, desc, inArray, and, ilike, arrayOverlaps, type SQL } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { CheckCircle2 } from "lucide-react";
@@ -48,7 +49,12 @@ export default async function AlertsPage({
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
 
-  const projectIds = userId ? await getUserProjectIds(userId) : [];
+  const [userRow] = userId
+    ? await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId))
+    : [undefined];
+  const isPro = userRow?.plan === "pro";
+
+  const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : [];
 
   const conditions: SQL[] = [];
   if (projectIds.length > 0) conditions.push(inArray(alerts.projectId, projectIds));
@@ -96,7 +102,7 @@ export default async function AlertsPage({
             <Chip dot="bg-amber-400" label={`${unread} unread`} />
             <Chip dot="bg-inari-accent" label={`${critical} critical`} />
             <Chip dot="bg-green-500" label={`${open} open`} />
-            <ExportButton />
+            {isPro && <ExportButton />}
           </div>
         )}
       </div>

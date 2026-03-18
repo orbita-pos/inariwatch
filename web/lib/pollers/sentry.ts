@@ -1,8 +1,9 @@
 import type { NewAlert } from "@/lib/db";
 
 export interface SentryAlertConfig {
-  new_issues?:  { enabled: boolean };
-  regressions?: { enabled: boolean };
+  new_issues?:          { enabled: boolean };
+  regressions?:         { enabled: boolean };
+  sentryProjectFilter?: string[];
 }
 
 interface SentryIssue {
@@ -42,7 +43,10 @@ export async function pollSentry(
 
   const issues: SentryIssue[] = await res.json();
 
+  const sentryProjectFilter = config.sentryProjectFilter;
+
   for (const issue of issues) {
+    if (sentryProjectFilter && sentryProjectFilter.length > 0 && !sentryProjectFilter.includes(issue.project.slug)) continue;
     if (issue.isNew && !checkNew)               continue;
     if (issue.isRegression && !checkRegressions) continue;
     if (!issue.isNew && !issue.isRegression)     continue;

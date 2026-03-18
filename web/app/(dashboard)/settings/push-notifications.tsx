@@ -32,15 +32,28 @@ export function PushNotificationsButton() {
         return;
       }
 
-      // Register service worker
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      await navigator.serviceWorker.ready;
+      // Register service worker and wait for it to be active
+      await navigator.serviceWorker.register("/sw.js");
+      const reg = await navigator.serviceWorker.ready;
+
+      // Clear any stale subscription (different VAPID key causes "push service error")
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) await existing.unsubscribe();
 
       // Subscribe to push
-      const subscription = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
+      // Try passing key as string first (supported in modern browsers), fallback to Uint8Array
+      let subscription: PushSubscription;
+      try {
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: VAPID_PUBLIC_KEY,
+        });
+      } catch {
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      }
 
       const sub = subscription.toJSON();
 

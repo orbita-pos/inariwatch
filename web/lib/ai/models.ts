@@ -11,7 +11,7 @@ import type { AIProvider } from "./client";
 
 export type AITask = "analysis" | "chat" | "remediation" | "postmortem";
 
-export type AIModelPreferences = Record<AITask, string>;
+export type AIModelPreferences = Record<AITask, string> & { activeProvider?: string };
 
 // ── Model catalog ───────────────────────────────────────────────────────────
 

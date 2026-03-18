@@ -37,12 +37,14 @@ export async function getUserAIKey(userId: string): Promise<AIKeyResult | null> 
   if (rows.length === 0) return null;
 
   const modelPrefs = (userRow?.aiModels as AIModelPreferences | null) ?? null;
+  const activeProvider = modelPrefs?.activeProvider;
 
-  // Pick the highest-priority key
+  // Use user's preferred provider if they have a key for it, else fall back to priority order
   const sorted = rows.sort(
     (a, b) => (PRIORITY[a.service as AIProvider] ?? 99) - (PRIORITY[b.service as AIProvider] ?? 99)
   );
-  const best = sorted[0];
+  const preferred = activeProvider ? rows.find((r) => r.service === activeProvider) : undefined;
+  const best = preferred ?? sorted[0];
 
   return {
     key: decrypt(best.keyEncrypted),

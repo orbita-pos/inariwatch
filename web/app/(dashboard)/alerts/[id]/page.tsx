@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, alerts, projects, alertComments, users, apiKeys, remediationSessions, projectIntegrations } from "@/lib/db";
 import { eq, and, asc, inArray, desc } from "drizzle-orm";
+import { ProGate } from "@/components/pro-gate";
 import { notFound } from "next/navigation";
 import { formatRelativeTime } from "@/lib/utils";
 import {
@@ -92,7 +93,8 @@ export default async function AlertDetailPage({
   }
 
   // Parallel fetch all independent data
-  const [aiKeyRows, githubRows, remediationRows, commentsRaw] = await Promise.all([
+  const [userPlanRows, aiKeyRows, githubRows, remediationRows, commentsRaw] = await Promise.all([
+    db.select({ plan: users.plan }).from(users).where(eq(users.id, userId)).limit(1),
     db.select({ id: apiKeys.id }).from(apiKeys)
       .where(and(eq(apiKeys.userId, userId), inArray(apiKeys.service, ["claude", "openai"])))
       .limit(1),
@@ -121,6 +123,7 @@ export default async function AlertDetailPage({
       .orderBy(asc(alertComments.createdAt)),
   ]);
 
+  const isPro            = userPlanRows[0]?.plan === "pro";
   const hasAIKey         = aiKeyRows.length > 0;
   const hasGitHub        = githubRows.length > 0;
   const latestRemediation = remediationRows[0];
@@ -237,39 +240,45 @@ export default async function AlertDetailPage({
       )}
 
       {/* ── AI Analysis ────────────────────────────────────────────────── */}
-      <AIAnalyzePanel
-        alertId={alert.id}
-        hasAIKey={hasAIKey}
-        aiReasoning={typeof alert.aiReasoning === "string" ? alert.aiReasoning : null}
-      />
+      <ProGate isPro={isPro} feature="AI Analysis">
+        <AIAnalyzePanel
+          alertId={alert.id}
+          hasAIKey={hasAIKey}
+          aiReasoning={typeof alert.aiReasoning === "string" ? alert.aiReasoning : null}
+        />
+      </ProGate>
 
       {/* ── Vercel rollback ────────────────────────────────────────────── */}
-      {alert.sourceIntegrations.includes("vercel") && !alert.isResolved && (
+      {isPro && alert.sourceIntegrations.includes("vercel") && !alert.isResolved && (
         <VercelRollbackPanel alertId={alert.id} isResolved={alert.isResolved} />
       )}
 
       {/* ── AI Remediation ─────────────────────────────────────────────── */}
-      <RemediationPanel
-        alertId={alert.id}
-        hasAIKey={hasAIKey}
-        hasGitHub={hasGitHub}
-        existingSession={latestRemediation ? {
-          id:       latestRemediation.id,
-          status:   latestRemediation.status,
-          steps:    latestRemediation.steps,
-          prUrl:    latestRemediation.prUrl,
-          prNumber: latestRemediation.prNumber,
-          error:    latestRemediation.error,
-        } : null}
-      />
+      <ProGate isPro={isPro} feature="AI Remediation">
+        <RemediationPanel
+          alertId={alert.id}
+          hasAIKey={hasAIKey}
+          hasGitHub={hasGitHub}
+          existingSession={latestRemediation ? {
+            id:       latestRemediation.id,
+            status:   latestRemediation.status,
+            steps:    latestRemediation.steps,
+            prUrl:    latestRemediation.prUrl,
+            prNumber: latestRemediation.prNumber,
+            error:    latestRemediation.error,
+          } : null}
+        />
+      </ProGate>
 
       {/* ── Post-mortem ─────────────────────────────────────────────────── */}
-      <PostmortemPanel
-        alertId={alert.id}
-        postmortem={alert.postmortem}
-        isResolved={alert.isResolved}
-        hasAIKey={hasAIKey}
-      />
+      <ProGate isPro={isPro} feature="Post-mortem">
+        <PostmortemPanel
+          alertId={alert.id}
+          postmortem={alert.postmortem}
+          isResolved={alert.isResolved}
+          hasAIKey={hasAIKey}
+        />
+      </ProGate>
 
       {/* ── Correlation ─────────────────────────────────────────────────── */}
       {alert.correlationData
@@ -296,11 +305,13 @@ export default async function AlertDetailPage({
       </Panel>
 
       {/* ── Comments ────────────────────────────────────────────────────── */}
-      <CommentsSection
-        alertId={id}
-        comments={commentsRaw}
-        currentUserId={userId}
-      />
+      <ProGate isPro={isPro} feature="Comments">
+        <CommentsSection
+          alertId={id}
+          comments={commentsRaw}
+          currentUserId={userId}
+        />
+      </ProGate>
     </div>
   );
 }

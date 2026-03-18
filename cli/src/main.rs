@@ -9,7 +9,7 @@ mod orchestrator;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "kairo", about = "Proactive developer monitoring orchestrator", version)]
+#[command(name = "inariwatch", about = "Proactive developer monitoring orchestrator", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

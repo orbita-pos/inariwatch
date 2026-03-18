@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, projectIntegrations } from "@/lib/db";
+import { db, projectIntegrations, projects, users } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { pollGitHub, type GithubAlertConfig } from "@/lib/pollers/github";
 import { pollVercel, type VercelAlertConfig } from "@/lib/pollers/vercel-api";
@@ -30,16 +30,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const integrations = await db
+  const integrations = (await db
     .select({
       id:              projectIntegrations.id,
       projectId:       projectIntegrations.projectId,
       service:         projectIntegrations.service,
       configEncrypted: projectIntegrations.configEncrypted,
       errorCount:      projectIntegrations.errorCount,
+      userPlan:        users.plan,
     })
     .from(projectIntegrations)
-    .where(eq(projectIntegrations.isActive, true));
+    .innerJoin(projects, eq(projectIntegrations.projectId, projects.id))
+    .innerJoin(users, eq(projects.userId, users.id))
+    .where(eq(projectIntegrations.isActive, true)))
+    .filter((i) => {
+      if (i.userPlan === "pro") return true;
+      // Free users get polled only on the 30-min mark (every 6th run at 5-min cadence)
+      const now = new Date();
+      return now.getMinutes() % 30 === 0;
+    });
 
   let created = 0;
   const errors: string[] = [];

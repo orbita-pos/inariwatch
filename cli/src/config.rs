@@ -119,7 +119,7 @@ pub struct TelegramConfig {
 pub fn config_path() -> PathBuf {
     config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("kairo")
+        .join("inariwatch")
         .join("config.toml")
 }
 
