@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 
 export default function SignOutPage() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center sm:justify-end bg-inari-bg">
-      {/* Full-bleed background image */}
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-inari-bg">
+      
+      {/* Background */}
       <div className="absolute inset-0">
         <Image
-          src="/login-side.png"
+          src="/login-new-3.png"
           alt=""
           fill
           className="hidden object-cover object-center sm:block"
@@ -30,8 +31,9 @@ export default function SignOutPage() {
         <div className="absolute inset-0 bg-radial-fade" />
       </div>
 
-      {/* Card floating on top */}
-      <div className="relative w-full max-w-sm px-4 py-12 sm:mr-16 lg:mr-24 xl:mr-32">
+      {/* Card container */}
+      <div className="relative w-full max-w-sm px-4 py-12 sm:ml-16 lg:ml-24 xl:ml-32">
+        
         {/* Logo */}
         <div className="mb-8 text-center">
           <Link href="/" className="inline-flex items-center gap-2.5">
@@ -40,7 +42,6 @@ export default function SignOutPage() {
               alt="InariWatch"
               width={36}
               height={36}
-              className="shrink-0"
             />
             <span className="font-mono text-sm font-bold uppercase tracking-[0.15em] text-white">
               InariWatch
@@ -48,16 +49,25 @@ export default function SignOutPage() {
           </Link>
         </div>
 
-        <div className="rounded-2xl border border-inari-border bg-inari-card/90 backdrop-blur-sm p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)] text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.06]">
-            <LogOut className="h-5 w-5 text-zinc-400" />
+        {/* Glass Card */}
+        <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl p-8 text-center shadow-[0_0_80px_rgba(59,130,246,0.15)] transition-all duration-500 hover:shadow-[0_0_120px_rgba(59,130,246,0.25)]">
+          
+          {/* Icon */}
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
+            <LogOut className="h-5 w-5 text-white/70" />
           </div>
 
-          <h1 className="text-lg font-semibold text-white">Sign out</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            Are you sure you want to sign out of InariWatch?
+          {/* Title */}
+          <h1 className="text-xl font-semibold tracking-tight text-white">
+            Leaving already?
+          </h1>
+
+          {/* Subtext */}
+          <p className="mt-2 text-sm text-zinc-400">
+            Inari will keep watching. You can come back anytime.
           </p>
 
+          {/* Actions */}
           <div className="mt-8 flex flex-col gap-3">
             <Button
               variant="primary"
@@ -66,8 +76,9 @@ export default function SignOutPage() {
             >
               Yes, sign out
             </Button>
+
             <Link href="/dashboard">
-              <Button variant="outline" className="w-full">
+              <Button variant="outline" className="w-full border-white/20 text-white hover:bg-white/10">
                 Cancel
               </Button>
             </Link>

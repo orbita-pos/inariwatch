@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
-import loginSideSrc from "@/public/login-side.png";
+import loginSideSrc from "@/public/login-new-3.png";
 import loginSideMobileSrc from "@/public/login-side-mobile.png";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,7 +51,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center sm:justify-end bg-inari-bg">
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-inari-bg">
       {/* Full-bleed background image */}
       <div className="absolute inset-0">
         <Image
@@ -78,7 +78,7 @@ export default function LoginPage() {
       </div>
 
       {/* Form floating on top */}
-      <div className="relative w-full max-w-sm px-4 py-12 sm:mr-16 lg:mr-24 xl:mr-32">
+      <div className="relative w-full max-w-sm px-4 py-12 sm:ml-16 lg:ml-24 xl:ml-32">
         {/* Logo */}
         <div className="mb-8 text-center">
           <Link href="/" className="inline-flex items-center gap-2.5">
@@ -94,7 +94,7 @@ export default function LoginPage() {
             </span>
           </Link>
           <h1 className="mt-4 text-xl font-semibold text-white">Welcome back</h1>
-          <p className="mt-1.5 text-sm text-zinc-500">Sign in to your dashboard</p>
+          <p className="mt-1.5 text-sm text-white">Sign in to your dashboard</p>
         </div>
 
         <div className="rounded-2xl border border-inari-border bg-inari-card/90 backdrop-blur-sm p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
