@@ -72,13 +72,13 @@ export async function getUserOrganizations(userId: string) {
   const [owned, memberships] = await Promise.all([
     db.select().from(schema.organizations).where(eq(schema.organizations.ownerId, userId)),
     db.select({
-      id:        schema.organizations.id,
-      name:      schema.organizations.name,
-      slug:      schema.organizations.slug,
-      ownerId:   schema.organizations.ownerId,
+      id: schema.organizations.id,
+      name: schema.organizations.name,
+      slug: schema.organizations.slug,
+      ownerId: schema.organizations.ownerId,
       avatarUrl: schema.organizations.avatarUrl,
       createdAt: schema.organizations.createdAt,
-      role:      schema.organizationMembers.role,
+      role: schema.organizationMembers.role,
     })
       .from(schema.organizationMembers)
       .innerJoin(schema.organizations, eq(schema.organizationMembers.organizationId, schema.organizations.id))
@@ -87,7 +87,16 @@ export async function getUserOrganizations(userId: string) {
 
   // Merge — owner might also be a member row
   const map = new Map<string, { id: string; name: string; slug: string; ownerId: string; avatarUrl: string | null; role: string }>();
-  for (const o of owned) map.set(o.id, { ...o, role: "owner" });
+  for (const o of owned) {
+    map.set(o.id, {
+      id: o.id,
+      name: o.name,
+      slug: o.slug,
+      ownerId: o.ownerId,
+      avatarUrl: o.avatarUrl ?? null,
+      role: "owner",
+    });
+  }
   for (const m of memberships) if (!map.has(m.id)) map.set(m.id, { ...m, avatarUrl: m.avatarUrl });
 
   return Array.from(map.values());
@@ -97,7 +106,7 @@ export async function getUserOrganizations(userId: string) {
 
 export const PLAN_LIMITS: Record<string, { maxProjects: number; maxIntegrations: number; pollIntervalLabel: string }> = {
   free: { maxProjects: 1, maxIntegrations: 2, pollIntervalLabel: "Every 30 min" },
-  pro:  { maxProjects: 10, maxIntegrations: 20, pollIntervalLabel: "Every 5 min" },
+  pro: { maxProjects: 10, maxIntegrations: 20, pollIntervalLabel: "Every 5 min" },
 };
 
 // ── Severity ordering ────────────────────────────────────────────────────────
