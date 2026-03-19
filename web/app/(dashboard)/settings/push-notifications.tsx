@@ -55,6 +55,9 @@ export function PushNotificationsButton() {
       }
 
       const convertedVapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      
+      console.log("Push reg info: Key exists?", !!VAPID_PUBLIC_KEY, "Length:", VAPID_PUBLIC_KEY.length);
+      console.log("First 10 chars:", VAPID_PUBLIC_KEY.substring(0, 10));
 
       // Subscribe to push
       let subscription: PushSubscription;
