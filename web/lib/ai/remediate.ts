@@ -127,18 +127,36 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   if (!token || !owner) { await fail(sessionId, emit, "GitHub integration missing token or owner."); return; }
 
   // Detect repo name
-  let repo = extractRepo(alert.title);
+  let extractedRepo = extractRepo(alert.title);
+  
+  // Try listing repos first to validate
+  const repos = await gh.listOwnerRepos(token, owner);
+  
+  // Only use the extracted repo if it actually exists in GitHub
+  let repo = (extractedRepo && repos.includes(extractedRepo)) ? extractedRepo : null;
+
   if (!repo) {
-    // Try listing repos and use the most recently pushed
-    const repos = await gh.listOwnerRepos(token, owner);
     if (repos.length === 1) {
       repo = repos[0];
     } else if (repos.length > 1) {
-      // Heuristic: look for repo name in alert body
-      const bodyLower = alert.body.toLowerCase();
-      repo = repos.find((r) => bodyLower.includes(r.toLowerCase())) ?? null;
+      // Heuristic 1: If user explicitly selected a repo in GitHub integration settings
+      const alertConfig = config.alertConfig as Record<string, any> | undefined;
+      const repoFilter = Array.isArray(alertConfig?.repoFilter) ? alertConfig.repoFilter : [];
+      let mappedRepo = null;
+      if (repoFilter.length === 1 && typeof repoFilter[0] === "string") {
+        mappedRepo = repoFilter[0].split("/")[1];
+      }
+      
+      if (mappedRepo && repos.includes(mappedRepo)) {
+        repo = mappedRepo;
+      } else {
+        // Heuristic 2: look for repo name in alert body
+        const bodyLower = alert.body.toLowerCase();
+        repo = repos.find((r) => bodyLower.includes(r.toLowerCase())) ?? null;
+      }
     }
   }
+
   if (!repo) { await fail(sessionId, emit, "Could not determine repository from alert. Please add the repo name in the integration config."); return; }
 
   const fullRepo = `${owner}/${repo}`;
