@@ -11,6 +11,6 @@ jobs:
     steps:
       - name: Trigger poll
         run: |
-          curl -sf -X GET \
+          curl -sSfL -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             ${{ secrets.APP_URL }}/api/cron/poll
