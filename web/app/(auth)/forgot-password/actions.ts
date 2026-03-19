@@ -6,7 +6,6 @@ import { eq } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications/email";
 import { rateLimit } from "@/lib/auth-rate-limit";
  
-
 export async function requestPasswordReset(
   formData: FormData
 ): Promise<{ success: boolean; error?: string }> {
