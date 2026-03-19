@@ -149,3 +149,30 @@ export async function getDeploymentBuildLogs(
   // Fallback: return the last 50 lines which usually contain the failure
   return lines.slice(-50).join("\n").slice(0, 3000);
 }
+
+/**
+ * Find the latest failed deployment for a project by name.
+ * Returns the deployment UID or null if not found.
+ */
+export async function getLatestFailedDeployment(
+  token: string,
+  teamId: string | undefined,
+  projectName: string
+): Promise<string | null> {
+  const teamQuery = teamId ? `&teamId=${teamId}` : "";
+  const res = await fetch(
+    `${API}/v6/deployments?limit=10&state=ERROR${teamQuery}`,
+    { headers: headers(token) }
+  );
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  const deployments = (data.deployments ?? []) as { uid: string; name: string; state: string }[];
+
+  // Find the first deployment matching the project name (case-insensitive)
+  const match = deployments.find(
+    (d) => d.name.toLowerCase() === projectName.toLowerCase()
+  );
+
+  return match?.uid ?? deployments[0]?.uid ?? null;
+}

@@ -93,7 +93,7 @@ export default async function AlertDetailPage({
   }
 
   // Parallel fetch all independent data
-  const [userPlanRows, aiKeyRows, githubRows, remediationRows, commentsRaw] = await Promise.all([
+  const [userPlanRows, aiKeyRows, githubRows, sentryRows, remediationRows, commentsRaw] = await Promise.all([
     db.select({ plan: users.plan }).from(users).where(eq(users.id, userId)).limit(1),
     db.select({ id: apiKeys.id }).from(apiKeys)
       .where(and(eq(apiKeys.userId, userId), inArray(apiKeys.service, ["claude", "openai"])))
@@ -102,6 +102,13 @@ export default async function AlertDetailPage({
       .where(and(
         eq(projectIntegrations.projectId, alert.projectId),
         eq(projectIntegrations.service, "github"),
+        eq(projectIntegrations.isActive, true)
+      ))
+      .limit(1),
+    db.select({ id: projectIntegrations.id }).from(projectIntegrations)
+      .where(and(
+        eq(projectIntegrations.projectId, alert.projectId),
+        eq(projectIntegrations.service, "sentry"),
         eq(projectIntegrations.isActive, true)
       ))
       .limit(1),
@@ -126,6 +133,7 @@ export default async function AlertDetailPage({
   const isPro            = userPlanRows[0]?.plan === "pro";
   const hasAIKey         = aiKeyRows.length > 0;
   const hasGitHub        = githubRows.length > 0;
+  const hasSentry        = sentryRows.length > 0;
   const latestRemediation = remediationRows[0];
 
   return (
@@ -259,7 +267,7 @@ export default async function AlertDetailPage({
           alertId={alert.id}
           hasAIKey={hasAIKey}
           hasGitHub={hasGitHub}
-          isVercelOnly={alert.sourceIntegrations.includes("vercel") && !alert.sourceIntegrations.includes("sentry")}
+          isVercelOnly={alert.sourceIntegrations.includes("vercel") && !hasSentry}
           existingSession={latestRemediation ? {
             id:       latestRemediation.id,
             status:   latestRemediation.status,

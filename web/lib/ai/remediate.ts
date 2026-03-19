@@ -8,7 +8,7 @@
  * If CI fails, the engine retries with context about what went wrong (up to 3 attempts).
  */
 
-import { db, remediationSessions, alerts, projectIntegrations } from "@/lib/db";
+import { db, remediationSessions, alerts, projectIntegrations, projects } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_REMEDIATOR, buildDiagnosePrompt, buildFixPrompt } from "./prompts";
@@ -16,7 +16,7 @@ import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
-import { getDeploymentBuildLogs } from "@/lib/services/vercel-api";
+import { getDeploymentBuildLogs, getLatestFailedDeployment } from "@/lib/services/vercel-api";
 import type { RemediationStep } from "@/lib/db/schema";
 
 type Emit = (event: string, data: unknown) => void;
@@ -202,28 +202,39 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     let buildLogs: string | null = null;
 
     if (isVercelAlert) {
-      // Extract deployment ID from alert body (format: "deployment:abc123")
-      const depMatch = alert.body.match(/deployment:([a-zA-Z0-9_-]+)/);
-      if (depMatch) {
-        steps = await pushStep(sessionId, steps,
-          makeStep("fetch_logs", "Fetching Vercel build logs..."), emit);
+      steps = await pushStep(sessionId, steps,
+        makeStep("fetch_logs", "Fetching Vercel build logs..."), emit);
 
-        // Get Vercel token from project integrations
-        const vercelInteg = integrations.find((i) => i.service === "vercel");
-        if (vercelInteg) {
-          const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
-          const vercelToken = vercelConfig.token as string;
-          const teamId = (vercelConfig.teamId as string) || undefined;
-          if (vercelToken) {
-            buildLogs = await getDeploymentBuildLogs(vercelToken, teamId, depMatch[1]);
+      // Get Vercel token from project integrations
+      const vercelInteg = integrations.find((i) => i.service === "vercel");
+      if (vercelInteg) {
+        const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
+        const vercelToken = vercelConfig.token as string;
+        const teamId = (vercelConfig.teamId as string) || undefined;
+        
+        if (vercelToken) {
+          // Extract deployment ID from alert body (format: "deployment:abc123")
+          const depMatch = alert.body.match(/deployment:([a-zA-Z0-9_-]+)/);
+          let deploymentId = depMatch ? depMatch[1] : null;
+
+          if (!deploymentId) {
+             // Fallback: lookup the latest failed deployment
+             const [proj] = await db.select().from(projects).where(eq(projects.id, session.projectId)).limit(1);
+             if (proj) {
+               deploymentId = await getLatestFailedDeployment(vercelToken, teamId, proj.name);
+             }
+          }
+
+          if (deploymentId) {
+            buildLogs = await getDeploymentBuildLogs(vercelToken, teamId, deploymentId);
           }
         }
-
-        steps = await resolveStep(sessionId, steps,
-          buildLogs ? "completed" : "failed",
-          buildLogs ? `Retrieved ${buildLogs.split("\n").length} lines of build output` : "Could not fetch build logs — will use available error info",
-          emit);
       }
+
+      steps = await resolveStep(sessionId, steps,
+        buildLogs ? "completed" : "failed",
+        buildLogs ? `Retrieved ${buildLogs.split("\n").length} lines of build output` : "Could not fetch build logs — will use available error info",
+        emit);
     }
 
     steps = await pushStep(sessionId, steps,
