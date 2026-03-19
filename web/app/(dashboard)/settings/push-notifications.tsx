@@ -6,12 +6,17 @@ import { Bell, BellOff, Loader2, Check } from "lucide-react";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 
 function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-  return arr;
+  try {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  } catch (err) {
+    console.error("VAPID key decode error:", err);
+    throw new Error("Invalid VAPID public key format");
+  }
 }
 
 export function PushNotificationsButton() {
@@ -38,21 +43,31 @@ export function PushNotificationsButton() {
 
       // Clear any stale subscription (different VAPID key causes "push service error")
       const existing = await reg.pushManager.getSubscription();
-      if (existing) await existing.unsubscribe();
+      if (existing) {
+        await existing.unsubscribe();
+      }
+
+      const convertedVapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
 
       // Subscribe to push
-      // Try passing key as string first (supported in modern browsers), fallback to Uint8Array
       let subscription: PushSubscription;
       try {
         subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: VAPID_PUBLIC_KEY,
+          applicationServerKey: convertedVapidKey,
         });
-      } catch {
-        subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        });
+      } catch (err: any) {
+        console.error("First subscribe attempt failed:", err);
+        // Fallback: try with the raw string (some browsers prefer this)
+        try {
+          subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: VAPID_PUBLIC_KEY,
+          });
+        } catch (err2: any) {
+          console.error("Second subscribe attempt failed:", err2);
+          throw new Error(err.message || "Push service error");
+        }
       }
 
       const sub = subscription.toJSON();
