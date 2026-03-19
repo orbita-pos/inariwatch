@@ -110,7 +110,7 @@ export async function getDeploymentBuildLogs(
 ): Promise<string | null> {
   const teamQuery = teamId ? `&teamId=${teamId}` : "";
   const res = await fetch(
-    `${API}/v3/deployments/${encodeURIComponent(deploymentId)}/events?limit=200${teamQuery}`,
+    `${API}/v3/deployments/${encodeURIComponent(deploymentId)}/events?limit=1000${teamQuery}`,
     { headers: headers(token) }
   );
   if (!res.ok) return null;
@@ -134,16 +134,18 @@ export async function getDeploymentBuildLogs(
 
   if (lines.length === 0) return null;
 
-  // Find error-relevant lines: lines containing "error", "Error", "failed",
-  // or the last 50 lines (which typically contain the build error output)
-  const errorLines = lines.filter(
-    (l) => /\b(error|Error|ERROR|failed|FAILED|SyntaxError|TypeError|ReferenceError|Module not found)\b/.test(l)
+  // We reverse the search because we want the *first* error in the build (the actual root cause),
+  // not the final "... exited with 1" generic error at the end.
+  const errorIndex = lines.findIndex(
+    (l) => /\b(error -|Error:|SyntaxError:|TypeError:|ReferenceError:|Module not found)\b/.test(l)
   );
 
-  // Return error lines if we found some, otherwise return the tail of the log
-  if (errorLines.length > 0) {
-    // Include some surrounding context — up to 2000 chars of error lines
-    return errorLines.join("\n").slice(0, 3000);
+  if (errorIndex !== -1) {
+    // Return a window around the error: up to 10 lines before, 50 lines after
+    // This captures multi-line Next.js errors that follow the initial "Error" line
+    const start = Math.max(0, errorIndex - 10);
+    const end = Math.min(lines.length, errorIndex + 50);
+    return lines.slice(start, end).join("\n").slice(0, 4000);
   }
 
   // Fallback: return the last 50 lines which usually contain the failure
