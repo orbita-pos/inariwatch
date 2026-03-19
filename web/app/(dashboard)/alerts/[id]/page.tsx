@@ -259,6 +259,7 @@ export default async function AlertDetailPage({
           alertId={alert.id}
           hasAIKey={hasAIKey}
           hasGitHub={hasGitHub}
+          isVercelOnly={alert.sourceIntegrations.includes("vercel") && !alert.sourceIntegrations.includes("sentry")}
           existingSession={latestRemediation ? {
             id:       latestRemediation.id,
             status:   latestRemediation.status,

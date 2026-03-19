@@ -34,11 +34,13 @@ export function RemediationPanel({
   alertId,
   hasAIKey,
   hasGitHub,
+  isVercelOnly = false,
   existingSession,
 }: {
   alertId: string;
   hasAIKey: boolean;
   hasGitHub: boolean;
+  isVercelOnly?: boolean;
   existingSession?: { id: string; status: string; steps: unknown; prUrl: string | null; prNumber: number | null; error: string | null } | null;
 }) {
   const [state, setState] = useState<SessionState>({
@@ -207,6 +209,13 @@ export function RemediationPanel({
           <p className="text-sm text-zinc-400">
             Let AI diagnose the error, generate a fix, verify it with CI, and create a pull request.
           </p>
+          {isVercelOnly && (
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5">
+              <p className="text-[13px] text-amber-500/90 leading-relaxed">
+                <strong>Heads-up:</strong> This alert came from Vercel only. Build logs will be fetched automatically if available. For runtime errors, connecting <a href="/settings/integrations" className="underline hover:text-amber-400 font-medium">Sentry</a> provides stack traces for more precise fixes.
+              </p>
+            </div>
+          )}
           <button
             onClick={handleStart}
             disabled={isPending}

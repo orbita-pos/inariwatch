@@ -99,12 +99,13 @@ export async function POST(
     const state = type === "deployment.error" ? "failed" : "canceled";
     const errorMsg = dep.errorMessage ?? dep.buildError ?? `Build ${state}`;
     const url = dep.url ? `https://${dep.url}` : "";
+    const deploymentId = (dep.uid ?? dep.id ?? "") as string;
 
     const result = await createAlertIfNew(
       {
         severity: isProduction ? "critical" : "warning",
         title: `${isProduction ? "Production" : "Preview"} deploy ${state} — ${projectName}`,
-        body: `${errorMsg}${url ? `\n\n${url}` : ""}`,
+        body: `${errorMsg}${deploymentId ? `\ndeployment:${deploymentId}` : ""}${url ? `\n\n${url}` : ""}`,
         sourceIntegrations: ["vercel"],
         isRead: false,
         isResolved: false,

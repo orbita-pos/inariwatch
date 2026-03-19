@@ -16,6 +16,7 @@ import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
+import { getDeploymentBuildLogs } from "@/lib/services/vercel-api";
 import type { RemediationStep } from "@/lib/db/schema";
 
 type Emit = (event: string, data: unknown) => void;
@@ -195,6 +196,36 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     steps = await resolveStep(sessionId, steps, "completed",
       `Connected to ${fullRepo} (${repoFiles.length} files, branch: ${defaultBranch})`, emit);
 
+    // ── FETCH BUILD LOGS (Vercel) ─────────────────────────────────────────
+    const isVercelAlert = alert.sourceIntegrations.includes("vercel");
+    const hasSentry = alert.sourceIntegrations.includes("sentry");
+    let buildLogs: string | null = null;
+
+    if (isVercelAlert) {
+      // Extract deployment ID from alert body (format: "deployment:abc123")
+      const depMatch = alert.body.match(/deployment:([a-zA-Z0-9_-]+)/);
+      if (depMatch) {
+        steps = await pushStep(sessionId, steps,
+          makeStep("fetch_logs", "Fetching Vercel build logs..."), emit);
+
+        // Get Vercel token from project integrations
+        const vercelInteg = integrations.find((i) => i.service === "vercel");
+        if (vercelInteg) {
+          const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
+          const vercelToken = vercelConfig.token as string;
+          const teamId = (vercelConfig.teamId as string) || undefined;
+          if (vercelToken) {
+            buildLogs = await getDeploymentBuildLogs(vercelToken, teamId, depMatch[1]);
+          }
+        }
+
+        steps = await resolveStep(sessionId, steps,
+          buildLogs ? "completed" : "failed",
+          buildLogs ? `Retrieved ${buildLogs.split("\n").length} lines of build output` : "Could not fetch build logs — will use available error info",
+          emit);
+      }
+    }
+
     steps = await pushStep(sessionId, steps,
       makeStep("diagnose", "AI is diagnosing the root cause and identifying affected files..."), emit);
 
@@ -205,7 +236,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         body: alert.body,
         sourceIntegrations: alert.sourceIntegrations,
         aiReasoning: alert.aiReasoning,
-      }, repoFiles) },
+      }, repoFiles, buildLogs) },
     ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: string };
@@ -216,8 +247,26 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       return;
     }
 
+    // ── CONFIDENCE GATING ───────────────────────────────────────────────
+    if (diagnosis.confidence === "low" && isVercelAlert && !hasSentry) {
+      steps = await resolveStep(sessionId, steps, "failed",
+        `Low confidence: ${diagnosis.diagnosis}`, emit);
+      await fail(sessionId, emit,
+        `The error information is too vague to diagnose reliably.\n\n` +
+        `Diagnosis: ${diagnosis.diagnosis}\n\n` +
+        (!buildLogs
+          ? `The Vercel build logs could not be retrieved. Make sure the Vercel integration token has read access to deployments.\n\n`
+          : "") +
+        `To improve accuracy:\n` +
+        `• Connect Sentry for runtime error details with stack traces\n` +
+        `• Check the Vercel dashboard for the full build log\n` +
+        `• If the build log shows a specific error, paste it in a comment and try again`
+      );
+      return;
+    }
+
     steps = await resolveStep(sessionId, steps, "completed",
-      `Diagnosis: ${diagnosis.diagnosis}`, emit);
+      `Diagnosis (${diagnosis.confidence} confidence): ${diagnosis.diagnosis}`, emit);
 
     // ── READ CODE ──────────────────────────────────────────────────────────
     await updateSession(sessionId, { status: "reading_code" });

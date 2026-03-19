@@ -81,13 +81,18 @@ export function buildDiagnosePrompt(
     sourceIntegrations: string[];
     aiReasoning?: string | null;
   },
-  repoFiles: string[]
+  repoFiles: string[],
+  buildLogs?: string | null
 ): string {
   // Show a subset of the file tree to avoid token explosion
   const fileTree = repoFiles
     .filter((f) => !f.includes("node_modules/") && !f.includes(".lock") && !f.startsWith(".git/"))
     .slice(0, 500)
     .join("\n");
+
+  const buildLogSection = buildLogs
+    ? `\n\nBUILD / RUNTIME LOGS (actual compiler or runtime output):\n${buildLogs.slice(0, 2500)}`
+    : "";
 
   return `Analyze this error and identify the files that need to be fixed.
 
@@ -96,6 +101,7 @@ Title: ${alert.title}
 Details: ${alert.body.slice(0, 1500)}
 Source: ${alert.sourceIntegrations.join(", ")}
 ${alert.aiReasoning ? `\nPrevious AI analysis:\n${alert.aiReasoning.slice(0, 800)}` : ""}
+${buildLogSection}
 
 REPOSITORY FILE TREE:
 ${fileTree}
@@ -108,7 +114,13 @@ Respond in JSON:
 }
 
 Only request files that exist in the tree above. Request 1-5 files maximum.
-Focus on source files (.ts, .tsx, .js, .jsx, .py, .go, .rs, etc.), not config files, unless the error is clearly config-related.`;
+Focus on source files (.ts, .tsx, .js, .jsx, .py, .go, .rs, etc.), not config files, unless the error is clearly config-related.
+
+CRITICAL RULES:
+- If build/runtime logs are provided above, base your diagnosis ONLY on what the logs say. Do not guess.
+- Do NOT invent errors like "missing React import" or "missing dependency" unless the logs specifically mention them.
+- If the error details are too vague to determine the root cause with certainty, set confidence to "low" and explain what info is missing in the diagnosis.
+- A generic message like "Build failed" without build logs is NOT enough to diagnose — set confidence to "low".`;
 }
 
 export function buildFixPrompt(
