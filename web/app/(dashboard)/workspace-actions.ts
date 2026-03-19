@@ -119,22 +119,27 @@ export async function inviteMember(
       return { error: "You don't have permission to invite members." };
   }
 
-  // Check if user already a member (by email → userId → membership)
+  // Check if user exists and if they are already a member
   const [existingUser] = await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.email, emailTrimmed));
 
-  if (existingUser) {
-    const [alreadyMember] = await db
-      .select({ id: organizationMembers.id })
-      .from(organizationMembers)
-      .where(and(
-        eq(organizationMembers.organizationId, organizationId),
-        eq(organizationMembers.userId, existingUser.id),
-      ));
-    if (alreadyMember) return { error: "This user is already a member." };
+  // [NEW] Enforce that invited users must already have an account
+  if (!existingUser) {
+    return { error: "This email is not registered. They must create an account first." };
   }
+
+  // They exist, now check if they are already in the org
+  const [alreadyMember] = await db
+    .select({ id: organizationMembers.id })
+    .from(organizationMembers)
+    .where(and(
+      eq(organizationMembers.organizationId, organizationId),
+      eq(organizationMembers.userId, existingUser.id),
+    ));
+    
+  if (alreadyMember) return { error: "This user is already a member." };
 
   // [MEDIUM] Check if invite already pending — only non-expired invites
   const [existingInvite] = await db
@@ -197,7 +202,7 @@ export async function inviteMember(
         Accept invitation
       </a>
       <p style="color: #52525b; font-size: 12px; margin-top: 24px;">
-        This invite expires in 7 days. If you don't have an InariWatch account, you'll be able to create one.
+        This invite expires in 7 days.
       </p>
     </div>
     `
