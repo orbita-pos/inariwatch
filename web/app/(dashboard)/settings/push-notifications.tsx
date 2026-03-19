@@ -96,7 +96,14 @@ export function PushNotificationsButton() {
 
       setStatus("enabled");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      let msg = err instanceof Error ? err.message : "Something went wrong";
+      
+      // Provide a helpful error message for Brave users since Brave blocks FCM by default
+      if (msg.includes("push service error") && typeof navigator !== "undefined" && "brave" in navigator) {
+        msg = "Brave blocks push notifications by default. Enable 'Use Google services for push messaging' in brave://settings/privacy, then restart the browser.";
+      }
+      
+      setError(msg);
       setStatus("error");
     }
   };
