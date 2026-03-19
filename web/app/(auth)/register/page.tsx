@@ -8,6 +8,8 @@ import { signIn } from "next-auth/react";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { registerUser } from "./actions";
+import bgDesktopSrc from "@/public/login-new-3.png";
+import bgMobileSrc from "@/public/login-side-mobile.png";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -50,24 +52,31 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-inari-bg">
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-zinc-900">
       
       {/* Background */}
       <div className="absolute inset-0">
         <Image
-          src="/login-new-3.png"
+          src={bgDesktopSrc}
           alt=""
           fill
           className="hidden object-cover object-center sm:block"
           priority
+          placeholder="blur"
+          quality={85}
+          sizes="100vw"
         />
         <Image
-          src="/login-side-mobile.png"
+          src={bgMobileSrc}
           alt=""
           fill
           className="block object-cover object-top sm:hidden"
           priority
+          placeholder="blur"
+          quality={85}
+          sizes="100vw"
         />
+        <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-radial-fade" />
       </div>
 
@@ -98,13 +107,13 @@ export default function RegisterPage() {
         </div>
 
         {/* Glass Card */}
-        <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl p-8 shadow-[0_0_80px_rgba(59,130,246,0.15)] transition-all duration-500 hover:shadow-[0_0_120px_rgba(59,130,246,0.25)]">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
           
           {/* OAuth */}
           <div className="space-y-2">
             <Button
               variant="outline"
-              className="w-full border-white/20 text-white hover:bg-white/10"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
               onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
             >
               <Github className="h-4 w-4" />
@@ -113,17 +122,28 @@ export default function RegisterPage() {
 
             <Button
               variant="outline"
-              className="w-full border-white/20 text-white hover:bg-white/10"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
               onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
             >
               Continue with Google
             </Button>
+
+            <Button
+              variant="outline"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
+              onClick={() => signIn("gitlab", { callbackUrl: "/dashboard" })}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51a.42.42 0 01.82 0l2.44 7.51h8.06l2.44-7.51a.42.42 0 01.82 0l2.44 7.51 1.22 3.78a.84.84 0 01-.3.94z"/>
+              </svg>
+              Continue with GitLab
+            </Button>
           </div>
 
           <div className="my-6 flex items-center gap-3">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-xs text-zinc-500 font-mono">or</span>
-            <div className="flex-1 h-px bg-white/10" />
+            <div className="flex-1 h-px bg-zinc-200" />
+            <span className="text-xs text-zinc-400 font-mono">or</span>
+            <div className="flex-1 h-px bg-zinc-200" />
           </div>
 
           {/* Form */}
@@ -134,7 +154,7 @@ export default function RegisterPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name"
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30"
+              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
             />
 
             <input
@@ -143,7 +163,7 @@ export default function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
               required
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30"
+              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
             />
 
             <input
@@ -153,7 +173,7 @@ export default function RegisterPage() {
               placeholder="At least 8 characters"
               required
               minLength={8}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30"
+              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
             />
 
             {error && (
@@ -171,9 +191,9 @@ export default function RegisterPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-sm text-zinc-500">
+        <p className="mt-6 text-center text-sm text-white/70">
           Already have an account?{" "}
-          <Link href="/login" className="text-zinc-300 hover:text-white">
+          <Link href="/login" className="text-white hover:text-white/80 font-medium">
             Sign in →
           </Link>
         </p>

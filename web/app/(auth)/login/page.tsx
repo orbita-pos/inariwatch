@@ -51,7 +51,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-inari-bg">
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-zinc-900">
       {/* Full-bleed background image */}
       <div className="absolute inset-0">
         <Image
@@ -74,6 +74,7 @@ export default function LoginPage() {
           quality={85}
           sizes="100vw"
         />
+        <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-radial-fade" />
       </div>
 
@@ -97,12 +98,12 @@ export default function LoginPage() {
           <p className="mt-1.5 text-sm text-white">Sign in to your dashboard</p>
         </div>
 
-        <div className="rounded-2xl border border-inari-border bg-inari-card/90 backdrop-blur-sm p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
           {/* OAuth providers */}
           <div className="space-y-2">
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
               onClick={() => signIn("github", { callbackUrl })}
             >
               <Github className="h-4 w-4" />
@@ -110,7 +111,7 @@ export default function LoginPage() {
             </Button>
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
               onClick={() => signIn("google", { callbackUrl })}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24">
@@ -123,7 +124,7 @@ export default function LoginPage() {
             </Button>
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
               onClick={() => signIn("gitlab", { callbackUrl })}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
@@ -134,9 +135,9 @@ export default function LoginPage() {
           </div>
 
           <div className="my-6 flex items-center gap-3">
-            <div className="flex-1 h-px bg-inari-border" />
-            <span className="text-xs text-zinc-700 font-mono">or</span>
-            <div className="flex-1 h-px bg-inari-border" />
+            <div className="flex-1 h-px bg-zinc-200" />
+            <span className="text-xs text-zinc-400 font-mono">or</span>
+            <div className="flex-1 h-px bg-zinc-200" />
           </div>
 
           {/* Email / password */}
@@ -151,7 +152,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
                 required
-                className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20 transition-colors"
               />
             </div>
             <div>
@@ -161,7 +162,7 @@ export default function LoginPage() {
                 </label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs text-zinc-600 hover:text-inari-accent transition-colors"
+                  className="text-xs text-zinc-400 hover:text-inari-accent transition-colors"
                 >
                   Forgot password?
                 </Link>
@@ -172,7 +173,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20 transition-colors"
               />
             </div>
 
@@ -189,7 +190,7 @@ export default function LoginPage() {
                   onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000"
                   autoFocus
-                  className="w-full rounded-lg border border-inari-border bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 text-center font-mono tracking-widest placeholder-zinc-700 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                  className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 text-center font-mono tracking-widest placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20 transition-colors"
                 />
               </div>
             )}
@@ -209,9 +210,9 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-sm text-zinc-600">
+        <p className="mt-6 text-center text-sm text-white/70">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
+          <Link href="/register" className="text-white hover:text-white/80 transition-colors font-medium">
             Create one free →
           </Link>
         </p>

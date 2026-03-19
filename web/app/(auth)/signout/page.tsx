@@ -5,29 +5,36 @@ import Link from "next/link";
 import Image from "next/image";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import bgDesktopSrc from "@/public/login-new-3.png";
+import bgMobileSrc from "@/public/login-side-mobile.png";
 
 export default function SignOutPage() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-inari-bg">
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-zinc-900">
       
       {/* Background */}
       <div className="absolute inset-0">
         <Image
-          src="/login-new-3.png"
+          src={bgDesktopSrc}
           alt=""
           fill
           className="hidden object-cover object-center sm:block"
           priority
-          quality={100}
+          placeholder="blur"
+          quality={85}
+          sizes="100vw"
         />
         <Image
-          src="/login-side-mobile.png"
+          src={bgMobileSrc}
           alt=""
           fill
           className="block object-cover object-top sm:hidden"
           priority
-          quality={90}
+          placeholder="blur"
+          quality={85}
+          sizes="100vw"
         />
+        <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-radial-fade" />
       </div>
 
@@ -50,20 +57,20 @@ export default function SignOutPage() {
         </div>
 
         {/* Glass Card */}
-        <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl p-8 text-center shadow-[0_0_80px_rgba(59,130,246,0.15)] transition-all duration-500 hover:shadow-[0_0_120px_rgba(59,130,246,0.25)]">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
           
           {/* Icon */}
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
-            <LogOut className="h-5 w-5 text-white/70" />
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100">
+            <LogOut className="h-5 w-5 text-zinc-500" />
           </div>
 
           {/* Title */}
-          <h1 className="text-xl font-semibold tracking-tight text-white">
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-900">
             Leaving already?
           </h1>
 
           {/* Subtext */}
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-zinc-500">
             Inari will keep watching. You can come back anytime.
           </p>
 
@@ -78,7 +85,7 @@ export default function SignOutPage() {
             </Button>
 
             <Link href="/dashboard">
-              <Button variant="outline" className="w-full border-white/20 text-white hover:bg-white/10">
+              <Button variant="outline" className="w-full">
                 Cancel
               </Button>
             </Link>

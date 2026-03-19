@@ -6,6 +6,8 @@ import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { resetPassword } from "./actions";
+import bgDesktopSrc from "@/public/login-new-3.png";
+import bgMobileSrc from "@/public/login-side-mobile.png";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -49,18 +51,18 @@ function ResetPasswordForm() {
     return (
       <div className="space-y-4 text-center">
         
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100">
           <svg className="h-6 w-6 text-inari-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
 
         <div>
-          <h2 className="text-base font-medium text-white">
+          <h2 className="text-base font-medium text-zinc-900">
             Password updated
           </h2>
-          <p className="mt-2 text-sm text-zinc-400">
-            You're back under Inari’s watch.
+          <p className="mt-2 text-sm text-zinc-500">
+            You’re back under Inari’s watch.
           </p>
         </div>
 
@@ -74,7 +76,7 @@ function ResetPasswordForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       
-      <p className="text-sm text-zinc-400">
+      <p className="text-sm text-zinc-600">
         Set a new password for your account.
       </p>
 
@@ -84,7 +86,7 @@ function ResetPasswordForm() {
         placeholder="New password"
         required
         minLength={8}
-        className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30"
+        className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
       />
 
       <input
@@ -93,7 +95,7 @@ function ResetPasswordForm() {
         placeholder="Confirm password"
         required
         minLength={8}
-        className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30"
+        className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
       />
 
       {error && (
@@ -114,24 +116,31 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-inari-bg">
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-zinc-900">
       
       {/* Background */}
       <div className="absolute inset-0">
         <Image
-          src="/login-new-3.png"
+          src={bgDesktopSrc}
           alt=""
           fill
           className="hidden object-cover object-center sm:block"
           priority
+          placeholder="blur"
+          quality={85}
+          sizes="100vw"
         />
         <Image
-          src="/login-side-mobile.png"
+          src={bgMobileSrc}
           alt=""
           fill
           className="block object-cover object-top sm:hidden"
           priority
+          placeholder="blur"
+          quality={85}
+          sizes="100vw"
         />
+        <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-radial-fade" />
       </div>
 
@@ -162,7 +171,7 @@ export default function ResetPasswordPage() {
         </div>
 
         {/* Glass Card */}
-        <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl p-8 shadow-[0_0_80px_rgba(59,130,246,0.15)] transition-all duration-500 hover:shadow-[0_0_120px_rgba(59,130,246,0.25)]">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
           
           <Suspense fallback={<div className="h-40 animate-pulse bg-white/5 rounded-lg" />}>
             <ResetPasswordForm />
@@ -170,9 +179,9 @@ export default function ResetPasswordPage() {
 
         </div>
 
-        <p className="mt-6 text-center text-sm text-zinc-500">
+        <p className="mt-6 text-center text-sm text-white/70">
           Remember your password?{" "}
-          <Link href="/login" className="text-zinc-300 hover:text-white">
+          <Link href="/login" className="text-white hover:text-white/80 font-medium">
             Sign in →
           </Link>
         </p>

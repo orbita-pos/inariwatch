@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Github } from "lucide-react";
+
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -46,15 +46,6 @@ export function MarketingNav() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link
-            href="#"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white transition-colors"
-          >
-            <Github className="h-4 w-4" />
-            <span className="hidden sm:inline">GitHub</span>
-          </Link>
           <ThemeToggle />
           <Link href="/login">
             <Button
