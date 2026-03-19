@@ -20,7 +20,8 @@ interface SentryIssue {
 export async function pollSentry(
   token: string,
   org: string,
-  config: SentryAlertConfig = {}
+  config: SentryAlertConfig = {},
+  lookbackMinutes = 10
 ): Promise<Omit<NewAlert, "projectId">[]> {
   const results: Omit<NewAlert, "projectId">[] = [];
 
@@ -29,8 +30,8 @@ export async function pollSentry(
   const checkNew         = config.new_issues?.enabled  !== false;
   const checkRegressions = config.regressions?.enabled !== false;
 
-  // Query issues seen in the last 10 minutes
-  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  // Query issues seen in the last lookbackMinutes
+  const since = new Date(Date.now() - lookbackMinutes * 60 * 1000).toISOString();
 
   const res = await fetch(
     `https://sentry.io/api/0/organizations/${org}/issues/?query=firstSeen%3A%3E${encodeURIComponent(since)}&limit=25`,

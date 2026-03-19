@@ -37,6 +37,7 @@ export async function GET(req: Request) {
       service:         projectIntegrations.service,
       configEncrypted: projectIntegrations.configEncrypted,
       errorCount:      projectIntegrations.errorCount,
+      lastCheckedAt:   projectIntegrations.lastCheckedAt,
       userPlan:        users.plan,
     })
     .from(projectIntegrations)
@@ -45,9 +46,10 @@ export async function GET(req: Request) {
     .where(eq(projectIntegrations.isActive, true)))
     .filter((i) => {
       if (i.userPlan === "pro") return true;
-      // Free users get polled only on the 30-min mark (every 6th run at 5-min cadence)
-      const now = new Date();
-      return now.getMinutes() % 30 === 0;
+      // Free users get polled at most every 30 minutes
+      if (!i.lastCheckedAt) return true;
+      const msSinceLast = Date.now() - i.lastCheckedAt.getTime();
+      return msSinceLast >= 25 * 60 * 1000; // 25 min buffer
     });
 
   let created = 0;
@@ -64,15 +66,17 @@ export async function GET(req: Request) {
     const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
     let newAlerts: Omit<NewAlert, "projectId">[] = [];
 
+    const lookbackMinutes = integ.userPlan === "pro" ? 10 : 35;
+
     if (integ.service === "github") {
       const owner = (cfg.owner as string) ?? "";
       newAlerts = await pollGitHub(token!, owner, alertConfig as GithubAlertConfig);
     } else if (integ.service === "vercel") {
       const teamId = (cfg.teamId as string) ?? "";
-      newAlerts = await pollVercel(token!, teamId, alertConfig as VercelAlertConfig);
+      newAlerts = await pollVercel(token!, teamId, alertConfig as VercelAlertConfig, lookbackMinutes);
     } else if (integ.service === "sentry") {
       const org = (cfg.org as string) ?? "";
-      newAlerts = await pollSentry(token!, org, alertConfig as SentryAlertConfig);
+      newAlerts = await pollSentry(token!, org, alertConfig as SentryAlertConfig, lookbackMinutes);
     } else if (integ.service === "uptime") {
       const endpoints = (cfg.endpoints ?? []) as UptimeEndpoint[];
       if (endpoints.length > 0) {

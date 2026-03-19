@@ -18,15 +18,16 @@ interface Deployment {
 export async function pollVercel(
   token: string,
   teamId: string,
-  config: VercelAlertConfig = {}
+  config: VercelAlertConfig = {},
+  lookbackMinutes = 10
 ): Promise<Omit<NewAlert, "projectId">[]> {
   const results: Omit<NewAlert, "projectId">[] = [];
 
   const checkProd    = config.failed_production?.enabled !== false;
   const checkPreview = config.failed_preview?.enabled    === true;
 
-  // Look back 10 minutes (cron every 5 min, 2× buffer to avoid gaps)
-  const since = Date.now() - 10 * 60 * 1000;
+  // Look back lookbackMinutes
+  const since = Date.now() - lookbackMinutes * 60 * 1000;
   const teamQuery = teamId ? `&teamId=${teamId}` : "";
 
   const res = await fetch(
