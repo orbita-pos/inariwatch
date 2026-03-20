@@ -19,6 +19,7 @@ import {
   Shield,
   RotateCcw,
   Heart,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
@@ -883,13 +884,13 @@ function Sponsors() {
           </a>
           
           <a
-            href="/SPONSORSHIP.md"
+            href="https://github.com/sponsors/inariwatch"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 group opacity-50 hover:opacity-100"
           >
             <div className="h-8 w-8 rounded-md border border-dashed border-zinc-600 flex items-center justify-center text-zinc-500 group-hover:border-inari-accent group-hover:text-inari-accent transition-colors">
-              <span className="text-lg leading-none">+</span>
+              <Plus className="h-4 w-4" />
             </div>
             <span className="font-medium text-lg tracking-tight text-zinc-500 group-hover:text-inari-accent transition-colors">
               Sponsor InariWatch

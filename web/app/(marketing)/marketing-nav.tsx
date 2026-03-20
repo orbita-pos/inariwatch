@@ -33,15 +33,15 @@ export function MarketingNav() {
             height={36}
             className="shrink-0"
           />
-          <span className="font-mono font-bold text-white uppercase tracking-widest text-sm">
+          <span className={`font-mono font-bold uppercase tracking-widest text-sm transition-colors ${scrolled ? "text-fg-strong" : "text-white"}`}>
             INARIWATCH
           </span>
         </Link>
 
-        <div className="hidden items-center gap-6 text-sm text-white/80 md:flex">
-          <Link href="#integrations" className="hover:text-white transition-colors">Integrations</Link>
-          <Link href="#ai"           className="hover:text-white transition-colors">AI features</Link>
-          <Link href="/docs"         className="hover:text-white transition-colors">Docs</Link>
+        <div className={`hidden items-center gap-6 text-sm md:flex transition-colors ${scrolled ? "text-fg-base" : "text-white/80"}`}>
+          <Link href="#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Integrations</Link>
+          <Link href="#ai"           className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>AI features</Link>
+          <Link href="/docs"         className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Docs</Link>
         </div>
 
         <div className="flex items-center gap-3">
@@ -50,7 +50,7 @@ export function MarketingNav() {
             <Button
               variant="outline"
               size="sm"
-              className="border-white/30 text-white hover:bg-white/10 hover:border-white/50"
+              className={scrolled ? "" : "border-white/30 text-white hover:bg-white/10 hover:border-white/50 bg-white/5"}
             >
               Sign in
             </Button>
