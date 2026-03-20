@@ -11,7 +11,7 @@ import {
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
-export const planEnum = pgEnum("plan", ["free", "pro"]);
+export const planEnum = pgEnum("plan", ["free", "pro", "team"]);
 export const severityEnum = pgEnum("severity", ["critical", "warning", "info"]);
 export const notifTypeEnum = pgEnum("notification_type", ["telegram", "whatsapp", "email", "slack"]);
 export const integrationEnum = pgEnum("integration", ["github", "vercel", "sentry", "postgres", "git", "npm"]);

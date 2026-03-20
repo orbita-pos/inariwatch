@@ -106,7 +106,8 @@ export async function getUserOrganizations(userId: string) {
 
 export const PLAN_LIMITS: Record<string, { maxProjects: number; maxIntegrations: number; pollIntervalLabel: string }> = {
   free: { maxProjects: 1, maxIntegrations: 2, pollIntervalLabel: "Every 30 min" },
-  pro: { maxProjects: 10, maxIntegrations: 20, pollIntervalLabel: "Every 5 min" },
+  pro: { maxProjects: 5, maxIntegrations: 10, pollIntervalLabel: "Every 1 min" },
+  team: { maxProjects: 20, maxIntegrations: 40, pollIntervalLabel: "Every 1 min" },
 };
 
 // ── Severity ordering ────────────────────────────────────────────────────────

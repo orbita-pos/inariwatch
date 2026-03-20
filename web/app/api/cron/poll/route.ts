@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { db, projectIntegrations, projects, users } from "@/lib/db";
+import { db, projectIntegrations, projects, users, organizations } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { pollGitHub, type GithubAlertConfig } from "@/lib/pollers/github";
 import { pollVercel, type VercelAlertConfig } from "@/lib/pollers/vercel-api";
 import { pollSentry, type SentryAlertConfig } from "@/lib/pollers/sentry";
@@ -30,7 +31,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const integrations = (await db
+  const orgUsers = alias(users, "orgUsers");
+  const projectUsers = alias(users, "projectUsers");
+
+  const integrationsRaw = await db
     .select({
       id:              projectIntegrations.id,
       projectId:       projectIntegrations.projectId,
@@ -38,14 +42,24 @@ export async function GET(req: Request) {
       configEncrypted: projectIntegrations.configEncrypted,
       errorCount:      projectIntegrations.errorCount,
       lastCheckedAt:   projectIntegrations.lastCheckedAt,
-      userPlan:        users.plan,
+      orgOwnerPlan:    orgUsers.plan,
+      projectOwnerPlan: projectUsers.plan,
     })
     .from(projectIntegrations)
     .innerJoin(projects, eq(projectIntegrations.projectId, projects.id))
-    .innerJoin(users, eq(projects.userId, users.id))
-    .where(eq(projectIntegrations.isActive, true)))
+    .leftJoin(organizations, eq(projects.organizationId, organizations.id))
+    .leftJoin(orgUsers, eq(organizations.ownerId, orgUsers.id))
+    .leftJoin(projectUsers, eq(projects.userId, projectUsers.id))
+    .where(eq(projectIntegrations.isActive, true));
+
+  const integrations = integrationsRaw
+    .map(i => ({
+      ...i,
+      userPlan: i.orgOwnerPlan ?? i.projectOwnerPlan ?? "free"
+    }))
     .filter((i) => {
-      if (i.userPlan === "pro") return true;
+      // Pro & Team plans get priority polling
+      if (i.userPlan === "pro" || i.userPlan === "team") return true;
       // Free users get polled at most every 30 minutes
       if (!i.lastCheckedAt) return true;
       const msSinceLast = Date.now() - i.lastCheckedAt.getTime();
@@ -66,7 +80,7 @@ export async function GET(req: Request) {
     const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
     let newAlerts: Omit<NewAlert, "projectId">[] = [];
 
-    const lookbackMinutes = integ.userPlan === "pro" ? 10 : 35;
+    const lookbackMinutes = (integ.userPlan === "pro" || integ.userPlan === "team") ? 10 : 35;
 
     if (integ.service === "github") {
       const owner = (cfg.owner as string) ?? "";
