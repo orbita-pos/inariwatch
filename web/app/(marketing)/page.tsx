@@ -276,20 +276,20 @@ function WhyNotNative() {
     <section className="py-24 border-t border-inari-border">
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-14 max-w-xl">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Why InariWatch</p>
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Better Together</p>
           <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
-            "I already get alerts from all my tools."
+            They provide the signals. We provide the fix.
           </h2>
-          <p className="mt-4 text-fg-base">
-            You should — tools like GitHub, Vercel, and Sentry are great at what they do.
-            InariWatch connects those signals, identifies the root cause instantly, and resolves issues before they escalate.          </p>
+          <p className="mt-4 text-fg-base leading-relaxed">
+            InariWatch isn't here to replace GitHub, Vercel, or Sentry. They are best-in-class at what they do. InariWatch simply connects them into a unified brain, automatically correlating their signals and finding the root cause.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 mb-12">
           {/* Without */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
             <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-5">
-              Native alerts — today
+              The Foundation: Your Stack
             </p>
 
             <div className="space-y-3">
@@ -315,17 +315,21 @@ function WhyNotNative() {
 
             <div className="mt-4 space-y-1.5">
               {[
-                "Each tool provides a valuable signal",
-                "Signals remain isolated across tools",
-                "Investigation happens manually",
-                "Resolution depends on availability",
-              ].map((item) => (
+                "Sentry catches the exact error instantly",
+                "Vercel manages your deployments flawlessly",
+                "GitHub Actions runs your CI reliably",
+                "But these critical signals operate in silos.",
+              ].map((item, idx) => (
                 <div
                   key={item}
-                  className="flex items-center gap-2 text-sm text-zinc-600"
+                  className="flex items-start gap-2 text-sm text-zinc-400"
                 >
-                  <XCircle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
-                  {item}
+                  {idx === 3 ? (
+                    <span className="text-inari-accent mt-0.5">↳</span>
+                  ) : (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-zinc-600 mt-0.5" />
+                  )}
+                  <span className={idx === 3 ? "text-fg-base" : ""}>{item}</span>
                 </div>
               ))}
             </div>
@@ -334,7 +338,7 @@ function WhyNotNative() {
           {/* With InariWatch */}
           <div className="rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6">
             <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-5">
-              With InariWatch
+              The Superpower: InariWatch
             </p>
 
             <div className="rounded-lg border border-inari-border bg-zinc-950 p-4 font-mono text-sm mb-4">
@@ -853,6 +857,51 @@ function OpenSourceModel() {
   );
 }
 
+// ── Sponsors ──────────────────────────────────────────────────────────────────
+
+function Sponsors() {
+  return (
+    <section className="border-t border-b border-inari-border bg-inari-card/20 py-12">
+      <div className="mx-auto max-w-6xl px-6 text-center">
+        <p className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-8 font-semibold">
+          Developed with the support of our visionary sponsors
+        </p>
+        <div className="flex flex-wrap justify-center gap-10 sm:gap-16 opacity-70 grayscale hover:grayscale-0 transition-all duration-300">
+          
+          <a
+            href="https://orbitapos.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 group"
+          >
+            <div className="h-8 w-8 rounded-md bg-inari-accent flex items-center justify-center shadow-[0_0_15px_rgba(124,58,237,0.4)] group-hover:shadow-[0_0_25px_rgba(124,58,237,0.7)] transition-shadow">
+              <span className="text-white font-bold text-lg leading-none tracking-tighter">O</span>
+            </div>
+            <span className="font-bold text-xl tracking-tight text-white/90 group-hover:text-white transition-colors">
+              OrbitaPOS
+            </span>
+          </a>
+          
+          <a
+            href="/SPONSORSHIP.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 group opacity-50 hover:opacity-100"
+          >
+            <div className="h-8 w-8 rounded-md border border-dashed border-zinc-600 flex items-center justify-center text-zinc-500 group-hover:border-inari-accent group-hover:text-inari-accent transition-colors">
+              <span className="text-lg leading-none">+</span>
+            </div>
+            <span className="font-medium text-lg tracking-tight text-zinc-500 group-hover:text-inari-accent transition-colors">
+              Sponsor InariWatch
+            </span>
+          </a>
+
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 function Footer() {
@@ -882,6 +931,7 @@ export default function LandingPage() {
       <Nav />
       <main>
         <Hero />
+        <Sponsors />
         <StatsBar />
         <RemediationWalkthrough />
         <WhyNotNative />

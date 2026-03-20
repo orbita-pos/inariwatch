@@ -58,12 +58,8 @@ export async function GET(req: Request) {
       userPlan: i.orgOwnerPlan ?? i.projectOwnerPlan ?? "free"
     }))
     .filter((i) => {
-      // Pro & Team plans get priority polling
-      if (i.userPlan === "pro" || i.userPlan === "team") return true;
-      // Free users get polled at most every 30 minutes
-      if (!i.lastCheckedAt) return true;
-      const msSinceLast = Date.now() - i.lastCheckedAt.getTime();
-      return msSinceLast >= 25 * 60 * 1000; // 25 min buffer
+      // 100% Free SaaS — Everyone gets 1-minute polling
+      return true;
     });
 
   let created = 0;
@@ -80,7 +76,7 @@ export async function GET(req: Request) {
     const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
     let newAlerts: Omit<NewAlert, "projectId">[] = [];
 
-    const lookbackMinutes = (integ.userPlan === "pro" || integ.userPlan === "team") ? 10 : 35;
+    const lookbackMinutes = 10; // 1-min polling, so 10-min lookback is extremely safe
 
     if (integ.service === "github") {
       const owner = (cfg.owner as string) ?? "";

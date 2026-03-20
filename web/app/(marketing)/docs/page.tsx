@@ -289,7 +289,7 @@ export default function DocsPage() {
               },
             ]} />
             <Callout type="info">
-              Free accounts poll every 30 minutes. Pro and Team accounts poll every 1 minute and support real-time webhooks.
+              The InariWatch Cloud Dashboard polls connected services every 1 minute to detect issues instantly.
             </Callout>
 
             <SectionHeading id="quickstart-cli">Local CLI</SectionHeading>
@@ -436,7 +436,7 @@ chat_id   = "987654321"`}</CodeBlock>
                 ["Failed CI on any branch",          "Warning",  "Off"],
                 ["Stale PR (configurable days)",     "Warning",  "On — 3 days"],
                 ["Unreviewed PR (configurable hrs)", "Warning",  "On — 24 hrs"],
-                ["Pre-deploy risk score on PR",      "Info",     "On (Pro + AI)"],
+                ["Pre-deploy risk score on PR",      "Info",     "On (Requires AI key)"],
               ]}
             />
             <Callout type="tip">
@@ -468,7 +468,7 @@ chat_id   = "987654321"`}</CodeBlock>
               rows={[
                 ["Failed production deployment",  "Critical", "On"],
                 ["Failed preview deployment",     "Warning",  "Off"],
-                ["Instant rollback (Pro)",        "—",        "On demand"],
+                ["Instant rollback",              "—",        "On demand"],
               ]}
             />
 
@@ -736,7 +736,7 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
               { title: "Set minimum severity (optional)", body: "You can filter to Critical only to reduce noise." },
             ]} />
             <Callout type="info">
-              Email notifications require a Pro plan. Free users can connect channels but won&apos;t receive deliveries.
+              To keep InariWatch free and respect email limits, non-critical alerts are batched into daily/weekly digests. Only Critical alerts are sent immediately.
             </Callout>
 
             <SectionHeading id="notif-slack">Notifications — Slack</SectionHeading>
@@ -796,7 +796,7 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
                 body: "The tray icon appears (◉). Alerts will show as OS notifications. Click the icon to open the dashboard.",
               },
             ]} />
-            <Callout type="info">Desktop app requires a Pro plan.</Callout>
+            <Callout type="info">The desktop app is completely free, just generate a token to connect it.</Callout>
 
             <SectionHeading id="desktop-config">Desktop app — desktop.toml</SectionHeading>
             <CodeBlock label="~/.config/inari/desktop.toml">{`api_url   = "https://inariwatch.com"
