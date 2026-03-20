@@ -54,7 +54,7 @@ function Hero() {
           priority
           quality={90}
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/90 via-[52%] to-black/10" />
+        <div className="absolute inset-0 bg-black/50 sm:bg-transparent sm:bg-gradient-to-r sm:from-black sm:via-black/90 sm:via-[52%] sm:to-black/10" />
         <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-inari-bg to-transparent" />
         <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black/60 to-transparent" />
       </div>
