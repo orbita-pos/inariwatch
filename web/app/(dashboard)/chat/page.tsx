@@ -14,10 +14,7 @@ export default async function ChatPage() {
   const userId  = (session?.user as { id?: string })?.id;
   if (!userId) redirect("/login");
 
-  const [userRow] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
-  const isPro = userRow?.plan === "pro";
-
-  const hasAIKey = isPro && (
+  const hasAIKey = (
     await db
       .select({ id: apiKeys.id })
       .from(apiKeys)
@@ -27,7 +24,7 @@ export default async function ChatPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-[780px] flex-col">
-      <ProGate isPro={isPro} feature="Ask Inari">
+      <ProGate feature="Ask Inari">
         <ChatInterface hasAIKey={hasAIKey} />
       </ProGate>
     </div>

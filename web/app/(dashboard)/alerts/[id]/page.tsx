@@ -130,7 +130,7 @@ export default async function AlertDetailPage({
       .orderBy(asc(alertComments.createdAt)),
   ]);
 
-  const isPro            = userPlanRows[0]?.plan === "pro";
+  const isPro            = true; // 100% Free SaaS — all features unlocked
   const hasAIKey         = aiKeyRows.length > 0;
   const hasGitHub        = githubRows.length > 0;
   const hasSentry        = sentryRows.length > 0;

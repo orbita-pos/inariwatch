@@ -39,29 +39,6 @@ export default async function AnalyticsPage() {
   const session   = await getServerSession(authOptions);
   const userId    = (session?.user as { id?: string })?.id;
 
-  // Gate: Analytics is Pro-only
-  if (userId) {
-    const [userRow] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
-    if (userRow?.plan !== "pro") {
-      return (
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Analytics</h1>
-            <p className="mt-1 text-sm text-zinc-500">Alert trends over the last 14 days</p>
-          </div>
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface p-12 text-center">
-            <Lock className="h-8 w-8 text-zinc-600" />
-            <p className="text-sm font-medium text-fg-base">Analytics is a Pro feature</p>
-            <p className="text-xs text-zinc-500">Upgrade to unlock alert trends, source breakdowns, and resolution metrics.</p>
-            <Link href="/settings">
-              <Button variant="primary" size="sm">Upgrade to Pro</Button>
-            </Link>
-          </div>
-        </div>
-      );
-    }
-  }
-
   const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : [];
   const hasProjects = projectIds.length > 0;
 

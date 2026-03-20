@@ -35,10 +35,6 @@ export async function createOrganization(
   const rl = rateLimit("create-org", userId, { windowMs: 3_600_000, max: 5 });
   if (!rl.allowed) return { error: `Too many requests. Try again in ${rl.retryAfterSeconds}s.` };
 
-  // Gate: only Pro users can create organizations
-  const [userRow] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
-  if (userRow?.plan !== "pro") return { error: "Workspaces require a Pro plan." };
-
   const trimmed = name.trim();
   if (!trimmed || trimmed.length < 2) return { error: "Name must be at least 2 characters." };
   if (trimmed.length > 40) return { error: "Name must be 40 characters or less." };
@@ -86,10 +82,6 @@ export async function inviteMember(
 
   // [HIGH] Runtime role validation — prevent "owner" injection from client
   if (role !== "admin" && role !== "member") return { error: "Invalid role." };
-
-  // Gate: only Pro users can invite members
-  const [userRow] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
-  if (userRow?.plan !== "pro") return { error: "Inviting members requires a Pro plan." };
 
   // Rate limit: max 20 invites per hour per user
   const rl = rateLimit("invite-member", userId, { windowMs: 3_600_000, max: 20 });

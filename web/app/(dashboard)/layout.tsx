@@ -27,13 +27,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const userName = session.user?.name ?? session.user?.email ?? "User";
   const userEmail = session.user?.email ?? "";
 
-  // Fetch user plan
+  // Fetch user plan (kept for display purposes in workspace-switcher)
   let userPlan: "free" | "pro" = "free";
   if (userId) {
     const [row] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
     userPlan = (row?.plan as "free" | "pro") ?? "free";
   }
-  const isPro = userPlan === "pro";
 
   // Shared project IDs + organizations for sidebar
   const activeOrgId = await getActiveOrgId();

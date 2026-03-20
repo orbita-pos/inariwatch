@@ -60,7 +60,7 @@ export function middleware(req: NextRequest) {
     if (
       pathname === "/" ||
       pathname.startsWith("/blog") ||
-      pathname.startsWith("/pricing")
+      pathname.startsWith("/docs")
     ) {
       return NextResponse.next();
     }

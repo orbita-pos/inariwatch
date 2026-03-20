@@ -128,7 +128,7 @@ export async function connectIntegration(
 
         if (totalIntegrations >= limits.maxIntegrations) {
           return {
-            error: `Your ${plan} plan allows ${limits.maxIntegrations} integrations. Upgrade to ${plan === "free" ? "Pro" : "Team"} for more.`,
+            error: `Your account allows ${limits.maxIntegrations} integrations. Contact support if you need more.`,
           };
         }
       }

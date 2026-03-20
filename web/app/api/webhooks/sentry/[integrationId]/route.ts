@@ -105,10 +105,6 @@ export async function POST(
     return NextResponse.json({ error: "Not a Sentry integration" }, { status: 400 });
   }
 
-  if (integ.userPlan !== "pro") {
-    return NextResponse.json({ error: "Webhooks require a Pro plan." }, { status: 403 });
-  }
-
   const secret = integ.webhookSecret;
   if (!secret) {
     return NextResponse.json({ error: "Webhook not configured" }, { status: 403 });

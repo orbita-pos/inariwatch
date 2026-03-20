@@ -49,9 +49,8 @@ export async function createProject(
       .where(limitCheckCondition);
 
     if (projectCount.count >= limits.maxProjects) {
-      const upgradeMsg = plan === "free" ? "Pro or Team" : "Team";
       return {
-        error: `${planEntityName} ${plan} plan allows ${limits.maxProjects} projects. Upgrade to ${upgradeMsg} for more.`,
+        error: `${planEntityName} account allows ${limits.maxProjects} projects. Contact support if you need more.`,
       };
     }
 

@@ -161,7 +161,7 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
               {userEmail && userName !== userEmail && (
                 <p className="truncate text-xs text-zinc-500">{userEmail}</p>
               )}
-              <p className="text-xs text-zinc-600">Free plan</p>
+              <p className="text-xs text-inari-accent">100% Free</p>
             </div>
             <Link
               href="/api/auth/signout"

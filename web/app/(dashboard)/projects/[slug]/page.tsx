@@ -71,7 +71,7 @@ export default async function ProjectDetailPage({
     .where(eq(users.id, project.userId))
     .limit(1);
 
-  const isPro = owner?.plan === "pro";
+  const isPro = true; // 100% Free SaaS — all features unlocked
 
   // Get members with user info
   const members = await db

@@ -102,12 +102,12 @@ export async function getUserOrganizations(userId: string) {
   return Array.from(map.values());
 }
 
-// ── Plan limits ──────────────────────────────────────────────────────────────
+// ── Plan limits (100% Free SaaS — generous limits for everyone) ──────────────
 
 export const PLAN_LIMITS: Record<string, { maxProjects: number; maxIntegrations: number; pollIntervalLabel: string }> = {
-  free: { maxProjects: 1, maxIntegrations: 2, pollIntervalLabel: "Every 30 min" },
-  pro: { maxProjects: 5, maxIntegrations: 10, pollIntervalLabel: "Every 1 min" },
-  team: { maxProjects: 20, maxIntegrations: 40, pollIntervalLabel: "Every 1 min" },
+  free: { maxProjects: 100, maxIntegrations: 200, pollIntervalLabel: "Every 1 min" },
+  pro:  { maxProjects: 100, maxIntegrations: 200, pollIntervalLabel: "Every 1 min" },
+  team: { maxProjects: 100, maxIntegrations: 200, pollIntervalLabel: "Every 1 min" },
 };
 
 // ── Severity ordering ────────────────────────────────────────────────────────

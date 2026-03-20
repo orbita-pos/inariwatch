@@ -49,10 +49,6 @@ export async function POST(
     return NextResponse.json({ error: "Not a GitHub integration" }, { status: 400 });
   }
 
-  if (integ.userPlan !== "pro") {
-    return NextResponse.json({ error: "Webhooks require a Pro plan." }, { status: 403 });
-  }
-
   // Require webhook secret
   const secret = integ.webhookSecret;
   if (!secret) {

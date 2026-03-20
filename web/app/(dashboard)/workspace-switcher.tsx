@@ -11,12 +11,12 @@ import { InviteMembersDialog } from "./invite-members-dialog";
 import { switchWorkspace } from "./switch-workspace-action";
 
 const PLAN_LABEL: Record<string, string> = {
-  free: "Free plan",
-  pro:  "Pro plan",
+  free: "100% Free",
+  pro:  "100% Free",
 };
 
 const PLAN_COLOR: Record<string, string> = {
-  free: "text-zinc-500",
+  free: "text-inari-accent",
   pro:  "text-inari-accent",
 };
 
@@ -182,20 +182,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
               </DropdownMenu.Item>
             ))}
 
-            {plan === "free" && (
-              <>
-                <DropdownMenu.Separator className="h-px bg-line my-1" />
-                <DropdownMenu.Item asChild>
-                  <Link
-                    href="/settings"
-                    className="flex items-center gap-2.5 px-3 py-2 text-sm text-inari-accent hover:bg-inari-accent/5 rounded-lg mx-1 cursor-pointer outline-none transition-colors font-medium"
-                  >
-                    <Zap className="h-3.5 w-3.5" />
-                    Upgrade to Pro
-                  </Link>
-                </DropdownMenu.Item>
-              </>
-            )}
+
 
             <DropdownMenu.Separator className="h-px bg-line my-1" />
 

@@ -22,8 +22,8 @@ import type { Metadata } from "next";
 export const metadata: Metadata = { title: "Settings" };
 
 const PLAN_BADGE: Record<string, { label: string; color: string }> = {
-  free: { label: "Free", color: "text-zinc-400 border-zinc-800 bg-zinc-900/60" },
-  pro:  { label: "Pro",  color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
+  free: { label: "100% Free", color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
+  pro:  { label: "100% Free", color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
 };
 
 const CHANNEL_ICON: Record<string, React.ElementType> = {
@@ -80,7 +80,6 @@ export default async function SettingsPage() {
             <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${plan.color}`}>
               {plan.label}
             </span>
-            <UpgradeButton currentPlan={user?.plan ?? "free"} />
           </div>
         </Row>
         <Row label="Member since">

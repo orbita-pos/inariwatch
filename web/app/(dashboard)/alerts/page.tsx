@@ -49,11 +49,6 @@ export default async function AlertsPage({
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
 
-  const [userRow] = userId
-    ? await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId))
-    : [undefined];
-  const isPro = userRow?.plan === "pro";
-
   const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : [];
 
   const conditions: SQL[] = [];
@@ -102,7 +97,7 @@ export default async function AlertsPage({
             <Chip dot="bg-amber-400" label={`${unread} unread`} />
             <Chip dot="bg-inari-accent" label={`${critical} critical`} />
             <Chip dot="bg-green-500" label={`${open} open`} />
-            {isPro && <ExportButton />}
+            <ExportButton />
           </div>
         )}
       </div>
