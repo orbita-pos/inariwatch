@@ -51,12 +51,25 @@ export function middleware(req: NextRequest) {
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
+    if (hasSession(req) && (pathname === "/" || pathname === "/login" || pathname === "/register")) {
+      const dashboardUrl = req.nextUrl.clone();
+      dashboardUrl.pathname = "/dashboard";
+      return NextResponse.redirect(dashboardUrl);
+    }
     return NextResponse.next();
   }
 
   // ── Root domain (inariwatch.com / www.inariwatch.com) ─────────────────────
   const isRootDomain = host === ROOT_DOMAIN || host === `www.${ROOT_DOMAIN}`;
   if (isRootDomain) {
+    if (hasSession(req) && (pathname === "/" || pathname === "/login" || pathname === "/register")) {
+      const url = req.nextUrl.clone();
+      url.host = APP_SUBDOMAIN;
+      url.pathname = "/dashboard";
+      url.protocol = "https:";
+      return NextResponse.redirect(url, { status: 302 });
+    }
+
     if (
       pathname === "/" ||
       pathname.startsWith("/blog") ||
@@ -84,6 +97,11 @@ export function middleware(req: NextRequest) {
       loginUrl.pathname = "/login";
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
+    }
+    if (hasSession(req) && (pathname === "/login" || pathname === "/register")) {
+      const dashboardUrl = req.nextUrl.clone();
+      dashboardUrl.pathname = "/dashboard";
+      return NextResponse.redirect(dashboardUrl);
     }
     return NextResponse.next();
   }

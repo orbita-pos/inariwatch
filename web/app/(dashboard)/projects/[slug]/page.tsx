@@ -14,6 +14,7 @@ import {
   uptimeChecks,
   onCallSchedules,
   onCallSlots,
+  onCallOverrides,
 } from "@/lib/db";
 import { eq, and, desc, gte, sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
@@ -135,7 +136,15 @@ export default async function ProjectDetailPage({
 
   // Get escalation rules for this project
   const eRules = await db
-    .select()
+    .select({
+      id: escalationRules.id,
+      targetType: escalationRules.targetType,
+      channelId: escalationRules.channelId,
+      delaySec: escalationRules.delaySec,
+      minSeverity: escalationRules.minSeverity,
+      isActive: escalationRules.isActive,
+      createdAt: escalationRules.createdAt,
+    })
     .from(escalationRules)
     .where(eq(escalationRules.projectId, project.id));
 
@@ -217,6 +226,7 @@ export default async function ProjectDetailPage({
         .select({
           id: onCallSlots.id,
           userId: onCallSlots.userId,
+          level: onCallSlots.level,
           dayStart: onCallSlots.dayStart,
           dayEnd: onCallSlots.dayEnd,
           hourStart: onCallSlots.hourStart,
@@ -228,6 +238,20 @@ export default async function ProjectDetailPage({
         .innerJoin(users, eq(onCallSlots.userId, users.id))
         .where(eq(onCallSlots.scheduleId, s.id));
 
+      const overrides = await db
+        .select({
+          id: onCallOverrides.id,
+          userId: onCallOverrides.userId,
+          level: onCallOverrides.level,
+          startsAt: onCallOverrides.startsAt,
+          endsAt: onCallOverrides.endsAt,
+          userName: users.name,
+          userEmail: users.email,
+        })
+        .from(onCallOverrides)
+        .innerJoin(users, eq(onCallOverrides.userId, users.id))
+        .where(eq(onCallOverrides.scheduleId, s.id));
+
       return {
         id: s.id,
         name: s.name,
@@ -235,12 +259,22 @@ export default async function ProjectDetailPage({
         slots: slots.map((sl) => ({
           id: sl.id,
           userId: sl.userId,
+          level: sl.level,
           userName: sl.userName,
           userEmail: sl.userEmail,
           dayStart: sl.dayStart,
           dayEnd: sl.dayEnd,
           hourStart: sl.hourStart,
           hourEnd: sl.hourEnd,
+        })),
+        overrides: overrides.map((o) => ({
+          id: o.id,
+          userId: o.userId,
+          level: o.level,
+          startsAt: o.startsAt.toISOString(),
+          endsAt: o.endsAt.toISOString(),
+          userName: o.userName,
+          userEmail: o.userEmail,
         })),
       };
     })
@@ -316,6 +350,7 @@ export default async function ProjectDetailPage({
           isAdmin={isAdmin}
           rules={eRules.map((r) => ({
             id: r.id,
+            targetType: r.targetType,
             channelId: r.channelId,
             delaySec: r.delaySec,
             minSeverity: r.minSeverity,

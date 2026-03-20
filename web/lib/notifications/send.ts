@@ -26,6 +26,17 @@ const SEVERITY_PRIORITY: Record<string, number> = {
 };
 
 function formatAlertMessage(alert: Alert, projectName: string): string {
+  if (alert.stormId) {
+    return [
+      `🚨 <b>[INCIDENT STORM]</b> Multiple alerts detected!`,
+      ``,
+      `<b>Project:</b> ${escapeHtml(projectName)}`,
+      `Over 5 alerts fired in the last 5 minutes. Individual notifications are temporarily suppressed.`,
+      ``,
+      `<i>Latest alert:</i> ${escapeHtml(alert.title)}`,
+    ].join("\n");
+  }
+
   const emoji = SEVERITY_EMOJI[alert.severity] ?? "";
   const sources = alert.sourceIntegrations.join(", ");
   return [
@@ -39,6 +50,17 @@ function formatAlertMessage(alert: Alert, projectName: string): string {
 }
 
 function formatSlackMessage(alert: Alert, projectName: string): string {
+  if (alert.stormId) {
+    return [
+      `🚨 *[INCIDENT STORM]* Multiple alerts detected!`,
+      ``,
+      `*Project:* ${projectName}`,
+      `Over 5 alerts fired in the last 5 minutes. Individual notifications are temporarily suppressed.`,
+      ``,
+      `_Latest alert:_ ${alert.title}`,
+    ].join("\n");
+  }
+
   const emoji = SEVERITY_EMOJI[alert.severity] ?? "";
   const sources = alert.sourceIntegrations.join(", ");
   return [
@@ -313,9 +335,22 @@ export async function processNotificationQueue(
 
     if (channel.type === "telegram") {
       const message = formatAlertMessage(alert, project.name);
+      
+      const ackSig = signValue(alert.id);
+      const resolveSig = signValue(alert.id);
+      const reply_markup = {
+        inline_keyboard: [
+          [
+            { text: "👁️ Acknowledge", url: `${APP_URL}/api/actions/ack?id=${alert.id}&sig=${ackSig}` },
+            { text: "✅ Resolve", url: `${APP_URL}/api/actions/resolve?id=${alert.id}&sig=${resolveSig}` }
+          ]
+        ]
+      };
+
       const result = await sendTelegram(
         { bot_token: config.bot_token, chat_id: config.chat_id },
-        message
+        message,
+        reply_markup
       );
       if (result.ok) {
         status = "sent";
@@ -379,7 +414,9 @@ export async function processNotificationQueue(
 
       const unsubToken = signValue(config.email.toLowerCase());
       const unsubscribeUrl = `${APP_URL}/api/notifications/unsubscribe?email=${encodeURIComponent(config.email)}&token=${unsubToken}`;
-      const subject = `[${alert.severity.toUpperCase()}] ${alert.title}`;
+      const subject = alert.stormId 
+        ? `🚨 [INCIDENT STORM] Multiple alerts for ${project.name}`
+        : `[${alert.severity.toUpperCase()}] ${alert.title}`;
       const html = formatAlertEmail(alert, project.name, unsubscribeUrl, logEntry.id);
       const result = await sendEmail({ email: config.email }, subject, html, { unsubscribeUrl });
 

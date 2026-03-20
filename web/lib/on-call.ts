@@ -1,12 +1,14 @@
-import { db, onCallSchedules, onCallSlots, notificationChannels } from "@/lib/db";
+import { db, onCallSchedules, onCallSlots, onCallOverrides, notificationChannels } from "@/lib/db";
 import { eq, and, lte, gte } from "drizzle-orm";
 
 /**
  * Resolves who is currently on-call for a project.
- * Returns the userId of the on-call person, or null if no schedule exists.
+ * Returns the userId of the on-call person for the specified level, or null if no schedule exists.
+ * @param level 1 for Primary, 2 for Secondary, etc. Default is 1.
  */
 export async function getCurrentOnCallUserId(
-  projectId: string
+  projectId: string,
+  level: number = 1
 ): Promise<string | null> {
   // Get all active schedules for this project
   const schedules = await db
@@ -40,11 +42,34 @@ export async function getCurrentOnCallUserId(
     };
     const currentDay = dayMap[weekdayStr] ?? 0;
 
-    // Get all slots for this schedule
+    // 1. Check if there's an active override for this schedule + level
+    const [override] = await db
+      .select({ userId: onCallOverrides.userId })
+      .from(onCallOverrides)
+      .where(
+        and(
+          eq(onCallOverrides.scheduleId, schedule.id),
+          eq(onCallOverrides.level, level),
+          lte(onCallOverrides.startsAt, now),
+          gte(onCallOverrides.endsAt, now)
+        )
+      )
+      .limit(1);
+
+    if (override) {
+      return override.userId;
+    }
+
+    // 2. Otherwise, check regular slots
     const slots = await db
       .select()
       .from(onCallSlots)
-      .where(eq(onCallSlots.scheduleId, schedule.id));
+      .where(
+        and(
+          eq(onCallSlots.scheduleId, schedule.id),
+          eq(onCallSlots.level, level)
+        )
+      );
 
     for (const slot of slots) {
       // Check if current day is within the slot's day range

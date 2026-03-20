@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Trash2, Clock, CalendarDays, Phone } from "lucide-react";
-import { createSchedule, deleteSchedule, addSlot, removeSlot } from "./on-call-actions";
+import { Plus, Trash2, Clock, CalendarDays, Phone, CalendarClock } from "lucide-react";
+import { createSchedule, deleteSchedule, addSlot, removeSlot, createOverride, removeOverride } from "./on-call-actions";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 interface Slot {
   id: string;
   userId: string;
+  level: number;
   userName: string | null;
   userEmail: string;
   dayStart: number;
@@ -17,11 +18,22 @@ interface Slot {
   hourEnd: number;
 }
 
+interface Override {
+  id: string;
+  userId: string;
+  level: number;
+  startsAt: string;
+  endsAt: string;
+  userName: string | null;
+  userEmail: string;
+}
+
 interface Schedule {
   id: string;
   name: string;
   timezone: string;
   slots: Slot[];
+  overrides?: Override[];
 }
 
 interface WorkspaceMember {
@@ -78,10 +90,18 @@ export function OnCallSection({
   const [scheduleName, setScheduleName] = useState("Primary rotation");
   const [timezone, setTimezone] = useState("UTC");
   const [slotUserId, setSlotUserId] = useState(workspaceMembers[0]?.userId ?? "");
+  const [slotLevel, setSlotLevel] = useState(1);
   const [slotDayStart, setSlotDayStart] = useState(1); // Monday
   const [slotDayEnd, setSlotDayEnd] = useState(5); // Friday
   const [slotHourStart, setSlotHourStart] = useState(0);
   const [slotHourEnd, setSlotHourEnd] = useState(23);
+  
+  const [showOverrideForm, setShowOverrideForm] = useState<string | null>(null);
+  const [overrideUserId, setOverrideUserId] = useState(workspaceMembers[0]?.userId ?? "");
+  const [overrideLevel, setOverrideLevel] = useState(1);
+  const [overrideStartsAt, setOverrideStartsAt] = useState("");
+  const [overrideEndsAt, setOverrideEndsAt] = useState("");
+
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -107,7 +127,7 @@ export function OnCallSection({
     setError("");
     startTransition(async () => {
       const result = await addSlot(
-        projectId, scheduleId, slotUserId,
+        projectId, scheduleId, slotUserId, slotLevel,
         slotDayStart, slotDayEnd, slotHourStart, slotHourEnd
       );
       if (result.error) setError(result.error);
@@ -118,6 +138,23 @@ export function OnCallSection({
   const handleRemoveSlot = (slotId: string) => {
     startTransition(async () => {
       await removeSlot(projectId, slotId);
+    });
+  };
+
+  const handleAddOverride = (scheduleId: string) => {
+    setError("");
+    startTransition(async () => {
+      const result = await createOverride(
+        projectId, scheduleId, overrideUserId, overrideLevel, overrideStartsAt, overrideEndsAt
+      );
+      if (result.error) setError(result.error);
+      else setShowOverrideForm(null);
+    });
+  };
+
+  const handleRemoveOverride = (overrideId: string) => {
+    startTransition(async () => {
+      await removeOverride(projectId, overrideId);
     });
   };
 
@@ -199,7 +236,12 @@ export function OnCallSection({
                 {(slot.userName?.[0] ?? slot.userEmail[0]).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-fg-base">{slot.userName ?? slot.userEmail}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-fg-base">{slot.userName ?? slot.userEmail}</p>
+                  <span className="rounded bg-surface-inner px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+                    {slot.level === 1 ? "Primary" : "Secondary"}
+                  </span>
+                </div>
                 <p className="text-[11px] text-zinc-600">
                   {formatDayRange(slot.dayStart, slot.dayEnd)} · {formatHourRange(slot.hourStart, slot.hourEnd)}
                 </p>
@@ -230,21 +272,36 @@ export function OnCallSection({
           {/* Add slot form */}
           {showNewSlot === schedule.id && (
             <div className="px-5 py-3 space-y-2.5">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
-                  Team member
-                </label>
-                <select
-                  value={slotUserId}
-                  onChange={(e) => setSlotUserId(e.target.value)}
-                  className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none transition-colors"
-                >
-                  {workspaceMembers.map((m) => (
-                    <option key={m.userId} value={m.userId}>
-                      {m.name ?? m.email}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                    Team member
+                  </label>
+                  <select
+                    value={slotUserId}
+                    onChange={(e) => setSlotUserId(e.target.value)}
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none transition-colors"
+                  >
+                    {workspaceMembers.map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.name ?? m.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                    Level
+                  </label>
+                  <select
+                    value={slotLevel}
+                    onChange={(e) => setSlotLevel(Number(e.target.value))}
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none transition-colors"
+                  >
+                    <option value={1}>Primary</option>
+                    <option value={2}>Secondary</option>
+                  </select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
@@ -286,6 +343,108 @@ export function OnCallSection({
                 <button onClick={() => handleAddSlot(schedule.id)} disabled={isPending}
                   className="flex-1 rounded-lg bg-inari-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6D28D9] transition-colors disabled:opacity-40">
                   {isPending ? "Adding..." : "Add slot"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Overrides */}
+          {schedule.overrides && schedule.overrides.length > 0 && (
+            <div className="border-t border-line bg-surface-dim/30 px-5 relative">
+              <div className="absolute top-0 left-0 bottom-0 w-[#3px] bg-yellow-500/50"></div>
+              {schedule.overrides.map((override) => (
+                <div key={override.id} className="flex items-center gap-3 py-2.5 border-b border-line-subtle last:border-0 relative">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-yellow-500/10 text-[10px] font-bold text-yellow-500">
+                    {(override.userName?.[0] ?? override.userEmail[0]).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-fg-base">{override.userName ?? override.userEmail}</p>
+                      <span className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-500">
+                        {override.level === 1 ? "Primary" : "Secondary"} Override
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-600">
+                      {new Date(override.startsAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} &mdash;{" "}
+                      {new Date(override.endsAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleRemoveOverride(override.id)}
+                      disabled={isPending}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-400/[0.06] transition-colors disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add override form */}
+          {showOverrideForm === schedule.id && (
+            <div className="px-5 py-3 space-y-2.5 border-t border-line bg-surface-dim/10">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                    Substitute member
+                  </label>
+                  <select
+                    value={overrideUserId}
+                    onChange={(e) => setOverrideUserId(e.target.value)}
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-yellow-500/40 focus:outline-none transition-colors"
+                  >
+                    {workspaceMembers.map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.name ?? m.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                    Level
+                  </label>
+                  <select
+                    value={overrideLevel}
+                    onChange={(e) => setOverrideLevel(Number(e.target.value))}
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-yellow-500/40 focus:outline-none transition-colors"
+                  >
+                    <option value={1}>Primary</option>
+                    <option value={2}>Secondary</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">Starts At local time</label>
+                  <input
+                    type="datetime-local"
+                    value={overrideStartsAt}
+                    onChange={(e) => setOverrideStartsAt(e.target.value)}
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-2 py-1.5 text-xs text-fg-base focus:border-yellow-500/40 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">Ends At local time</label>
+                  <input
+                    type="datetime-local"
+                    value={overrideEndsAt}
+                    onChange={(e) => setOverrideEndsAt(e.target.value)}
+                    className="w-full rounded-lg border border-line-medium bg-surface-dim px-2 py-1.5 text-xs text-fg-base focus:border-yellow-500/40 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowOverrideForm(null)}
+                  className="flex-1 rounded-lg border border-line-medium px-3 py-1.5 text-xs text-zinc-400 hover:text-fg-base transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => handleAddOverride(schedule.id)} disabled={isPending}
+                  className="flex-1 rounded-lg bg-yellow-500/10 text-yellow-500 px-3 py-1.5 text-xs font-medium hover:bg-yellow-500/20 transition-colors disabled:opacity-40 border border-yellow-500/20">
+                  {isPending ? "Adding..." : "Add override"}
                 </button>
               </div>
             </div>

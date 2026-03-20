@@ -139,11 +139,22 @@ export const projectInvites = pgTable("project_invites", {
   expiresAt: timestamp("expires_at").notNull(),
 });
 
+// ── Incident Storms ─────────────────────────────────────────────────────────
+
+export const incidentStorms = pgTable("incident_storms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull().default("active"), // 'active' | 'resolved'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
 // ── Alerts ────────────────────────────────────────────────────────────────────
 
 export const alerts = pgTable("alerts", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  stormId: uuid("storm_id").references(() => incidentStorms.id, { onDelete: "set null" }),
   severity: severityEnum("severity").notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
@@ -264,7 +275,8 @@ export const maintenanceWindows = pgTable("maintenance_windows", {
 export const escalationRules = pgTable("escalation_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
-  channelId: uuid("channel_id").references(() => notificationChannels.id, { onDelete: "cascade" }).notNull(),
+  targetType: text("target_type").notNull().default("channel"), // 'channel' | 'on_call_primary' | 'on_call_secondary'
+  channelId: uuid("channel_id").references(() => notificationChannels.id, { onDelete: "cascade" }),
   delaySec: integer("delay_sec").notNull().default(1800), // 30 min default
   minSeverity: text("min_severity").notNull().default("critical"),
   isActive: boolean("is_active").default(true).notNull(),
@@ -401,6 +413,7 @@ export const onCallSlots = pgTable("on_call_slots", {
   id: uuid("id").primaryKey().defaultRandom(),
   scheduleId: uuid("schedule_id").references(() => onCallSchedules.id, { onDelete: "cascade" }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  level: integer("level").notNull().default(1), // 1=Primary, 2=Secondary
   dayStart: integer("day_start").notNull(),
   dayEnd: integer("day_end").notNull(),
   hourStart: integer("hour_start").default(0).notNull(),
@@ -408,5 +421,17 @@ export const onCallSlots = pgTable("on_call_slots", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const onCallOverrides = pgTable("on_call_overrides", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scheduleId: uuid("schedule_id").references(() => onCallSchedules.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  level: integer("level").notNull().default(1),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export type OnCallSchedule = typeof onCallSchedules.$inferSelect;
 export type OnCallSlot = typeof onCallSlots.$inferSelect;
+export type OnCallOverride = typeof onCallOverrides.$inferSelect;
+export type IncidentStorm = typeof incidentStorms.$inferSelect;

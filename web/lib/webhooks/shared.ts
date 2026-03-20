@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { db, alerts, projectIntegrations, projects, users, maintenanceWindows } from "@/lib/db";
+import { db, alerts, incidentStorms, projectIntegrations, projects, users, maintenanceWindows } from "@/lib/db";
 import { eq, and, gt, lte, gte } from "drizzle-orm";
 import { enqueueAlert } from "@/lib/notifications/send";
 import { dispatchOutgoingWebhooks } from "@/lib/webhooks/outgoing";
@@ -103,15 +103,59 @@ export async function createAlertIfNew(
 
   if (dup) return null;
 
+  let stormId: string | null = null;
+  let isTriggeringStorm = false;
+
+  const [activeStorm] = await db
+    .select({ id: incidentStorms.id })
+    .from(incidentStorms)
+    .where(
+      and(
+        eq(incidentStorms.projectId, projectId),
+        eq(incidentStorms.status, "active")
+      )
+    )
+    .limit(1);
+
+  if (activeStorm) {
+    stormId = activeStorm.id;
+  } else {
+    const stormWindow = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes
+    const recentAlerts = await db
+      .select({ id: alerts.id })
+      .from(alerts)
+      .where(
+        and(
+          eq(alerts.projectId, projectId),
+          gt(alerts.createdAt, stormWindow)
+        )
+      )
+      .limit(4);
+
+    if (recentAlerts.length >= 4) {
+      // This is the 5th alert in 5 minutes! Trigger storm
+      const [newStorm] = await db
+        .insert(incidentStorms)
+        .values({ projectId, status: "active" })
+        .returning();
+      stormId = newStorm.id;
+      isTriggeringStorm = true;
+    }
+  }
+
   const [inserted] = await db
     .insert(alerts)
-    .values({ ...alert, projectId })
+    .values({ ...alert, projectId, stormId })
     .returning();
 
-  try {
-    await enqueueAlert(inserted as Alert);
-  } catch {
-    // Non-blocking — alert is still saved
+  // Only enqueue notification if this is a standard alert
+  // OR if this specific alert is the one triggering the storm
+  if (!stormId || isTriggeringStorm) {
+    try {
+      await enqueueAlert(inserted as Alert);
+    } catch {
+      // Non-blocking — alert is still saved
+    }
   }
 
   try {

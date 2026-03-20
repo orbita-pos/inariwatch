@@ -10,7 +10,8 @@ import {
 
 interface EscalationRule {
   id: string;
-  channelId: string;
+  targetType: string;
+  channelId: string | null;
   delaySec: number;
   minSeverity: string;
   isActive: boolean;
@@ -74,7 +75,7 @@ export function EscalationSection({
   channels,
 }: EscalationSectionProps) {
   const [showForm, setShowForm] = useState(false);
-  const [channelId, setChannelId] = useState(channels[0]?.id ?? "");
+  const [targetValue, setTargetValue] = useState("on_call_primary");
   const [delaySec, setDelaySec] = useState(1800);
   const [minSeverity, setMinSeverity] = useState("critical");
   const [error, setError] = useState("");
@@ -84,9 +85,18 @@ export function EscalationSection({
     e.preventDefault();
     setError("");
     startTransition(async () => {
+      let targetType = "channel";
+      let channelIdStr: string | null = targetValue;
+      
+      if (targetValue === "on_call_primary" || targetValue === "on_call_secondary") {
+        targetType = targetValue;
+        channelIdStr = null;
+      }
+
       const result = await createEscalationRule(
         projectId,
-        channelId,
+        targetType,
+        channelIdStr,
         delaySec,
         minSeverity
       );
@@ -94,6 +104,8 @@ export function EscalationSection({
         setError(result.error);
       } else {
         setShowForm(false);
+        setTargetValue("on_call_primary");
+        setDelaySec(1800);
       }
     });
   };
@@ -119,7 +131,7 @@ export function EscalationSection({
         <h2 className="text-xs font-medium uppercase tracking-widest text-zinc-500">
           Escalation rules
         </h2>
-        {isAdmin && channels.length > 0 && (
+        {isAdmin && (
           <button
             onClick={() => setShowForm(!showForm)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all"
@@ -132,7 +144,13 @@ export function EscalationSection({
 
       <div className="rounded-xl border border-line bg-surface divide-y divide-line-subtle">
         {rules.map((rule) => {
-          const ch = channelMap.get(rule.channelId);
+          const ch = rule.channelId ? channelMap.get(rule.channelId) : undefined;
+          
+          let targetLabel = "Unknown target";
+          if (rule.targetType === "on_call_primary") targetLabel = "Primary On-Call";
+          else if (rule.targetType === "on_call_secondary") targetLabel = "Secondary On-Call";
+          else if (rule.targetType === "channel") targetLabel = ch ? channelLabel(ch) : "Unknown channel";
+
           return (
             <div
               key={rule.id}
@@ -152,7 +170,7 @@ export function EscalationSection({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm text-fg-base truncate">
-                    {ch ? channelLabel(ch) : "Unknown channel"}
+                    {targetLabel}
                   </p>
                   {severityBadge(rule.minSeverity)}
                 </div>
@@ -192,8 +210,8 @@ export function EscalationSection({
           <div className="px-5 py-6 text-center">
             <p className="text-sm text-zinc-500">
               {channels.length === 0
-                ? "Add a notification channel in settings to create escalation rules."
-                : "No escalation rules. Unresolved alerts can be auto-escalated to a notification channel."}
+                ? "Add a notification channel in settings to create channel escalation rules, or route to On-Call directly."
+                : "No escalation rules. Create one to automatically route unresolved alerts."}
             </p>
           </div>
         )}
@@ -206,18 +224,24 @@ export function EscalationSection({
         >
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
-              Notification channel
+              Notification target
             </label>
             <select
-              value={channelId}
-              onChange={(e) => setChannelId(e.target.value)}
+              value={targetValue}
+              onChange={(e) => setTargetValue(e.target.value)}
               className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
             >
-              {channels.map((ch) => (
-                <option key={ch.id} value={ch.id}>
-                  {channelLabel(ch)}
-                </option>
-              ))}
+              <option value="on_call_primary">Primary On-Call</option>
+              <option value="on_call_secondary">Secondary On-Call</option>
+              {channels.length > 0 && (
+                <optgroup label="Notification Channels">
+                  {channels.map((ch) => (
+                    <option key={ch.id} value={ch.id}>
+                      {channelLabel(ch)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">

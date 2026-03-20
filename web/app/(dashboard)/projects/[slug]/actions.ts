@@ -289,7 +289,8 @@ export async function deleteMaintenanceWindow(
 
 export async function createEscalationRule(
   projectId: string,
-  channelId: string,
+  targetType: string,
+  channelId: string | null,
   delaySec: number,
   minSeverity: string
 ): Promise<{ error?: string }> {
@@ -297,29 +298,35 @@ export async function createEscalationRule(
     const result = await requireAdmin(projectId);
     if ("error" in result) return { error: result.error };
 
-    if (!channelId) return { error: "Notification channel is required." };
+    if (!targetType) return { error: "Target type is required." };
+    if (targetType === "channel" && !channelId) {
+      return { error: "Notification channel is required." };
+    }
 
     if (!["critical", "warning", "info"].includes(minSeverity)) {
       return { error: "Invalid severity level." };
     }
 
-    if (delaySec < 60) {
-      return { error: "Delay must be at least 60 seconds." };
+    if (delaySec < 60 && delaySec !== 0) {
+      return { error: "Delay must be at least 60 seconds (or 0)." };
     }
 
-    // Verify the channel belongs to the user
-    const [channel] = await db
-      .select()
-      .from(notificationChannels)
-      .where(eq(notificationChannels.id, channelId))
-      .limit(1);
-    if (!channel || channel.userId !== result.userId) {
-      return { error: "Notification channel not found." };
+    // Verify the channel belongs to the user if target is a channel
+    if (targetType === "channel" && channelId) {
+      const [channel] = await db
+        .select()
+        .from(notificationChannels)
+        .where(eq(notificationChannels.id, channelId))
+        .limit(1);
+      if (!channel || channel.userId !== result.userId) {
+        return { error: "Notification channel not found." };
+      }
     }
 
     await db.insert(escalationRules).values({
       projectId,
-      channelId,
+      targetType,
+      channelId: targetType === "channel" ? channelId : null,
       delaySec,
       minSeverity,
     });

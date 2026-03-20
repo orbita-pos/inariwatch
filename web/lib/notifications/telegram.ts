@@ -7,7 +7,8 @@ interface TelegramConfig {
 
 export async function sendTelegram(
   config: TelegramConfig,
-  text: string
+  text: string,
+  reply_markup?: any
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch(`${TELEGRAM_API}${config.bot_token}/sendMessage`, {
@@ -18,6 +19,7 @@ export async function sendTelegram(
         text,
         parse_mode: "HTML",
         disable_web_page_preview: true,
+        reply_markup,
       }),
     });
 

@@ -72,6 +72,7 @@ const NAV = [
       { id: "notif-email",    label: "Email" },
       { id: "notif-slack",    label: "Slack" },
       { id: "notif-push",     label: "Push (browser)" },
+      { id: "notif-oncall",   label: "On-Call Schedules" },
     ],
   },
   {
@@ -767,6 +768,21 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
             <Callout type="warn">
               Push notifications only work while your browser has been opened at least once since registration.
               For 24/7 coverage, use Telegram or email.
+            </Callout>
+
+            <SectionHeading id="notif-oncall">Notifications — On-Call Schedules</SectionHeading>
+            <P>
+              InariWatch allows you to configure timezone-aware daily on-call rotations for your team.
+              Instead of paging the entire team with critical alerts, Escalation Rules can dynamically
+              route the notification to the specific developer currently on-call.
+            </P>
+            <StepList steps={[
+              { title: "Go to your Project → On-Call Schedule", body: "Click Add schedule and set your project's timezone." },
+              { title: "Add members to slots", body: "Select a user and choose their day and hour ranges (e.g. Mon-Fri, 09:00-17:00)." },
+              { title: "Enable in Escalation Rules", body: "Escalation rules will automatically use the on-call schedule before falling back to fixed channels." },
+            ]} />
+            <Callout type="info">
+              A green badge will appear in the dashboard indicating exactly who is currently on-call based on the active slots.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────

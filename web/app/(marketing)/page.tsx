@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Heart,
   Plus,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
@@ -118,7 +119,7 @@ function Hero() {
 
 function StatsBar() {
   const stats = [
-    { value: "6", label: "integrations monitored" },
+    { value: "7", label: "integrations monitored" },
     { value: "1 min", label: "cloud poll interval" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
@@ -384,7 +385,10 @@ function WhyNotNative() {
           </div>
           {[
             { cap: "Alert aggregation", dd: true, us: true },
+            { cap: "Incident Storm Control", dd: "Paid", us: true },
             { cap: "Cross-service correlation", dd: false, us: true },
+            { cap: "On-Call Rotations & Overrides", dd: "Paid", us: true },
+            { cap: "Interactive Chat ACK (Telegram, etc)", dd: "Paid", us: true },
             { cap: "Root cause AI analysis", dd: "Paid", us: "BYOK" },
             { cap: "Writes code fix", dd: false, us: true },
             { cap: "Pushes branch + waits for CI", dd: false, us: true },
@@ -543,20 +547,38 @@ function AIFeatures() {
       tag: "Ops copilot",
     },
     {
-      icon: <FileText className="h-5 w-5" />,
-      title: "Auto Post-mortems",
-      body: "When an incident resolves, AI generates a full post-mortem: timeline, root cause, impact, resolution steps, and prevention measures — ready to share.",
-      tag: "Incidents",
+      icon: <Bell className="h-5 w-5" />,
+      title: "On-Call Rotations",
+      body: "Set up timezone-aware schedules with multi-level escalations. When a critical issue happens, InariWatch pages the specific developer on-call (and escalates if they don't respond).",
+      tag: "PagerDuty Alternative",
+    },
+    {
+      icon: <MessageSquare className="h-5 w-5" />,
+      title: "Interactive Chat ACK",
+      body: "Acknowledge or resolve alerts directly from Telegram or Slack using interactive inline buttons. No need to open your laptop at 3 AM just to silence an alarm.",
+      tag: "Frictionless",
+    },
+    {
+      icon: <Shield className="h-5 w-5" />,
+      title: "Incident Storm Control",
+      body: "When your database crashes, you get 1 correlated 'Incident Storm' alert instead of 50 individual service failure emails. Silence the noise when the whole stack is burning.",
+      tag: "Alert Fatigue",
+    },
+    {
+      icon: <Activity className="h-5 w-5" />,
+      title: "Uptime Monitoring",
+      body: "Constant 1-minute global pings to your endpoints. If your site goes down, InariWatch catches it instantly, creates an alert, and updates your Status Page.",
+      tag: "1-min pings",
     },
   ];
 
   return (
-    <section id="ai" className="py-24 border-t border-inari-border">
+    <section id="features" className="py-24 border-t border-inari-border">
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-14">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">AI-powered</p>
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Platform</p>
           <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-            Not just alerts — actions
+            A complete automated monitoring platform
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
             Bring your own AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini).
@@ -564,7 +586,7 @@ function AIFeatures() {
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((f) => (
             <div
               key={f.title}

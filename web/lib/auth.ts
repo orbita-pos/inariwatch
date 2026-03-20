@@ -10,7 +10,10 @@ import { eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/auth-rate-limit";
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  session: { 
+    strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
 
   providers: [
     GitHubProvider({

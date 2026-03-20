@@ -59,6 +59,35 @@ export async function GET(req: Request) {
           continue;
         }
 
+        // Resolve the target channel based on explicit targetType
+        let targetChannelId = rule.channelId;
+
+        try {
+          if (
+            rule.targetType === "on_call_primary" ||
+            rule.targetType === "on_call_secondary"
+          ) {
+            const level = rule.targetType === "on_call_secondary" ? 2 : 1;
+            const { getCurrentOnCallUserId, getOnCallChannel } = await import(
+              "@/lib/on-call"
+            );
+            const onCallUserId = await getCurrentOnCallUserId(
+              rule.projectId,
+              level
+            );
+            if (onCallUserId) {
+              const onCallChannelId = await getOnCallChannel(onCallUserId);
+              if (onCallChannelId) {
+                targetChannelId = onCallChannelId;
+              }
+            }
+          }
+        } catch {
+          // Failsafe
+        }
+
+        if (!targetChannelId) continue; // Skip if no channel resolved (e.g. no one is on call)
+
         // Check if escalation notification was already sent for this alert+channel
         const [existingLog] = await db
           .select({ id: notificationLogs.id })
@@ -66,30 +95,12 @@ export async function GET(req: Request) {
           .where(
             and(
               eq(notificationLogs.alertId, alert.id),
-              eq(notificationLogs.channelId, rule.channelId)
+              eq(notificationLogs.channelId, targetChannelId)
             )
           )
           .limit(1);
 
         if (existingLog) continue;
-
-        // Resolve the target channel:
-        // If the project has an on-call schedule, use the on-call user's channel
-        // Otherwise fall back to the rule's configured channel
-        let targetChannelId = rule.channelId;
-
-        try {
-          const { getCurrentOnCallUserId, getOnCallChannel } = await import("@/lib/on-call");
-          const onCallUserId = await getCurrentOnCallUserId(rule.projectId);
-          if (onCallUserId) {
-            const onCallChannelId = await getOnCallChannel(onCallUserId);
-            if (onCallChannelId) {
-              targetChannelId = onCallChannelId;
-            }
-          }
-        } catch {
-          // If on-call resolution fails, fall back to rule's channel
-        }
 
         // Enqueue a notification to the target channel
         const severityPriority: Record<string, number> = {

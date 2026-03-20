@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, onCallSchedules, onCallSlots, organizationMembers } from "@/lib/db";
+import { db, projects, onCallSchedules, onCallSlots, onCallOverrides, organizationMembers } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -92,6 +92,7 @@ export async function addSlot(
   projectId: string,
   scheduleId: string,
   userId: string,
+  level: number,
   dayStart: number,
   dayEnd: number,
   hourStart: number,
@@ -132,6 +133,7 @@ export async function addSlot(
     await db.insert(onCallSlots).values({
       scheduleId,
       userId,
+      level,
       dayStart,
       dayEnd,
       hourStart,
@@ -184,3 +186,92 @@ export async function removeSlot(
     return { error: "Failed to remove slot. Please try again." };
   }
 }
+
+export async function createOverride(
+  projectId: string,
+  scheduleId: string,
+  userId: string,
+  level: number,
+  startsAt: string,
+  endsAt: string
+): Promise<{ error?: string }> {
+  try {
+    const result = await requireProjectAdmin(projectId);
+    if ("error" in result) return { error: result.error };
+
+    const start = new Date(startsAt);
+    const end = new Date(endsAt);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return { error: "Invalid date format." };
+    }
+    if (end <= start) {
+      return { error: "End time must be after start time." };
+    }
+
+    const [schedule] = await db
+      .select()
+      .from(onCallSchedules)
+      .where(
+        and(
+          eq(onCallSchedules.id, scheduleId),
+          eq(onCallSchedules.projectId, projectId)
+        )
+      )
+      .limit(1);
+    if (!schedule) return { error: "Schedule not found." };
+
+    await db.insert(onCallOverrides).values({
+      scheduleId,
+      userId,
+      level,
+      startsAt: start,
+      endsAt: end,
+    });
+
+    revalidatePath(`/projects/${result.project.slug}`);
+    return {};
+  } catch {
+    return { error: "Failed to create override. Please try again." };
+  }
+}
+
+export async function removeOverride(
+  projectId: string,
+  overrideId: string
+): Promise<{ error?: string }> {
+  try {
+    const result = await requireProjectAdmin(projectId);
+    if ("error" in result) return { error: result.error };
+
+    const [override] = await db
+      .select({
+        id: onCallOverrides.id,
+        scheduleId: onCallOverrides.scheduleId,
+      })
+      .from(onCallOverrides)
+      .where(eq(onCallOverrides.id, overrideId))
+      .limit(1);
+    if (!override) return { error: "Override not found." };
+
+    const [schedule] = await db
+      .select()
+      .from(onCallSchedules)
+      .where(
+        and(
+          eq(onCallSchedules.id, override.scheduleId),
+          eq(onCallSchedules.projectId, projectId)
+        )
+      )
+      .limit(1);
+    if (!schedule) return { error: "Schedule not found in this project." };
+
+    await db.delete(onCallOverrides).where(eq(onCallOverrides.id, overrideId));
+
+    revalidatePath(`/projects/${result.project.slug}`);
+    return {};
+  } catch {
+    return { error: "Failed to remove override. Please try again." };
+  }
+}
+
