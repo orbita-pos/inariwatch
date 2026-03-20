@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getLatestPollingTime } from "./polling-actions";
 
 function relativeTime(date: Date): string {
   const diff = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -14,12 +15,20 @@ interface PollingStatusProps {
   lastCheckedAt: string | null; // ISO string from server
 }
 
-export function PollingStatus({ lastCheckedAt }: PollingStatusProps) {
+export function PollingStatus({ lastCheckedAt: initialLastCheckedAt }: PollingStatusProps) {
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(initialLastCheckedAt);
+  
   const [label, setLabel] = useState<string>(() => {
-    if (!lastCheckedAt) return "Never polled";
-    return relativeTime(new Date(lastCheckedAt));
+    if (!initialLastCheckedAt) return "Never polled";
+    return relativeTime(new Date(initialLastCheckedAt));
   });
 
+  // Sync if prop from server changes (e.g. navigation)
+  useEffect(() => {
+    setLastCheckedAt(initialLastCheckedAt);
+  }, [initialLastCheckedAt]);
+
+  // 1. Tick for relative time text
   useEffect(() => {
     if (!lastCheckedAt) return;
     const date = new Date(lastCheckedAt);
@@ -28,6 +37,19 @@ export function PollingStatus({ lastCheckedAt }: PollingStatusProps) {
     const id = setInterval(tick, 30_000);
     return () => clearInterval(id);
   }, [lastCheckedAt]);
+
+  // 2. Poll the server for real-time updates every 60 seconds
+  useEffect(() => {
+    const fetcher = setInterval(async () => {
+      try {
+        const freshTime = await getLatestPollingTime();
+        if (freshTime) setLastCheckedAt(freshTime);
+      } catch (err) {
+        // Silently ignore network errors to prevent console spam
+      }
+    }, 60_000);
+    return () => clearInterval(fetcher);
+  }, []);
 
   const isRecent = lastCheckedAt
     ? Date.now() - new Date(lastCheckedAt).getTime() < 10 * 60 * 1000

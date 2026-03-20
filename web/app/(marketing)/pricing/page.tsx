@@ -14,64 +14,65 @@ const COMPARISON = [
   {
     category: "Monitoring",
     rows: [
-      { feature: "Projects",              cli: "∞ local",   free: "1",        pro: "10" },
-      { feature: "Integrations",          cli: "∞ local",   free: "2",        pro: "20" },
-      { feature: "GitHub CI / PRs",       cli: true,        free: true,       pro: true },
-      { feature: "Vercel deployments",    cli: true,        free: true,       pro: true },
-      { feature: "Sentry issues",         cli: true,        free: true,       pro: true },
-      { feature: "Uptime / HTTP",         cli: false,       free: false,      pro: true },
-      { feature: "PostgreSQL health",     cli: false,       free: false,      pro: true },
-      { feature: "npm / Cargo audit",     cli: false,       free: false,      pro: true },
-      { feature: "Poll interval",         cli: "60s (local)", free: "30 min", pro: "5 min" },
-      { feature: "Real-time webhooks",    cli: false,       free: false,      pro: true },
-      { feature: "24/7 cloud polling",    cli: false,       free: true,       pro: true },
-      { feature: "Anomaly detection",     cli: false,       free: false,      pro: true },
+      { feature: "Projects",              cli: "∞ local",   pro: "5",         team: "20" },
+      { feature: "Integrations",          cli: "∞ local",   pro: "10",        team: "40" },
+      { feature: "GitHub CI / PRs",       cli: true,        pro: true,        team: true },
+      { feature: "Vercel deployments",    cli: true,        pro: true,        team: true },
+      { feature: "Sentry issues",         cli: true,        pro: true,        team: true },
+      { feature: "Uptime / HTTP",         cli: false,       pro: true,        team: true },
+      { feature: "PostgreSQL health",     cli: false,       pro: true,        team: true },
+      { feature: "npm / Cargo audit",     cli: false,       pro: true,        team: true },
+      { feature: "Poll interval",         cli: "60s (local)", pro: "1 min", team: "1 min" },
+      { feature: "Real-time webhooks",    cli: false,       pro: true,        team: true },
+      { feature: "24/7 cloud polling",    cli: false,       pro: true,        team: true },
+      { feature: "Anomaly detection",     cli: false,       pro: true,        team: true },
     ],
   },
   {
     category: "AI — the part no one else has",
     rows: [
-      { feature: "AI alert correlation",      cli: "BYOK",  free: false,  pro: "BYOK" },
-      { feature: "Auto root-cause analysis",  cli: false,   free: false,  pro: "BYOK" },
-      { feature: "AI code remediation + PR",  cli: false,   free: false,  pro: "BYOK" },
-      { feature: "CI retry loop (auto-fix)",  cli: false,   free: false,  pro: "BYOK" },
-      { feature: "Pre-deploy risk on PRs",    cli: false,   free: false,  pro: "BYOK" },
-      { feature: "Post-mortem generation",    cli: false,   free: false,  pro: "BYOK" },
-      { feature: "Ask Inari (AI copilot)",    cli: false,   free: false,  pro: "BYOK" },
-      { feature: "5 AI providers (your key)", cli: "BYOK",  free: false,  pro: "BYOK" },
+      { feature: "AI alert correlation",      cli: "BYOK",  pro: "BYOK",  team: "BYOK" },
+      { feature: "Auto root-cause analysis",  cli: false,   pro: "BYOK",  team: "BYOK" },
+      { feature: "AI code remediation + PR",  cli: false,   pro: "BYOK",  team: "BYOK" },
+      { feature: "CI retry loop (auto-fix)",  cli: false,   pro: "BYOK",  team: "BYOK" },
+      { feature: "Pre-deploy risk on PRs",    cli: false,   pro: "BYOK",  team: "BYOK" },
+      { feature: "Post-mortem generation",    cli: false,   pro: "BYOK",  team: "BYOK" },
+      { feature: "Ask Inari (AI copilot)",    cli: false,   pro: "BYOK",  team: "BYOK" },
+      { feature: "5 AI providers (your key)", cli: "BYOK",  pro: "BYOK",  team: "BYOK" },
     ],
   },
   {
     category: "Alerts & history",
     rows: [
-      { feature: "Web dashboard",         cli: false,   free: true,    pro: true },
-      { feature: "Alert history",         cli: "Local", free: "7 days", pro: "30 days" },
-      { feature: "Vercel instant rollback", cli: false, free: false,   pro: true },
-      { feature: "Alert export (CSV)",    cli: false,   free: false,   pro: true },
-      { feature: "Analytics & trends",    cli: false,   free: false,   pro: true },
-      { feature: "Alert comments",        cli: false,   free: false,   pro: true },
+      { feature: "Web dashboard",             cli: false,   pro: true,    team: true },
+      { feature: "Alert history",             cli: "Local", pro: "30 days", team: "30 days" },
+      { feature: "Vercel instant rollback",   cli: false,   pro: true,    team: true },
+      { feature: "Alert export (CSV)",        cli: false,   pro: true,    team: true },
+      { feature: "Analytics & trends",        cli: false,   pro: true,    team: true },
+      { feature: "Alert comments",            cli: false,   pro: true,    team: true },
     ],
   },
   {
     category: "Notifications",
     rows: [
-      { feature: "Telegram",             cli: true,    free: true,   pro: true },
-      { feature: "Email (smart digest)", cli: false,   free: false,  pro: true },
-      { feature: "Slack",                cli: false,   free: false,  pro: true },
-      { feature: "Push notifications",   cli: false,   free: false,  pro: true },
-      { feature: "Escalation rules",     cli: false,   free: false,  pro: true },
-      { feature: "Outgoing webhooks",    cli: false,   free: false,  pro: true },
+      { feature: "Telegram",             cli: true,    pro: true,   team: true },
+      { feature: "Email (smart digest)", cli: false,   pro: true,   team: true },
+      { feature: "Slack",                cli: false,   pro: true,   team: true },
+      { feature: "Push notifications",   cli: false,   pro: true,   team: true },
+      { feature: "Escalation rules",     cli: false,   pro: true,   team: true },
+      { feature: "Outgoing webhooks",    cli: false,   pro: true,   team: true },
     ],
   },
   {
     category: "Team & access",
     rows: [
-      { feature: "Desktop app",          cli: false,   free: false,  pro: true },
-      { feature: "Team workspaces",      cli: false,   free: false,  pro: true },
-      { feature: "Member invites",       cli: false,   free: false,  pro: true },
-      { feature: "Status pages",         cli: false,   free: false,  pro: true },
-      { feature: "Audit log",            cli: false,   free: false,  pro: true },
-      { feature: "2FA",                  cli: false,   free: true,   pro: true },
+      { feature: "Desktop app",          cli: false,   pro: true,  team: true },
+      { feature: "Team workspaces",      cli: false,   pro: false, team: true },
+      { feature: "Member invites",       cli: false,   pro: false, team: "Up to 5 free" },
+      { feature: "Plan Inheritance",     cli: false,   pro: false, team: true },
+      { feature: "Status pages",         cli: false,   pro: true,  team: true },
+      { feature: "Audit log",            cli: false,   pro: false, team: true },
+      { feature: "2FA",                  cli: false,   pro: true,  team: true },
     ],
   },
 ];
@@ -226,16 +227,16 @@ export default function PricingPage() {
             </ul>
           </div>
 
-          {/* Web Free */}
+          {/* Pro */}
           <div className="rounded-2xl border border-inari-border bg-inari-card p-7 flex flex-col">
             <div>
-              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Web Free</p>
+              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Pro</p>
               <div className="mt-2 flex items-end gap-1">
-                <span className="text-3xl font-bold text-fg-strong">$0</span>
+                <span className="text-3xl font-bold text-fg-strong">$4.99</span>
                 <span className="pb-0.5 text-zinc-500 text-sm">/month</span>
               </div>
               <p className="mt-2 text-sm text-zinc-500">
-                Try the cloud dashboard. 30-min polling, 1 project, 2 integrations.
+                Full autonomous incident response for solo developers. Monitors 24/7 in the cloud.
               </p>
             </div>
             <div className="mt-6">
@@ -245,11 +246,11 @@ export default function PricingPage() {
             </div>
             <ul className="mt-7 space-y-2.5 flex-1">
               {[
-                "Web dashboard (7-day history)",
-                "1 project, 2 integrations",
-                "30-min cloud polling",
-                "Telegram notifications",
-                "2FA included",
+                "AI code remediation + PR (BYOK)",
+                "5 projects, 10 integrations",
+                "1-min cloud polling",
+                "Slack, Email & Push alerts",
+                "30-day alert history",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-sm text-fg-base">
                   <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-inari-accent/70" />
@@ -257,9 +258,8 @@ export default function PricingPage() {
                 </li>
               ))}
               {[
-                "No AI features",
-                "No Slack / Email / Push",
-                "No analytics or team features",
+                "No team workspaces",
+                "No team invites",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-sm text-zinc-600">
                   <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-30" />
@@ -269,21 +269,21 @@ export default function PricingPage() {
             </ul>
           </div>
 
-          {/* Pro */}
+          {/* Team */}
           <div className="relative rounded-2xl border border-inari-accent/40 bg-inari-accent-dim p-7 flex flex-col shadow-[0_0_60px_rgba(124,58,237,0.12)]">
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
               <span className="rounded-full bg-inari-accent px-3 py-1 text-xs font-semibold text-white">
-                Most popular
+                Best for agencies
               </span>
             </div>
             <div>
-              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Pro</p>
+              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Team</p>
               <div className="mt-2 flex items-end gap-1">
-                <span className="text-3xl font-bold text-fg-strong">$9</span>
+                <span className="text-3xl font-bold text-fg-strong">$9.99</span>
                 <span className="pb-0.5 text-zinc-500 text-sm">/month</span>
               </div>
               <p className="mt-2 text-sm text-zinc-500">
-                Full autonomous incident response. Monitors 24/7 and fixes code while you sleep.
+                Workspaces and inherited benefits. Include your team in the loop.
               </p>
             </div>
             <div className="mt-6">
@@ -295,16 +295,16 @@ export default function PricingPage() {
             <ul className="mt-7 space-y-2.5 flex-1">
               {[
                 { text: "AI writes & pushes code fixes", bold: true },
-                { text: "CI retry loop (auto-diagnoses failures)", bold: true },
-                { text: "Pre-deploy risk assessment on PRs", bold: true },
-                { text: "Anomaly detection (proactive alerts)", bold: false },
-                { text: "Vercel instant rollback from alert", bold: false },
-                { text: "5-min polling + real-time webhooks", bold: false },
-                { text: "10 projects, 20 integrations", bold: false },
+                { text: "Team Workspaces included", bold: true },
+                { text: "Inherited 1-min polling per workspace", bold: true },
+                { text: "Up to 5 members free", bold: false },
+                { text: "20 projects, 40 integrations", bold: false },
                 { text: "30-day alert history + analytics", bold: false },
                 { text: "All notifications (Slack, Email, Push)", bold: false },
+                { text: "Pre-deploy risk assessment on PRs", bold: false },
+                { text: "Anomaly detection (proactive alerts)", bold: false },
                 { text: "Ask Inari — AI chat with your data", bold: false },
-                { text: "Teams, status pages, audit log", bold: false },
+                { text: "Status pages & audit log", bold: false },
                 { text: "Desktop app with OS notifications", bold: false },
               ].map((f) => (
                 <li key={f.text} className="flex items-start gap-2 text-sm text-fg-base">
@@ -325,14 +325,14 @@ export default function PricingPage() {
               why: "You want monitoring without a subscription. You're online when you're working and Telegram is enough.",
             },
             {
-              plan: "Web Free",
-              for: "Trying InariWatch",
-              why: "You want to see real alerts in the dashboard before committing. Cloud polling included, no card.",
+              plan: "Pro",
+              for: "Solo developers",
+              why: "You want incidents handled automatically in the Cloud. Wake up to a PR, not a 3am page, and use your own AI api keys.",
             },
             {
-              plan: "Pro",
-              for: "Developers shipping to production",
-              why: "You want incidents handled automatically. Wake up to a PR, not a 3am page.",
+              plan: "Team",
+              for: "Startups & Agencies",
+              why: "You want your team to be in the loop. Create workspaces, invite them, and everyone inherits your fast 1-min polling speeds.",
               highlight: true,
             },
           ].map((item) => (
@@ -358,8 +358,8 @@ export default function PricingPage() {
               <div className="p-4" />
               {[
                 { label: "CLI",      sub: "Free forever" },
-                { label: "Web Free", sub: "$0 / mo" },
-                { label: "Pro",      sub: "$9 / mo", accent: true },
+                { label: "Pro",      sub: "$4.99 / mo" },
+                { label: "Team",     sub: "$9.99 / mo", accent: true },
               ].map((h) => (
                 <div key={h.label} className={`p-4 text-center ${h.accent ? "text-inari-accent" : "text-fg-base"}`}>
                   <p className="text-sm font-semibold">{h.label}</p>
@@ -387,10 +387,10 @@ export default function PricingPage() {
                       <Cell value={row.cli} />
                     </div>
                     <div className="px-4 py-3 flex items-center justify-center">
-                      <Cell value={row.free} />
+                      <Cell value={row.pro} />
                     </div>
                     <div className="px-4 py-3 flex items-center justify-center border-l border-inari-border/30">
-                      <Cell value={row.pro} highlight />
+                      <Cell value={row.team} highlight />
                     </div>
                   </div>
                 ))}
