@@ -73,7 +73,25 @@ export async function GET(req: Request) {
 
         if (existingLog) continue;
 
-        // Enqueue a notification to the escalation channel
+        // Resolve the target channel:
+        // If the project has an on-call schedule, use the on-call user's channel
+        // Otherwise fall back to the rule's configured channel
+        let targetChannelId = rule.channelId;
+
+        try {
+          const { getCurrentOnCallUserId, getOnCallChannel } = await import("@/lib/on-call");
+          const onCallUserId = await getCurrentOnCallUserId(rule.projectId);
+          if (onCallUserId) {
+            const onCallChannelId = await getOnCallChannel(onCallUserId);
+            if (onCallChannelId) {
+              targetChannelId = onCallChannelId;
+            }
+          }
+        } catch {
+          // If on-call resolution fails, fall back to rule's channel
+        }
+
+        // Enqueue a notification to the target channel
         const severityPriority: Record<string, number> = {
           critical: 0,
           warning: 1,
@@ -82,7 +100,7 @@ export async function GET(req: Request) {
 
         await db.insert(notificationQueue).values({
           alertId: alert.id,
-          channelId: rule.channelId,
+          channelId: targetChannelId,
           status: "pending",
           priority: severityPriority[alert.severity] ?? 1,
         });

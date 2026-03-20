@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/poll",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/uptime",
+      "schedule": "* * * * *"
     }
   ]
 }

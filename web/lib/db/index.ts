@@ -45,7 +45,8 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 /**
  * Returns project IDs scoped to the active workspace.
  * - orgId = null → personal workspace (only user-owned projects without an org)
- * - orgId = uuid → org workspace (only projects belonging to that org)
+ * - orgId = uuid → org workspace (org projects, filtering restricted ones
+ *   for non-owner members who haven't been granted explicit access)
  */
 export async function getWorkspaceProjectIds(userId: string, orgId: string | null): Promise<string[]> {
   if (orgId === null) {
@@ -55,14 +56,39 @@ export async function getWorkspaceProjectIds(userId: string, orgId: string | nul
       .from(schema.projects)
       .where(and(eq(schema.projects.userId, userId), isNull(schema.projects.organizationId)));
     return rows.map((r) => r.id);
-  } else {
-    // Org workspace: all projects in this org
-    const rows = await db
-      .select({ id: schema.projects.id })
-      .from(schema.projects)
-      .where(eq(schema.projects.organizationId, orgId));
-    return rows.map((r) => r.id);
   }
+
+  // Org workspace: get all projects in this org
+  const allOrgProjects = await db
+    .select({
+      id: schema.projects.id,
+      userId: schema.projects.userId,
+      visibility: schema.projects.visibility,
+    })
+    .from(schema.projects)
+    .where(eq(schema.projects.organizationId, orgId));
+
+  // Fast path: no restricted projects
+  const restrictedProjects = allOrgProjects.filter((p) => p.visibility === "restricted");
+  if (restrictedProjects.length === 0) return allOrgProjects.map((p) => p.id);
+
+  // Fetch which restricted projects this user has explicit access to
+  const restrictedIds = restrictedProjects.map((p) => p.id);
+  const accessRows = await db
+    .select({ projectId: schema.projectMembers.projectId })
+    .from(schema.projectMembers)
+    .where(
+      and(
+        eq(schema.projectMembers.userId, userId),
+        inArray(schema.projectMembers.projectId, restrictedIds)
+      )
+    );
+  const accessSet = new Set(accessRows.map((r) => r.projectId));
+
+  // Include project if: visibility='all', OR user is the project owner, OR user has explicit access
+  return allOrgProjects
+    .filter((p) => p.visibility === "all" || p.userId === userId || accessSet.has(p.id))
+    .map((p) => p.id);
 }
 
 /**

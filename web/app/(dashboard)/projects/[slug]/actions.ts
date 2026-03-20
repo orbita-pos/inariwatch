@@ -6,15 +6,15 @@ import {
   db,
   projects,
   projectMembers,
-  projectInvites,
   users,
+  organizations,
+  organizationMembers,
   maintenanceWindows,
   escalationRules,
   notificationChannels,
 } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { randomBytes } from "crypto";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,125 +50,24 @@ async function requireAdmin(
   return { error: "You must be a project admin to perform this action." };
 }
 
-// ── Actions ──────────────────────────────────────────────────────────────────
+// ── Project Access Control ───────────────────────────────────────────────────
 
-export async function inviteMember(
+export async function setProjectVisibility(
   projectId: string,
-  email: string,
-  role: string
+  visibility: string
 ): Promise<{ error?: string }> {
   try {
     const result = await requireAdmin(projectId);
     if ("error" in result) return { error: result.error };
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail || !trimmedEmail.includes("@")) {
-      return { error: "Please enter a valid email address." };
+    if (visibility !== "all" && visibility !== "restricted") {
+      return { error: "Visibility must be 'all' or 'restricted'." };
     }
 
-    if (role !== "admin" && role !== "viewer") {
-      return { error: "Role must be admin or viewer." };
-    }
-
-    // Check if project exists
-    const [project] = await db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
-    if (!project) return { error: "Project not found." };
-
-    // Check if the email belongs to the project owner
-    const [owner] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, project.userId))
-      .limit(1);
-    if (owner && owner.email === trimmedEmail) {
-      return { error: "This user is already the project owner." };
-    }
-
-    // Check if user is already a member
-    const [existingUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, trimmedEmail))
-      .limit(1);
-
-    if (existingUser) {
-      const [existingMember] = await db
-        .select()
-        .from(projectMembers)
-        .where(
-          and(
-            eq(projectMembers.projectId, projectId),
-            eq(projectMembers.userId, existingUser.id)
-          )
-        )
-        .limit(1);
-      if (existingMember) {
-        return { error: "This user is already a member of this project." };
-      }
-    }
-
-    // Check if there's already a pending invite for this email
-    const [existingInvite] = await db
-      .select()
-      .from(projectInvites)
-      .where(
-        and(
-          eq(projectInvites.projectId, projectId),
-          eq(projectInvites.email, trimmedEmail)
-        )
-      )
-      .limit(1);
-    if (existingInvite) {
-      return { error: "An invite has already been sent to this email." };
-    }
-
-    // Generate invite token
-    const token = randomBytes(32).toString("hex");
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    await db.insert(projectInvites).values({
-      projectId,
-      email: trimmedEmail,
-      role: role as "admin" | "viewer",
-      invitedBy: result.userId,
-      token,
-      expiresAt,
-    });
-
-    revalidatePath(`/projects/${project.slug}`);
-    return {};
-  } catch {
-    return { error: "Failed to send invite. Please try again." };
-  }
-}
-
-export async function removeMember(
-  projectId: string,
-  memberId: string
-): Promise<{ error?: string }> {
-  try {
-    const result = await requireAdmin(projectId);
-    if ("error" in result) return { error: result.error };
-
-    // Verify the member exists and belongs to this project
-    const [member] = await db
-      .select()
-      .from(projectMembers)
-      .where(
-        and(
-          eq(projectMembers.id, memberId),
-          eq(projectMembers.projectId, projectId)
-        )
-      )
-      .limit(1);
-    if (!member) return { error: "Member not found." };
-
-    await db.delete(projectMembers).where(eq(projectMembers.id, memberId));
+    await db
+      .update(projects)
+      .set({ visibility })
+      .where(eq(projects.id, projectId));
 
     // Get project slug for revalidation
     const [project] = await db
@@ -180,13 +79,92 @@ export async function removeMember(
 
     return {};
   } catch {
-    return { error: "Failed to remove member. Please try again." };
+    return { error: "Failed to update visibility. Please try again." };
   }
 }
 
-export async function updateMemberRole(
+export async function addProjectAccess(
   projectId: string,
-  memberId: string,
+  userId: string
+): Promise<{ error?: string }> {
+  try {
+    const result = await requireAdmin(projectId);
+    if ("error" in result) return { error: result.error };
+
+    // Check if user exists
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) return { error: "User not found." };
+
+    // Verify project exists and belongs to an org
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (!project) return { error: "Project not found." };
+    if (!project.organizationId) return { error: "Access control is only for workspace projects." };
+
+    // Verify the user is a member of the org
+    const [orgMember] = await db
+      .select({ id: organizationMembers.id })
+      .from(organizationMembers)
+      .where(
+        and(
+          eq(organizationMembers.organizationId, project.organizationId),
+          eq(organizationMembers.userId, userId)
+        )
+      )
+      .limit(1);
+    if (!orgMember) return { error: "User must be a workspace member first." };
+
+    // Check if already has access
+    const [existing] = await db
+      .select({ id: projectMembers.id })
+      .from(projectMembers)
+      .where(
+        and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId))
+      )
+      .limit(1);
+    if (existing) return { error: "User already has access to this project." };
+
+    await db.insert(projectMembers).values({
+      projectId,
+      userId,
+      role: "viewer",
+    });
+
+    revalidatePath(`/projects/${project.slug}`);
+    return {};
+  } catch {
+    return { error: "Failed to grant access. Please try again." };
+  }
+}
+
+export async function removeProjectAccess(
+  projectId: string,
+  userId: string
+): Promise<{ error?: string }> {
+  try {
+    const result = await requireAdmin(projectId);
+    if ("error" in result) return { error: result.error };
+
+    // Don't allow removing the project owner
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (!project) return { error: "Project not found." };
+    if (project.userId === userId) return { error: "Cannot remove the project owner." };
+
+    await db
+      .delete(projectMembers)
+      .where(
+        and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId))
+      );
+
+    revalidatePath(`/projects/${project.slug}`);
+    return {};
+  } catch {
+    return { error: "Failed to revoke access. Please try again." };
+  }
+}
+
+export async function updateProjectMemberRole(
+  projectId: string,
+  userId: string,
   role: string
 ): Promise<{ error?: string }> {
   try {
@@ -197,15 +175,11 @@ export async function updateMemberRole(
       return { error: "Role must be admin or viewer." };
     }
 
-    // Verify the member exists and belongs to this project
     const [member] = await db
-      .select()
+      .select({ id: projectMembers.id })
       .from(projectMembers)
       .where(
-        and(
-          eq(projectMembers.id, memberId),
-          eq(projectMembers.projectId, projectId)
-        )
+        and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId))
       )
       .limit(1);
     if (!member) return { error: "Member not found." };
@@ -213,9 +187,8 @@ export async function updateMemberRole(
     await db
       .update(projectMembers)
       .set({ role: role as "admin" | "viewer" })
-      .where(eq(projectMembers.id, memberId));
+      .where(eq(projectMembers.id, member.id));
 
-    // Get project slug for revalidation
     const [project] = await db
       .select({ slug: projects.slug })
       .from(projects)
@@ -226,41 +199,6 @@ export async function updateMemberRole(
     return {};
   } catch {
     return { error: "Failed to update role. Please try again." };
-  }
-}
-
-export async function cancelInvite(
-  projectId: string,
-  inviteId: string
-): Promise<{ error?: string }> {
-  try {
-    const result = await requireAdmin(projectId);
-    if ("error" in result) return { error: result.error };
-
-    const [invite] = await db
-      .select()
-      .from(projectInvites)
-      .where(
-        and(
-          eq(projectInvites.id, inviteId),
-          eq(projectInvites.projectId, projectId)
-        )
-      )
-      .limit(1);
-    if (!invite) return { error: "Invite not found." };
-
-    await db.delete(projectInvites).where(eq(projectInvites.id, inviteId));
-
-    const [project] = await db
-      .select({ slug: projects.slug })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
-    if (project) revalidatePath(`/projects/${project.slug}`);
-
-    return {};
-  } catch {
-    return { error: "Failed to cancel invite. Please try again." };
   }
 }
 

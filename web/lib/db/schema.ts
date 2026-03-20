@@ -93,6 +93,7 @@ export const projects = pgTable("projects", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   description: text("description"),
+  visibility: text("visibility").default("all").notNull(), // 'all' | 'restricted'
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -110,7 +111,8 @@ export const projectIntegrations = pgTable("project_integrations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// ── Project Members ─────────────────────────────────────────────────────────
+// ── Project Access Control ──────────────────────────────────────────────────
+// Used when project.visibility = 'restricted'
 
 export const memberRoleEnum = pgEnum("member_role", ["admin", "viewer"]);
 
@@ -119,13 +121,13 @@ export const projectMembers = pgTable("project_members", {
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   role: memberRoleEnum("role").default("viewer").notNull(),
-  invitedBy: uuid("invited_by").references(() => users.id).notNull(),
-  invitedAt: timestamp("invited_at").defaultNow().notNull(),
+  // Legacy columns kept to avoid migration
+  invitedBy: uuid("invited_by").references(() => users.id),
+  invitedAt: timestamp("invited_at").defaultNow(),
   acceptedAt: timestamp("accepted_at"),
 });
 
-// ── Project Invites ─────────────────────────────────────────────────────────
-
+// Legacy table — kept to avoid migration, no longer used by app code
 export const projectInvites = pgTable("project_invites", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
@@ -355,3 +357,56 @@ export type RemediationSession = typeof remediationSessions.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMember = typeof organizationMembers.$inferSelect;
 export type OrganizationInvite = typeof organizationInvites.$inferSelect;
+
+// ── Uptime Monitoring ───────────────────────────────────────────────────────
+
+export const uptimeMonitors = pgTable("uptime_monitors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  url: text("url").notNull(),
+  name: text("name"),
+  intervalSec: integer("interval_sec").default(60).notNull(),
+  expectedStatus: integer("expected_status").default(200).notNull(),
+  timeoutMs: integer("timeout_ms").default(10000).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  isDown: boolean("is_down").default(false).notNull(),
+  lastCheckedAt: timestamp("last_checked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const uptimeChecks = pgTable("uptime_checks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  monitorId: uuid("monitor_id").references(() => uptimeMonitors.id, { onDelete: "cascade" }).notNull(),
+  statusCode: integer("status_code"),
+  responseTimeMs: integer("response_time_ms"),
+  isUp: boolean("is_up").notNull(),
+  error: text("error"),
+  checkedAt: timestamp("checked_at").defaultNow().notNull(),
+});
+
+export type UptimeMonitor = typeof uptimeMonitors.$inferSelect;
+export type UptimeCheck = typeof uptimeChecks.$inferSelect;
+
+// ── On-Call Schedules ───────────────────────────────────────────────────────
+
+export const onCallSchedules = pgTable("on_call_schedules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  timezone: text("timezone").default("UTC").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const onCallSlots = pgTable("on_call_slots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scheduleId: uuid("schedule_id").references(() => onCallSchedules.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  dayStart: integer("day_start").notNull(),
+  dayEnd: integer("day_end").notNull(),
+  hourStart: integer("hour_start").default(0).notNull(),
+  hourEnd: integer("hour_end").default(23).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type OnCallSchedule = typeof onCallSchedules.$inferSelect;
+export type OnCallSlot = typeof onCallSlots.$inferSelect;

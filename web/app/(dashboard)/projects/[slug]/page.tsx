@@ -4,22 +4,29 @@ import {
   db,
   projects,
   projectMembers,
-  projectInvites,
   users,
+  organizationMembers,
   maintenanceWindows,
   escalationRules,
   notificationChannels,
   statusPages,
+  uptimeMonitors,
+  uptimeChecks,
+  onCallSchedules,
+  onCallSlots,
 } from "@/lib/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { MembersSection } from "./members";
+import { ProjectAccessSection } from "./members";
 import { MaintenanceSection } from "./maintenance";
 import { EscalationSection } from "./escalation";
 import { StatusPageSection } from "./status-page";
+import { UptimeSection } from "./uptime";
+import { OnCallSection } from "./on-call";
 import { ProGate } from "@/components/pro-gate";
+import { getCurrentOnCallUserId } from "@/lib/on-call";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Project" };
@@ -49,38 +56,55 @@ export default async function ProjectDetailPage({
   let isAdmin = isOwner;
 
   if (!isOwner) {
-    const [member] = await db
-      .select()
-      .from(projectMembers)
-      .where(
-        and(
-          eq(projectMembers.projectId, project.id),
-          eq(projectMembers.userId, userId)
+    if (project.organizationId) {
+      // Org project: check org membership
+      const [orgMember] = await db
+        .select({ role: organizationMembers.role })
+        .from(organizationMembers)
+        .where(
+          and(
+            eq(organizationMembers.organizationId, project.organizationId),
+            eq(organizationMembers.userId, userId)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
 
-    if (!member) notFound();
-    isAdmin = member.role === "admin";
+      if (orgMember) {
+        isAdmin = orgMember.role === "owner" || orgMember.role === "admin";
+      } else {
+        // Check project-level access (for restricted projects)
+        const [member] = await db
+          .select()
+          .from(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.projectId, project.id),
+              eq(projectMembers.userId, userId)
+            )
+          )
+          .limit(1);
+        if (!member) notFound();
+        isAdmin = member.role === "admin";
+      }
+    } else {
+      notFound(); // Personal project, only owner can access
+    }
   }
 
-  // Get owner info + plan (plan gates Pro features for the project)
+  // Get owner info
   const [owner] = await db
-    .select({ id: users.id, name: users.name, email: users.email, plan: users.plan })
+    .select({ id: users.id, name: users.name, email: users.email })
     .from(users)
     .where(eq(users.id, project.userId))
     .limit(1);
 
-  const isPro = true; // 100% Free SaaS — all features unlocked
+  const isOrgProject = !!project.organizationId;
 
-  // Get members with user info
-  const members = await db
+  // Get project access members (for restricted mode display)
+  const accessMembers = await db
     .select({
-      id: projectMembers.id,
       userId: projectMembers.userId,
       role: projectMembers.role,
-      invitedAt: projectMembers.invitedAt,
-      acceptedAt: projectMembers.acceptedAt,
       userName: users.name,
       userEmail: users.email,
     })
@@ -88,12 +112,18 @@ export default async function ProjectDetailPage({
     .innerJoin(users, eq(projectMembers.userId, users.id))
     .where(eq(projectMembers.projectId, project.id));
 
-  // Get pending invites
-  const pendingInvites = isAdmin
+  // Get all workspace members (for the "grant access" dropdown)
+  const workspaceMembers = isOrgProject && project.organizationId
     ? await db
-        .select()
-        .from(projectInvites)
-        .where(eq(projectInvites.projectId, project.id))
+        .select({
+          userId: organizationMembers.userId,
+          orgRole: organizationMembers.role,
+          userName: users.name,
+          userEmail: users.email,
+        })
+        .from(organizationMembers)
+        .innerJoin(users, eq(organizationMembers.userId, users.id))
+        .where(eq(organizationMembers.organizationId, project.organizationId))
     : [];
 
   // Get maintenance windows (most recent first)
@@ -131,6 +161,94 @@ export default async function ProjectDetailPage({
       )
     );
 
+  // Get uptime monitors with stats
+  const rawMonitors = await db
+    .select()
+    .from(uptimeMonitors)
+    .where(eq(uptimeMonitors.projectId, project.id));
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const monitorsWithStats = await Promise.all(
+    rawMonitors.map(async (m) => {
+      const checks = await db
+        .select({
+          total: sql<number>`count(*)`,
+          upCount: sql<number>`count(*) filter (where ${uptimeChecks.isUp} = true)`,
+          avgMs: sql<number>`avg(${uptimeChecks.responseTimeMs})`,
+        })
+        .from(uptimeChecks)
+        .where(
+          and(
+            eq(uptimeChecks.monitorId, m.id),
+            gte(uptimeChecks.checkedAt, thirtyDaysAgo)
+          )
+        );
+
+      const total = Number(checks[0]?.total ?? 0);
+      const upCount = Number(checks[0]?.upCount ?? 0);
+      const avgMs = checks[0]?.avgMs ? Math.round(Number(checks[0].avgMs)) : null;
+      const uptimePercent = total > 0 ? (upCount / total) * 100 : null;
+
+      return {
+        id: m.id,
+        url: m.url,
+        name: m.name,
+        intervalSec: m.intervalSec,
+        expectedStatus: m.expectedStatus,
+        isActive: m.isActive,
+        isDown: m.isDown,
+        lastCheckedAt: m.lastCheckedAt,
+        uptimePercent,
+        avgResponseMs: avgMs,
+      };
+    })
+  );
+
+  // Get on-call schedules with slots
+  const rawSchedules = await db
+    .select()
+    .from(onCallSchedules)
+    .where(eq(onCallSchedules.projectId, project.id));
+
+  const schedulesWithSlots = await Promise.all(
+    rawSchedules.map(async (s) => {
+      const slots = await db
+        .select({
+          id: onCallSlots.id,
+          userId: onCallSlots.userId,
+          dayStart: onCallSlots.dayStart,
+          dayEnd: onCallSlots.dayEnd,
+          hourStart: onCallSlots.hourStart,
+          hourEnd: onCallSlots.hourEnd,
+          userName: users.name,
+          userEmail: users.email,
+        })
+        .from(onCallSlots)
+        .innerJoin(users, eq(onCallSlots.userId, users.id))
+        .where(eq(onCallSlots.scheduleId, s.id));
+
+      return {
+        id: s.id,
+        name: s.name,
+        timezone: s.timezone,
+        slots: slots.map((sl) => ({
+          id: sl.id,
+          userId: sl.userId,
+          userName: sl.userName,
+          userEmail: sl.userEmail,
+          dayStart: sl.dayStart,
+          dayEnd: sl.dayEnd,
+          hourStart: sl.hourStart,
+          hourEnd: sl.hourEnd,
+        })),
+      };
+    })
+  );
+
+  // Resolve who is currently on-call
+  const currentOnCallUserId = await getCurrentOnCallUserId(project.id);
+
   return (
     <div className="max-w-[680px] space-y-8">
       <div className="flex items-center gap-3">
@@ -148,26 +266,25 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
-      <ProGate isPro={isPro} feature="Team members">
-        <MembersSection
-          projectId={project.id}
-          isAdmin={isAdmin}
-          owner={owner ? { name: owner.name, email: owner.email } : null}
-          members={members.map((m) => ({
-            id: m.id,
-            name: m.userName,
-            email: m.userEmail,
-            role: m.role,
-            acceptedAt: m.acceptedAt,
-          }))}
-          pendingInvites={pendingInvites.map((i) => ({
-            id: i.id,
-            email: i.email,
-            role: i.role,
-            createdAt: i.createdAt,
-          }))}
-        />
-      </ProGate>
+      <ProjectAccessSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        isOrgProject={isOrgProject}
+        visibility={project.visibility}
+        owner={owner ? { name: owner.name, email: owner.email } : null}
+        accessMembers={accessMembers.map((m) => ({
+          userId: m.userId,
+          name: m.userName,
+          email: m.userEmail,
+          role: m.role,
+        }))}
+        workspaceMembers={workspaceMembers.map((m) => ({
+          userId: m.userId,
+          name: m.userName,
+          email: m.userEmail,
+          orgRole: m.orgRole,
+        }))}
+      />
 
       <MaintenanceSection
         projectId={project.id}
@@ -181,7 +298,19 @@ export default async function ProjectDetailPage({
         }))}
       />
 
-      <ProGate isPro={isPro} feature="Escalation rules">
+      <OnCallSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        schedules={schedulesWithSlots}
+        currentOnCallUserId={currentOnCallUserId}
+        workspaceMembers={workspaceMembers.map((m) => ({
+          userId: m.userId,
+          name: m.userName,
+          email: m.userEmail,
+        }))}
+      />
+
+      <ProGate feature="Escalation rules">
         <EscalationSection
           projectId={project.id}
           isAdmin={isAdmin}
@@ -201,7 +330,15 @@ export default async function ProjectDetailPage({
         />
       </ProGate>
 
-      <ProGate isPro={isPro} feature="Status page">
+      <ProGate feature="Uptime monitoring">
+        <UptimeSection
+          projectId={project.id}
+          isAdmin={isAdmin}
+          monitors={monitorsWithStats}
+        />
+      </ProGate>
+
+      <ProGate feature="Status page">
         <StatusPageSection
           projectId={project.id}
           isAdmin={isAdmin}

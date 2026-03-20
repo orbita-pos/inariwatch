@@ -1,70 +1,81 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Crown, UserPlus, Trash2, Clock, Mail } from "lucide-react";
-import { inviteMember, removeMember, updateMemberRole, cancelInvite } from "./actions";
+import { Crown, UserPlus, Trash2, Globe, Lock, Check } from "lucide-react";
+import { setProjectVisibility, addProjectAccess, removeProjectAccess, updateProjectMemberRole } from "./actions";
 
-interface MembersSectionProps {
+interface ProjectAccessSectionProps {
   projectId: string;
   isAdmin: boolean;
+  isOrgProject: boolean;
+  visibility: string;
   owner: { name: string | null; email: string } | null;
-  members: {
-    id: string;
+  accessMembers: {
+    userId: string;
     name: string | null;
     email: string;
     role: string;
-    acceptedAt: Date | null;
   }[];
-  pendingInvites: {
-    id: string;
+  workspaceMembers: {
+    userId: string;
+    name: string | null;
     email: string;
-    role: string;
-    createdAt: Date;
+    orgRole: string;
   }[];
 }
 
-export function MembersSection({
+export function ProjectAccessSection({
   projectId,
   isAdmin,
+  isOrgProject,
+  visibility,
   owner,
-  members,
-  pendingInvites,
-}: MembersSectionProps) {
-  const [showInvite, setShowInvite] = useState(false);
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"viewer" | "admin">("viewer");
-  const [error, setError] = useState("");
+  accessMembers,
+  workspaceMembers,
+}: ProjectAccessSectionProps) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
 
-  const handleInvite = (e: React.FormEvent) => {
-    e.preventDefault();
+  const isRestricted = visibility === "restricted";
+
+  // Workspace members who DON'T have explicit access yet
+  const accessUserIds = new Set(accessMembers.map((m) => m.userId));
+  const availableMembers = workspaceMembers.filter(
+    (m) => !accessUserIds.has(m.userId) && m.email !== owner?.email
+  );
+
+  const handleVisibilityToggle = () => {
     setError("");
     startTransition(async () => {
-      const result = await inviteMember(projectId, email, role);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setEmail("");
-        setShowInvite(false);
-      }
+      const result = await setProjectVisibility(
+        projectId,
+        isRestricted ? "all" : "restricted"
+      );
+      if (result.error) setError(result.error);
     });
   };
 
-  const handleRemove = (memberId: string) => {
+  const handleAddAccess = (userId: string) => {
+    setError("");
     startTransition(async () => {
-      await removeMember(projectId, memberId);
+      const result = await addProjectAccess(projectId, userId);
+      if (result.error) setError(result.error);
     });
   };
 
-  const handleRoleChange = (memberId: string, newRole: string) => {
+  const handleRemoveAccess = (userId: string) => {
+    setError("");
     startTransition(async () => {
-      await updateMemberRole(projectId, memberId, newRole);
+      const result = await removeProjectAccess(projectId, userId);
+      if (result.error) setError(result.error);
     });
   };
 
-  const handleCancelInvite = (inviteId: string) => {
+  const handleRoleChange = (userId: string, role: string) => {
+    setError("");
     startTransition(async () => {
-      await cancelInvite(projectId, inviteId);
+      const result = await updateProjectMemberRole(projectId, userId, role);
+      if (result.error) setError(result.error);
     });
   };
 
@@ -72,20 +83,58 @@ export function MembersSection({
     <section>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-xs font-medium uppercase tracking-widest text-zinc-500">
-          Team members
+          Project access
         </h2>
-        {isAdmin && (
-          <button
-            onClick={() => setShowInvite(!showInvite)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all"
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            Invite
-          </button>
-        )}
       </div>
 
       <div className="rounded-xl border border-line bg-surface divide-y divide-line-subtle">
+
+        {/* Visibility toggle */}
+        {isAdmin && isOrgProject && (
+          <div className="flex items-center justify-between px-5 py-3.5">
+            <div className="flex items-center gap-2.5">
+              {isRestricted ? (
+                <Lock className="h-4 w-4 text-amber-500" />
+              ) : (
+                <Globe className="h-4 w-4 text-green-500" />
+              )}
+              <div>
+                <p className="text-sm text-fg-base">
+                  {isRestricted ? "Restricted" : "All workspace members"}
+                </p>
+                <p className="text-xs text-zinc-600">
+                  {isRestricted
+                    ? "Only selected members can access this project"
+                    : "Everyone in the workspace can see this project"}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleVisibilityToggle}
+              disabled={isPending}
+              className="rounded-lg border border-line-medium px-3 py-1.5 text-xs font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all disabled:opacity-40"
+            >
+              {isRestricted ? "Make open" : "Restrict"}
+            </button>
+          </div>
+        )}
+
+        {/* Non-admin info */}
+        {!isAdmin && isOrgProject && (
+          <div className="flex items-center gap-2.5 px-5 py-3.5">
+            {isRestricted ? (
+              <Lock className="h-4 w-4 text-amber-500" />
+            ) : (
+              <Globe className="h-4 w-4 text-green-500" />
+            )}
+            <p className="text-sm text-zinc-500">
+              {isRestricted
+                ? "This project is restricted to selected members"
+                : "All workspace members can access this project"}
+            </p>
+          </div>
+        )}
+
         {/* Owner */}
         {owner && (
           <div className="flex items-center gap-3 px-5 py-3.5">
@@ -105,9 +154,9 @@ export function MembersSection({
           </div>
         )}
 
-        {/* Members */}
-        {members.map((member) => (
-          <div key={member.id} className="flex items-center gap-3 px-5 py-3.5">
+        {/* Access members (when restricted) */}
+        {isRestricted && accessMembers.map((member) => (
+          <div key={member.userId} className="flex items-center gap-3 px-5 py-3.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-[11px] font-bold text-zinc-400">
               {(member.name?.[0] ?? member.email[0]).toUpperCase()}
             </div>
@@ -121,7 +170,7 @@ export function MembersSection({
               {isAdmin ? (
                 <select
                   value={member.role}
-                  onChange={(e) => handleRoleChange(member.id, e.target.value)}
+                  onChange={(e) => handleRoleChange(member.userId, e.target.value)}
                   disabled={isPending}
                   className="rounded-lg border border-line-medium bg-surface-dim px-2 py-1 text-xs text-zinc-400 focus:border-inari-accent/40 focus:outline-none"
                 >
@@ -135,10 +184,10 @@ export function MembersSection({
               )}
               {isAdmin && (
                 <button
-                  onClick={() => handleRemove(member.id)}
+                  onClick={() => handleRemoveAccess(member.userId)}
                   disabled={isPending}
                   className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-400/[0.06] transition-colors disabled:opacity-40"
-                  title="Remove member"
+                  title="Remove access"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -147,98 +196,62 @@ export function MembersSection({
           </div>
         ))}
 
-        {/* Pending invites */}
-        {pendingInvites.map((invite) => (
-          <div
-            key={invite.id}
-            className="flex items-center gap-3 px-5 py-3.5 opacity-60"
-          >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-700 text-zinc-600">
-              <Mail className="h-3.5 w-3.5" />
+        {/* Add member (restricted mode) */}
+        {isRestricted && isAdmin && availableMembers.length > 0 && (
+          <div className="px-5 py-3.5 space-y-2">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+              Grant access
+            </p>
+            <div className="space-y-1">
+              {availableMembers.map((m) => (
+                <button
+                  key={m.userId}
+                  onClick={() => handleAddAccess(m.userId)}
+                  disabled={isPending}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-inner transition-colors disabled:opacity-40"
+                >
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-[10px] font-bold text-zinc-500">
+                    {(m.name?.[0] ?? m.email[0]).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="truncate text-sm text-zinc-400">
+                      {m.name ?? m.email}
+                    </p>
+                    {m.name && (
+                      <p className="truncate text-xs text-zinc-600">{m.email}</p>
+                    )}
+                  </div>
+                  <UserPlus className="h-3.5 w-3.5 text-zinc-600" />
+                </button>
+              ))}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-zinc-400">{invite.email}</p>
-              <p className="flex items-center gap-1 text-xs text-zinc-600">
-                <Clock className="h-3 w-3" />
-                Pending invite &middot; {invite.role}
-              </p>
-            </div>
-            {isAdmin && (
-              <button
-                onClick={() => handleCancelInvite(invite.id)}
-                disabled={isPending}
-                className="text-xs text-zinc-600 hover:text-red-400 transition-colors disabled:opacity-40"
-              >
-                Cancel
-              </button>
-            )}
           </div>
-        ))}
+        )}
 
-        {/* Empty state */}
-        {members.length === 0 && pendingInvites.length === 0 && (
+        {/* Empty state for restricted + no members */}
+        {isRestricted && accessMembers.length === 0 && (
           <div className="px-5 py-6 text-center">
             <p className="text-sm text-zinc-500">
-              No team members yet. Invite someone to collaborate.
+              No members have been granted access yet.{" "}
+              {isAdmin && "Add workspace members above."}
+            </p>
+          </div>
+        )}
+
+        {/* Personal project info */}
+        {!isOrgProject && (
+          <div className="px-5 py-4 text-center">
+            <p className="text-sm text-zinc-500">
+              This is a personal project. Move it to a workspace to manage team access.
             </p>
           </div>
         )}
       </div>
 
-      {/* Invite form */}
-      {showInvite && isAdmin && (
-        <form
-          onSubmit={handleInvite}
-          className="mt-3 rounded-xl border border-line bg-surface px-5 py-4 space-y-3"
-        >
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
-              Email address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="teammate@company.com"
-              required
-              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
-              Role
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as "viewer" | "admin")}
-              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
-            >
-              <option value="viewer">Viewer — can see alerts and integrations</option>
-              <option value="admin">Admin — can manage integrations and invite members</option>
-            </select>
-          </div>
-          {error && (
-            <p className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-[12px] text-red-400">
-              {error}
-            </p>
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowInvite(false)}
-              className="flex-1 rounded-lg border border-line-medium px-3 py-2 text-sm text-zinc-400 hover:text-fg-base transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="flex-1 rounded-lg bg-inari-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#6D28D9] transition-colors disabled:opacity-40"
-            >
-              {isPending ? "Sending..." : "Send invite"}
-            </button>
-          </div>
-        </form>
+      {error && (
+        <p className="mt-2 rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-[12px] text-red-400">
+          {error}
+        </p>
       )}
     </section>
   );
