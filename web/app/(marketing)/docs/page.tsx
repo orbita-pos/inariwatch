@@ -289,7 +289,7 @@ export default function DocsPage() {
               },
             ]} />
             <Callout type="info">
-              Free accounts poll every 30 minutes. Pro accounts poll every 5 minutes and support real-time webhooks.
+              Free accounts poll every 30 minutes. Pro and Team accounts poll every 1 minute and support real-time webhooks.
             </Callout>
 
             <SectionHeading id="quickstart-cli">Local CLI</SectionHeading>
@@ -473,7 +473,7 @@ chat_id   = "987654321"`}</CodeBlock>
             />
 
             <SectionHeading id="int-sentry">Integration — Sentry</SectionHeading>
-            <P>InariWatch polls Sentry every 5 minutes for new issues and regressions in your projects.</P>
+            <P>InariWatch polls Sentry every 1 minute for new issues and regressions in your projects.</P>
 
             <SubHeading id="int-sentry-token">Getting a token</SubHeading>
             <StepList steps={[

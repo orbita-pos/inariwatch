@@ -18,6 +18,7 @@ import {
   GitBranch,
   Shield,
   RotateCcw,
+  Heart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
@@ -102,7 +103,7 @@ function Hero() {
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                14-day free trial, no card
+                Start free, no credit card required
               </span>
             </div>
           </div>
@@ -117,7 +118,7 @@ function Hero() {
 function StatsBar() {
   const stats = [
     { value: "6", label: "integrations monitored" },
-    { value: "5 min", label: "cloud poll interval" },
+    { value: "1 min", label: "cloud poll interval" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
   ];
@@ -146,7 +147,7 @@ function RemediationWalkthrough() {
       icon: <Activity className="h-4 w-4" />,
       n: "01",
       title: "Alert fires",
-      desc: "CI fails, deploy errors, Sentry regression — caught in real time via webhook or 5-min poll.",
+      desc: "CI fails, deploy errors, Sentry regression — caught in real time via webhook or 1-min poll.",
     },
     {
       icon: <Brain className="h-4 w-4" />,
@@ -752,129 +753,100 @@ function HowItWorks() {
   );
 }
 
-// ── Pricing ───────────────────────────────────────────────────────────────────
+// ── Open Source & Free Model ──────────────────────────────────────────────────
 
-function Pricing() {
-  const plans = [
-    {
-      name: "Local CLI",
-      price: "Free",
-      period: "forever",
-      description: "Open source Rust CLI. Runs on your machine, data stays local.",
-      highlight: false,
-      cta: { label: "Install CLI", href: "#" },
-      features: [
-        "GitHub, Vercel, Sentry, local git",
-        "Unlimited local projects",
-        "Telegram notifications",
-        "AI correlation (BYOK)",
-        "Single binary, zero deps",
-      ],
-      missing: ["Web dashboard", "24/7 monitoring", "AI remediation"],
-    },
-    {
-      name: "Web Free",
-      price: "$0",
-      period: "/month",
-      description: "Try the cloud dashboard with 30-min polling.",
-      highlight: false,
-      cta: { label: "Get started", href: "/register" },
-      features: [
-        "Web dashboard (7-day history)",
-        "1 project, 2 integrations",
-        "30-min cloud polling, 24/7",
-        "Telegram notifications",
-      ],
-      missing: ["AI features", "5-min polling", "Slack / Email / Push"],
-    },
-    {
-      name: "Pro",
-      price: "$9",
-      period: "/month",
-      description: "Full autonomous incident response. Fixes code while you sleep.",
-      highlight: true,
-      cta: { label: "Start 14-day free trial", href: "/register" },
-      features: [
-        "AI writes & pushes code fixes",
-        "CI retry loop (up to 3×)",
-        "Pre-deploy risk on every PR",
-        "Anomaly detection",
-        "Vercel instant rollback",
-        "5-min polling + real-time webhooks",
-        "10 projects, 20 integrations",
-        "All notifications (Slack, Email, Push)",
-        "Analytics, comments, export",
-        "Teams, status pages, audit log",
-      ],
-      missing: [],
-    },
-  ];
-
+function OpenSourceModel() {
   return (
-    <section id="pricing" className="py-24 border-t border-inari-border">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Pricing</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">Simple pricing</h2>
-          <p className="mt-4 text-fg-base">
-            Start free with the CLI or web dashboard. Upgrade when you want incidents handled for you.
+    <section id="model" className="py-24 border-t border-inari-border">
+      <div className="mx-auto max-w-5xl px-6">
+        <div className="text-center mb-14">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Model</p>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-5xl">100% Free. Bring your own key.</h2>
+          <p className="mt-5 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
+            There are no restrictive tiers, no credit cards, and no paywalls. InariWatch is built on a hybrid model to keep the community moving fast.
           </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`relative rounded-2xl border p-8 transition-all flex flex-col ${plan.highlight
-                ? "border-inari-accent/40 bg-inari-accent-dim shadow-[0_0_50px_rgba(124,58,237,0.10)]"
-                : "border-inari-border bg-inari-card"
-                }`}
-            >
-              {plan.highlight && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="rounded-full bg-inari-accent px-3 py-1 text-xs font-semibold text-white shadow-[0_0_12px_rgba(124,58,237,0.4)]">
-                    Most popular
-                  </span>
-                </div>
-              )}
-
-              <div className="flex-1">
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">{plan.name}</p>
-                <div className="mt-2 flex items-end gap-1">
-                  <span className="text-4xl font-bold text-fg-strong">{plan.price}</span>
-                  <span className="pb-1 text-zinc-500 text-sm">{plan.period}</span>
-                </div>
-                <p className="mt-2 text-sm text-fg-base">{plan.description}</p>
-
-                <ul className="mt-7 space-y-2.5">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
-                      <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${plan.highlight ? "text-inari-accent" : "text-inari-accent/70"}`} />
-                      {f}
-                    </li>
-                  ))}
-                  {plan.missing.map((f) => (
-                    <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-600">
-                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 opacity-30" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* CLI */}
+          <div className="rounded-2xl border border-inari-border bg-inari-card p-8 flex flex-col">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-inari-border bg-inari-bg text-fg-strong">
+                <Terminal className="h-5 w-5" />
               </div>
-
-              <Link href={plan.cta.href} className="mt-8 block">
-                <Button variant={plan.highlight ? "primary" : "outline"} className="w-full">
-                  {plan.cta.label}
-                </Button>
-              </Link>
+              <div>
+                <h3 className="font-semibold text-fg-strong text-lg">Local CLI</h3>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mt-0.5">Open Source</p>
+              </div>
             </div>
-          ))}
+            <p className="text-sm text-fg-base mb-6 leading-relaxed">
+              Written in Rust. Runs locally on your machine. Parses errors and sends you Telegram notifications without your data ever hitting our servers.
+            </p>
+            <ul className="mt-auto space-y-3">
+              {[
+                "100% Open Source (MIT)",
+                "No cloud dependencies",
+                "Unlimited local projects",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a href="#" className="mt-8 block">
+              <Button variant="outline" className="w-full">View on GitHub</Button>
+            </a>
+          </div>
+
+          {/* Web */}
+          <div className="relative rounded-2xl border border-inari-accent/40 bg-inari-accent-dim p-8 flex flex-col shadow-[0_0_50px_rgba(124,58,237,0.10)]">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+              <span className="rounded-full bg-inari-accent px-3 py-1 text-xs font-semibold text-white shadow-[0_0_12px_rgba(124,58,237,0.4)]">
+                Most popular
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-inari-accent/30 bg-inari-accent/10 text-inari-accent">
+                <Zap className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-fg-strong text-lg">Cloud Dashboard</h3>
+                <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mt-0.5">Free SaaS</p>
+              </div>
+            </div>
+            <p className="text-sm text-fg-base mb-6 leading-relaxed">
+              Full autonomous incident response. We host the dashboard, the 24/7 cron jobs, and the webhooks for free. You just provide your AI API key.
+            </p>
+            <ul className="mt-auto space-y-3">
+              {[
+                "AI writes & pushes code fixes",
+                "Team Workspaces included",
+                "1-min cloud polling, 24/7",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <Link href="/register" className="mt-8 block">
+              <Button variant="primary" className="w-full">Start using for free</Button>
+            </Link>
+          </div>
         </div>
 
-        <div className="mt-8 text-center">
-          <Link href="/pricing" className="text-sm text-zinc-500 hover:text-fg-base transition-colors underline underline-offset-4">
-            See full feature comparison →
-          </Link>
+        <div className="mt-14 rounded-2xl border border-inari-border bg-inari-card p-8 text-center max-w-2xl mx-auto">
+           <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-zinc-900 border border-zinc-800 mb-4 shadow-[0_0_15px_rgba(255,255,255,0.05)]">
+             <Heart className="h-5 w-5 text-red-500 fill-red-500/20" />
+           </div>
+           <h3 className="text-lg font-bold text-fg-strong mb-2">How do we make money?</h3>
+           <p className="text-sm text-fg-base leading-relaxed mb-6">
+             We rely on community sponsorships. Our cloud infrastructure is hyper-optimized so we can offer it for free. If InariWatch saves your engineering team hours every week, consider sponsoring the project so we can keep it free for solo developers everywhere.
+           </p>
+           <a href="#">
+             <Button variant="outline">Sponsor InariWatch</Button>
+           </a>
         </div>
       </div>
     </section>
@@ -892,8 +864,8 @@ function Footer() {
           <span className="font-mono text-fg-base uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
         </div>
         <div className="flex items-center gap-6 text-sm text-zinc-500">
-          <Link href="/pricing" className="hover:text-fg-base transition-colors">Pricing</Link>
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
+          <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
           <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           <span>Built with Rust + Next.js</span>
         </div>
@@ -917,7 +889,7 @@ export default function LandingPage() {
         <AIFeatures />
         <CorrelationDemo />
         <HowItWorks />
-        <Pricing />
+        <OpenSourceModel />
       </main>
       <Footer />
     </div>

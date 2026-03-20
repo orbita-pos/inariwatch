@@ -111,7 +111,7 @@ export default async function IntegrationsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Integrations</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Connect your services. InariWatch polls them every 5 minutes and surfaces alerts automatically.
+            Connect your services. InariWatch polls them every 1 minute and surfaces alerts automatically.
           </p>
         </div>
         <CreateProjectModal organizationId={activeOrgId}>

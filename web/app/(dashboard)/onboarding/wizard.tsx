@@ -469,7 +469,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 Connect your services
               </h2>
               <p className="text-sm text-zinc-500 mb-6 max-w-sm">
-                InariWatch polls these services every 5 minutes and surfaces alerts
+                InariWatch polls these services every 1 minute and surfaces alerts
                 when something needs attention.
               </p>
 
