@@ -294,7 +294,7 @@ export default function DocsPage() {
               },
             ]} />
             <Callout type="info">
-              The InariWatch Cloud Dashboard polls connected services every 1 minute to detect issues instantly.
+              The InariWatch Cloud Dashboard polls connected services every 5 minutes (uptime checks every 1 minute) to detect issues instantly.
             </Callout>
 
             <SectionHeading id="quickstart-cli">Local CLI</SectionHeading>
@@ -478,7 +478,7 @@ chat_id   = "987654321"`}</CodeBlock>
             />
 
             <SectionHeading id="int-sentry">Integration — Sentry</SectionHeading>
-            <P>InariWatch polls Sentry every 1 minute for new issues and regressions in your projects.</P>
+            <P>InariWatch polls Sentry every 5 minutes for new issues and regressions in your projects.</P>
 
             <SubHeading id="int-sentry-token">Getting a token</SubHeading>
             <StepList steps={[

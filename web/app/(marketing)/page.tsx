@@ -120,7 +120,7 @@ function Hero() {
 function StatsBar() {
   const stats = [
     { value: "7", label: "integrations monitored" },
-    { value: "1 min", label: "cloud poll interval" },
+    { value: "5 min", label: "cloud poll interval" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
   ];
