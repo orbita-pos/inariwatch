@@ -175,29 +175,77 @@ export async function inviteMember(
   // Send invite email
   const emailResult = await sendEmail(
     { email: emailTrimmed },
-    `You're invited to ${rawOrgName} on InariWatch`,
-    `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-      <div style="margin-bottom: 24px;">
-        <span style="color: #7C3AED; font-weight: 700; font-size: 14px; letter-spacing: 2px; font-family: monospace;">INARIWATCH</span>
-      </div>
-      <h2 style="color: #f4f4f5; font-size: 20px; margin-bottom: 8px;">
-        Join ${safeOrgName}
-      </h2>
-      <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
-        <strong style="color: #d4d4d8;">${safeInviterName}</strong> has invited you to join
-        <strong style="color: #d4d4d8;">${safeOrgName}</strong> as a ${safeRole} on InariWatch.
-      </p>
-      <a href="${inviteUrl}"
-         style="display: inline-block; background: #7C3AED; color: #fff; font-weight: 600; font-size: 14px;
-                padding: 12px 28px; border-radius: 8px; text-decoration: none; margin-bottom: 24px;">
-        Accept invitation
-      </a>
-      <p style="color: #52525b; font-size: 12px; margin-top: 24px;">
-        This invite expires in 7 days.
-      </p>
-    </div>
-    `
+    `You're invited to join ${rawOrgName} on InariWatch`,
+    `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f5;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;">
+
+          <!-- Logo -->
+          <tr>
+            <td align="center" style="padding-bottom:28px;">
+              <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:3px;color:#7C3AED;">INARIWATCH</span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#ffffff;border-radius:12px;border:1px solid #e4e4e7;padding:36px 40px;">
+
+              <!-- Heading -->
+              <h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:600;color:#09090b;margin:0 0 12px 0;">
+                You&apos;re invited to join ${safeOrgName}
+              </h2>
+
+              <!-- Body -->
+              <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#3f3f46;margin:0 0 28px 0;">
+                <strong style="color:#09090b;">${safeInviterName}</strong> has invited you to join
+                <strong style="color:#09090b;">${safeOrgName}</strong> as a <strong style="color:#09090b;">${safeRole}</strong> on InariWatch.
+              </p>
+
+              <!-- CTA -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="background-color:#7C3AED;border-radius:8px;">
+                    <a href="${inviteUrl}" target="_blank"
+                       style="display:inline-block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;padding:12px 28px;text-decoration:none;">
+                      Accept invitation
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Divider -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px;">
+                <tr><td style="border-top:1px solid #e4e4e7;font-size:0;line-height:0;" height="1">&nbsp;</td></tr>
+              </table>
+
+              <!-- Footer note -->
+              <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#71717a;margin:20px 0 0 0;">
+                This invite expires in 7 days. If you weren&apos;t expecting this, you can safely ignore it.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Bottom brand -->
+          <tr>
+            <td align="center" style="padding-top:24px;">
+              <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#a1a1aa;margin:0;">
+                &copy; InariWatch &mdash; Proactive developer monitoring
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
   );
 
   // [LOW] Check if email delivery failed

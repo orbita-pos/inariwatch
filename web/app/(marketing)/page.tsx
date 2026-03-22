@@ -452,6 +452,11 @@ function Integrations() {
       alerts: ["Critical CVEs", "High-severity vulnerabilities"],
       status: "live",
     },
+    {
+      name: "Datadog",
+      alerts: ["Log anomalies", "Infrastructure spikes", "APM Traces"],
+      status: "live",
+    },
   ];
 
   return (
@@ -463,8 +468,8 @@ function Integrations() {
             Monitors your entire stack
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
-            GitHub CI, Vercel deploys, Sentry errors, uptime, database health,
-            dependency vulnerabilities — all in one place, already correlated.
+            GitHub CI, Vercel deploys, Sentry errors, Datadog monitors, uptime,
+            database health, dependency vulnerabilities — all in one place, already correlated.
           </p>
         </div>
 

@@ -55,12 +55,13 @@ export async function POST(req: Request) {
       .set({ config, isActive: true, verifiedAt: new Date() })
       .where(eq(notificationChannels.id, existing[0].id));
   } else {
-    // Insert new push channel — use raw SQL for the type to bypass enum constraint
-    // since "push" may not be in the pg enum yet
-    await db.execute(
-      sql`INSERT INTO notification_channels (id, user_id, type, config, is_active, verified_at, created_at)
-          VALUES (gen_random_uuid(), ${userId}, 'push', ${JSON.stringify(config)}::jsonb, true, now(), now())`
-    );
+    await db.insert(notificationChannels).values({
+      userId,
+      type: "push",
+      config,
+      isActive: true,
+      verifiedAt: new Date(),
+    });
   }
 
   return NextResponse.json({ ok: true });

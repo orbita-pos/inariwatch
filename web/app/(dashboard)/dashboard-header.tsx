@@ -13,6 +13,7 @@ import { NotificationsBell } from "./notifications-dropdown";
 const LABELS: Record<string, string> = {
   dashboard:    "Overview",
   alerts:       "Alerts",
+  "on-call":    "On-Call",
   projects:     "Projects",
   integrations: "Integrations",
   analytics:    "Analytics",

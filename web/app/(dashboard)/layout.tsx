@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { SidebarNav } from "./nav";
 import { MobileNav } from "./mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -69,7 +69,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} organizations={organizations} activeOrgId={activeOrgId} />
 
         {/* Nav */}
-        <SidebarNav unreadAlerts={unreadCount} />
+        <SidebarNav unreadAlerts={unreadCount} isAdmin={!!process.env.ADMIN_EMAIL && userEmail === process.env.ADMIN_EMAIL} activeOrgId={activeOrgId} />
 
         {/* Polling status */}
         <PollingStatus lastCheckedAt={lastCheckedAt} />
@@ -89,6 +89,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
               )}
             </div>
             <div className="flex items-center gap-0.5">
+              {activeOrgId && (
+                <Link
+                  href="/settings"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong transition-colors"
+                  title="Personal settings"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </Link>
+              )}
               <ThemeToggle />
               <Link
                 href="/api/auth/signout"

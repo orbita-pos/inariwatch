@@ -7,11 +7,17 @@ import { db, outgoingWebhooks } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { encrypt } from "@/lib/crypto";
+import { validatePublicUrl } from "@/lib/url-validation";
 
 export async function createWebhook(url: string, events: string[]) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string })?.id;
-  if (!userId) return;
+  if (!userId) return { error: "Not authenticated." };
+
+  const urlCheck = validatePublicUrl(url);
+  if (!urlCheck.valid) {
+    return { error: urlCheck.error ?? "Invalid webhook URL." };
+  }
 
   const rawSecret = crypto.randomBytes(32).toString("hex");
 
@@ -24,6 +30,7 @@ export async function createWebhook(url: string, events: string[]) {
   });
 
   revalidatePath("/settings");
+  return { ok: true };
 }
 
 export async function deleteWebhook(webhookId: string) {

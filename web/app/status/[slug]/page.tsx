@@ -1,4 +1,4 @@
-import { db, alerts, statusPages, projects, projectIntegrations } from "@/lib/db";
+import { db, alerts, statusPages, projects, projectIntegrations, uptimeMonitors, uptimeChecks } from "@/lib/db";
 import { eq, and, desc, inArray, gte } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -60,6 +60,24 @@ export default async function PublicStatusPage({
     .orderBy(desc(alerts.createdAt))
     .limit(20);
 
+  // Get uptime monitors for this project
+  const monitors = await db
+    .select()
+    .from(uptimeMonitors)
+    .where(and(eq(uptimeMonitors.projectId, project.id), eq(uptimeMonitors.isActive, true)));
+
+  // Get 90 days of checks per monitor (for uptime %)
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const allChecks = monitors.length > 0
+    ? await db
+      .select({ monitorId: uptimeChecks.monitorId, isUp: uptimeChecks.isUp, checkedAt: uptimeChecks.checkedAt })
+      .from(uptimeChecks)
+      .where(and(
+        inArray(uptimeChecks.monitorId, monitors.map(m => m.id)),
+        gte(uptimeChecks.checkedAt, ninetyDaysAgo)
+      ))
+    : [];
+
   const openCritical = recentAlerts.filter((a) => a.severity === "critical" && !a.isResolved);
   const openWarning = recentAlerts.filter((a) => a.severity === "warning" && !a.isResolved);
 
@@ -99,6 +117,9 @@ export default async function PublicStatusPage({
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-white">{page.title}</h1>
           <p className="mt-1 text-sm text-zinc-500">System status for {project.name}</p>
+          <p className="mt-1 text-xs text-zinc-700">
+            Last updated {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}
+          </p>
         </div>
 
         {/* Overall status */}
@@ -146,6 +167,69 @@ export default async function PublicStatusPage({
             )}
           </div>
         </div>
+
+        {/* Uptime monitors */}
+        {monitors.length > 0 && (
+          <div className="mb-8 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
+            <div className="border-b border-[#1a1a1a] px-5 py-3">
+              <h2 className="text-sm font-medium text-zinc-400">Uptime</h2>
+            </div>
+            <div className="divide-y divide-[#131313]">
+              {monitors.map((monitor) => {
+                const monitorChecks = allChecks.filter(c => c.monitorId === monitor.id);
+                const uptimePct = monitorChecks.length > 0
+                  ? (monitorChecks.filter(c => c.isUp).length / monitorChecks.length * 100)
+                  : null;
+
+                // Build 90-day bars
+                const days90: (boolean | null)[] = Array.from({ length: 90 }, (_, i) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - (89 - i));
+                  const dateStr = d.toISOString().split("T")[0];
+                  const dayChecks = monitorChecks.filter(c => c.checkedAt.toISOString().split("T")[0] === dateStr);
+                  if (dayChecks.length === 0) return null; // no data
+                  return dayChecks.every(c => c.isUp);
+                });
+
+                return (
+                  <div key={monitor.id} className="px-5 py-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="text-sm font-medium text-zinc-300">{monitor.name ?? monitor.url}</p>
+                        <p className="text-xs text-zinc-600 font-mono truncate max-w-xs">{monitor.url}</p>
+                      </div>
+                      <div className="text-right">
+                        {uptimePct !== null && (
+                          <p className="text-sm font-semibold text-green-400">{uptimePct.toFixed(2)}%</p>
+                        )}
+                        <p className={`text-xs ${monitor.isDown ? "text-red-400" : "text-green-400"}`}>
+                          {monitor.isDown ? "Down" : "Operational"}
+                        </p>
+                      </div>
+                    </div>
+                    {/* 90-day bar */}
+                    <div className="flex items-center gap-px overflow-hidden">
+                      {days90.map((isUp, i) => (
+                        <div
+                          key={i}
+                          title={`Day ${90 - i} ago`}
+                          className={`h-6 flex-1 rounded-sm ${
+                            isUp === null ? "bg-[#1a1a1a]" :
+                            isUp ? "bg-green-500/70" : "bg-red-500/70"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-[10px] text-zinc-700">90 days ago</span>
+                      <span className="text-[10px] text-zinc-700">Today</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Incident history */}
         <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
@@ -195,9 +279,20 @@ export default async function PublicStatusPage({
         </div>
 
         {/* Footer */}
-        <p className="mt-8 text-center text-xs text-zinc-700">
-          Powered by InariWatch
-        </p>
+        <div className="mt-10 border-t border-[#1a1a1a] pt-6 text-center">
+          <a
+            href="https://inariwatch.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          >
+            <span>Powered by</span>
+            <span className="font-semibold tracking-wide text-zinc-500">InariWatch</span>
+          </a>
+          <p className="mt-1 text-[10px] text-zinc-800">
+            Real-time monitoring for developers
+          </p>
+        </div>
       </div>
     </div>
   );

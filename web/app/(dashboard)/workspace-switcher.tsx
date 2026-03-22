@@ -162,7 +162,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
             {/* Actions */}
             <DropdownMenu.Item asChild>
               <Link
-                href="/settings"
+                href={activeOrg ? "/workspace/settings" : "/settings"}
                 className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg-base hover:text-fg-strong hover:bg-surface-inner rounded-lg mx-1 cursor-pointer outline-none transition-colors"
               >
                 <Settings className="h-3.5 w-3.5 text-zinc-500" />

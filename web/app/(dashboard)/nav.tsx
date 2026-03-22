@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ElementType };
 type NavGroup = { label?: string; items: NavItem[] };
@@ -17,6 +17,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Monitor",
     items: [
       { href: "/alerts",    label: "Alerts",     icon: Bell },
+      { href: "/on-call",   label: "On-Call",    icon: Phone },
       { href: "/analytics", label: "Analytics",  icon: BarChart3 },
     ],
   },
@@ -66,7 +67,9 @@ function NavLink({ href, label, icon: Icon }: NavItem) {
   );
 }
 
-export function SidebarNav({ unreadAlerts: _ = 0 }: { unreadAlerts?: number }) {
+export function SidebarNav({ unreadAlerts: _ = 0, isAdmin = false, activeOrgId }: { unreadAlerts?: number; isAdmin?: boolean; activeOrgId?: string | null }) {
+  const settingsHref = activeOrgId ? "/workspace/settings" : "/settings";
+
   return (
     <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
       {NAV_GROUPS.map((group, i) => (
@@ -86,7 +89,10 @@ export function SidebarNav({ unreadAlerts: _ = 0 }: { unreadAlerts?: number }) {
 
       {/* Settings — always at the bottom of the nav */}
       <div className="space-y-px">
-        <NavLink href="/settings" label="Settings" icon={Settings} />
+        <NavLink href={settingsHref} label="Settings" icon={Settings} />
+        {isAdmin && (
+          <NavLink href="/admin" label="Admin" icon={ShieldAlert} />
+        )}
       </div>
     </nav>
   );

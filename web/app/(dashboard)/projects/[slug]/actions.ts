@@ -298,7 +298,10 @@ export async function createEscalationRule(
     const result = await requireAdmin(projectId);
     if ("error" in result) return { error: result.error };
 
-    if (!targetType) return { error: "Target type is required." };
+    const VALID_TARGET_TYPES = ["channel", "on_call_primary", "on_call_secondary", "all_org_admins"];
+    if (!targetType || !VALID_TARGET_TYPES.includes(targetType)) {
+      return { error: "Invalid target type." };
+    }
     if (targetType === "channel" && !channelId) {
       return { error: "Notification channel is required." };
     }

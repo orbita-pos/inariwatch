@@ -59,3 +59,11 @@ export function GitIcon({ className, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function DatadogIcon({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="#632CA6" className={className} aria-label="Datadog" {...props}>
+      <path d="M19.24 2.872L16.7.392A3.36 3.36 0 0 0 14.82-.32h-5.7A3.36 3.36 0 0 0 5.76 3.04v17.88a3.36 3.36 0 0 0 3.36 3.36h5.7a3.36 3.36 0 0 0 3.36-3.36V5.28a3.36 3.36 0 0 0-.94-2.408zM12 19.44a4.44 4.44 0 1 1 0-8.88 4.44 4.44 0 0 1 0 8.88zm4.08-11.52H7.92V4.56A1.92 1.92 0 0 1 9.84 2.64h4.32a1.92 1.92 0 0 1 1.92 1.92v3.36z" />
+    </svg>
+  );
+}

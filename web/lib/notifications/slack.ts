@@ -6,17 +6,21 @@ interface SlackConfig {
 
 export async function sendSlack(
   config: SlackConfig,
-  message: string
+  message: string,
+  blocks?: object[]
 ): Promise<{ ok: boolean; error?: string }> {
   if (!config.webhook_url.startsWith(SLACK_WEBHOOK_PREFIX)) {
     return { ok: false, error: "Invalid Slack webhook URL." };
   }
 
   try {
+    const body: Record<string, unknown> = { text: message };
+    if (blocks && blocks.length > 0) body.blocks = blocks;
+
     const res = await fetch(config.webhook_url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: message }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {

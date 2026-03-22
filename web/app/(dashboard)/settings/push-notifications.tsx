@@ -90,8 +90,12 @@ export function PushNotificationsButton() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to save subscription");
+        let errMsg = "Failed to save subscription";
+        try {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } catch {}
+        throw new Error(errMsg);
       }
 
       setStatus("enabled");

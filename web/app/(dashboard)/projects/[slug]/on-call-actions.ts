@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, onCallSchedules, onCallSlots, onCallOverrides, organizationMembers } from "@/lib/db";
+import { db, projects, projectMembers, onCallSchedules, onCallSlots, onCallOverrides, organizationMembers } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -13,14 +13,37 @@ async function requireProjectAdmin(projectId: string) {
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) return { error: "Not authenticated." };
 
+  // Owner is always admin
   const [project] = await db
     .select()
     .from(projects)
     .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
     .limit(1);
-  if (!project) return { error: "Project not found or not authorized." };
+  if (project) return { userId, project };
 
-  return { userId, project };
+  // Check if user is a project-level admin
+  const [member] = await db
+    .select()
+    .from(projectMembers)
+    .where(
+      and(
+        eq(projectMembers.projectId, projectId),
+        eq(projectMembers.userId, userId),
+        eq(projectMembers.role, "admin")
+      )
+    )
+    .limit(1);
+
+  if (member) {
+    const [proj] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (proj) return { userId, project: proj };
+  }
+
+  return { error: "Project not found or not authorized." };
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────

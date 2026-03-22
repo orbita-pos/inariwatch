@@ -20,7 +20,7 @@ if (process.env.NODE_ENV === "production" && !hasKey()) {
 
 /**
  * Encrypt a plaintext string with AES-256-GCM.
- * Returns a string in the format `enc:<iv_hex>:<tag_hex>:<ct_hex>`.
+ * Returns a string in the format `enc:v1:<iv_hex>:<tag_hex>:<ct_hex>`.
  * Falls back to returning the plaintext unchanged if ENCRYPTION_KEY is not set
  * (development convenience — never deploy without a key).
  */
@@ -30,21 +30,36 @@ export function encrypt(plaintext: string): string {
   const cipher = crypto.createCipheriv("aes-256-gcm", getKey(), iv);
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return `enc:${iv.toString("hex")}:${tag.toString("hex")}:${ct.toString("hex")}`;
+  return `enc:v1:${iv.toString("hex")}:${tag.toString("hex")}:${ct.toString("hex")}`;
 }
 
 /**
  * Decrypt a string produced by `encrypt`.
- * Passes through unchanged strings that don't start with `enc:` so that
- * legacy plaintext rows continue to work after the key is first deployed.
+ * Supports both formats:
+ *   - Legacy: `enc:<iv>:<tag>:<ct>` (4 parts)
+ *   - Current: `enc:v1:<iv>:<tag>:<ct>` (5 parts)
+ * Passes through strings that don't start with `enc:` so legacy plaintext rows
+ * continue to work after encryption is first deployed.
  */
 export function decrypt(stored: string): string {
   if (!stored.startsWith("enc:")) return stored;
   const parts = stored.split(":");
-  if (parts.length !== 4) return stored;
-  const iv  = Buffer.from(parts[1], "hex");
-  const tag = Buffer.from(parts[2], "hex");
-  const ct  = Buffer.from(parts[3], "hex");
+
+  let iv: Buffer, tag: Buffer, ct: Buffer;
+  if (parts.length === 5 && parts[1] === "v1") {
+    // Current format: enc:v1:<iv>:<tag>:<ct>
+    iv  = Buffer.from(parts[2], "hex");
+    tag = Buffer.from(parts[3], "hex");
+    ct  = Buffer.from(parts[4], "hex");
+  } else if (parts.length === 4) {
+    // Legacy format: enc:<iv>:<tag>:<ct>
+    iv  = Buffer.from(parts[1], "hex");
+    tag = Buffer.from(parts[2], "hex");
+    ct  = Buffer.from(parts[3], "hex");
+  } else {
+    return stored;
+  }
+
   const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), iv);
   decipher.setAuthTag(tag);
   return decipher.update(ct).toString("utf8") + decipher.final("utf8");

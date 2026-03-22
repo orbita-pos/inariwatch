@@ -89,6 +89,7 @@ function makeAlert(overrides = {}) {
     isRead: false,
     isResolved: false,
     sentAt: null,
+    stormId: null,
     createdAt: new Date(),
     ...overrides,
   };

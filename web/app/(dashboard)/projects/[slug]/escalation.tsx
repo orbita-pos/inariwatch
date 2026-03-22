@@ -88,7 +88,7 @@ export function EscalationSection({
       let targetType = "channel";
       let channelIdStr: string | null = targetValue;
       
-      if (targetValue === "on_call_primary" || targetValue === "on_call_secondary") {
+      if (targetValue === "on_call_primary" || targetValue === "on_call_secondary" || targetValue === "all_org_admins") {
         targetType = targetValue;
         channelIdStr = null;
       }
@@ -149,6 +149,7 @@ export function EscalationSection({
           let targetLabel = "Unknown target";
           if (rule.targetType === "on_call_primary") targetLabel = "Primary On-Call";
           else if (rule.targetType === "on_call_secondary") targetLabel = "Secondary On-Call";
+          else if (rule.targetType === "all_org_admins") targetLabel = "All org admins";
           else if (rule.targetType === "channel") targetLabel = ch ? channelLabel(ch) : "Unknown channel";
 
           return (
@@ -233,6 +234,7 @@ export function EscalationSection({
             >
               <option value="on_call_primary">Primary On-Call</option>
               <option value="on_call_secondary">Secondary On-Call</option>
+              <option value="all_org_admins">All org admins</option>
               {channels.length > 0 && (
                 <optgroup label="Notification Channels">
                   {channels.map((ch) => (

@@ -1,25 +1,32 @@
 import { NextResponse } from "next/server";
-import { db, projectIntegrations, projects, users, organizations } from "@/lib/db";
-import { eq } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
-import { pollGitHub, type GithubAlertConfig } from "@/lib/pollers/github";
-import { pollVercel, type VercelAlertConfig } from "@/lib/pollers/vercel-api";
-import { pollSentry, type SentryAlertConfig } from "@/lib/pollers/sentry";
-import { pollUptime, type UptimeEndpoint, type UptimeAlertConfig } from "@/lib/pollers/uptime";
-import { pollPostgres, type PostgresConfig, type PostgresAlertConfig } from "@/lib/pollers/postgres";
-import { pollNpmAudit, type NpmAuditConfig, type NpmAuditAlertConfig } from "@/lib/pollers/npm-audit";
+import { db, alerts, projectIntegrations, projects } from "@/lib/db";
+import { eq, and, gt } from "drizzle-orm";
 import { processNotificationQueue, processEmailDigests } from "@/lib/notifications/send";
-import { createAlertIfNew, markIntegrationSuccess } from "@/lib/webhooks/shared";
+import { createAlertIfNew } from "@/lib/webhooks/shared";
 import { correlateProjectAlerts } from "@/lib/ai/correlate";
 import { runAnomalyEngine } from "@/lib/pollers/anomaly";
-import { decryptConfig } from "@/lib/crypto";
-import type { NewAlert, Alert } from "@/lib/db";
+import type { Alert } from "@/lib/db";
 
 import crypto from "crypto";
+import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+const SUB_ROUTES = [
+  "github",
+  "vercel",
+  "sentry",
+  "uptime",
+  "postgres",
+  "npm",
+] as const;
+
+type SubRouteResult = { ok: boolean; created: number; errors: string[] };
 
 export async function GET(req: Request) {
+  const start = Date.now();
+
   // Verify secret — fail closed (reject if secret is unset)
   const auth = req.headers.get("authorization");
   if (!CRON_SECRET || !auth) {
@@ -31,154 +38,120 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orgUsers = alias(users, "orgUsers");
-  const projectUsers = alias(users, "projectUsers");
-
-  const integrationsRaw = await db
-    .select({
-      id:              projectIntegrations.id,
-      projectId:       projectIntegrations.projectId,
-      service:         projectIntegrations.service,
-      configEncrypted: projectIntegrations.configEncrypted,
-      errorCount:      projectIntegrations.errorCount,
-      lastCheckedAt:   projectIntegrations.lastCheckedAt,
-      orgOwnerPlan:    orgUsers.plan,
-      projectOwnerPlan: projectUsers.plan,
-    })
-    .from(projectIntegrations)
-    .innerJoin(projects, eq(projectIntegrations.projectId, projects.id))
-    .leftJoin(organizations, eq(projects.organizationId, organizations.id))
-    .leftJoin(orgUsers, eq(organizations.ownerId, orgUsers.id))
-    .leftJoin(projectUsers, eq(projects.userId, projectUsers.id))
-    .where(eq(projectIntegrations.isActive, true));
-
-  const integrations = integrationsRaw
-    .map(i => ({
-      ...i,
-      userPlan: i.orgOwnerPlan ?? i.projectOwnerPlan ?? "free"
-    }))
-    .filter((i) => {
-      // 100% Free SaaS — Everyone gets 1-minute polling
-      return true;
-    });
-
-  let created = 0;
-  const errors: string[] = [];
-  // Track new alerts per project for AI correlation
-  const newAlertsByProject = new Map<string, Alert[]>();
-
-  // Poll all integrations in parallel — eliminates sequential waterfall
-  async function pollIntegration(integ: typeof integrations[number]) {
-    const cfg = decryptConfig(integ.configEncrypted);
-    const token = cfg.token as string | undefined;
-    if (!token && !["uptime", "postgres", "npm"].includes(integ.service)) return [];
-
-    const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
-    let newAlerts: Omit<NewAlert, "projectId">[] = [];
-
-    const lookbackMinutes = 10; // 1-min polling, so 10-min lookback is extremely safe
-
-    if (integ.service === "github") {
-      const owner = (cfg.owner as string) ?? "";
-      newAlerts = await pollGitHub(token!, owner, alertConfig as GithubAlertConfig);
-    } else if (integ.service === "vercel") {
-      const teamId = (cfg.teamId as string) ?? "";
-      newAlerts = await pollVercel(token!, teamId, alertConfig as VercelAlertConfig, lookbackMinutes);
-    } else if (integ.service === "sentry") {
-      const org = (cfg.org as string) ?? "";
-      newAlerts = await pollSentry(token!, org, alertConfig as SentryAlertConfig, lookbackMinutes);
-    } else if (integ.service === "uptime") {
-      const endpoints = (cfg.endpoints ?? []) as UptimeEndpoint[];
-      if (endpoints.length > 0) {
-        newAlerts = await pollUptime(endpoints, alertConfig as UptimeAlertConfig);
-      }
-    } else if (integ.service === "postgres") {
-      const connString = cfg.connectionString as string | undefined;
-      if (connString) {
-        newAlerts = await pollPostgres(
-          { connectionString: connString, name: (cfg.name as string) || "PostgreSQL" } as PostgresConfig,
-          alertConfig as PostgresAlertConfig
-        );
-      }
-    } else if (integ.service === "npm") {
-      newAlerts = await pollNpmAudit(
-        {
-          packageJsonUrl: cfg.packageJsonUrl as string | undefined,
-          cargoTomlUrl: cfg.cargoTomlUrl as string | undefined,
-          token: token,
-        } as NpmAuditConfig,
-        alertConfig as NpmAuditAlertConfig
-      );
-    }
-
-    await markIntegrationSuccess(integ.id);
-    return newAlerts.map((a) => ({ ...a, projectId: integ.projectId }));
-  }
-
-  const results = await Promise.allSettled(integrations.map((integ) => pollIntegration(integ)));
-
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const integ = integrations[i];
-    if (result.status === "fulfilled") {
-      for (const { projectId, ...alert } of result.value) {
-        const inserted = await createAlertIfNew(alert, projectId);
-        if (inserted) {
-          created++;
-          const group = newAlertsByProject.get(projectId) ?? [];
-          group.push(inserted);
-          newAlertsByProject.set(projectId, group);
+  // ── 1. Fan out to all per-service sub-routes in parallel ──────────────────
+  const fanOutStart = Date.now();
+  const fetchResults = await Promise.allSettled(
+    SUB_ROUTES.map((service) =>
+      fetch(`${APP_URL}/api/cron/poll/${service}`, {
+        headers: { Authorization: `Bearer ${CRON_SECRET}` },
+      }).then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => res.statusText);
+          throw new Error(`HTTP ${res.status}: ${text}`);
         }
+        return res.json() as Promise<SubRouteResult>;
+      })
+    )
+  );
+
+  let totalCreated = 0;
+  const allErrors: string[] = [];
+  const subRouteResults: Record<string, SubRouteResult | { error: string }> = {};
+
+  for (let i = 0; i < fetchResults.length; i++) {
+    const service = SUB_ROUTES[i];
+    const result = fetchResults[i];
+    if (result.status === "fulfilled") {
+      subRouteResults[service] = result.value;
+      totalCreated += result.value.created ?? 0;
+      for (const err of result.value.errors ?? []) {
+        allErrors.push(err);
       }
     } else {
       const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      errors.push(`${integ.service}/${integ.id}: ${errMsg}`);
-      db.update(projectIntegrations)
-        .set({ lastCheckedAt: new Date(), errorCount: (integ.errorCount ?? 0) + 1 })
-        .where(eq(projectIntegrations.id, integ.id))
-        .catch(() => {});
+      allErrors.push(`sub-route/${service}: ${errMsg}`);
+      subRouteResults[service] = { error: errMsg };
     }
   }
+  const fanOutDuration = Date.now() - fanOutStart;
 
-  // Run AI correlation for projects with 2+ new alerts
-  for (const [projectId, projectAlerts] of newAlertsByProject.entries()) {
-    correlateProjectAlerts(projectAlerts, projectId).catch(() => {});
+  // ── 2. AI correlation — query alerts created in the last 2 minutes ────────
+  const correlationWindow = new Date(Date.now() - 2 * 60 * 1000);
+  try {
+    const recentAlerts = await db
+      .select()
+      .from(alerts)
+      .where(gt(alerts.createdAt, correlationWindow));
+
+    // Group by project
+    const byProject = new Map<string, Alert[]>();
+    for (const alert of recentAlerts) {
+      const group = byProject.get(alert.projectId) ?? [];
+      group.push(alert as Alert);
+      byProject.set(alert.projectId, group);
+    }
+
+    for (const [projectId, projectAlerts] of byProject.entries()) {
+      if (projectAlerts.length >= 2) {
+        correlateProjectAlerts(projectAlerts, projectId).catch(() => {});
+      }
+    }
+  } catch {
+    // Correlation failure must not break the cron response
   }
 
-  // Run anomaly detection across all active projects
-  const allProjectIds = [...new Set(integrations.map((i) => i.projectId))];
+  // ── 3. Anomaly detection across all active projects ───────────────────────
   try {
+    const activeProjects = await db
+      .select({ projectId: projectIntegrations.projectId })
+      .from(projectIntegrations)
+      .where(eq(projectIntegrations.isActive, true));
+
+    const allProjectIds = [...new Set(activeProjects.map((r) => r.projectId))];
     const anomalies = await runAnomalyEngine(allProjectIds);
+
     for (const anomaly of anomalies) {
       const { projectId, ...alert } = anomaly;
       const result = await createAlertIfNew(alert, projectId);
-      if (result) created++;
+      if (result) totalCreated++;
     }
   } catch {
-    // Anomaly detection failure should not break the cron response
+    // Anomaly detection failure must not break the cron response
   }
 
-  // Process notification queue in one batch after all alerts are created
-  // 1. Immediate: critical emails + all push/telegram/slack
-  // 2. Digest: batched non-critical emails → one email per user
+  // ── 4. Process notification queue and email digests ───────────────────────
   let notifyResult = { sent: 0, failed: 0, skipped: 0 };
   let digestResult = { sent: 0, failed: 0 };
   try {
     notifyResult = await processNotificationQueue();
   } catch {
-    // Queue processing failure should not break the cron response
+    // Queue processing failure must not break the cron response
   }
   try {
     digestResult = await processEmailDigests();
   } catch {
-    // Digest processing failure should not break the cron response
+    // Digest processing failure must not break the cron response
   }
+
+  const duration_ms = Date.now() - start;
+  cronLog("poll", {
+    created: totalCreated,
+    fan_out_duration_ms: fanOutDuration,
+    sub_routes: subRouteResults,
+    notifications_sent: notifyResult.sent,
+    notifications_failed: notifyResult.failed,
+    digests_sent: digestResult.sent,
+    errors: allErrors.length,
+    duration_ms,
+  });
+  await pingCronHealth("poll", allErrors.length === 0);
 
   return NextResponse.json({
     ok: true,
-    created,
+    created: totalCreated,
+    sub_routes: subRouteResults,
     notifications: notifyResult,
     digests: digestResult,
-    errors,
+    errors: allErrors,
   });
 }

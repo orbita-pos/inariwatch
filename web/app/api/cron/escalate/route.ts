@@ -5,11 +5,14 @@ import {
   alerts,
   notificationLogs,
   notificationQueue,
+  notificationChannels,
   projects,
+  organizationMembers,
 } from "@/lib/db";
-import { eq, and, lte, gt } from "drizzle-orm";
+import { eq, and, lte, inArray } from "drizzle-orm";
 import { severityMeetsMinimum } from "@/lib/db";
 import crypto from "crypto";
+import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -59,7 +62,69 @@ export async function GET(req: Request) {
           continue;
         }
 
-        // Resolve the target channel based on explicit targetType
+        const severityPriority: Record<string, number> = {
+          critical: 0,
+          warning: 1,
+          info: 2,
+        };
+
+        // ── all_org_admins: fan-out to every admin/owner channel ──────────
+        if (rule.targetType === "all_org_admins") {
+          const [proj] = await db
+            .select({ organizationId: projects.organizationId })
+            .from(projects)
+            .where(eq(projects.id, rule.projectId))
+            .limit(1);
+
+          if (!proj?.organizationId) continue; // personal project
+
+          const adminMembers = await db
+            .select({ userId: organizationMembers.userId })
+            .from(organizationMembers)
+            .where(
+              and(
+                eq(organizationMembers.organizationId, proj.organizationId),
+                inArray(organizationMembers.role, ["owner", "admin"])
+              )
+            );
+
+          for (const member of adminMembers) {
+            const memberChannels = await db
+              .select()
+              .from(notificationChannels)
+              .where(
+                and(
+                  eq(notificationChannels.userId, member.userId),
+                  eq(notificationChannels.isActive, true)
+                )
+              );
+
+            for (const ch of memberChannels) {
+              const [existingLog] = await db
+                .select({ id: notificationLogs.id })
+                .from(notificationLogs)
+                .where(
+                  and(
+                    eq(notificationLogs.alertId, alert.id),
+                    eq(notificationLogs.channelId, ch.id)
+                  )
+                )
+                .limit(1);
+              if (existingLog) continue;
+
+              await db.insert(notificationQueue).values({
+                alertId: alert.id,
+                channelId: ch.id,
+                status: "pending",
+                priority: severityPriority[alert.severity] ?? 1,
+              });
+              escalated++;
+            }
+          }
+          continue;
+        }
+
+        // ── Standard single-channel resolution ─────────────────────────────
         let targetChannelId = rule.channelId;
 
         try {
@@ -86,9 +151,8 @@ export async function GET(req: Request) {
           // Failsafe
         }
 
-        if (!targetChannelId) continue; // Skip if no channel resolved (e.g. no one is on call)
+        if (!targetChannelId) continue;
 
-        // Check if escalation notification was already sent for this alert+channel
         const [existingLog] = await db
           .select({ id: notificationLogs.id })
           .from(notificationLogs)
@@ -101,13 +165,6 @@ export async function GET(req: Request) {
           .limit(1);
 
         if (existingLog) continue;
-
-        // Enqueue a notification to the target channel
-        const severityPriority: Record<string, number> = {
-          critical: 0,
-          warning: 1,
-          info: 2,
-        };
 
         await db.insert(notificationQueue).values({
           alertId: alert.id,
@@ -122,6 +179,9 @@ export async function GET(req: Request) {
       // Continue processing other rules even if one fails
     }
   }
+
+  cronLog("escalate", { escalated });
+  await pingCronHealth("escalate", true);
 
   return NextResponse.json({ ok: true, escalated });
 }

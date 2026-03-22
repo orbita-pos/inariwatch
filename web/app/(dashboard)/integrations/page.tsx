@@ -9,7 +9,7 @@ import {
   Terminal, Settings2, Unplug,
 } from "lucide-react";
 import {
-  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon,
+  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon,
 } from "@/components/brand-icons";
 import type { ElementType } from "react";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,13 @@ const CATALOG = [
     label:   "npm / Cargo",
     desc:    "CVE alerts on your dependencies",
     icon:    NpmIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "datadog",
+    label:   "Datadog",
+    desc:    "Monitor alerts, log anomalies, infrastructure spikes",
+    icon:    DatadogIcon,
     mode:    "web" as const,
   },
 ];

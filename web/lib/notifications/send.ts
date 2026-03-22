@@ -6,7 +6,7 @@ import { sendPushNotification } from "./push";
 import { sendEmail } from "./email";
 import { checkEmailRateLimit, isEmailSuppressed } from "./rate-limit";
 import { formatBatchDigestEmail } from "./digest-email";
-import { signValue } from "@/lib/webhooks/shared";
+import { signValue, ACTION_LINK_TTL } from "@/lib/webhooks/shared";
 import { decryptConfig } from "@/lib/crypto";
 import type { Alert } from "@/lib/db";
 
@@ -148,7 +148,7 @@ function formatAlertEmail(
 
                     <!-- Project / Source -->
                     <p style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: #71717a; margin: 0 0 20px 0;">
-                      ${escapeHtml(projectName)} &nbsp;&middot;&nbsp; ${sources}
+                      ${escapeHtml(projectName)} &nbsp;&middot;&nbsp; ${escapeHtml(sources)}
                     </p>
 
                     <!-- Divider -->
@@ -336,8 +336,8 @@ export async function processNotificationQueue(
     if (channel.type === "telegram") {
       const message = formatAlertMessage(alert, project.name);
       
-      const ackSig = signValue(alert.id);
-      const resolveSig = signValue(alert.id);
+      const ackSig = signValue(alert.id, ACTION_LINK_TTL);
+      const resolveSig = signValue(alert.id, ACTION_LINK_TTL);
       const reply_markup = {
         inline_keyboard: [
           [
@@ -360,9 +360,31 @@ export async function processNotificationQueue(
       }
     } else if (channel.type === "slack") {
       const message = formatSlackMessage(alert, project.name);
+      const ackSig = signValue(alert.id, ACTION_LINK_TTL);
+      const resolveSig = signValue(alert.id, ACTION_LINK_TTL);
+      const blocks = alert.stormId ? undefined : [
+        { type: "section", text: { type: "mrkdwn", text: message } },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              text: { type: "plain_text", text: "👁️ Acknowledge" },
+              url: `${APP_URL}/api/actions/ack?id=${alert.id}&sig=${ackSig}`,
+            },
+            {
+              type: "button",
+              text: { type: "plain_text", text: "✅ Resolve", emoji: true },
+              url: `${APP_URL}/api/actions/resolve?id=${alert.id}&sig=${resolveSig}`,
+              style: "primary",
+            },
+          ],
+        },
+      ];
       const result = await sendSlack(
         { webhook_url: config.webhook_url },
-        message
+        message,
+        blocks
       );
       if (result.ok) {
         status = "sent";
@@ -439,7 +461,7 @@ export async function processNotificationQueue(
       } else {
         const attempts = item.attempts + 1;
         if (attempts >= MAX_RETRIES) {
-          await markQueueItem(item.id, "failed", error);
+          await markQueueItem(item.id, "dead", error);
           failed++;
         } else {
           const delay = RETRY_DELAYS[attempts - 1] ?? 900_000;
@@ -458,7 +480,7 @@ export async function processNotificationQueue(
     } else {
       const attempts = item.attempts + 1;
       if (attempts >= MAX_RETRIES) {
-        await markQueueItem(item.id, "failed", error);
+        await markQueueItem(item.id, "dead", error);
         failed++;
       } else {
         const delay = RETRY_DELAYS[attempts - 1] ?? 900_000;

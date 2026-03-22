@@ -2,7 +2,31 @@
   "crons": [
     {
       "path": "/api/cron/poll",
-      "schedule": "0 0 * * *"
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll/github",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll/vercel",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll/sentry",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll/uptime",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll/postgres",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll/npm",
+      "schedule": "* * * * *"
     }
   ]
 }

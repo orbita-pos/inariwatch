@@ -191,20 +191,66 @@ const SIGNING_SECRET = process.env.NEXTAUTH_SECRET ?? "";
 /**
  * Create an HMAC-SHA256 signature for a given value.
  * Used to sign unsubscribe links so they can't be forged.
+ *
+ * Action links (ack/resolve) include a timestamp and expire after `ttlSec`.
+ * Unsubscribe links omit the timestamp and never expire.
  */
-export function signValue(value: string): string {
+export function signValue(value: string, ttlSec?: number): string {
+  if (ttlSec) {
+    const ts = Math.floor(Date.now() / 1000);
+    const payload = `${value}:${ts}`;
+    const sig = crypto
+      .createHmac("sha256", SIGNING_SECRET)
+      .update(payload)
+      .digest("hex");
+    return `${sig}:${ts}`;
+  }
   return crypto
     .createHmac("sha256", SIGNING_SECRET)
     .update(value)
     .digest("hex");
 }
 
+/** Default TTL for action links (72 hours). */
+export const ACTION_LINK_TTL = 72 * 60 * 60;
+
 /**
  * Verify a signed value matches its token.
+ * If the token contains a timestamp (format `sig:ts`), it also checks expiry.
  */
-export function verifySignedValue(value: string, token: string): boolean {
+export function verifySignedValue(value: string, token: string, maxAgeSec?: number): boolean {
   if (!SIGNING_SECRET || !token) return false;
-  const expected = signValue(value);
+
+  // Check if token has timestamp component (sig:ts format)
+  const colonIdx = token.lastIndexOf(":");
+  if (colonIdx > 0 && maxAgeSec) {
+    const sig = token.slice(0, colonIdx);
+    const tsStr = token.slice(colonIdx + 1);
+    const ts = Number(tsStr);
+    if (!ts || isNaN(ts)) return false;
+
+    // Check expiry
+    const now = Math.floor(Date.now() / 1000);
+    if (now - ts > maxAgeSec) return false;
+
+    // Verify HMAC
+    const payload = `${value}:${ts}`;
+    const expected = crypto
+      .createHmac("sha256", SIGNING_SECRET)
+      .update(payload)
+      .digest("hex");
+    try {
+      return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
+
+  // Legacy: no timestamp
+  const expected = crypto
+    .createHmac("sha256", SIGNING_SECRET)
+    .update(value)
+    .digest("hex");
   try {
     return crypto.timingSafeEqual(
       Buffer.from(token),

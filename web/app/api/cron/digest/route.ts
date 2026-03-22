@@ -13,6 +13,7 @@ import { signValue } from "@/lib/webhooks/shared";
 import { getUserAIKey } from "@/lib/ai/get-key";
 import { callAI } from "@/lib/ai/client";
 import crypto from "crypto";
+import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const APP_URL = process.env.NEXTAUTH_URL ?? "https://inariwatch.com";
@@ -179,6 +180,9 @@ export async function GET(req: Request) {
       // Continue to the next user if one fails
     }
   }
+
+  cronLog("digest", { digests_sent: sent });
+  await pingCronHealth("digest", true);
 
   return NextResponse.json({ ok: true, sent });
 }

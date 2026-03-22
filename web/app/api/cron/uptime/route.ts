@@ -10,6 +10,7 @@ import {
 } from "@/lib/db";
 import { eq, and, lte, or, isNull } from "drizzle-orm";
 import crypto from "crypto";
+import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -167,6 +168,9 @@ export async function GET(req: Request) {
       // Continue processing other monitors
     }
   }
+
+  cronLog("uptime", { checked, new_alerts: newAlerts, recovered });
+  await pingCronHealth("uptime", true);
 
   return NextResponse.json({ ok: true, checked, newAlerts, recovered });
 }

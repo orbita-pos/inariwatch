@@ -69,6 +69,16 @@ async function resolveConfig(
     return { config: { token, org } };
   }
 
+  if (service === "datadog") {
+    // Token here is the API key; appKey comes separately
+    const res = await fetch("https://api.datadoghq.com/api/v1/validate", {
+      headers: { "DD-API-KEY": token },
+    });
+    if (res.status === 403) return { config: {}, error: "Invalid Datadog API Key." };
+    if (!res.ok) return { config: {}, error: `Datadog API error (${res.status}).` };
+    return { config: { apiKey: token } };
+  }
+
   // Unknown service — just store the token
   return { config: { token } };
 }
@@ -193,6 +203,15 @@ export async function connectIntegration(
           high_cves: { enabled: true },
         },
       };
+    } else if (service === "datadog") {
+      const apiKey = formData.get("token") as string;
+      const appKey = formData.get("app_key") as string;
+      if (!apiKey) return { error: "API Key is required." };
+      if (!appKey) return { error: "Application Key is required." };
+
+      const { config: resolvedConfig, error } = await resolveConfig(service, apiKey);
+      if (error) return { error };
+      config = { ...resolvedConfig, appKey };
     } else {
       const token = formData.get("token") as string;
       if (!token) return { error: "Token is required." };

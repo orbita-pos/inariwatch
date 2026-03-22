@@ -14,7 +14,7 @@ const SERVICE_CONFIG: Record<string, {
   placeholder: string;
   permissions?: { label: string; scope: string }[];
   note?: string;
-  mode?: "token" | "uptime" | "postgres" | "npm";
+  mode?: "token" | "uptime" | "postgres" | "npm" | "datadog";
 }> = {
   github: {
     tokenUrl: "https://github.com/settings/personal-access-tokens/new",
@@ -65,6 +65,17 @@ const SERVICE_CONFIG: Record<string, {
     placeholder: "https://raw.githubusercontent.com/owner/repo/main/package.json",
     note: "Paste a raw GitHub URL to your package.json or Cargo.toml. We'll scan dependencies for known CVEs via the GitHub Advisory Database.",
     mode: "npm",
+  },
+  datadog: {
+    tokenUrl: "https://app.datadoghq.com/organization-settings/api-keys",
+    tokenLabel: "API Key",
+    placeholder: "your_datadog_api_key",
+    permissions: [
+      { label: "monitors_read", scope: "Required" },
+      { label: "events_read",   scope: "Required" },
+    ],
+    note: "We'll validate your keys and generate a Webhook URL for you to configure in Datadog → Integrations → Webhooks.",
+    mode: "datadog",
   },
 };
 
@@ -267,6 +278,74 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         />
                       </div>
                     </div>
+                    {cfg.note && (
+                      <p className="text-[11px] text-zinc-700">{cfg.note}</p>
+                    )}
+                  </>
+                ) : cfg && cfg.mode === "datadog" ? (
+                  <>
+                    {/* Step 1 — Open keys page */}
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                        Step 1 — Get your keys
+                      </p>
+                      {cfg.tokenUrl && (
+                        <a
+                          href={cfg.tokenUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-zinc-600 hover:text-fg-strong transition-all"
+                        >
+                          <span>Open Datadog API Keys page</span>
+                          <ExternalLink className="h-3.5 w-3.5 text-zinc-600" />
+                        </a>
+                      )}
+                      {cfg.permissions && cfg.permissions.length > 0 && (
+                        <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5 space-y-1.5">
+                          <p className="text-[11px] text-zinc-700 mb-2">Recommended scopes:</p>
+                          {cfg.permissions.map((p) => (
+                            <div key={p.label} className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Check className="h-3 w-3 text-green-600" />
+                                <span className="font-mono text-[12px] text-zinc-400">{p.label}</span>
+                              </div>
+                              <span className="text-[11px] text-zinc-700">{p.scope}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step 2 — API Key */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                        Step 2 — API Key
+                      </label>
+                      <input
+                        type="password"
+                        name="token"
+                        placeholder="your_datadog_api_key"
+                        required
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                      />
+                    </div>
+
+                    {/* Step 3 — Application Key */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                        Step 3 — Application Key
+                      </label>
+                      <input
+                        type="password"
+                        name="app_key"
+                        placeholder="your_datadog_application_key"
+                        required
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                      />
+                    </div>
+
                     {cfg.note && (
                       <p className="text-[11px] text-zinc-700">{cfg.note}</p>
                     )}

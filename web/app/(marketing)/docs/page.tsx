@@ -49,6 +49,7 @@ const NAV = [
       { id: "int-github",    label: "GitHub" },
       { id: "int-vercel",    label: "Vercel" },
       { id: "int-sentry",    label: "Sentry" },
+      { id: "int-datadog",   label: "Datadog" },
       { id: "int-uptime",    label: "Uptime" },
       { id: "int-postgres",  label: "PostgreSQL" },
       { id: "int-npm",       label: "npm / Cargo" },
@@ -73,6 +74,9 @@ const NAV = [
       { id: "notif-slack",    label: "Slack" },
       { id: "notif-push",     label: "Push (browser)" },
       { id: "notif-oncall",   label: "On-Call Schedules" },
+      { id: "notif-overrides", label: "Schedule Overrides" },
+      { id: "notif-storm",    label: "Incident Storm Control" },
+      { id: "notif-ack",      label: "Interactive ACK" },
     ],
   },
   {
@@ -578,6 +582,71 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
               ]}
             />
 
+            <SectionHeading id="int-datadog">Integration — Datadog</SectionHeading>
+            <P>
+              InariWatch receives alerts from Datadog monitors via webhooks. When your Datadog monitor
+              triggers (log anomaly, infrastructure spike, APM error), InariWatch creates an alert and
+              optionally runs AI remediation — bridging the gap between detection and resolution.
+            </P>
+
+            <SubHeading id="int-datadog-keys">Getting your keys</SubHeading>
+            <StepList steps={[
+              {
+                title: "Open Datadog → Organization Settings → API Keys",
+                body: <><a href="https://app.datadoghq.com/organization-settings/api-keys" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">app.datadoghq.com/organization-settings/api-keys <ExternalLink className="h-3 w-3" /></a></>,
+              },
+              {
+                title: "Copy your API Key",
+                body: "This is your organization's API key. It starts with a hex string.",
+              },
+              {
+                title: "Create an Application Key",
+                body: <>Go to <strong>Application Keys</strong> tab and create a new key. Give it a name like <InlineCode>inariwatch</InlineCode>. Copy the key — it's only shown once.</>,
+              },
+              {
+                title: "Connect in InariWatch",
+                body: "Go to Integrations → Datadog → Connect. Paste both keys. InariWatch validates your API key automatically.",
+              },
+            ]} />
+
+            <SubHeading id="int-datadog-webhook">Setting up the webhook</SubHeading>
+            <P>
+              After connecting, InariWatch generates a unique <strong>Webhook URL</strong> for your project.
+              You need to configure this URL in Datadog so monitors can send alerts to InariWatch.
+            </P>
+            <StepList steps={[
+              {
+                title: "Copy the Webhook URL from InariWatch",
+                body: "It's shown under the Datadog integration card after connecting. Looks like: https://app.inariwatch.com/api/webhooks/datadog/your-integration-id",
+              },
+              {
+                title: "Open Datadog → Integrations → Webhooks",
+                body: <><a href="https://app.datadoghq.com/integrations/webhooks" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">app.datadoghq.com/integrations/webhooks <ExternalLink className="h-3 w-3" /></a></>,
+              },
+              {
+                title: "Create a new webhook",
+                body: <>Name it <InlineCode>inariwatch</InlineCode>, paste the Webhook URL, and leave the payload as the default JSON. Click Save.</>,
+              },
+              {
+                title: "Add the webhook to your monitors",
+                body: <>Edit any Datadog monitor → <strong>Notify your team</strong> section → type <InlineCode>@webhook-inariwatch</InlineCode>. Now that monitor will alert InariWatch when it fires.</>,
+              },
+            ]} />
+
+            <SubHeading id="int-datadog-alerts">What InariWatch receives</SubHeading>
+            <Table
+              head={["Datadog Event", "InariWatch Severity"]}
+              rows={[
+                ["Monitor status: Alert / Error",  "Critical"],
+                ["Monitor status: Warn",           "Warning"],
+                ["Monitor status: Recovered / OK", "Skipped (auto-resolved)"],
+              ]}
+            />
+            <Callout type="tip">
+              Datadog sends a &quot;Recovered&quot; event when a monitor goes back to OK. InariWatch automatically
+              ignores these so you don&apos;t get noise from self-healing issues.
+            </Callout>
+
             {/* ────────────────────────────────────────────────────────────────
                 AI SETUP
             ──────────────────────────────────────────────────────────────── */}
@@ -783,6 +852,61 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
             ]} />
             <Callout type="info">
               A green badge will appear in the dashboard indicating exactly who is currently on-call based on the active slots.
+            </Callout>
+
+            <SectionHeading id="notif-overrides">Notifications — Schedule Overrides</SectionHeading>
+            <P>
+              Schedule Overrides let you temporarily replace the on-call person without modifying
+              the base rotation. Perfect for sick days, vacations, or emergencies.
+            </P>
+            <StepList steps={[
+              { title: "Go to your Project → On-Call Schedule", body: "Find the schedule you want to override." },
+              { title: "Click 'Add Override'", body: "Select the substitute user and choose a start and end date/time." },
+              { title: "Done", body: "During the override window, the substitute receives all escalation notifications instead of the original on-call person." },
+            ]} />
+            <Callout type="tip">
+              Overrides take priority over regular slots. Once the override window expires, the schedule automatically falls back to the base rotation — no cleanup needed.
+            </Callout>
+
+            <SectionHeading id="notif-storm">Notifications — Incident Storm Control</SectionHeading>
+            <P>
+              When a major infrastructure failure occurs (e.g. database crash), dozens of monitors
+              can trigger simultaneously. Without grouping, the on-call engineer gets 50 notifications
+              in seconds — causing alert fatigue and panic.
+            </P>
+            <P>
+              <strong>Incident Storm Control</strong> detects when more than 5 alerts arrive for the same
+              project within a 5-minute window. Instead of sending individual notifications, InariWatch
+              groups them into a single &quot;Incident Storm&quot; message:
+            </P>
+            <CodeBlock label="Example Storm Notification">{`🚨 [INCIDENT STORM] 14 alerts detected in 5 min
+Project: my-production-app
+
+Likely a cascading failure.
+Resolve the root cause — all grouped alerts will clear together.`}</CodeBlock>
+            <Callout type="info">
+              Storm detection is fully automatic — no configuration needed. All alerts within a storm are linked to the same incident ID for post-mortem analysis.
+            </Callout>
+
+            <SectionHeading id="notif-ack">Notifications — Interactive ACK</SectionHeading>
+            <P>
+              When InariWatch sends a critical alert to Telegram, the message includes interactive
+              inline buttons that let you take action directly from your phone:
+            </P>
+            <ul className="mb-4 space-y-1.5 text-sm text-fg-base">
+              {[
+                "👁️ Acknowledge — Stops the escalation timer. Your team knows you're looking at it.",
+                "✅ Resolve — Marks the alert as resolved. No more follow-up notifications.",
+                "🔇 Snooze 30m — Silences the alert for 30 minutes, then re-alerts if still unresolved.",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <Callout type="tip">
+              No need to open your laptop at 3 AM. Tap the button in Telegram from your bed and the escalation engine respects your acknowledgment instantly.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────

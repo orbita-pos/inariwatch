@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, getWorkspaceProjectIds } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, notificationChannels, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
 import { eq, desc, inArray } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
@@ -38,16 +38,18 @@ export default async function DashboardPage() {
 
   const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : userProjects.map((p) => p.id);
 
-  const [recentAlerts, integrationRows] =
+  const [recentAlerts, integrationRows, notifRows] =
     projectIds.length > 0
       ? await Promise.all([
           db.select().from(alerts).where(inArray(alerts.projectId, projectIds)).orderBy(desc(alerts.createdAt)).limit(8),
           db.select({ id: projectIntegrations.id }).from(projectIntegrations).where(inArray(projectIntegrations.projectId, projectIds)).limit(1),
+          db.select({ id: notificationChannels.id }).from(notificationChannels).where(eq(notificationChannels.userId, userId!)).limit(1),
         ])
-      : [[], []];
+      : [[], [], []];
 
   const hasProject      = userProjects.length > 0;
   const hasIntegrations = integrationRows.length > 0;
+  const hasNotifications = notifRows.length > 0;
   const unreadCount     = recentAlerts.filter((a) => !a.isRead).length;
   const criticalCount   = recentAlerts.filter((a) => a.severity === "critical").length;
   const openCount       = recentAlerts.filter((a) => !a.isResolved).length;
@@ -110,15 +112,12 @@ export default async function DashboardPage() {
           <SectionHeader title="Recent alerts" href="/alerts" badge={recentAlerts.length} />
 
           {recentAlerts.length === 0 ? (
-            <EmptyState
-              message={hasIntegrations ? "No alerts yet" : "No integrations connected"}
-              sub={
-                hasIntegrations
-                  ? "InariWatch is watching your integrations. Alerts will appear here when something needs attention."
-                  : "Connect an integration to start receiving alerts."
-              }
-              action={!hasIntegrations ? { label: "Connect now", href: "/integrations" } : undefined}
-            />
+            hasIntegrations ? (
+              <EmptyState
+                message="No alerts yet"
+                sub="InariWatch is watching your integrations. Alerts will appear here when something needs attention."
+              />
+            ) : null
           ) : (
             <div className="overflow-hidden rounded-xl border border-line">
               {recentAlerts.map((alert) => {
@@ -169,6 +168,51 @@ export default async function DashboardPage() {
               })}
             </div>
           )}
+        </section>
+      )}
+
+      {/* ── Getting started checklist ────────────────────────────────────── */}
+      {!hasIntegrations && (
+        <section>
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-fg-base">Get started</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">Complete these steps to start monitoring your stack.</p>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-line divide-y divide-line-subtle">
+            <GettingStartedStep
+              done={true}
+              step={1}
+              title="Create your first project"
+              description="Your project is the container for all your integrations and alerts."
+              href="/projects"
+              cta="View projects"
+            />
+            <GettingStartedStep
+              done={false}
+              step={2}
+              title="Connect an integration"
+              description="Connect GitHub, Vercel, Sentry, PostgreSQL, npm, Datadog, or set up uptime monitoring."
+              href="/integrations"
+              cta="Connect now"
+              highlight={true}
+            />
+            <GettingStartedStep
+              done={hasNotifications}
+              step={3}
+              title="Set up notifications"
+              description="Get alerted via email, Telegram, Slack, or push notifications when something goes wrong."
+              href="/settings"
+              cta="Configure"
+            />
+            <GettingStartedStep
+              done={false}
+              step={4}
+              title="Share your status page"
+              description="Give your users a public status page so they always know your system's health."
+              href="/projects"
+              cta="Set up status page"
+            />
+          </div>
         </section>
       )}
 
@@ -308,6 +352,48 @@ function EmptyState({
         >
           {action.label}
           <ArrowUpRight className="h-3 w-3" />
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function GettingStartedStep({
+  done, step, title, description, href, cta, highlight = false,
+}: {
+  done: boolean;
+  step: number;
+  title: string;
+  description: string;
+  href: string;
+  cta: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={`flex items-start gap-4 bg-surface px-5 py-4 ${highlight && !done ? "bg-inari-accent-dim/30" : ""}`}>
+      <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+        done
+          ? "bg-green-500/15 text-green-400"
+          : highlight
+          ? "bg-inari-accent/15 text-inari-accent"
+          : "bg-surface-dim text-zinc-500"
+      }`}>
+        {done ? "✓" : step}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium ${done ? "text-zinc-500 line-through" : "text-fg-base"}`}>{title}</p>
+        {!done && <p className="mt-0.5 text-xs text-zinc-500">{description}</p>}
+      </div>
+      {!done && (
+        <Link
+          href={href}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            highlight
+              ? "bg-inari-accent text-white hover:bg-[#6D28D9]"
+              : "border border-line-medium text-zinc-400 hover:text-fg-base hover:border-zinc-600"
+          }`}
+        >
+          {cta}
         </Link>
       )}
     </div>
