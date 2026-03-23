@@ -92,12 +92,7 @@ export default async function BlogPostPage({
           All posts
         </Link>
 
-        {/* Title */}
-        <h1 className="text-3xl font-bold text-fg-strong leading-tight sm:text-4xl mb-6">
-          {post.title}
-        </h1>
-
-        {/* Hero card */}
+        {/* Hero card — image + title overlay on left negative space */}
         <div className="relative mb-8 overflow-hidden rounded-2xl border border-inari-border bg-[#0c0c12]">
           <Image
             src="/image-blog.png"
@@ -107,11 +102,20 @@ export default async function BlogPostPage({
             className="w-full object-cover"
             priority
           />
-          {/* Tag overlay */}
-          <div className="absolute bottom-4 left-4">
-            <span className="inline-flex items-center rounded-full border border-inari-accent/25 bg-black/60 backdrop-blur-sm px-3 py-1 text-xs font-mono font-medium text-inari-accent">
+          {/* Gradient to ensure text readability over the left dark area */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+
+          {/* Text overlay — left side */}
+          <div className="absolute inset-0 flex flex-col justify-center px-7 sm:px-10 max-w-[58%]">
+            <span className="mb-3 inline-flex w-fit items-center rounded-full border border-inari-accent/30 bg-inari-accent/20 px-3 py-1 text-xs font-mono font-medium text-inari-accent backdrop-blur-sm">
               {post.tag}
             </span>
+            <h1 className="text-xl font-bold leading-snug text-white sm:text-2xl">
+              {post.title}
+            </h1>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-300 line-clamp-2 hidden sm:block">
+              {post.description}
+            </p>
           </div>
         </div>
 
