@@ -1152,7 +1152,8 @@ function Footer() {
           <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
           <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
           <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
-          <span>Built with Rust + Next.js</span>
+          <Link href="/privacy" className="hover:text-fg-base transition-colors">Privacy</Link>
+          <Link href="/terms" className="hover:text-fg-base transition-colors">Terms</Link>
         </div>
       </div>
     </footer>
