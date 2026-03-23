@@ -921,7 +921,7 @@ Resolve the root cause — all grouped alerts will clear together.`}</CodeBlock>
             <StepList steps={[
               {
                 title: "Download the desktop app",
-                body: <>Download the installer for your OS from the <a href="#" className="text-inari-accent underline underline-offset-2">releases page</a>. Supports macOS, Windows, and Linux.</>,
+                body: <>Download the installer for your OS from the <a href="https://github.com/orbita-pos/inariwatch/releases" target="_blank" rel="noreferrer" className="text-inari-accent underline underline-offset-2">releases page</a>. Supports macOS, Windows, and Linux.</>,
               },
               {
                 title: "Generate a desktop token",
@@ -1001,9 +1001,9 @@ Authorization: Bearer rdr_your_token_here`}</CodeBlock>
 
             {/* Bottom nav */}
             <div className="mt-16 flex items-center justify-between border-t border-line pt-8 text-sm text-zinc-500">
-              <Link href="/pricing" className="flex items-center gap-1.5 hover:text-fg-base transition-colors">
+              <Link href="/" className="flex items-center gap-1.5 hover:text-fg-base transition-colors">
                 <ChevronRight className="h-3.5 w-3.5 rotate-180" />
-                Pricing
+                Home
               </Link>
               <Link href="/register" className="flex items-center gap-1.5 text-inari-accent hover:text-inari-accent/80 transition-colors">
                 Start free
@@ -1024,9 +1024,9 @@ Authorization: Bearer rdr_your_token_here`}</CodeBlock>
           </div>
           <div className="flex items-center gap-6 text-sm text-zinc-500">
             <Link href="/"        className="hover:text-fg-base transition-colors">Home</Link>
-            <Link href="/pricing" className="hover:text-fg-base transition-colors">Pricing</Link>
+            <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
             <Link href="/docs"    className="hover:text-fg-base transition-colors">Docs</Link>
-            <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
+            <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           </div>
         </div>
       </footer>
