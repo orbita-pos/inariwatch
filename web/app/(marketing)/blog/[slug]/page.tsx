@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
+import blogHero from "@/public/image-blog.png";
 import { db, blogPosts } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { MarketingNav } from "../../marketing-nav";
@@ -95,12 +96,11 @@ export default async function BlogPostPage({
         {/* Hero card — image + title overlay on left negative space */}
         <div className="relative mb-8 overflow-hidden rounded-2xl border border-inari-border bg-[#0c0c12]">
           <Image
-            src="/image-blog.png"
+            src={blogHero}
             alt={post.title}
-            width={1200}
-            height={400}
             className="w-full object-cover"
             priority
+            placeholder="blur"
           />
           {/* Gradient to ensure text readability over the left dark area */}
           <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />

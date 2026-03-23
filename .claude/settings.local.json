@@ -57,7 +57,14 @@
       "Bash(head:*)",
       "Bash(find \"app/\\(dashboard\\)\" -name \"page.tsx\")",
       "Bash(sed -i 's/className=\"\"max-w-\\\\[680px\\\\] space-y-8\"\"/className=\"\"mx-auto max-w-[680px] space-y-8\"\"/g' \"app/\\(dashboard\\)/workspace/settings/loading.tsx\" \"app/\\(dashboard\\)/settings/loading.tsx\")",
-      "Bash(sed -i 's/className=\"\"max-w-\\\\[680px\\\\] space-y-8 animate-pulse\"\"/className=\"\"mx-auto max-w-[680px] space-y-8 animate-pulse\"\"/g' \"app/\\(dashboard\\)/projects/[slug]/loading.tsx\")"
+      "Bash(sed -i 's/className=\"\"max-w-\\\\[680px\\\\] space-y-8 animate-pulse\"\"/className=\"\"mx-auto max-w-[680px] space-y-8 animate-pulse\"\"/g' \"app/\\(dashboard\\)/projects/[slug]/loading.tsx\")",
+      "Bash(git rm:*)",
+      "Bash(head -5 \"app/\\(marketing\\)/docs/page.tsx\")",
+      "Bash(\"app/\\(marketing\\)/docs/page.tsx\")",
+      "Bash(wc -l \"app/\\(marketing\\)/docs/page.tsx\")",
+      "Bash(find C:Usersjesusdesktopradarwebcomponents -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.css \\\\\\))",
+      "Bash(find C:Usersjesusdesktopradarweb -type f \\\\\\(-name *.css -o -name *.module.css \\\\\\) -path */components/* -o -name globals.css)",
+      "Bash(find C:Usersjesusdesktopradarweb -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.jsx -o -name *.js \\\\\\) -not -path */node_modules/*)"
     ]
   }
 }
