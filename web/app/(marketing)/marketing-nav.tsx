@@ -7,14 +7,15 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export function MarketingNav() {
-  const [scrolled, setScrolled] = useState(false);
+export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
+  const [scrolled, setScrolled] = useState(opaque);
 
   useEffect(() => {
+    if (opaque) return;
     const handler = () => setScrolled(window.scrollY > 40);
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
-  }, []);
+  }, [opaque]);
 
   return (
     <nav

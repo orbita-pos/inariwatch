@@ -72,7 +72,7 @@ export default async function BlogPostPage({
 
   return (
     <div className="min-h-screen bg-inari-bg">
-      <MarketingNav />
+      <MarketingNav opaque />
       <main className="mx-auto max-w-2xl px-6 pt-32 pb-24">
         <Link
           href="/blog"

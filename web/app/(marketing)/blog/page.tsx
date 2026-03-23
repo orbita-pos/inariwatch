@@ -25,7 +25,7 @@ export default async function BlogPage() {
 
   return (
     <div className="min-h-screen bg-inari-bg">
-      <MarketingNav />
+      <MarketingNav opaque />
       <main className="mx-auto max-w-3xl px-6 pt-32 pb-24">
         <div className="mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Blog</p>
