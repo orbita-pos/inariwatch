@@ -115,6 +115,18 @@ export async function POST(
     (payload.alert_transition as string) ??
     "";
 
+  // Richer context fields
+  const monitorId = payload.alert_id ?? payload.monitor_id ?? payload.id;
+  const metricValue = (payload.value as string | number | undefined) ?? (payload.metric_value as string | number | undefined);
+  const threshold = (payload.alert_threshold as string | number | undefined) ?? (payload.threshold as string | number | undefined);
+  const comparisonOp = (payload.comparator as string | undefined) ?? "";
+  // Datadog sends services as a comma-separated string or array
+  const rawServices = payload.affected_services ?? payload.services;
+  const affectedServices = Array.isArray(rawServices)
+    ? (rawServices as string[]).join(", ")
+    : (rawServices as string | undefined) ?? "";
+  const evaluationWindow = (payload.alert_query as string | undefined) ?? (payload.evaluation_window as string | undefined) ?? "";
+
   // Skip "Recovered" / "OK" alerts — these mean the issue resolved itself
   if (
     alertStatus.toLowerCase() === "recovered" ||
@@ -137,7 +149,16 @@ export async function POST(
   // Build the alert body with all available context
   const bodyParts: string[] = [];
   if (alertBody) bodyParts.push(alertBody.slice(0, 1500));
+  if (monitorId) bodyParts.push(`Monitor ID: ${monitorId}`);
+  if (metricValue !== undefined && threshold !== undefined) {
+    const op = comparisonOp ? ` ${comparisonOp} ` : " / threshold: ";
+    bodyParts.push(`Value: ${metricValue}${op}${threshold}`);
+  } else if (metricValue !== undefined) {
+    bodyParts.push(`Value: ${metricValue}`);
+  }
+  if (affectedServices) bodyParts.push(`Services: ${affectedServices}`);
   if (hostname) bodyParts.push(`Host: ${hostname}`);
+  if (evaluationWindow) bodyParts.push(`Query: ${evaluationWindow.slice(0, 200)}`);
   if (tags) bodyParts.push(`Tags: ${tags}`);
   if (link) bodyParts.push(`Datadog link: ${link}`);
   if (snapshot) bodyParts.push(`Snapshot: ${snapshot}`);

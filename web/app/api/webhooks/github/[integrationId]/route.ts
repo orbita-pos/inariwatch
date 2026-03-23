@@ -91,11 +91,31 @@ export async function POST(
     if (run?.conclusion === "failure" || run?.conclusion === "timed_out") {
       const repo = payload.repository as Record<string, unknown> | undefined;
       const output = run.output as Record<string, unknown> | undefined;
+      const sha = (run.head_sha as string)?.slice(0, 7) ?? "unknown";
+      const runUrl = (run.html_url ?? run.details_url ?? "") as string;
+      const prs = run.pull_requests as Record<string, unknown>[] | undefined;
+      const pr = prs?.[0];
+      const prLine = pr ? `PR #${pr.number}: ${(pr as Record<string, unknown>).title ?? ""}` : "";
+
+      // Duration
+      const startedAt = run.started_at ? new Date(run.started_at as string) : null;
+      const completedAt = run.completed_at ? new Date(run.completed_at as string) : null;
+      const durationSec = startedAt && completedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 1000) : null;
+      const durationLine = durationSec ? `Duration: ${durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`}` : "";
+
+      const bodyParts = [
+        `Check "${run.name ?? ""}" ${run.conclusion} on commit ${sha}`,
+        prLine,
+        durationLine,
+        runUrl ? `View run: ${runUrl}` : "",
+        output?.summary ? `\n${output.summary}` : "",
+      ].filter(Boolean).join("\n");
+
       const result = await createAlertIfNew(
         {
           severity: "critical",
           title: `CI failing on ${repo?.name ?? "unknown"}/${repo?.default_branch ?? "main"}`,
-          body: `Check "${run.name ?? ""}" ${run.conclusion} on commit ${(run.head_sha as string)?.slice(0, 7) ?? "unknown"}.\n\n${output?.summary ?? ""}`.trim(),
+          body: bodyParts.trim(),
           sourceIntegrations: ["github"],
           isRead: false,
           isResolved: false,
@@ -132,11 +152,28 @@ export async function POST(
     if (run?.conclusion === "failure" || run?.conclusion === "timed_out") {
       const repo = payload.repository as Record<string, unknown> | undefined;
       const actor = run.triggering_actor as Record<string, unknown> | undefined;
+      const runUrl = (run.html_url ?? "") as string;
+
+      const startedAt = run.run_started_at ? new Date(run.run_started_at as string) : null;
+      const updatedAt = run.updated_at ? new Date(run.updated_at as string) : null;
+      const durationSec = startedAt && updatedAt ? Math.round((updatedAt.getTime() - startedAt.getTime()) / 1000) : null;
+      const durationLine = durationSec ? `Duration: ${durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`}` : "";
+
+      const attempt = run.run_attempt && (run.run_attempt as number) > 1 ? ` (attempt ${run.run_attempt})` : "";
+
+      const bodyParts = [
+        `Run #${run.run_number ?? "?"}${attempt} ${run.conclusion}`,
+        `Triggered by: ${actor?.login ?? "unknown"} via ${run.event ?? "unknown"}`,
+        `Branch: ${run.head_branch ?? "unknown"}`,
+        durationLine,
+        runUrl ? `View run: ${runUrl}` : "",
+      ].filter(Boolean).join("\n");
+
       const result = await createAlertIfNew(
         {
           severity: "critical",
           title: `Workflow "${run.name ?? ""}" failed on ${repo?.name ?? "unknown"}/${run.head_branch ?? "main"}`,
-          body: `Run #${run.run_number ?? "?"} ${run.conclusion}.\nTriggered by ${actor?.login ?? "unknown"} via ${run.event ?? "unknown"}.`,
+          body: bodyParts,
           sourceIntegrations: ["github"],
           isRead: false,
           isResolved: false,

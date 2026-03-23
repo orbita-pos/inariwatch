@@ -93,15 +93,45 @@ export async function POST(
     }
 
     const state = type === "deployment.error" ? "failed" : "canceled";
-    const errorMsg = dep.errorMessage ?? dep.buildError ?? `Build ${state}`;
+    const errorMsg = (dep.errorMessage ?? dep.buildError ?? `Build ${state}`) as string;
     const url = dep.url ? `https://${dep.url}` : "";
     const deploymentId = (dep.uid ?? dep.id ?? "") as string;
+
+    // Richer context fields
+    const gitSource = dep.gitSource as Record<string, unknown> | undefined;
+    const branch = (gitSource?.ref ?? meta?.branch ?? "") as string;
+    const commitSha = ((gitSource?.sha ?? "") as string).slice(0, 7);
+    const commitMsg = (gitSource?.commitMessage ?? meta?.commitMessage ?? "") as string;
+    const creator = dep.creator as Record<string, unknown> | undefined;
+    const creatorName = (creator?.name ?? creator?.username ?? creator?.email ?? "") as string;
+
+    const buildingAt = dep.buildingAt ? new Date(dep.buildingAt as number) : null;
+    const createdAt  = dep.createdAt  ? new Date(dep.createdAt  as number) : null;
+    const durationSec = buildingAt && createdAt
+      ? Math.round((Date.now() - buildingAt.getTime()) / 1000)
+      : null;
+    const durationLine = durationSec && durationSec > 0
+      ? `Build time: ${durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`}`
+      : "";
+
+    const vercelDashUrl = deploymentId
+      ? `https://vercel.com/deployments/${deploymentId}`
+      : "";
+
+    const bodyParts = [
+      errorMsg,
+      branch    ? `Branch: ${branch}${commitSha ? ` @ ${commitSha}` : ""}` : "",
+      commitMsg ? `Commit: ${commitMsg.slice(0, 80)}` : "",
+      creatorName ? `Deployed by: ${creatorName}` : "",
+      durationLine,
+      vercelDashUrl ? `Logs: ${vercelDashUrl}` : (url ? `URL: ${url}` : ""),
+    ].filter(Boolean).join("\n");
 
     const result = await createAlertIfNew(
       {
         severity: isProduction ? "critical" : "warning",
         title: `${isProduction ? "Production" : "Preview"} deploy ${state} — ${projectName}`,
-        body: `${errorMsg}${deploymentId ? `\ndeployment:${deploymentId}` : ""}${url ? `\n\n${url}` : ""}`,
+        body: bodyParts,
         sourceIntegrations: ["vercel"],
         isRead: false,
         isResolved: false,

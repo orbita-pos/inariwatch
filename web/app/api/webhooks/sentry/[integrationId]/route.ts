@@ -148,19 +148,45 @@ export async function POST(
         return NextResponse.json({ ok: true, skipped: "new_issues disabled" });
       }
 
-      // Fetch stack trace for richer error context
       const issueId = String(issue.id ?? "");
+      const level = (issue.level as string | undefined) ?? "error";
+      const permalink = (issue.permalink as string | undefined) ?? "";
+      const shortId = (issue.shortId as string | undefined) ?? "";
+      const assignedTo = issue.assignedTo as Record<string, unknown> | null | undefined;
+      const assignedName = assignedTo ? ((assignedTo.name ?? assignedTo.email ?? assignedTo.username) as string) : "";
+      const firstSeen = issue.firstSeen ? new Date(issue.firstSeen as string).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "";
+      const proj = issue.project as Record<string, unknown> | undefined;
+      const firstRelease = issue.firstRelease as Record<string, unknown> | undefined;
+      const releaseVersion = (firstRelease?.version as string | undefined) ?? "";
+      const environment = (issue.environment as string | undefined) ?? "";
+
+      // Map Sentry level to radar severity
+      const severity = level === "fatal" ? "critical" : level === "info" ? "info" : "warning";
+
+      // Fetch stack trace for richer error context
       let stackTrace = "";
       if (issueId && sentryToken && sentryOrg) {
         const trace = await fetchSentryStackTrace(sentryToken, sentryOrg, issueId);
         if (trace) stackTrace = `\n\nStack trace:\n${trace}`;
       }
 
+      const bodyParts = [
+        issue.culprit ? `In: ${issue.culprit}` : "",
+        shortId ? `ID: ${shortId}` : "",
+        `${issue.count ?? 0} events · ${issue.userCount ?? 0} user(s) affected`,
+        `Project: ${proj?.slug ?? "unknown"}`,
+        environment ? `Environment: ${environment}` : "",
+        releaseVersion ? `Release: ${releaseVersion}` : "",
+        firstSeen ? `First seen: ${firstSeen}` : "",
+        assignedName ? `Assigned to: ${assignedName}` : "",
+        permalink ? `View in Sentry: ${permalink}` : "",
+      ].filter(Boolean).join("\n");
+
       const result = await createAlertIfNew(
         {
-          severity: "warning",
+          severity,
           title: `[New Issue] ${issue.title ?? "Unknown error"}`,
-          body: `${issue.culprit ?? ""}\n${issue.count ?? 0} events · ${issue.userCount ?? 0} user(s) affected\nProject: ${(issue.project as Record<string, unknown> | undefined)?.slug ?? "unknown"}${stackTrace}`.trim(),
+          body: (bodyParts + stackTrace).trim(),
           sourceIntegrations: ["sentry"],
           isRead: false,
           isResolved: false,
@@ -177,19 +203,47 @@ export async function POST(
         return NextResponse.json({ ok: true, skipped: "regressions disabled" });
       }
 
-      // Fetch stack trace for richer error context
       const regressionIssueId = String(issue.id ?? "");
+      const regressionLevel = (issue.level as string | undefined) ?? "error";
+      const permalink = (issue.permalink as string | undefined) ?? "";
+      const shortId = (issue.shortId as string | undefined) ?? "";
+      const assignedTo = issue.assignedTo as Record<string, unknown> | null | undefined;
+      const assignedName = assignedTo ? ((assignedTo.name ?? assignedTo.email ?? assignedTo.username) as string) : "";
+      const firstSeen = issue.firstSeen ? new Date(issue.firstSeen as string).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "";
+      const lastSeen = issue.lastSeen ? new Date(issue.lastSeen as string).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "";
+      const proj = issue.project as Record<string, unknown> | undefined;
+      const firstRelease = issue.firstRelease as Record<string, unknown> | undefined;
+      const releaseVersion = (firstRelease?.version as string | undefined) ?? "";
+      const environment = (issue.environment as string | undefined) ?? "";
+
+      const severity = regressionLevel === "fatal" ? "critical" : "critical"; // regressions always critical
+
+      // Fetch stack trace
       let regressionTrace = "";
       if (regressionIssueId && sentryToken && sentryOrg) {
         const trace = await fetchSentryStackTrace(sentryToken, sentryOrg, regressionIssueId);
         if (trace) regressionTrace = `\n\nStack trace:\n${trace}`;
       }
 
+      const bodyParts = [
+        "This issue was previously resolved but has reappeared.",
+        issue.culprit ? `In: ${issue.culprit}` : "",
+        shortId ? `ID: ${shortId}` : "",
+        `${issue.count ?? 0} events · ${issue.userCount ?? 0} user(s) affected`,
+        `Project: ${proj?.slug ?? "unknown"}`,
+        environment ? `Environment: ${environment}` : "",
+        releaseVersion ? `Release: ${releaseVersion}` : "",
+        firstSeen ? `First seen: ${firstSeen}` : "",
+        lastSeen ? `Last seen: ${lastSeen}` : "",
+        assignedName ? `Assigned to: ${assignedName}` : "",
+        permalink ? `View in Sentry: ${permalink}` : "",
+      ].filter(Boolean).join("\n");
+
       const result = await createAlertIfNew(
         {
-          severity: "critical",
+          severity,
           title: `[Regression] ${issue.title ?? "Unknown error"}`,
-          body: `${issue.culprit ?? ""}\nThis issue was previously resolved but has reappeared.\n${issue.count ?? 0} events · ${issue.userCount ?? 0} user(s) affected${regressionTrace}`.trim(),
+          body: (bodyParts + regressionTrace).trim(),
           sourceIntegrations: ["sentry"],
           isRead: false,
           isResolved: false,
@@ -203,13 +257,28 @@ export async function POST(
   // ── Event-level alerts (Sentry alert rules) ──────────────────────────
   if (resource === "event_alert") {
     const eventData = payload.data as Record<string, unknown> | undefined;
-    const issue = (eventData?.event ?? {}) as Record<string, unknown>;
+    const ev = (eventData?.event ?? {}) as Record<string, unknown>;
+
+    const level = (ev.level as string | undefined) ?? "error";
+    const severity = level === "fatal" ? "critical" : "warning";
+    const environment = (ev.environment as string | undefined) ?? "";
+    const release = (ev.release as string | undefined) ?? "";
+    const eventUrl = (ev.url as string | undefined) ?? "";
+    const triggeredRule = (eventData?.triggered_rule as string | undefined) ?? "";
+
+    const bodyParts = [
+      (ev.culprit ?? ev.message ?? "A Sentry alert rule was triggered.") as string,
+      triggeredRule ? `Rule: ${triggeredRule}` : "",
+      environment ? `Environment: ${environment}` : "",
+      release ? `Release: ${release}` : "",
+      eventUrl ? `Event URL: ${eventUrl}` : "",
+    ].filter(Boolean).join("\n");
 
     const result = await createAlertIfNew(
       {
-        severity: "warning",
-        title: `[Sentry Alert] ${issue.title ?? eventData?.triggered_rule ?? "Alert triggered"}`,
-        body: (issue.culprit ?? issue.message ?? "A Sentry alert rule was triggered.") as string,
+        severity,
+        title: `[Sentry Alert] ${ev.title ?? triggeredRule ?? "Alert triggered"}`,
+        body: bodyParts,
         sourceIntegrations: ["sentry"],
         isRead: false,
         isResolved: false,
