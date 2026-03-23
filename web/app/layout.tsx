@@ -88,10 +88,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        <script async src="https://plausible.io/js/pa-_2rUt9FS8WnW4yA3n6Ykd.js" />
         <script
-          defer
-          data-domain="inariwatch.com"
-          src="https://plausible.io/js/script.js"
+          dangerouslySetInnerHTML={{
+            __html: `window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`,
+          }}
         />
       </head>
       <body className="bg-page text-fg-base antialiased">
