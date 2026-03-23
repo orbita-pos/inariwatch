@@ -24,3 +24,10 @@ Thumbs.db
 web/lib/db/migrations/meta/
 
 .vercel
+
+# Local log/debug files
+*.log
+err_*.txt
+vitest_*.txt
+raw.txt
+github_err.txt
