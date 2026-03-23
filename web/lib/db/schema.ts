@@ -24,8 +24,6 @@ export const users = pgTable("users", {
   name: text("name"),
   passwordHash: text("password_hash"),
   plan: planEnum("plan").default("free").notNull(),
-  stripeCustomerId: text("stripe_customer_id"),
-  stripeSubId: text("stripe_sub_id"),
   emailVerifiedAt: timestamp("email_verified_at"),
   totpSecret: text("totp_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),

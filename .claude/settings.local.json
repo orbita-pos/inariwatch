@@ -64,7 +64,25 @@
       "Bash(wc -l \"app/\\(marketing\\)/docs/page.tsx\")",
       "Bash(find C:Usersjesusdesktopradarwebcomponents -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.css \\\\\\))",
       "Bash(find C:Usersjesusdesktopradarweb -type f \\\\\\(-name *.css -o -name *.module.css \\\\\\) -path */components/* -o -name globals.css)",
-      "Bash(find C:Usersjesusdesktopradarweb -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.jsx -o -name *.js \\\\\\) -not -path */node_modules/*)"
+      "Bash(find C:Usersjesusdesktopradarweb -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.jsx -o -name *.js \\\\\\) -not -path */node_modules/*)",
+      "Bash(xargs wc:*)",
+      "Bash(printf \"\\\\n\")",
+      "Bash(npx tsx:*)",
+      "Bash(DEMO_EMAIL=\"demo@inariwatch.com\" DEMO_PASSWORD=\"Demo1234!\" npx tsx scripts/record-demo.ts)",
+      "Bash(DEMO_URL=\"https://app.inariwatch.com\" DEMO_EMAIL=\"demo@inariwatch.com\" DEMO_PASSWORD=\"Demo1234!\" npx tsx scripts/record-demo.ts)",
+      "Bash(winget install:*)",
+      "Bash(ffmpeg -version)",
+      "Bash(cmd /c \"ffmpeg -version 2>&1\")",
+      "Bash(cmd /c \"where ffmpeg 2>&1\")",
+      "Bash(cmd /c \"powershell -Command \"\"irm get.scoop.sh | iex\"\" 2>&1\")",
+      "Bash(cmd /c \"scoop install ffmpeg 2>&1\")",
+      "Bash(cmd /c \"where scoop 2>&1\")",
+      "Bash(cmd /c \"ffmpeg -i \"\"C:\\\\Users\\\\jesus\\\\Desktop\\\\Radar\\\\web\\\\scripts\\\\demo-output\\\\inariwatch-demo.webm\"\" -vf \"\"fps=15,scale=1200:-1,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse\"\" -loop 0 \"\"C:\\\\Users\\\\jesus\\\\Desktop\\\\Radar\\\\web\\\\scripts\\\\demo-output\\\\demo.gif\"\" 2>&1\")",
+      "Bash(\"/c/Users/jesus/AppData/Local/Temp/convert.bat\")",
+      "WebFetch(domain:jesusbr.com)",
+      "WebFetch(domain:inariwatch.com)",
+      "WebFetch(domain:app.inariwatch.com)",
+      "Bash(ls \"C:\\\\Users\\\\jesus\\\\desktop\\\\radar\\\\web\\\\app\\\\\\(marketing\\)\\\\pricing\")"
     ]
   }
 }
