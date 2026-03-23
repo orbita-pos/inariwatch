@@ -31,3 +31,4 @@ err_*.txt
 vitest_*.txt
 raw.txt
 github_err.txt
+web/scripts/demo-output/
