@@ -88,6 +88,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        <script
+          defer
+          data-domain="inariwatch.com"
+          src="https://plausible.io/js/script.js"
+        />
       </head>
       <body className="bg-page text-fg-base antialiased">
         <ThemeProvider
