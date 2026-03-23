@@ -11,9 +11,7 @@ import crypto from "crypto";
 import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 const SUB_ROUTES = [
   "github",
