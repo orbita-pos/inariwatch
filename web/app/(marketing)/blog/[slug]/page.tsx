@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
 import { db, blogPosts } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
@@ -10,6 +11,11 @@ import type { Metadata } from "next";
 function formatDate(d: Date | null): string {
   if (!d) return "";
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function readingTime(content: string): number {
+  const words = content.trim().split(/\s+/).length;
+  return Math.max(1, Math.round(words / 200));
 }
 
 // Simple markdown → HTML (no external dep)
@@ -70,31 +76,59 @@ export default async function BlogPostPage({
 
   if (!post) notFound();
 
+  const mins = readingTime(post.content);
+
   return (
     <div className="min-h-screen bg-inari-bg">
       <MarketingNav opaque />
-      <main className="mx-auto max-w-2xl px-6 pt-32 pb-24">
+      <main className="mx-auto max-w-2xl px-6 pt-24 pb-24">
+
+        {/* Back */}
         <Link
           href="/blog"
-          className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors mb-10"
+          className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors mb-8"
         >
           <ArrowLeft className="h-4 w-4" />
           All posts
         </Link>
 
-        <div className="mb-10">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-inari-accent/10 text-inari-accent border border-inari-accent/20">
+        {/* Title */}
+        <h1 className="text-3xl font-bold text-fg-strong leading-tight sm:text-4xl mb-6">
+          {post.title}
+        </h1>
+
+        {/* Hero card */}
+        <div className="relative mb-8 overflow-hidden rounded-2xl border border-inari-border bg-[#0c0c12]">
+          {/* Subtle radial glow */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,rgba(124,58,237,0.12)_0%,transparent_70%)]" />
+          {/* Subtle grid */}
+          <div className="pointer-events-none absolute inset-0 opacity-30 bg-grid" />
+
+          <div className="relative flex flex-col items-center justify-center px-8 py-14 text-center">
+            <Image
+              src="/logo-inari/favicon-96x96.png"
+              alt="InariWatch"
+              width={48}
+              height={48}
+              className="mb-5 opacity-90"
+            />
+            <span className="mb-4 inline-flex items-center rounded-full border border-inari-accent/25 bg-inari-accent/10 px-3 py-1 text-xs font-mono font-medium text-inari-accent">
               {post.tag}
             </span>
-            <span className="text-xs text-zinc-600">{formatDate(post.publishedAt)}</span>
+            <p className="max-w-sm text-sm leading-relaxed text-zinc-400">
+              {post.description}
+            </p>
           </div>
-          <h1 className="text-3xl font-bold text-fg-strong leading-tight sm:text-4xl">{post.title}</h1>
-          <p className="mt-4 text-fg-base leading-relaxed">{post.description}</p>
         </div>
 
-        <hr className="border-inari-border mb-10" />
+        {/* Meta */}
+        <div className="mb-10 flex items-center gap-2 text-xs text-zinc-500">
+          <span>{formatDate(post.publishedAt)}</span>
+          <span className="text-zinc-700">·</span>
+          <span>{mins} min read</span>
+        </div>
 
+        {/* Content */}
         <article
           className="prose prose-invert prose-zinc max-w-none
             prose-headings:font-bold prose-headings:text-fg-strong prose-headings:tracking-tight
