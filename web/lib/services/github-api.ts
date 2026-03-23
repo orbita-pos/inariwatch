@@ -155,12 +155,13 @@ export async function createPR(
   title: string,
   body: string,
   head: string,
-  base: string
+  base: string,
+  draft = true
 ): Promise<{ url: string; number: number }> {
   const res = await fetch(`${API}/repos/${owner}/${repo}/pulls`, {
     method: "POST",
     headers: headers(token),
-    body: JSON.stringify({ title, body, head, base }),
+    body: JSON.stringify({ title, body, head, base, draft }),
   });
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -175,7 +176,7 @@ export async function mergePR(
   owner: string,
   repo: string,
   prNumber: number
-): Promise<void> {
+): Promise<{ sha: string }> {
   const res = await fetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
     method: "PUT",
     headers: headers(token),
@@ -185,6 +186,8 @@ export async function mergePR(
     const err = await res.text().catch(() => "");
     throw new Error(`Failed to merge PR (${res.status}): ${err}`);
   }
+  const data = await res.json();
+  return { sha: data.sha ?? "" };
 }
 
 // ── CI Status ────────────────────────────────────────────────────────────────

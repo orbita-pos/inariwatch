@@ -271,6 +271,185 @@ function RemediationWalkthrough() {
   );
 }
 
+// ── Auto-merge safety ─────────────────────────────────────────────────────────
+
+function AutoMergeSafety() {
+  const gates = [
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      label: "CI required",
+      detail: "All tests must pass before any merge is considered",
+    },
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      label: "Confidence ≥ 90%",
+      detail: "Diagnosis must be clear — low-confidence fixes become draft PRs",
+    },
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      label: "AI self-review ≥ 70/100",
+      detail: "A second AI call reviews the fix like a senior engineer before it ships",
+    },
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      label: "≤ 50 lines changed",
+      detail: "Large or complex changes are always sent as draft PRs for human review",
+    },
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      label: "Auto-merge enabled",
+      detail: "You activate this per project — off by default, always in your control",
+    },
+  ];
+
+  return (
+    <section className="py-24 border-t border-inari-border bg-inari-card/20">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="grid gap-16 lg:grid-cols-2 items-start">
+          {/* Left: copy + gates */}
+          <div>
+            <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">
+              Auto-merge
+            </p>
+            <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl leading-tight">
+              You sleep. We ship.
+              <br />
+              <span className="text-inari-accent">Safely.</span>
+            </h2>
+            <p className="mt-4 text-fg-base leading-relaxed max-w-md">
+              Skeptical about AI auto-merging code into production? Fair. Here's
+              how we make sure every auto-merged fix is something we'd sign off
+              on ourselves.
+            </p>
+
+            <p className="mt-8 text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4">
+              5 gates — all must pass to auto-merge
+            </p>
+
+            <div className="space-y-3">
+              {gates.map((gate) => (
+                <div
+                  key={gate.label}
+                  className="flex items-start gap-3 rounded-xl border border-inari-border bg-inari-card p-4"
+                >
+                  <div className="mt-0.5 shrink-0">{gate.icon}</div>
+                  <div>
+                    <p className="text-sm font-semibold text-fg-strong">
+                      {gate.label}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
+                      {gate.detail}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: live terminal */}
+          <div className="space-y-4">
+            {/* Terminal */}
+            <div className="rounded-xl border border-inari-accent/25 bg-zinc-950 overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.08)]">
+              <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
+                <div className="flex gap-1.5">
+                  <div className="h-3 w-3 rounded-full bg-red-500/80" />
+                  <div className="h-3 w-3 rounded-full bg-yellow-500/70" />
+                  <div className="h-3 w-3 rounded-full bg-green-500/70" />
+                </div>
+                <span className="ml-2 font-mono text-xs text-zinc-500">
+                  03:47 — auto-merge triggered
+                </span>
+              </div>
+              <div className="p-5 font-mono text-sm leading-7 space-y-0.5">
+                <p className="text-zinc-600 text-xs uppercase tracking-wider mb-3">
+                  Evaluating safety gates...
+                </p>
+                <p>
+                  <span className="text-emerald-400">✓ </span>
+                  <span className="text-zinc-400">CI passed</span>
+                  <span className="text-zinc-600"> (3 checks)</span>
+                </p>
+                <p>
+                  <span className="text-emerald-400">✓ </span>
+                  <span className="text-zinc-400">Confidence </span>
+                  <span className="text-white font-semibold">94%</span>
+                  <span className="text-zinc-600"> ≥ 90% threshold</span>
+                </p>
+                <p>
+                  <span className="text-emerald-400">✓ </span>
+                  <span className="text-zinc-400">Self-review </span>
+                  <span className="text-white font-semibold">88/100</span>
+                  <span className="text-zinc-600"> — approved</span>
+                </p>
+                <p>
+                  <span className="text-emerald-400">✓ </span>
+                  <span className="text-zinc-400">Lines changed: </span>
+                  <span className="text-white font-semibold">12</span>
+                  <span className="text-zinc-600"> ≤ 50 max</span>
+                </p>
+                <p>
+                  <span className="text-emerald-400">✓ </span>
+                  <span className="text-zinc-400">Auto-merge enabled</span>
+                </p>
+                <br />
+                <p className="text-inari-accent font-semibold">
+                  → All gates passed — merging PR #62...
+                </p>
+                <p>
+                  <span className="text-emerald-400">✓ </span>
+                  <span className="text-zinc-300 font-semibold">
+                    Merged. Watching for regressions (10 min)
+                  </span>
+                </p>
+
+                {/* Monitoring progress bar */}
+                <div className="mt-4 pt-4 border-t border-inari-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-500">Post-merge monitoring</span>
+                    <span className="text-xs text-zinc-600">600s</span>
+                  </div>
+                  <div className="w-full bg-zinc-800 rounded-full h-1.5">
+                    <div className="bg-emerald-500 h-1.5 rounded-full w-full" />
+                  </div>
+                  <p className="text-xs text-zinc-600 mt-2">
+                    Sentry: <span className="text-emerald-400">ok</span>
+                    {"  "}Uptime: <span className="text-emerald-400">ok</span>
+                  </p>
+                </div>
+                <p className="text-emerald-400 font-semibold mt-2">
+                  ✓ No regressions detected — fix is stable.
+                </p>
+              </div>
+            </div>
+
+            {/* Auto-revert callout */}
+            <div className="rounded-xl border border-amber-900/30 bg-amber-950/10 p-5">
+              <div className="flex items-start gap-3">
+                <RotateCcw className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-300">
+                    Regression detected? We revert automatically.
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                    If Sentry catches the same error or uptime drops after a merge,
+                    InariWatch opens a revert PR and merges it — all within the
+                    10-minute monitoring window. You wake up to a stable main branch.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-600 text-center">
+              Auto-merge is off by default. You enable it per project, set your
+              own confidence threshold, and define the max diff size.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Why not native alerts ─────────────────────────────────────────────────────
 
 function WhyNotNative() {
@@ -876,7 +1055,7 @@ function OpenSourceModel() {
            <p className="text-sm text-fg-base leading-relaxed mb-6">
              We rely on community sponsorships. Our cloud infrastructure is hyper-optimized so we can offer it for free. If InariWatch saves your engineering team hours every week, consider sponsoring the project so we can keep it free for solo developers everywhere.
            </p>
-           <a href="#">
+           <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noopener noreferrer">
              <Button variant="outline">Sponsor InariWatch</Button>
            </a>
         </div>
@@ -911,7 +1090,7 @@ function Sponsors() {
           </a>
           
           <a
-            href="https://github.com/sponsors/inariwatch"
+            href="https://github.com/sponsors/orbita-pos"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 group opacity-50 hover:opacity-100"
@@ -942,8 +1121,9 @@ function Footer() {
         </div>
         <div className="flex items-center gap-6 text-sm text-zinc-500">
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
-          <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
-          <a href="#" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
+          <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
+          <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
+          <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           <span>Built with Rust + Next.js</span>
         </div>
       </div>
@@ -962,6 +1142,7 @@ export default function LandingPage() {
         <Sponsors />
         <StatsBar />
         <RemediationWalkthrough />
+        <AutoMergeSafety />
         <WhyNotNative />
         <Integrations />
         <AIFeatures />

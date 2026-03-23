@@ -2,7 +2,8 @@
  * AI Remediation Engine
  *
  * Orchestrates the full fix cycle:
- *   analyze → read code → generate fix → push → wait CI → create PR
+ *   gather context → diagnose → read code → generate fix → self-review →
+ *   push → wait CI → evaluate gates → auto-merge or draft PR → monitor
  *
  * Each step updates the DB and calls `emit()` for real-time streaming to the UI.
  * If CI fails, the engine retries with context about what went wrong (up to 3 attempts).
@@ -11,12 +12,15 @@
 import { db, remediationSessions, alerts, projectIntegrations, projects } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { callAI } from "./client";
-import { SYSTEM_REMEDIATOR, buildDiagnosePrompt, buildFixPrompt } from "./prompts";
+import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt } from "./prompts";
 import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
-import { getDeploymentBuildLogs, getLatestFailedDeployment } from "@/lib/services/vercel-api";
+import { gatherRemediationContext } from "./context-gatherer";
+import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
+import { startPostMergeMonitoring } from "./post-merge-monitor";
+import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
 
 type Emit = (event: string, data: unknown) => void;
@@ -75,8 +79,40 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Files the AI must never touch — too risky to auto-patch
+const BLOCKED_FILE_PATTERNS = [
+  /^\.env(\.|$)/i,                        // .env, .env.local, .env.production
+  /package-lock\.json$/,                   // npm lock file
+  /yarn\.lock$/,                           // yarn lock file
+  /pnpm-lock\.yaml$/,                      // pnpm lock file
+  /bun\.lockb$/,                           // bun lock file
+  /^\.github\/workflows\//,               // CI workflow definitions
+  /^\.github\/actions\//,                 // custom actions
+  /\.(sql)$/i,                             // DB migrations
+  /^(migrations?|db\/migrations?)\//,     // migration folders
+  /^(terraform|infra)\//,                 // infrastructure
+  /\.(tf|tfvars)$/,                        // Terraform files
+  /Dockerfile/i,                           // Docker build files
+  /docker-compose/i,                       // Docker compose
+  /\.(key|pem|cert|p12|pfx)$/i,           // Secrets and certificates
+];
+
 function isSafeFilePath(p: string): boolean {
-  return !p.includes("..") && !p.startsWith("/") && !p.includes("\\") && !p.startsWith("~");
+  if (p.includes("..") || p.startsWith("/") || p.includes("\\") || p.startsWith("~")) return false;
+  if (BLOCKED_FILE_PATTERNS.some((re) => re.test(p))) return false;
+  return true;
+}
+
+function getBlockedReason(p: string): string | null {
+  if (p.includes("..") || p.startsWith("/")) return "path traversal";
+  if (/^\.env/i.test(p)) return "environment file";
+  if (/lock\.(json|yaml|lockb)$/.test(p)) return "lock file (auto-generated)";
+  if (/^\.github\/workflows\//.test(p)) return "CI workflow file";
+  if (/\.(sql)$/i.test(p) || /^migrations?\//.test(p)) return "database migration";
+  if (/\.(tf|tfvars)$/.test(p) || /^(terraform|infra)\//.test(p)) return "infrastructure config";
+  if (/Dockerfile|docker-compose/i.test(p)) return "container config";
+  if (/\.(key|pem|cert|p12|pfx)$/i.test(p)) return "secret/certificate file";
+  return null;
 }
 
 function cleanJSON(raw: string): string {
@@ -196,46 +232,34 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     steps = await resolveStep(sessionId, steps, "completed",
       `Connected to ${fullRepo} (${repoFiles.length} files, branch: ${defaultBranch})`, emit);
 
-    // ── FETCH BUILD LOGS (Vercel) ─────────────────────────────────────────
+    // ── GATHER CONTEXT FROM ALL INTEGRATIONS ──────────────────────────────
     const isVercelAlert = alert.sourceIntegrations.includes("vercel");
     const hasSentry = alert.sourceIntegrations.includes("sentry");
-    let buildLogs: string | null = null;
 
-    if (isVercelAlert) {
-      steps = await pushStep(sessionId, steps,
-        makeStep("fetch_logs", "Fetching Vercel build logs..."), emit);
+    steps = await pushStep(sessionId, steps,
+      makeStep("gather_context", "Gathering context from all connected integrations..."), emit);
 
-      // Get Vercel token from project integrations
-      const vercelInteg = integrations.find((i) => i.service === "vercel");
-      if (vercelInteg) {
-        const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
-        const vercelToken = vercelConfig.token as string;
-        const teamId = (vercelConfig.teamId as string) || undefined;
-        
-        if (vercelToken) {
-          // Extract deployment ID from alert body (format: "deployment:abc123")
-          const depMatch = alert.body.match(/deployment:([a-zA-Z0-9_-]+)/);
-          let deploymentId = depMatch ? depMatch[1] : null;
+    const [proj] = await db.select().from(projects).where(eq(projects.id, session.projectId)).limit(1);
+    const remediationContext = await gatherRemediationContext(
+      session.projectId,
+      { title: alert.title, body: alert.body, sourceIntegrations: alert.sourceIntegrations },
+      proj?.name ?? repo,
+      emit
+    );
 
-          if (!deploymentId) {
-             // Fallback: lookup the latest failed deployment
-             const [proj] = await db.select().from(projects).where(eq(projects.id, session.projectId)).limit(1);
-             if (proj) {
-               deploymentId = await getLatestFailedDeployment(vercelToken, teamId, proj.name);
-             }
-          }
+    const contextSources = [
+      remediationContext.sentryStackTrace ? "Sentry stack trace" : null,
+      remediationContext.sentryIssueDetails ? "Sentry issue details" : null,
+      remediationContext.vercelBuildLogs ? "Vercel build logs" : null,
+      remediationContext.githubCILogs ? "GitHub CI logs" : null,
+      remediationContext.datadogMetrics ? "Datadog metrics" : null,
+    ].filter(Boolean);
 
-          if (deploymentId) {
-            buildLogs = await getDeploymentBuildLogs(vercelToken, teamId, deploymentId);
-          }
-        }
-      }
-
-      steps = await resolveStep(sessionId, steps,
-        buildLogs ? "completed" : "failed",
-        buildLogs ? `Retrieved ${buildLogs.split("\n").length} lines of build output` : "Could not fetch build logs — will use available error info",
-        emit);
-    }
+    steps = await resolveStep(sessionId, steps, "completed",
+      contextSources.length > 0
+        ? `Gathered context: ${contextSources.join(", ")}`
+        : "No additional context found — proceeding with alert details",
+      emit);
 
     steps = await pushStep(sessionId, steps,
       makeStep("diagnose", "AI is diagnosing the root cause and identifying affected files..."), emit);
@@ -247,25 +271,31 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         body: alert.body,
         sourceIntegrations: alert.sourceIntegrations,
         aiReasoning: alert.aiReasoning,
-      }, repoFiles, buildLogs) },
+      }, repoFiles, remediationContext) },
     ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
 
-    let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: string };
+    let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: number };
     try {
-      diagnosis = JSON.parse(cleanJSON(diagRaw));
+      const parsed = JSON.parse(cleanJSON(diagRaw));
+      // Normalize confidence to number (backward compat with old "high"/"medium"/"low")
+      let conf = parsed.confidence;
+      if (typeof conf === "string") {
+        conf = conf === "high" ? 90 : conf === "medium" ? 60 : 25;
+      }
+      diagnosis = { ...parsed, confidence: Number(conf) || 50 };
     } catch {
       await fail(sessionId, emit, "AI returned an invalid diagnosis. Try again.");
       return;
     }
 
     // ── CONFIDENCE GATING ───────────────────────────────────────────────
-    if (diagnosis.confidence === "low" && isVercelAlert && !hasSentry) {
+    if (diagnosis.confidence < 30 && isVercelAlert && !hasSentry) {
       steps = await resolveStep(sessionId, steps, "failed",
-        `Low confidence: ${diagnosis.diagnosis}`, emit);
+        `Low confidence (${diagnosis.confidence}%): ${diagnosis.diagnosis}`, emit);
       await fail(sessionId, emit,
         `The error information is too vague to diagnose reliably.\n\n` +
-        `Diagnosis: ${diagnosis.diagnosis}\n\n` +
-        (!buildLogs
+        `Diagnosis: ${diagnosis.diagnosis}\n\nConfidence: ${diagnosis.confidence}%\n\n` +
+        (!remediationContext.vercelBuildLogs
           ? `The Vercel build logs could not be retrieved. Make sure the Vercel integration token has read access to deployments.\n\n`
           : "") +
         `To improve accuracy:\n` +
@@ -276,8 +306,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       return;
     }
 
+    await updateSession(sessionId, { confidenceScore: diagnosis.confidence });
+
     steps = await resolveStep(sessionId, steps, "completed",
-      `Diagnosis (${diagnosis.confidence} confidence): ${diagnosis.diagnosis}`, emit);
+      `Diagnosis (${diagnosis.confidence}% confidence): ${diagnosis.diagnosis}`, emit);
+
+    // Emit confidence so UI can show the score badge
+    emit("confidence", { score: diagnosis.confidence });
 
     // ── READ CODE ──────────────────────────────────────────────────────────
     await updateSession(sessionId, { status: "reading_code" });
@@ -337,16 +372,68 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         return;
       }
 
-      // Validate file paths — reject directory traversal
-      fix.files = fix.files.filter((f) => isSafeFilePath(f.path));
+      // Validate file paths — reject dangerous or blocked files
+      const blockedFiles: string[] = [];
+      fix.files = fix.files.filter((f) => {
+        const reason = getBlockedReason(f.path);
+        if (reason) { blockedFiles.push(`${f.path} (${reason})`); return false; }
+        return true;
+      });
       if (!fix.files.length) {
-        await fail(sessionId, emit, "AI returned invalid file paths.");
+        const blocked = blockedFiles.length ? `\n\nBlocked files: ${blockedFiles.join(", ")}` : "";
+        await fail(sessionId, emit, `AI tried to modify protected files that cannot be auto-patched.${blocked}`);
         return;
+      }
+      if (blockedFiles.length > 0) {
+        // Warn but continue with remaining safe files
+        emit("warning", { message: `Skipped protected files: ${blockedFiles.join(", ")}` });
       }
 
       await updateSession(sessionId, { fileChanges: fix.files });
+
+      // Emit diff so UI can show a preview of what will change
+      emit("diff", { files: fix.files.map((f) => ({ path: f.path, lines: f.content.split("\n").length })) });
+
       steps = await resolveStep(sessionId, steps, "completed",
         `Fix: ${fix.explanation}`, emit);
+
+      // ── SELF-REVIEW ────────────────────────────────────────────────────
+      let selfReview: SelfReviewResult | null = null;
+      steps = await pushStep(sessionId, steps,
+        makeStep("self_review", "AI is reviewing the generated fix for correctness..."), emit);
+
+      try {
+        const reviewRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, [
+          { role: "user", content: buildSelfReviewPrompt(
+            diagnosis.diagnosis, fileContents, fix.files, alert.body
+          ) },
+        ], { maxTokens: 1024, timeout: 45000, model: remModel, provider: aiKey.provider });
+
+        const parsed = JSON.parse(cleanJSON(reviewRaw));
+        selfReview = {
+          score: Number(parsed.score) || 50,
+          concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
+          recommendation: ["approve", "flag", "reject"].includes(parsed.recommendation) ? parsed.recommendation : "flag",
+        };
+      } catch {
+        selfReview = { score: 50, concerns: ["Self-review could not be completed"], recommendation: "flag" };
+      }
+
+      await updateSession(sessionId, { selfReviewResult: selfReview });
+      emit("self_review", selfReview);
+
+      const reviewIcon = selfReview.score >= 80 ? "✅" : selfReview.score >= 50 ? "⚠️" : "❌";
+      steps = await resolveStep(sessionId, steps,
+        selfReview.recommendation === "reject" ? "failed" : "completed",
+        `${reviewIcon} Self-review: ${selfReview.score}/100 — ${selfReview.recommendation}${selfReview.concerns.length > 0 ? ` (${selfReview.concerns.length} concern${selfReview.concerns.length > 1 ? "s" : ""})` : ""}`,
+        emit);
+
+      if (selfReview.recommendation === "reject" && attempt >= session.maxAttempts) {
+        await fail(sessionId, emit,
+          `Self-review rejected the fix (score: ${selfReview.score}/100).\n\nConcerns:\n${selfReview.concerns.map((c) => `• ${c}`).join("\n")}`
+        );
+        return;
+      }
 
       // ── PUSH ─────────────────────────────────────────────────────────────
       await updateSession(sessionId, { status: "pushing", branch: branchName });
@@ -427,19 +514,47 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             ? `CI passed! (${checkCount} check${checkCount > 1 ? "s" : ""})`
             : "No CI configured — code pushed successfully", emit);
 
+        // ── EVALUATE AUTO-MERGE GATES ──────────────────────────────────
+        const autoMergeConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+        const totalLinesChanged = fix.files.reduce((sum, f) => sum + f.content.split("\n").length, 0);
+
+        const gateResult = evaluateAutoMergeGates({
+          config: autoMergeConfig,
+          confidenceScore: diagnosis.confidence,
+          selfReviewResult: selfReview,
+          linesChanged: totalLinesChanged,
+          ciPassed: true,
+        });
+
+        emit("gates", { gates: gateResult.gates, strategy: gateResult.strategy });
+
+        const confidenceEmoji = diagnosis.confidence >= 80 ? "🟢" : diagnosis.confidence >= 50 ? "🟡" : "🔴";
+        const isAutoMerge = gateResult.strategy === "auto_merge";
+
         // ── CREATE PR ────────────────────────────────────────────────────
-        await updateSession(sessionId, { status: "proposing" });
+        await updateSession(sessionId, { status: "proposing", mergeStrategy: gateResult.strategy });
         emit("status", { status: "proposing" });
 
         steps = await pushStep(sessionId, steps,
-          makeStep("create_pr", "Creating pull request..."), emit);
+          makeStep("create_pr", isAutoMerge ? "Creating PR and auto-merging..." : "Creating draft PR for review..."), emit);
 
         const prBody = [
-          `## Automated fix by Inari AI`,
+          `## 🤖 Automated fix by Inari AI`,
           ``,
-          `**Alert:** ${alert.title}`,
-          `**Severity:** ${alert.severity}`,
-          `**Diagnosis:** ${diagnosis.diagnosis}`,
+          isAutoMerge
+            ? `> ✅ **Auto-merged.** All safety gates passed. Post-merge monitoring is active.`
+            : `> **⚠️ This is a draft PR.** Review all changes carefully before marking it ready to merge.`,
+          ``,
+          `| Field | Value |`,
+          `|---|---|`,
+          `| **Alert** | ${alert.title} |`,
+          `| **Severity** | ${alert.severity} |`,
+          `| **Confidence** | ${confidenceEmoji} ${diagnosis.confidence}% |`,
+          `| **Self-review** | ${selfReview ? `${selfReview.score}/100 (${selfReview.recommendation})` : "N/A"} |`,
+          `| **Strategy** | ${isAutoMerge ? "Auto-merged" : "Draft PR"} |`,
+          ``,
+          `### Diagnosis`,
+          diagnosis.diagnosis,
           ``,
           `### What was changed`,
           fix.explanation,
@@ -448,23 +563,84 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           ...fix.files.map((f) => `- \`${f.path}\``),
           ``,
           attempt > 1
-            ? `> This fix was verified after ${attempt} attempts. Previous approaches were tested by CI and failed.\n`
+            ? `> ♻️ This fix was verified after ${attempt} CI attempts. Previous approaches failed.\n`
             : "",
+          ...(isAutoMerge ? [
+            `### Safety gates`,
+            ...gateResult.gates.map((g) => `- ${g.passed ? "✅" : "❌"} ${g.reason}`),
+          ] : [
+            `### Before merging`,
+            `- [ ] Review each file change in the diff`,
+            `- [ ] Confirm CI passes on this branch`,
+            `- [ ] Test manually if the change affects critical paths`,
+            ``,
+            `### Gate results (why not auto-merged)`,
+            ...gateResult.gates.map((g) => `- ${g.passed ? "✅" : "❌"} ${g.reason}`),
+          ]),
+          ``,
           `---`,
-          `*Generated and verified by Inari AI remediation*`,
+          `*Generated by [Inari AI](https://inariwatch.com)*`,
         ].join("\n");
 
         try {
           const pr = await gh.createPR(
             token, owner, repo,
             `fix: ${alert.title.slice(0, 60)}`,
-            prBody, branchName, defaultBranch
+            prBody, branchName, defaultBranch,
+            !isAutoMerge // draft = true if NOT auto-merge
           );
           await updateSession(sessionId, { prUrl: pr.url, prNumber: pr.number });
-          steps = await resolveStep(sessionId, steps, "completed", `PR #${pr.number} created`, emit);
+
+          if (isAutoMerge) {
+            // Auto-merge the PR
+            steps = await resolveStep(sessionId, steps, "completed", `PR #${pr.number} created`, emit);
+
+            steps = await pushStep(sessionId, steps,
+              makeStep("auto_merge", "Auto-merging — all safety gates passed..."), emit);
+
+            try {
+              const mergeResult = await gh.mergePR(token, owner, repo, pr.number);
+              const mergedSha = mergeResult.sha;
+              steps = await resolveStep(sessionId, steps, "completed",
+                `PR #${pr.number} auto-merged successfully`, emit);
+
+              // Start post-merge monitoring if enabled
+              if (autoMergeConfig.postMergeMonitor) {
+                steps = await pushStep(sessionId, steps,
+                  makeStep("monitoring", "Post-merge monitoring — watching for regressions (10 min)..."), emit);
+
+                await startPostMergeMonitoring({
+                  sessionId,
+                  projectId: session.projectId,
+                  mergedCommitSha: mergedSha,
+                  alertTitle: alert.title,
+                  repo: fullRepo,
+                  defaultBranch,
+                  ghToken: token,
+                  emit,
+                });
+                return; // post-merge monitor handles emit("done")
+              } else {
+                await updateSession(sessionId, { status: "completed" });
+                emit("done", { status: "completed", prUrl: pr.url, prNumber: pr.number, autoMerged: true });
+                return;
+              }
+            } catch (mergeErr) {
+              const msg = mergeErr instanceof Error ? mergeErr.message : "Merge failed";
+              steps = await resolveStep(sessionId, steps, "failed", `Auto-merge failed: ${msg}`, emit);
+              // Fall through to show as draft PR
+              steps = await pushStep(sessionId, steps,
+                makeStep("fallback", `Falling back to draft PR — review and merge manually.`, "completed"), emit);
+              emit("done", { status: "proposing", prUrl: pr.url, prNumber: pr.number });
+              return;
+            }
+          }
+
+          // Draft PR path
+          steps = await resolveStep(sessionId, steps, "completed", `Draft PR #${pr.number} created`, emit);
 
           steps = await pushStep(sessionId, steps,
-            makeStep("done", `Fix verified — CI passes. Ready for your approval.`, "completed"), emit);
+            makeStep("done", `Fix verified — CI passes. Review the draft PR on GitHub.`, "completed"), emit);
 
           emit("done", { status: "proposing", prUrl: pr.url, prNumber: pr.number });
           return;

@@ -13,6 +13,16 @@ interface Deployment {
   target: string | null;
   url: string;
   errorMessage?: string;
+  buildingAt?: number;
+  createdAt?: number;
+  meta?: {
+    githubCommitRef?: string;
+    githubCommitSha?: string;
+    githubCommitMessage?: string;
+    branch?: string;
+    commitMessage?: string;
+  };
+  creator?: { name?: string; username?: string; email?: string };
 }
 
 export async function pollVercel(
@@ -51,10 +61,30 @@ export async function pollVercel(
     if (isProduction && !checkProd)    continue;
     if (!isProduction && !checkPreview) continue;
 
+    const branch = dep.meta?.githubCommitRef ?? dep.meta?.branch ?? "";
+    const commitSha = (dep.meta?.githubCommitSha ?? "").slice(0, 7);
+    const commitMsg = dep.meta?.githubCommitMessage ?? dep.meta?.commitMessage ?? "";
+    const creatorName = dep.creator?.name ?? dep.creator?.username ?? dep.creator?.email ?? "";
+    const buildingAt = dep.buildingAt ? new Date(dep.buildingAt) : null;
+    const durationSec = buildingAt ? Math.round((Date.now() - buildingAt.getTime()) / 1000) : null;
+    const durationLine = durationSec && durationSec > 0
+      ? `Build time: ${durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`}`
+      : "";
+    const dashUrl = dep.uid ? `https://vercel.com/deployments/${dep.uid}` : "";
+
+    const bodyParts = [
+      dep.errorMessage ?? `Build ${dep.state.toLowerCase()}`,
+      branch ? `Branch: ${branch}${commitSha ? ` @ ${commitSha}` : ""}` : "",
+      commitMsg ? `Commit: ${commitMsg.slice(0, 80)}` : "",
+      creatorName ? `Deployed by: ${creatorName}` : "",
+      durationLine,
+      dashUrl ? `Logs: ${dashUrl}` : (dep.url ? `URL: https://${dep.url}` : ""),
+    ].filter(Boolean).join("\n");
+
     results.push({
       severity: isProduction ? "critical" : "warning",
       title: `${isProduction ? "Production" : "Preview"} deploy failed — ${dep.name}`,
-      body: dep.errorMessage ?? `Build ${dep.state.toLowerCase()} · ${dep.url}`,
+      body: bodyParts,
       sourceIntegrations: ["vercel"],
       isRead: false,
       isResolved: false,

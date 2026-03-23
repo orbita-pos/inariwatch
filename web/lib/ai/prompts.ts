@@ -74,6 +74,14 @@ CRITICAL RULES:
 
 You respond ONLY in valid JSON. No markdown, no explanation outside the JSON.`;
 
+export type RemediationContext = {
+  sentryStackTrace: string | null;
+  sentryIssueDetails: string | null;
+  vercelBuildLogs: string | null;
+  githubCILogs: string | null;
+  datadogMetrics: string | null;
+};
+
 export function buildDiagnosePrompt(
   alert: {
     title: string;
@@ -82,7 +90,7 @@ export function buildDiagnosePrompt(
     aiReasoning?: string | null;
   },
   repoFiles: string[],
-  buildLogs?: string | null
+  context?: RemediationContext | null
 ): string {
   // Show a subset of the file tree to avoid token explosion
   const fileTree = repoFiles
@@ -90,9 +98,13 @@ export function buildDiagnosePrompt(
     .slice(0, 500)
     .join("\n");
 
-  const buildLogSection = buildLogs
-    ? `\n\nBUILD / RUNTIME LOGS (actual compiler or runtime output):\n${buildLogs.slice(0, 2500)}`
-    : "";
+  const contextSections: string[] = [];
+  if (context?.sentryStackTrace) contextSections.push(`SENTRY STACK TRACE:\n${context.sentryStackTrace.slice(0, 2500)}`);
+  if (context?.sentryIssueDetails) contextSections.push(`SENTRY ISSUE DETAILS:\n${context.sentryIssueDetails.slice(0, 1500)}`);
+  if (context?.vercelBuildLogs) contextSections.push(`VERCEL BUILD LOGS:\n${context.vercelBuildLogs.slice(0, 2500)}`);
+  if (context?.githubCILogs) contextSections.push(`GITHUB CI LOGS:\n${context.githubCILogs.slice(0, 2500)}`);
+  if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1500)}`);
+  const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   return `Analyze this error and identify the files that need to be fixed.
 
@@ -110,8 +122,14 @@ Respond in JSON:
 {
   "diagnosis": "What exactly went wrong (1-2 sentences)",
   "filesToRead": ["path/to/file1.ts", "path/to/file2.ts"],
-  "confidence": "high" | "medium" | "low"
+  "confidence": <number 0-100>
 }
+
+Confidence scoring guide:
+  90-100: Very clear error with obvious root cause from logs/stack traces
+  60-89: Likely cause but some ambiguity remains
+  30-59: Educated guess based on limited information
+  0-29: Too vague to diagnose reliably
 
 Only request files that exist in the tree above. Request 1-5 files maximum.
 Focus on source files (.ts, .tsx, .js, .jsx, .py, .go, .rs, etc.), not config files, unless the error is clearly config-related.
@@ -120,7 +138,7 @@ CRITICAL RULES:
 - If build/runtime logs are provided above, base your diagnosis ONLY on what the logs say. Do not guess.
 - Do NOT invent errors like "missing React import" or "missing dependency" unless the logs specifically mention them.
 - If the error details are too vague to determine the root cause with certainty, set confidence to "low" and explain what info is missing in the diagnosis.
-- A generic message like "Build failed" without build logs is NOT enough to diagnose — set confidence to "low".`;
+- A generic message like "Build failed" without build logs is NOT enough to diagnose — set confidence to 20 or lower.`;
 }
 
 export function buildFixPrompt(
@@ -171,4 +189,53 @@ RULES:
 - Change ONLY what is necessary to fix the error.
 - Make sure the code compiles and types are correct.
 - If you need to change multiple files, include all of them.`;
+}
+
+// ── Self-review prompt ────────────────────────────────────────────────────────
+
+export const SYSTEM_REVIEWER = `You are a senior code reviewer performing an automated review of an AI-generated fix.
+You review diffs for correctness, safety, style, and potential regressions.
+You are strict — only approve changes that are clearly correct and minimal.
+You respond ONLY in valid JSON. No markdown, no explanation outside the JSON.`;
+
+export function buildSelfReviewPrompt(
+  diagnosis: string,
+  originalFiles: { path: string; content: string }[],
+  fixedFiles: { path: string; content: string }[],
+  errorDetails: string
+): string {
+  const diffs = fixedFiles.map((fixed) => {
+    const original = originalFiles.find((o) => o.path === fixed.path);
+    return `--- ${fixed.path} (original) ---\n${original?.content.slice(0, 5000) ?? "(new file)"}\n\n+++ ${fixed.path} (fixed) ---\n${fixed.content.slice(0, 5000)}`;
+  }).join("\n\n========\n\n");
+
+  return `Review this AI-generated code fix.
+
+ERROR BEING FIXED:
+${errorDetails.slice(0, 1000)}
+
+DIAGNOSIS:
+${diagnosis}
+
+CODE CHANGES:
+${diffs}
+
+Review the changes and respond in JSON:
+{
+  "score": <number 0-100>,
+  "concerns": ["list of specific concerns, if any"],
+  "recommendation": "approve" | "flag" | "reject"
+}
+
+Scoring guide:
+  90-100: Fix is clearly correct, minimal, and safe. Approve.
+  60-89: Fix looks reasonable but has minor concerns. Flag for human review.
+  0-59: Fix has significant issues, may introduce bugs. Reject.
+
+Specifically check for:
+- Does the fix actually address the diagnosed error?
+- Could it introduce new bugs or regressions?
+- Are there any type errors, missing imports, or syntax issues?
+- Is the change minimal, or does it modify unrelated code?
+- Could it break any existing tests?`;
 }

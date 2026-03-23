@@ -26,8 +26,10 @@ import { EscalationSection } from "./escalation";
 import { StatusPageSection } from "./status-page";
 import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
+import { AutoMergeSection } from "./auto-merge";
 import { ProGate } from "@/components/pro-gate";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
+import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Project" };
@@ -330,6 +332,12 @@ export default async function ProjectDetailPage({
           endsAt: w.endsAt,
           createdAt: w.createdAt,
         }))}
+      />
+
+      <AutoMergeSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        config={(project.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG}
       />
 
       <OnCallSection

@@ -42,6 +42,7 @@ export function MarketingNav() {
           <Link href="#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Integrations</Link>
           <Link href="#ai"           className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>AI features</Link>
           <Link href="/docs"         className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Docs</Link>
+          <Link href="/blog"         className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Blog</Link>
         </div>
 
         <div className="flex items-center gap-3">

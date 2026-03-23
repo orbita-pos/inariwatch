@@ -14,7 +14,12 @@ interface SentryIssue {
   isRegression: boolean;
   count: string;
   userCount: number;
+  level: string;
+  permalink?: string;
+  shortId?: string;
+  firstSeen?: string;
   project: { slug: string };
+  assignedTo?: { name?: string; email?: string } | null;
 }
 
 export async function pollSentry(
@@ -52,10 +57,27 @@ export async function pollSentry(
     if (issue.isRegression && !checkRegressions) continue;
     if (!issue.isNew && !issue.isRegression)     continue;
 
+    const level = issue.level ?? "error";
+    const severity = issue.isRegression ? "critical" : (level === "fatal" ? "critical" : "warning");
+    const firstSeen = issue.firstSeen
+      ? new Date(issue.firstSeen).toISOString().replace("T", " ").slice(0, 16) + " UTC"
+      : "";
+    const assignedName = issue.assignedTo ? (issue.assignedTo.name ?? issue.assignedTo.email ?? "") : "";
+
+    const bodyParts = [
+      issue.culprit ? `In: ${issue.culprit}` : "",
+      issue.shortId ? `ID: ${issue.shortId}` : "",
+      `${issue.count} events · ${issue.userCount} user(s) affected`,
+      `Project: ${issue.project.slug}`,
+      firstSeen ? `First seen: ${firstSeen}` : "",
+      assignedName ? `Assigned to: ${assignedName}` : "",
+      issue.permalink ? `View in Sentry: ${issue.permalink}` : "",
+    ].filter(Boolean).join("\n");
+
     results.push({
-      severity: issue.isRegression ? "critical" : "warning",
+      severity,
       title: `${issue.isRegression ? "[Regression]" : "[New Issue]"} ${issue.title}`,
-      body: `${issue.culprit} · ${issue.count} events · ${issue.userCount} user(s) affected`,
+      body: bodyParts,
       sourceIntegrations: ["sentry"],
       isRead: false,
       isResolved: false,

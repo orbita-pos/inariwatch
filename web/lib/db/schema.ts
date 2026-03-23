@@ -94,8 +94,27 @@ export const projects = pgTable("projects", {
   slug: text("slug").notNull().unique(),
   description: text("description"),
   visibility: text("visibility").default("all").notNull(), // 'all' | 'restricted'
+  autoMergeConfig: jsonb("auto_merge_config"), // AutoMergeConfig
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export type AutoMergeConfig = {
+  enabled: boolean;
+  minConfidence: number;      // 0-100
+  maxLinesChanged: number;
+  requireSelfReview: boolean;
+  postMergeMonitor: boolean;
+  autoRevert: boolean;
+};
+
+export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
+  enabled: false,
+  minConfidence: 90,
+  maxLinesChanged: 50,
+  requireSelfReview: true,
+  postMergeMonitor: true,
+  autoRevert: true,
+};
 
 export const projectIntegrations = pgTable("project_integrations", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -339,6 +358,13 @@ export const remediationSessions = pgTable("remediation_sessions", {
   fileChanges: jsonb("file_changes"),   // [{path, content}]
   steps: jsonb("steps").notNull().default([]),
   error: text("error"),
+  confidenceScore: integer("confidence_score"),
+  selfReviewResult: jsonb("self_review_result"),  // { score, concerns, recommendation }
+  mergeStrategy: text("merge_strategy"),           // 'draft_pr' | 'auto_merged'
+  mergedCommitSha: text("merged_commit_sha"),
+  monitoringUntil: timestamp("monitoring_until", { withTimezone: true }),
+  monitoringStatus: text("monitoring_status"),     // 'watching' | 'passed' | 'reverted'
+  revertPrUrl: text("revert_pr_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -435,3 +461,20 @@ export type OnCallSchedule = typeof onCallSchedules.$inferSelect;
 export type OnCallSlot = typeof onCallSlots.$inferSelect;
 export type OnCallOverride = typeof onCallOverrides.$inferSelect;
 export type IncidentStorm = typeof incidentStorms.$inferSelect;
+
+// ── Blog ──────────────────────────────────────────────────────────────────────
+
+export const blogPosts = pgTable("blog_posts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  content: text("content").notNull().default(""),
+  tag: text("tag").notNull().default("Update"),
+  isPublished: boolean("is_published").default(false).notNull(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type BlogPost = typeof blogPosts.$inferSelect;

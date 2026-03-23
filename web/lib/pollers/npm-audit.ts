@@ -26,6 +26,7 @@ interface GitHubAdvisory {
       name: string;
     };
     vulnerable_version_range: string;
+    first_patched_version: string | null;
   }[];
   html_url: string;
 }
@@ -138,11 +139,11 @@ function extractCargoDependencies(cargoToml: string): string[] {
 async function checkNpmAdvisories(
   deps: Record<string, string>,
   token?: string
-): Promise<{ name: string; severity: string; summary: string; ghsaId: string; url: string }[]> {
+): Promise<{ name: string; severity: string; summary: string; ghsaId: string; url: string; vulnerableRange: string; patchedVersion: string }[]> {
   const depNames = Object.keys(deps);
   if (depNames.length === 0) return [];
 
-  const findings: { name: string; severity: string; summary: string; ghsaId: string; url: string }[] = [];
+  const findings: { name: string; severity: string; summary: string; ghsaId: string; url: string; vulnerableRange: string; patchedVersion: string }[] = [];
 
   // Query GitHub Advisory Database for npm advisories
   // We check in batches by searching for the user's specific packages
@@ -171,12 +172,15 @@ async function checkNpmAdvisories(
 
         const advisories: GitHubAdvisory[] = await res.json();
         for (const adv of advisories) {
+          const vuln = adv.vulnerabilities.find((v) => v.package.name === pkgName);
           findings.push({
             name: pkgName,
             severity: adv.severity,
             summary: adv.summary,
             ghsaId: adv.ghsa_id,
             url: adv.html_url,
+            vulnerableRange: vuln?.vulnerable_version_range ?? "",
+            patchedVersion: vuln?.first_patched_version ?? "",
           });
         }
       } catch {
@@ -191,10 +195,10 @@ async function checkNpmAdvisories(
 async function checkCargoAdvisories(
   deps: string[],
   token?: string
-): Promise<{ name: string; severity: string; summary: string; ghsaId: string; url: string }[]> {
+): Promise<{ name: string; severity: string; summary: string; ghsaId: string; url: string; vulnerableRange: string; patchedVersion: string }[]> {
   if (deps.length === 0) return [];
 
-  const findings: { name: string; severity: string; summary: string; ghsaId: string; url: string }[] = [];
+  const findings: { name: string; severity: string; summary: string; ghsaId: string; url: string; vulnerableRange: string; patchedVersion: string }[] = [];
 
   const headers: Record<string, string> = {
     "User-Agent": "InariWatch-Monitor/1.0",
@@ -214,12 +218,15 @@ async function checkCargoAdvisories(
 
       const advisories: GitHubAdvisory[] = await res.json();
       for (const adv of advisories) {
+        const vuln = adv.vulnerabilities.find((v) => v.package.name === pkgName);
         findings.push({
           name: pkgName,
           severity: adv.severity,
           summary: adv.summary,
           ghsaId: adv.ghsa_id,
           url: adv.html_url,
+          vulnerableRange: vuln?.vulnerable_version_range ?? "",
+          patchedVersion: vuln?.first_patched_version ?? "",
         });
       }
     } catch {
@@ -280,13 +287,17 @@ export async function pollNpmAudit(
     if (checkCritical && critical.length > 0) {
       const details = critical
         .slice(0, 5)
-        .map((a) => `${a.name}: ${a.summary} (${a.ghsaId})`)
+        .map((a) => {
+          const range = a.vulnerableRange ? ` (${a.vulnerableRange})` : "";
+          const fix = a.patchedVersion ? ` → fix: ${a.patchedVersion}` : " → no patch yet";
+          return `• ${a.name}${range}${fix}\n  ${a.summary}\n  ${a.ghsaId}: ${a.url}`;
+        })
         .join("\n");
 
       results.push({
         severity: "critical",
         title: `[npm] ${critical.length} critical CVE(s) found`,
-        body: `Critical vulnerabilities in your npm dependencies:\n${details}`,
+        body: `Critical vulnerabilities in your npm dependencies:\n\n${details}`,
         sourceIntegrations: ["npm"],
         isRead: false,
         isResolved: false,
@@ -296,13 +307,17 @@ export async function pollNpmAudit(
     if (checkHigh && high.length > 0) {
       const details = high
         .slice(0, 5)
-        .map((a) => `${a.name}: ${a.summary} (${a.ghsaId})`)
+        .map((a) => {
+          const range = a.vulnerableRange ? ` (${a.vulnerableRange})` : "";
+          const fix = a.patchedVersion ? ` → fix: ${a.patchedVersion}` : " → no patch yet";
+          return `• ${a.name}${range}${fix}\n  ${a.summary}\n  ${a.ghsaId}: ${a.url}`;
+        })
         .join("\n");
 
       results.push({
         severity: "warning",
         title: `[npm] ${high.length} high-severity CVE(s) found`,
-        body: `High-severity vulnerabilities in your npm dependencies:\n${details}`,
+        body: `High-severity vulnerabilities in your npm dependencies:\n\n${details}`,
         sourceIntegrations: ["npm"],
         isRead: false,
         isResolved: false,
@@ -334,13 +349,17 @@ export async function pollNpmAudit(
     if (checkCritical && critical.length > 0) {
       const details = critical
         .slice(0, 5)
-        .map((a) => `${a.name}: ${a.summary} (${a.ghsaId})`)
+        .map((a) => {
+          const range = a.vulnerableRange ? ` (${a.vulnerableRange})` : "";
+          const fix = a.patchedVersion ? ` → fix: ${a.patchedVersion}` : " → no patch yet";
+          return `• ${a.name}${range}${fix}\n  ${a.summary}\n  ${a.ghsaId}: ${a.url}`;
+        })
         .join("\n");
 
       results.push({
         severity: "critical",
         title: `[Cargo] ${critical.length} critical CVE(s) found`,
-        body: `Critical vulnerabilities in your Cargo dependencies:\n${details}`,
+        body: `Critical vulnerabilities in your Cargo dependencies:\n\n${details}`,
         sourceIntegrations: ["npm"],
         isRead: false,
         isResolved: false,
@@ -350,13 +369,17 @@ export async function pollNpmAudit(
     if (checkHigh && high.length > 0) {
       const details = high
         .slice(0, 5)
-        .map((a) => `${a.name}: ${a.summary} (${a.ghsaId})`)
+        .map((a) => {
+          const range = a.vulnerableRange ? ` (${a.vulnerableRange})` : "";
+          const fix = a.patchedVersion ? ` → fix: ${a.patchedVersion}` : " → no patch yet";
+          return `• ${a.name}${range}${fix}\n  ${a.summary}\n  ${a.ghsaId}: ${a.url}`;
+        })
         .join("\n");
 
       results.push({
         severity: "warning",
         title: `[Cargo] ${high.length} high-severity CVE(s) found`,
-        body: `High-severity vulnerabilities in your Cargo dependencies:\n${details}`,
+        body: `High-severity vulnerabilities in your Cargo dependencies:\n\n${details}`,
         sourceIntegrations: ["npm"],
         isRead: false,
         isResolved: false,
