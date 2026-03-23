@@ -462,6 +462,17 @@ export type OnCallSlot = typeof onCallSlots.$inferSelect;
 export type OnCallOverride = typeof onCallOverrides.$inferSelect;
 export type IncidentStorm = typeof incidentStorms.$inferSelect;
 
+// ── Blog subscribers ──────────────────────────────────────────────────────────
+
+export const blogSubscribers = pgTable("blog_subscribers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  unsubscribeToken: text("unsubscribe_token").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type BlogSubscriber = typeof blogSubscribers.$inferSelect;
+
 // ── Blog ──────────────────────────────────────────────────────────────────────
 
 export const blogPosts = pgTable("blog_posts", {

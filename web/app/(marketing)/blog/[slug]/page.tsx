@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { db, blogPosts } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { MarketingNav } from "../../marketing-nav";
+import { SubscribeForm } from "../subscribe-form";
 import type { Metadata } from "next";
 
 function formatDate(d: Date | null): string {
@@ -110,7 +111,14 @@ export default async function BlogPostPage({
           dangerouslySetInnerHTML={{ __html: renderMarkdown(post.content) }}
         />
 
-        <div className="mt-16 rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6 text-center">
+        {/* Subscribe */}
+        <div className="mt-12 rounded-xl border border-inari-border bg-inari-card/50 px-5 py-5">
+          <p className="text-sm font-medium text-fg-strong mb-0.5">Enjoyed this post?</p>
+          <p className="text-xs text-zinc-500 mb-4">Get notified when we publish new ones — no spam, unsubscribe any time.</p>
+          <SubscribeForm compact />
+        </div>
+
+        <div className="mt-4 rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6 text-center">
           <p className="text-sm font-semibold text-fg-strong mb-1">Try InariWatch for free</p>
           <p className="text-xs text-zinc-500 mb-4">No credit card required. Connect your stack in minutes.</p>
           <Link

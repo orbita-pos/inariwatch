@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
 import { MarketingNav } from "./marketing-nav";
+import { SubscribeForm } from "./blog/subscribe-form";
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -1109,6 +1110,33 @@ function Sponsors() {
   );
 }
 
+// ── Newsletter ────────────────────────────────────────────────────────────────
+
+function Newsletter() {
+  return (
+    <section className="py-20 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mx-auto max-w-xl text-center">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Blog</p>
+          <h2 className="text-2xl font-bold text-fg-strong sm:text-3xl">
+            Stay in the loop
+          </h2>
+          <p className="mt-3 text-fg-base text-sm leading-relaxed">
+            New features, engineering deep-dives, and DevOps insights — straight to your inbox.
+            No spam, unsubscribe any time.
+          </p>
+          <div className="mt-6 mx-auto max-w-sm">
+            <SubscribeForm />
+          </div>
+          <p className="mt-3 text-xs text-zinc-600">
+            Or read the <Link href="/blog" className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition-colors">blog</Link> first.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 function Footer() {
@@ -1149,6 +1177,7 @@ export default function LandingPage() {
         <CorrelationDemo />
         <HowItWorks />
         <OpenSourceModel />
+        <Newsletter />
       </main>
       <Footer />
     </div>

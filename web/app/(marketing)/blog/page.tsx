@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { db, blogPosts } from "@/lib/db";
 import { eq, desc } from "drizzle-orm";
 import { MarketingNav } from "../marketing-nav";
+import { SubscribeForm } from "./subscribe-form";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -30,6 +31,17 @@ export default async function BlogPage() {
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Blog</p>
           <h1 className="text-4xl font-bold text-fg-strong tracking-tight">What we're building</h1>
           <p className="mt-3 text-fg-base">Feature releases, engineering deep-dives, and DevOps insights.</p>
+        </div>
+
+        {/* Subscribe inline */}
+        <div className="mb-10 rounded-xl border border-inari-border bg-inari-card/50 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-fg-strong">Get notified on new posts</p>
+            <p className="text-xs text-zinc-500 mt-0.5">No spam — just feature releases and engineering updates.</p>
+          </div>
+          <div className="w-full sm:w-72 shrink-0">
+            <SubscribeForm compact />
+          </div>
         </div>
 
         {posts.length === 0 ? (

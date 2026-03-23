@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { db, blogPosts } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { sendNewPostNotification } from "@/lib/notifications/blog-email";
 
 function slugify(title: string): string {
   return title
@@ -58,6 +59,17 @@ export async function createPost(data: {
 
   revalidatePath("/blog");
   revalidatePath("/admin/blog");
+
+  // Notify subscribers when publishing immediately
+  if (publish) {
+    sendNewPostNotification({
+      title: title.trim(),
+      description: description.trim(),
+      slug,
+      tag: tag.trim() || "Update",
+    }).catch(() => {}); // fire-and-forget, don't block the response
+  }
+
   return { id: post.id };
 }
 
@@ -96,6 +108,17 @@ export async function updatePost(
   revalidatePath("/blog");
   revalidatePath(`/blog/${existing.slug}`);
   revalidatePath("/admin/blog");
+
+  // Notify subscribers only when newly publishing (draft → published)
+  if (publish && !existing.isPublished) {
+    sendNewPostNotification({
+      title: title.trim(),
+      description: description.trim(),
+      slug: existing.slug,
+      tag: tag.trim() || "Update",
+    }).catch(() => {}); // fire-and-forget
+  }
+
   return {};
 }
 
