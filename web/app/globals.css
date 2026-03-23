@@ -29,22 +29,27 @@
   .dark {
     color-scheme: dark;
 
-    --bg-page:         #09090b;
-    --bg-card:         #0a0a0a;
-    --bg-card-inner:   #080808;
-    --bg-card-elevated:#111111;
+    /* Content area — deepest layer */
+    --bg-page:          #0c0c12;
+    /* Sidebar — slightly elevated with purple tint for depth */
+    --bg-card:          #111118;
+    /* Hover states, inputs */
+    --bg-card-inner:    #18181f;
+    /* Card backgrounds — purple-tinted to feel branded */
+    --bg-card-elevated: #1c1c26;
 
-    --bd-default:      #1a1a1a;
-    --bd-subtle:       #131313;
-    --bd-medium:       #222222;
+    --bd-default:       #1e1e2c;
+    --bd-subtle:        #171720;
+    --bd-medium:        #28283a;
 
-    --fg-strong:       #ffffff;
-    --fg-base:         #d4d4d8;
+    --fg-strong:        #f0f0f5;
+    /* Cooler muted text — less flat than zinc-300 */
+    --fg-base:          #b0b0c8;
 
     /* inari marketing colors — dark */
-    --inari-bg:        #09090b;
-    --inari-card:      #0d0d10;
-    --inari-border:    #1e1e22;
+    --inari-bg:         #0c0c12;
+    --inari-card:       #111118;
+    --inari-border:     #1e1e2c;
   }
 
   * {
@@ -67,8 +72,8 @@
   ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
 
-  .dark ::-webkit-scrollbar-thumb { background: #27272a; }
-  .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+  .dark ::-webkit-scrollbar-thumb { background: #252535; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: #35354a; }
   :not(.dark) ::-webkit-scrollbar-thumb { background: #d4d4d8; }
   :not(.dark) ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
 

@@ -48,21 +48,14 @@ function NavLink({ href, label, icon: Icon }: NavItem) {
   return (
     <Link
       href={href}
-      className={`group relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-all ${
+      className={`group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all ${
         active
-          ? "bg-black/[0.06] dark:bg-white/[0.06] text-fg-strong"
-          : "text-zinc-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] hover:text-fg-base"
+          ? "bg-inari-accent/10 text-inari-accent font-medium dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-violet-500 dark:text-white dark:shadow-[0_2px_10px_rgba(124,58,237,0.35)]"
+          : "text-zinc-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.05] hover:text-fg-base"
       }`}
     >
-      {active && (
-        <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r-full bg-inari-accent" />
-      )}
-      <Icon
-        className={`h-4 w-4 shrink-0 transition-colors ${
-          active ? "text-inari-accent" : "text-zinc-600 group-hover:text-zinc-400"
-        }`}
-      />
-      <span className={active ? "font-medium text-fg-strong" : ""}>{label}</span>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span>{label}</span>
     </Link>
   );
 }
@@ -75,7 +68,7 @@ export function SidebarNav({ unreadAlerts: _ = 0, isAdmin = false, activeOrgId }
       {NAV_GROUPS.map((group, i) => (
         <div key={i}>
           {group.label && (
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
               {group.label}
             </p>
           )}
