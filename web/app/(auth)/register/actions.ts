@@ -20,7 +20,7 @@ export async function registerUser(
   }
 
   // Rate limit: 5 registrations per IP-ish (keyed by email prefix) per hour
-  const rl = rateLimit("register", email, { windowMs: 60 * 60_000, max: 5 });
+  const rl = await rateLimit("register", email, { windowMs: 60 * 60_000, max: 5 });
   if (!rl.allowed) {
     return { success: false, error: "Too many attempts. Try again later." };
   }

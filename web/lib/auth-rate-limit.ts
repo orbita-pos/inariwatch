@@ -1,63 +1,52 @@
 /**
- * General-purpose in-memory rate limiter for auth endpoints.
- * Tracks attempts per key (IP or email) with fixed windows.
+ * DB-backed rate limiter for auth and general endpoints.
+ * Uses a single atomic UPSERT per check — safe across serverless instances.
  */
 
-interface RateLimitEntry {
-  count: number;
-  windowStart: number;
-}
-
-const stores = new Map<string, Map<string, RateLimitEntry>>();
-
-function getStore(namespace: string): Map<string, RateLimitEntry> {
-  let store = stores.get(namespace);
-  if (!store) {
-    store = new Map();
-    stores.set(namespace, store);
-  }
-  return store;
-}
+import { db, rateLimits } from "@/lib/db";
+import { eq, lt, sql } from "drizzle-orm";
 
 /**
  * Check whether a request identified by `key` in a given `namespace` is allowed.
+ * Uses an atomic INSERT … ON CONFLICT UPDATE to avoid race conditions.
  *
  * @returns `{ allowed: true }` or `{ allowed: false, retryAfterSeconds }`.
  */
-export function rateLimit(
+export async function rateLimit(
   namespace: string,
   key: string,
   { windowMs = 60_000, max = 5 }: { windowMs?: number; max?: number } = {}
-): { allowed: boolean; retryAfterSeconds?: number } {
-  const store = getStore(namespace);
-  const now = Date.now();
-  const entry = store.get(key);
+): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
+  const compositeKey = `${namespace}:${key}`;
+  const threshold = new Date(Date.now() - windowMs);
 
-  if (!entry || now - entry.windowStart >= windowMs) {
-    store.set(key, { count: 1, windowStart: now });
-    return { allowed: true };
-  }
+  const [row] = await db
+    .insert(rateLimits)
+    .values({ key: compositeKey, count: 1, windowStart: new Date() })
+    .onConflictDoUpdate({
+      target: rateLimits.key,
+      set: {
+        count: sql`CASE WHEN ${rateLimits.windowStart} < ${threshold} THEN 1 WHEN ${rateLimits.count} < ${max} THEN ${rateLimits.count} + 1 ELSE ${rateLimits.count} END`,
+        windowStart: sql`CASE WHEN ${rateLimits.windowStart} < ${threshold} THEN NOW() ELSE ${rateLimits.windowStart} END`,
+      },
+    })
+    .returning({ count: rateLimits.count, windowStart: rateLimits.windowStart });
 
-  if (entry.count < max) {
-    entry.count++;
+  if (row.count <= max) {
     return { allowed: true };
   }
 
   const retryAfterSeconds = Math.ceil(
-    (entry.windowStart + windowMs - now) / 1000
+    (row.windowStart.getTime() + windowMs - Date.now()) / 1000
   );
   return { allowed: false, retryAfterSeconds: Math.max(retryAfterSeconds, 1) };
 }
 
-// Periodic cleanup — remove entries older than 5 minutes
-const cleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [, store] of stores) {
-    for (const [key, entry] of store) {
-      if (now - entry.windowStart >= 300_000) store.delete(key);
-    }
-  }
-}, 300_000);
-if (typeof cleanupTimer === "object" && "unref" in cleanupTimer) {
-  cleanupTimer.unref();
+/**
+ * Probabilistic cleanup of expired entries (runs ~1% of calls).
+ * Call this from a cron route or let it piggyback on normal traffic.
+ */
+export async function cleanupExpiredLimits(): Promise<void> {
+  const oneHourAgo = new Date(Date.now() - 3_600_000);
+  await db.delete(rateLimits).where(lt(rateLimits.windowStart, oneHourAgo));
 }

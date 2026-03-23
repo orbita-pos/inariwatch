@@ -223,7 +223,7 @@ export async function sendEmailCode(
   if (!email || !email.includes("@")) return { error: "Invalid email address." };
 
   // Rate limit: max 5 code requests per 15 minutes per user
-  const rl = rateLimit("email-code", userId, { windowMs: 15 * 60_000, max: 5 });
+  const rl = await rateLimit("email-code", userId, { windowMs: 15 * 60_000, max: 5 });
   if (!rl.allowed) {
     return { error: `Too many attempts. Retry in ${rl.retryAfterSeconds}s.` };
   }
@@ -266,7 +266,7 @@ export async function verifyEmailCode(
   if (!userId) return { error: "Not authenticated." };
 
   // Rate limit: max 10 verify attempts per 15 minutes per user
-  const rl = rateLimit("email-verify", userId, { windowMs: 15 * 60_000, max: 10 });
+  const rl = await rateLimit("email-verify", userId, { windowMs: 15 * 60_000, max: 10 });
   if (!rl.allowed) {
     return { error: `Too many attempts. Retry in ${rl.retryAfterSeconds}s.` };
   }

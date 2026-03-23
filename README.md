@@ -4,6 +4,10 @@
 
 <br />
 
+<img src="web/public/demo.gif" alt="InariWatch demo" width="100%" />
+
+<br />
+
 # InariWatch
 
 **The monitoring platform that fixes itself.**

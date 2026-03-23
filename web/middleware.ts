@@ -10,6 +10,7 @@ const PROTECTED_PATHS = [
   "/chat",
   "/integrations",
   "/settings",
+  "/admin",
 ];
 
 const ALWAYS_ALLOWED = [

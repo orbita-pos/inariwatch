@@ -489,3 +489,11 @@ export const blogPosts = pgTable("blog_posts", {
 });
 
 export type BlogPost = typeof blogPosts.$inferSelect;
+
+// ── Rate Limiting ────────────────────────────────────────────────────────────
+
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(1),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+});

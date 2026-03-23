@@ -32,11 +32,13 @@ function renderMarkdown(md: string): string {
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\[(.+?)\]\((.+?)\)/g, (_, text, url) => {
       const safe = url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/");
-      return safe ? `<a href="${url}">${text}</a>` : text;
+      if (!safe) return text;
+      const href = url.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      return `<a href="${href}">${text}</a>`;
     })
     .replace(/^---$/gm, "<hr>")
     .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>")
+    .replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>")
     .split(/\n\n+/)
     .map((block) => {
       if (/^<(h[1-6]|ul|pre|hr)/.test(block.trim())) return block;

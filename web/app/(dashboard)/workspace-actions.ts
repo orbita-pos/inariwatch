@@ -32,7 +32,7 @@ export async function createOrganization(
   if (!userId) return { error: "Not authenticated." };
 
   // Rate limit: max 5 orgs created per hour per user
-  const rl = rateLimit("create-org", userId, { windowMs: 3_600_000, max: 5 });
+  const rl = await rateLimit("create-org", userId, { windowMs: 3_600_000, max: 5 });
   if (!rl.allowed) return { error: `Too many requests. Try again in ${rl.retryAfterSeconds}s.` };
 
   const trimmed = name.trim();
@@ -84,7 +84,7 @@ export async function inviteMember(
   if (role !== "admin" && role !== "member") return { error: "Invalid role." };
 
   // Rate limit: max 20 invites per hour per user
-  const rl = rateLimit("invite-member", userId, { windowMs: 3_600_000, max: 20 });
+  const rl = await rateLimit("invite-member", userId, { windowMs: 3_600_000, max: 20 });
   if (!rl.allowed) return { error: `Too many invites. Try again in ${rl.retryAfterSeconds}s.` };
 
   const emailTrimmed = email.trim().toLowerCase();

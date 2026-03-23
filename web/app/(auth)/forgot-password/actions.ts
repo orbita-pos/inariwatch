@@ -15,7 +15,7 @@ export async function requestPasswordReset(
   }
 
   // Rate limit: 3 reset requests per email per 15 minutes
-  const rl = rateLimit("password-reset", email.toLowerCase(), {
+  const rl = await rateLimit("password-reset", email.toLowerCase(), {
     windowMs: 15 * 60_000,
     max: 3,
   });
