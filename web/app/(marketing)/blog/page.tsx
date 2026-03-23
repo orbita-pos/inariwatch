@@ -52,7 +52,7 @@ export default async function BlogPage() {
               <Link
                 key={post.slug}
                 href={`/blog/${post.slug}`}
-                className="group block rounded-xl border border-inari-border bg-inari-card p-6 hover:border-inari-accent/40 hover:bg-inari-accent-dim transition-all"
+                className="group block rounded-xl border border-inari-border bg-inari-card p-6 hover:border-inari-accent/30 hover:bg-black/[0.02] dark:hover:bg-inari-accent-dim transition-all"
               >
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-inari-accent/10 text-inari-accent border border-inari-accent/20">
@@ -60,7 +60,7 @@ export default async function BlogPage() {
                   </span>
                   <span className="text-xs text-zinc-600">{formatDate(post.publishedAt)}</span>
                 </div>
-                <h2 className="text-lg font-semibold text-fg-strong group-hover:text-white transition-colors leading-snug">
+                <h2 className="text-lg font-semibold text-fg-strong group-hover:text-inari-accent dark:group-hover:text-white transition-colors leading-snug">
                   {post.title}
                 </h2>
                 <p className="mt-2 text-sm text-zinc-500 leading-relaxed">{post.description}</p>
