@@ -137,7 +137,7 @@ export default async function AlertDetailPage({
   const latestRemediation = remediationRows[0];
 
   return (
-    <div className="max-w-[780px] space-y-5">
+    <div className="mx-auto max-w-[780px] space-y-5">
 
       {/* ── Back ───────────────────────────────────────────────────────── */}
       <Link

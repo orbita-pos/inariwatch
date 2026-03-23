@@ -4,7 +4,7 @@ function Sk({ className }: { className?: string }) {
 
 export default function WorkspaceSettingsLoading() {
   return (
-    <div className="max-w-[680px] space-y-8">
+    <div className="mx-auto max-w-[680px] space-y-8">
       <div className="space-y-1.5">
         <Sk className="h-6 w-40" />
         <Sk className="h-3 w-56" />

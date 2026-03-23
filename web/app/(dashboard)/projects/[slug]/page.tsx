@@ -286,7 +286,7 @@ export default async function ProjectDetailPage({
   const currentOnCallUserId = await getCurrentOnCallUserId(project.id);
 
   return (
-    <div className="max-w-[680px] space-y-8">
+    <div className="mx-auto max-w-[680px] space-y-8">
       <div className="flex items-center gap-3">
         <Link
           href="/projects"

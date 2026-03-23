@@ -59,7 +59,7 @@ export default async function WorkspaceSettingsPage() {
   });
 
   return (
-    <div className="max-w-[680px] space-y-8">
+    <div className="mx-auto max-w-[680px] space-y-8">
       <div>
         <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">
           Workspace settings

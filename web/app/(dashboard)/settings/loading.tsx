@@ -20,7 +20,7 @@ function SectionSk({ rows }: { rows: number }) {
 
 export default function SettingsLoading() {
   return (
-    <div className="max-w-[680px] space-y-8">
+    <div className="mx-auto max-w-[680px] space-y-8">
       <Sk className="h-6 w-24" />
       <SectionSk rows={4} />
       <section className="space-y-3">

@@ -51,7 +51,13 @@
       "Bash(npx vercel:*)",
       "Bash(ls -la /c/Users/jesus/desktop/radar/web/app/\\\\\\(dashboard\\\\\\)/)",
       "Bash(sed -i 's/kairo/inariwatch/g' src/commands/add.rs src/commands/config_cmd.rs src/commands/connect.rs src/commands/init.rs src/commands/logs.rs src/commands/mod.rs src/commands/status.rs src/commands/watch.rs)",
-      "Bash(sed -i 's/kairo-cli/inariwatch-cli/g' src/integrations/github.rs)"
+      "Bash(sed -i 's/kairo-cli/inariwatch-cli/g' src/integrations/github.rs)",
+      "Bash(npx playwright:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(head:*)",
+      "Bash(find \"app/\\(dashboard\\)\" -name \"page.tsx\")",
+      "Bash(sed -i 's/className=\"\"max-w-\\\\[680px\\\\] space-y-8\"\"/className=\"\"mx-auto max-w-[680px] space-y-8\"\"/g' \"app/\\(dashboard\\)/workspace/settings/loading.tsx\" \"app/\\(dashboard\\)/settings/loading.tsx\")",
+      "Bash(sed -i 's/className=\"\"max-w-\\\\[680px\\\\] space-y-8 animate-pulse\"\"/className=\"\"mx-auto max-w-[680px] space-y-8 animate-pulse\"\"/g' \"app/\\(dashboard\\)/projects/[slug]/loading.tsx\")"
     ]
   }
 }

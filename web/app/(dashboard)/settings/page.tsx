@@ -58,7 +58,7 @@ export default async function SettingsPage() {
   const plan       = PLAN_BADGE[user?.plan ?? "free"] ?? PLAN_BADGE.free;
 
   return (
-    <div className="max-w-[680px] space-y-8">
+    <div className="mx-auto max-w-[680px] space-y-8">
 
       <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Settings</h1>
 
