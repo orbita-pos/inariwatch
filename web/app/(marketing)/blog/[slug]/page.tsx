@@ -99,25 +99,19 @@ export default async function BlogPostPage({
 
         {/* Hero card */}
         <div className="relative mb-8 overflow-hidden rounded-2xl border border-inari-border bg-[#0c0c12]">
-          {/* Subtle radial glow */}
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,rgba(124,58,237,0.12)_0%,transparent_70%)]" />
-          {/* Subtle grid */}
-          <div className="pointer-events-none absolute inset-0 opacity-30 bg-grid" />
-
-          <div className="relative flex flex-col items-center justify-center px-8 py-14 text-center">
-            <Image
-              src="/logo-inari/favicon-96x96.png"
-              alt="InariWatch"
-              width={48}
-              height={48}
-              className="mb-5 opacity-90"
-            />
-            <span className="mb-4 inline-flex items-center rounded-full border border-inari-accent/25 bg-inari-accent/10 px-3 py-1 text-xs font-mono font-medium text-inari-accent">
+          <Image
+            src="/image-blog.png"
+            alt={post.title}
+            width={1200}
+            height={400}
+            className="w-full object-cover"
+            priority
+          />
+          {/* Tag overlay */}
+          <div className="absolute bottom-4 left-4">
+            <span className="inline-flex items-center rounded-full border border-inari-accent/25 bg-black/60 backdrop-blur-sm px-3 py-1 text-xs font-mono font-medium text-inari-accent">
               {post.tag}
             </span>
-            <p className="max-w-sm text-sm leading-relaxed text-zinc-400">
-              {post.description}
-            </p>
           </div>
         </div>
 
