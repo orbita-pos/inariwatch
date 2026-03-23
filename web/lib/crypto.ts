@@ -25,7 +25,10 @@ if (process.env.NODE_ENV === "production" && !hasKey()) {
  * (development convenience — never deploy without a key).
  */
 export function encrypt(plaintext: string): string {
-  if (!hasKey()) return plaintext;
+  if (!hasKey()) {
+    console.warn("[crypto] ENCRYPTION_KEY not set — storing value in plaintext");
+    return plaintext;
+  }
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", getKey(), iv);
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -87,7 +90,8 @@ export function decryptConfig(stored: unknown): Record<string, unknown> {
   if (typeof obj._enc === "string") {
     try {
       return JSON.parse(decrypt(obj._enc)) as Record<string, unknown>;
-    } catch {
+    } catch (e) {
+      console.error("[crypto] decryptConfig failed:", e);
       return {};
     }
   }

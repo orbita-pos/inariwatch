@@ -14,7 +14,7 @@ pub fn group_by_time(mut events: Vec<RawEvent>, window_minutes: i64) -> Vec<Even
     let mut current: Vec<RawEvent> = vec![events.remove(0)];
 
     for event in events {
-        let last_time = current.last().unwrap().occurred_at;
+        let last_time = current.last().expect("current group is never empty").occurred_at;
         if (event.occurred_at - last_time).num_minutes().abs() <= window_minutes {
             current.push(event);
         } else {

@@ -29,8 +29,7 @@ export const users = pgTable("users", {
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
   aiModels: jsonb("ai_models"),
 
-  // ✅ sin referencia
-  activeOrgId: uuid("active_org_id"),
+  activeOrgId: uuid("active_org_id").references(() => organizations.id, { onDelete: "set null" }),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

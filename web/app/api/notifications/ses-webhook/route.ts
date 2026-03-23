@@ -16,7 +16,7 @@ const SES_WEBHOOK_SECRET = process.env.SES_WEBHOOK_SECRET;
 export async function POST(req: Request) {
   // Rate limiting
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const rateLimit = checkWebhookRateLimit(ip);
+  const rateLimit = await checkWebhookRateLimit(ip);
   if (!rateLimit.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },

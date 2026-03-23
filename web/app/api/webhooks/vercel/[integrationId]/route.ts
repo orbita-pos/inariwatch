@@ -30,7 +30,7 @@ export async function POST(
 
   // Rate limiting
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const rateLimit = checkWebhookRateLimit(ip);
+  const rateLimit = await checkWebhookRateLimit(ip);
   if (!rateLimit.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },
