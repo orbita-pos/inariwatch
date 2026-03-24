@@ -9,7 +9,7 @@
  * If CI fails, the engine retries with context about what went wrong (up to 3 attempts).
  */
 
-import { db, remediationSessions, alerts, projectIntegrations, projects } from "@/lib/db";
+import { db, remediationSessions, alerts, projectIntegrations, projects, errorPatterns, communityFixes } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, type MemoryHint } from "./prompts";
@@ -593,6 +593,24 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             ? `CI passed! (${checkCount} check${checkCount > 1 ? "s" : ""})`
             : "No CI configured — code pushed successfully", emit);
 
+        // ── AUTO-CONTRIBUTE PATTERN (Fix Replay) ─────────────────────
+        try {
+          const category = alert.sourceIntegrations.includes("sentry") ? "runtime_error"
+            : alert.sourceIntegrations.includes("vercel") ? "build_error"
+            : alert.sourceIntegrations.includes("github") ? "ci_error"
+            : alert.sourceIntegrations.includes("datadog") ? "infrastructure"
+            : "unknown";
+          await autoContributePattern({
+            fingerprint: alertFingerprint,
+            alertTitle: alert.title,
+            category,
+            fixApproach: fix.explanation,
+            fixDescription: diagnosis.diagnosis,
+            filesChanged: fix.files.map((f) => f.path),
+            confidence: diagnosis.confidence,
+          });
+        } catch { /* non-blocking */ }
+
         // ── EVALUATE AUTO-MERGE GATES ──────────────────────────────────
         const autoMergeConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
         const totalLinesChanged = fix.files.reduce((sum, f) => sum + f.content.split("\n").length, 0);
@@ -802,6 +820,76 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unexpected error";
     await fail(sessionId, emit, msg);
+  }
+}
+
+// ── Fix Replay: auto-contribute pattern after successful remediation ─────────
+
+async function autoContributePattern(params: {
+  fingerprint: string;
+  alertTitle: string;
+  category: string;
+  fixApproach: string;
+  fixDescription: string;
+  filesChanged: string[];
+  confidence: number;
+}) {
+  // Upsert error pattern
+  let [pattern] = await db
+    .select()
+    .from(errorPatterns)
+    .where(eq(errorPatterns.fingerprint, params.fingerprint))
+    .limit(1);
+
+  if (pattern) {
+    await db
+      .update(errorPatterns)
+      .set({ occurrenceCount: pattern.occurrenceCount + 1, lastSeenAt: new Date() })
+      .where(eq(errorPatterns.id, pattern.id));
+  } else {
+    [pattern] = await db
+      .insert(errorPatterns)
+      .values({
+        fingerprint: params.fingerprint,
+        patternText: params.alertTitle.slice(0, 500),
+        category: params.category,
+      })
+      .returning();
+  }
+
+  // Dedup: if a fix with the same approach already exists, increment success
+  const existingFixes = await db
+    .select()
+    .from(communityFixes)
+    .where(eq(communityFixes.patternId, pattern.id));
+
+  const similar = existingFixes.find(
+    (f) => f.fixApproach.toLowerCase() === params.fixApproach.toLowerCase()
+  );
+
+  if (similar) {
+    await db
+      .update(communityFixes)
+      .set({
+        successCount: similar.successCount + 1,
+        totalApplications: similar.totalApplications + 1,
+        avgConfidence: Math.round(
+          (similar.avgConfidence * similar.totalApplications + params.confidence) /
+          (similar.totalApplications + 1)
+        ),
+        updatedAt: new Date(),
+      })
+      .where(eq(communityFixes.id, similar.id));
+  } else {
+    await db.insert(communityFixes).values({
+      patternId: pattern.id,
+      fixApproach: params.fixApproach.slice(0, 1000),
+      fixDescription: params.fixDescription.slice(0, 2000),
+      filesChangedSummary: params.filesChanged.join(", "),
+      avgConfidence: params.confidence,
+      successCount: 1,
+      totalApplications: 1,
+    });
   }
 }
 

@@ -544,6 +544,49 @@ export const blogPosts = pgTable("blog_posts", {
 
 export type BlogPost = typeof blogPosts.$inferSelect;
 
+// ── Fix Replay: Error patterns + Community fixes ────────────────────────────
+
+export const errorPatterns = pgTable("error_patterns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fingerprint: text("fingerprint").notNull().unique(),
+  patternText: text("pattern_text").notNull(),
+  category: text("category").notNull(),
+  framework: text("framework"),
+  language: text("language"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const communityFixes = pgTable("community_fixes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patternId: uuid("pattern_id").references(() => errorPatterns.id, { onDelete: "cascade" }).notNull(),
+  fixApproach: text("fix_approach").notNull(),
+  fixDescription: text("fix_description").notNull(),
+  filesChangedSummary: text("files_changed_summary"),
+  avgConfidence: integer("avg_confidence").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  totalApplications: integer("total_applications").notNull().default(0),
+  contributedBy: uuid("contributed_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const fixRatings = pgTable("fix_ratings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fixId: uuid("fix_id").references(() => communityFixes.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  worked: boolean("worked").notNull(),
+  rating: integer("rating"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ErrorPattern = typeof errorPatterns.$inferSelect;
+export type CommunityFix = typeof communityFixes.$inferSelect;
+export type FixRating = typeof fixRatings.$inferSelect;
+
 // ── Rate Limiting ────────────────────────────────────────────────────────────
 
 export const rateLimits = pgTable("rate_limits", {

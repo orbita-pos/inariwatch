@@ -171,6 +171,31 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         })
         .collect();
 
+    // ── Fix Replay: query community patterns from web API ──────────
+    let mut past_hints = past_hints;
+
+    if cfg.global.fix_replay {
+        if let Some(base_url) = &cfg.global.fix_replay_url {
+            match query_fix_replay(&alert_fingerprint, base_url).await {
+                Ok(Some(community_hints)) => {
+                    let count = community_hints.len();
+                    past_hints.extend(community_hints);
+                    steps.push(Step::ok(
+                        "fix_replay",
+                        format!("Found {} community fix(es) from Fix Replay API", count),
+                    ));
+                }
+                Ok(None) => {} // no matches
+                Err(e) => {
+                    steps.push(Step::ok(
+                        "fix_replay",
+                        format!("Fix Replay query failed (non-blocking): {}", e),
+                    ));
+                }
+            }
+        }
+    }
+
     if !past_hints.is_empty() {
         let is_fp_match = raw_memories.iter().any(|m| {
             m.fingerprint.as_deref() == Some(alert_fingerprint.as_str())
@@ -729,6 +754,31 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         let _ = db::save_incident_memory(&mem_conn, &memory);
     }
 
+    // ── Fix Replay: contribute pattern to web API ────────────────────────
+    if cfg.global.fix_replay {
+        if let Some(base_url) = &cfg.global.fix_replay_url {
+            let category = if alert.source_integrations.contains(&"sentry".to_string()) {
+                "runtime_error"
+            } else if alert.source_integrations.contains(&"vercel".to_string()) {
+                "build_error"
+            } else if alert.source_integrations.contains(&"github".to_string()) {
+                "ci_error"
+            } else {
+                "unknown"
+            };
+            let _ = contribute_fix_replay(
+                &alert_fingerprint,
+                &alert.title,
+                category,
+                &fix_explanation,
+                &diagnosis,
+                &files_changed,
+                confidence,
+                base_url,
+            ).await;
+        }
+    }
+
     // ── Final result ──────────────────────────────────────────────────────
 
     Ok(serde_json::to_string_pretty(&json!({
@@ -806,4 +856,120 @@ fn abort_result(steps: &[Step], confidence: u32, diagnosis: &str) -> String {
         "error": format!("Confidence too low ({}%) to proceed safely. Manual investigation needed.", confidence)
     }))
     .unwrap_or_else(|_| format!("{{\"status\":\"failed\",\"error\":\"Confidence too low\"}}"))
+}
+
+// ── Fix Replay helpers ───────────────────────────────────────────────────────
+
+/// Query the web Fix Replay API for community patterns matching this fingerprint.
+/// Returns parsed MemoryHints if matches found, None otherwise.
+async fn query_fix_replay(
+    fingerprint: &str,
+    base_url: &str,
+) -> anyhow::Result<Option<Vec<MemoryHint>>> {
+    // Check local cache first (TTL: 1 hour)
+    if let Ok(conn) = db::open() {
+        if let Ok(Some(cached)) = db::get_cached_pattern(&conn, fingerprint, 3600) {
+            let parsed: Value = serde_json::from_str(&cached)?;
+            let hints = parse_fix_replay_response(&parsed);
+            if !hints.is_empty() {
+                return Ok(Some(hints));
+            }
+        }
+    }
+
+    let url = format!(
+        "{}/api/patterns/search?fingerprint={}",
+        base_url.trim_end_matches('/'),
+        fingerprint
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+
+    let body: Value = resp.json().await?;
+
+    // Cache the response
+    if let Ok(conn) = db::open() {
+        let _ = db::cache_pattern(&conn, fingerprint, &body.to_string());
+    }
+
+    let hints = parse_fix_replay_response(&body);
+    if hints.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(hints))
+    }
+}
+
+fn parse_fix_replay_response(body: &Value) -> Vec<MemoryHint> {
+    let matches = match body["matches"].as_array() {
+        Some(m) => m,
+        None => return vec![],
+    };
+
+    let mut hints = Vec::new();
+    for m in matches {
+        let pattern_text = m["pattern"]["patternText"].as_str().unwrap_or("");
+        let fixes = match m["fixes"].as_array() {
+            Some(f) => f,
+            None => continue,
+        };
+        for fix in fixes {
+            let success = fix["successCount"].as_u64().unwrap_or(0);
+            let total = fix["totalApplications"].as_u64().unwrap_or(1).max(1);
+            let confidence = ((success as f64 / total as f64) * 100.0) as i64;
+
+            hints.push(MemoryHint {
+                alert_title: pattern_text.to_string(),
+                root_cause: fix["fixDescription"].as_str().unwrap_or("").to_string(),
+                fix_summary: fix["fixApproach"].as_str().unwrap_or("").to_string(),
+                files_fixed: fix["filesChangedSummary"]
+                    .as_str()
+                    .map(|s| s.split(", ").map(String::from).collect())
+                    .unwrap_or_default(),
+                confidence,
+            });
+        }
+    }
+    hints
+}
+
+/// Contribute a successful fix pattern to the web Fix Replay API.
+async fn contribute_fix_replay(
+    fingerprint: &str,
+    alert_title: &str,
+    category: &str,
+    fix_approach: &str,
+    fix_description: &str,
+    files_changed: &[String],
+    confidence: u32,
+    base_url: &str,
+) -> anyhow::Result<()> {
+    let url = format!(
+        "{}/api/patterns/contribute",
+        base_url.trim_end_matches('/')
+    );
+
+    let payload = json!({
+        "fingerprint": fingerprint,
+        "patternText": alert_title,
+        "category": category,
+        "fixApproach": fix_approach,
+        "fixDescription": fix_description,
+        "filesChangedSummary": files_changed.join(", "),
+        "confidence": confidence,
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    client.post(&url).json(&payload).send().await?;
+    Ok(())
 }

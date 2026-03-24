@@ -60,6 +60,12 @@ enum Commands {
         /// Auto-merge generated PRs when all safety gates pass (requires --auto-fix true)
         #[arg(long)]
         auto_merge: Option<bool>,
+        /// Query shared community fix patterns before AI diagnosis (opt-in)
+        #[arg(long)]
+        fix_replay: Option<bool>,
+        /// InariWatch web API URL for Fix Replay (e.g. "https://app.inariwatch.com")
+        #[arg(long)]
+        fix_replay_url: Option<String>,
         #[arg(long)]
         show: bool,
     },
@@ -99,8 +105,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Watch { project } => commands::watch::run(project).await,
         Commands::Status { project } => commands::status::run(project).await,
         Commands::Logs { limit, project } => commands::logs::run(limit, project).await,
-        Commands::Config { ai_key, model, auto_fix, auto_merge, show } => {
-            commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, show).await
+        Commands::Config { ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show } => {
+            commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show).await
         }
         Commands::AgentStats { project } => commands::agent_stats::run(project).await,
         Commands::Daemon { action } => commands::daemon::run(&action).await,
