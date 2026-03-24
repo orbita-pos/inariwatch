@@ -1213,12 +1213,13 @@ function Sponsors() {
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 group"
           >
-            <div className="h-8 w-8 rounded-md bg-inari-accent flex items-center justify-center shadow-[0_0_15px_rgba(124,58,237,0.4)] group-hover:shadow-[0_0_25px_rgba(124,58,237,0.7)] transition-shadow">
-              <span className="text-white font-bold text-lg leading-none tracking-tighter">O</span>
-            </div>
-            <span className="font-bold text-xl tracking-tight text-fg-strong dark:text-white/90 dark:group-hover:text-white transition-colors">
-              OrbitaPOS
-            </span>
+            <Image
+              src="/logo-trans.png"
+              alt="OrbitaPOS"
+              width={120}
+              height={40}
+              className="h-8 w-auto object-contain"
+            />
           </a>
           
           <a
