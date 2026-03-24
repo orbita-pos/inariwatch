@@ -277,32 +277,37 @@ impl TrustLevel {
     }
 
     /// Minimum confidence required for auto-merge at this trust level.
+    /// Starts at 90 (= web DEFAULT_AUTO_MERGE_CONFIG.minConfidence),
+    /// relaxes as the agent earns trust through successful fixes.
     pub fn min_confidence(&self) -> u32 {
         match self {
-            TrustLevel::Rookie => 101,     // impossible — never auto-merge
-            TrustLevel::Apprentice => 90,
-            TrustLevel::Trusted => 70,
-            TrustLevel::Expert => 60,
+            TrustLevel::Rookie     => 101, // impossible — never auto-merge
+            TrustLevel::Apprentice => 90,  // web default
+            TrustLevel::Trusted    => 80,
+            TrustLevel::Expert     => 70,
         }
     }
 
     /// Minimum self-review score for auto-merge at this trust level.
+    /// Aligned with web auto-merge-gates.ts: score >= 70.
     pub fn min_review_score(&self) -> u32 {
         match self {
-            TrustLevel::Rookie => 101,
-            TrustLevel::Apprentice => 90,
-            TrustLevel::Trusted => 70,
-            TrustLevel::Expert => 60,
+            TrustLevel::Rookie     => 101,
+            TrustLevel::Apprentice => 70,
+            TrustLevel::Trusted    => 70,
+            TrustLevel::Expert     => 70,
         }
     }
 
     /// Max changed lines allowed for auto-merge at this trust level.
+    /// Starts at 50 (= web DEFAULT_AUTO_MERGE_CONFIG.maxLinesChanged),
+    /// relaxes as the agent earns trust.
     pub fn max_changed_lines(&self) -> usize {
         match self {
-            TrustLevel::Rookie => 0,
-            TrustLevel::Apprentice => 100,
-            TrustLevel::Trusted => 200,
-            TrustLevel::Expert => 300,
+            TrustLevel::Rookie     => 0,
+            TrustLevel::Apprentice => 50,  // web default
+            TrustLevel::Trusted    => 100,
+            TrustLevel::Expert     => 200,
         }
     }
 }

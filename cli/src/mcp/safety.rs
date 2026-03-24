@@ -75,13 +75,18 @@ pub fn blocked_reason(path: &str) -> Option<&'static str> {
 }
 
 /// Confidence gating levels.
+/// CONFIDENCE_ABORT: below this → abort entirely (no PR created).
+/// CONFIDENCE_DRAFT_ONLY: below this → always draft PR, never auto-merge.
+/// Aligned with web/lib/db/schema.ts DEFAULT_AUTO_MERGE_CONFIG.
 pub const CONFIDENCE_ABORT: u32 = 30;
-pub const CONFIDENCE_DRAFT_ONLY: u32 = 70;
+pub const CONFIDENCE_DRAFT_ONLY: u32 = 90;
 
-/// Auto-merge gate: max lines changed for auto-merge eligibility.
-pub const MAX_LINES_FOR_AUTO_MERGE: usize = 200;
+/// Auto-merge gate: max lines changed.
+/// Aligned with web DEFAULT_AUTO_MERGE_CONFIG.maxLinesChanged = 50.
+pub const MAX_LINES_FOR_AUTO_MERGE: usize = 50;
 
 /// Self-review score threshold for auto-merge.
+/// Aligned with web auto-merge-gates.ts: selfReviewResult.score >= 70.
 pub const MIN_SELF_REVIEW_SCORE: u32 = 70;
 
 #[cfg(test)]
