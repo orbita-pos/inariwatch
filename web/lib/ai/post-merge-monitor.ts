@@ -11,6 +11,7 @@ import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import { createAlertIfNew } from "@/lib/webhooks/shared";
 import { resolveIncident, regressIncident } from "./status-page-automation";
+import { triggerEscalation } from "./escalation-engine";
 
 type Emit = (event: string, data: unknown) => void;
 
@@ -179,6 +180,16 @@ export async function startPostMergeMonitoring(params: {
           await regressIncident({
             remediationSessionId: sessionId,
             reason: sentryRegression ? "Same error pattern reappeared in Sentry" : "Service uptime dropped",
+          });
+        } catch { /* non-blocking */ }
+
+        // Escalate: regression after merge
+        try {
+          await triggerEscalation({
+            alertId: (await db.select({ alertId: remediationSessions.alertId }).from(remediationSessions).where(eq(remediationSessions.id, sessionId)).limit(1))[0]?.alertId ?? "",
+            projectId,
+            reason: "regression_after_merge",
+            diagnosis: sentryRegression ? "Same error pattern reappeared in Sentry after merge" : "Service uptime dropped after merge",
           });
         } catch { /* non-blocking */ }
 

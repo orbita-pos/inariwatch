@@ -22,6 +22,7 @@ import { gatherRemediationContext } from "./context-gatherer";
 import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
 import { startPostMergeMonitoring } from "./post-merge-monitor";
 import { linkRemediationToIncident, updateIncidentStatus, resolveIncident as resolveStatusIncident } from "./status-page-automation";
+import { triggerEscalation, type EscalationContext } from "./escalation-engine";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
 
@@ -347,6 +348,16 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         `• Check the Vercel dashboard for the full build log\n` +
         `• If the build log shows a specific error, paste it in a comment and try again`
       );
+      // Escalate: confidence too low
+      try {
+        await triggerEscalation({
+          alertId: alert.id,
+          projectId: session.projectId,
+          reason: "low_confidence",
+          diagnosis: diagnosis.diagnosis,
+          confidence: diagnosis.confidence,
+        });
+      } catch { /* non-blocking */ }
       return;
     }
 
@@ -486,6 +497,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         await fail(sessionId, emit,
           `Self-review rejected the fix (score: ${selfReview.score}/100).\n\nConcerns:\n${selfReview.concerns.map((c) => `• ${c}`).join("\n")}`
         );
+        // Escalate: self-review rejected
+        try {
+          await triggerEscalation({
+            alertId: alert.id,
+            projectId: session.projectId,
+            reason: "self_review_rejected",
+            diagnosis: diagnosis.diagnosis,
+            confidence: diagnosis.confidence,
+            attempts: attempt,
+            maxAttempts: session.maxAttempts,
+            selfReviewScore: selfReview.score,
+            selfReviewConcerns: selfReview.concerns,
+          });
+        } catch { /* non-blocking */ }
         return;
       }
 
@@ -744,6 +769,21 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             `Tried ${attempt} different approaches but CI still fails. The branch "${branchName}" has the latest attempt — you can review and fix it manually.`,
             "failed"), emit);
         await updateSession(sessionId, { status: "failed", error: `CI still failing after ${attempt} attempts` });
+        // Escalate: max retries exhausted
+        try {
+          await triggerEscalation({
+            alertId: alert.id,
+            projectId: session.projectId,
+            reason: "max_retries_exhausted",
+            diagnosis: diagnosis.diagnosis,
+            confidence: diagnosis.confidence,
+            attempts: attempt,
+            maxAttempts: session.maxAttempts,
+            ciError: failedChecks.join(", "),
+            branch: branchName,
+            filesChanged: fix.files.map((f) => f.path),
+          });
+        } catch { /* non-blocking */ }
         emit("done", { status: "failed", error: `CI still failing after ${attempt} attempts`, branch: branchName });
         return;
       }
