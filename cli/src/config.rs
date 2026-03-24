@@ -24,6 +24,11 @@ pub struct GlobalConfig {
     /// Auto-merge the generated PR when all safety gates pass (requires auto_fix = true).
     #[serde(default)]
     pub auto_merge: bool,
+    /// Enable Fix Replay: query shared community patterns for known fixes before AI diagnosis.
+    #[serde(default)]
+    pub fix_replay: bool,
+    /// InariWatch web API URL for Fix Replay pattern queries (e.g. "https://app.inariwatch.com").
+    pub fix_replay_url: Option<String>,
 }
 
 impl Default for GlobalConfig {
@@ -33,6 +38,8 @@ impl Default for GlobalConfig {
             ai_model: default_model(),
             auto_fix: false,
             auto_merge: false,
+            fix_replay: false,
+            fix_replay_url: None,
         }
     }
 }

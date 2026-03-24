@@ -124,6 +124,15 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
+    // v2 migration: pattern_cache for Fix Replay
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pattern_cache (
+            fingerprint  TEXT PRIMARY KEY,
+            pattern_data TEXT NOT NULL,
+            fetched_at   TEXT NOT NULL
+        );",
+    )?;
+
     Ok(())
 }
 
@@ -536,6 +545,44 @@ pub fn get_memories_by_fingerprint(
         .query_map(params![project, fingerprint, limit as i64], row_to_memory)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+// ── Pattern cache (Fix Replay) ───────────────────────────────────────────────
+
+/// Get a cached community pattern response by fingerprint.
+/// Returns None if not cached or if the cache is older than `max_age_secs`.
+pub fn get_cached_pattern(conn: &Connection, fingerprint: &str, max_age_secs: i64) -> Result<Option<String>> {
+    let result: rusqlite::Result<(String, String)> = conn.query_row(
+        "SELECT pattern_data, fetched_at FROM pattern_cache WHERE fingerprint = ?1",
+        params![fingerprint],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    );
+    match result {
+        Ok((data, fetched_at)) => {
+            let fetched = DateTime::parse_from_rfc3339(&fetched_at)
+                .map(|t| t.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            let age = Utc::now().signed_duration_since(fetched).num_seconds();
+            if age <= max_age_secs {
+                Ok(Some(data))
+            } else {
+                Ok(None) // expired
+            }
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Cache a community pattern API response.
+pub fn cache_pattern(conn: &Connection, fingerprint: &str, pattern_data: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT OR REPLACE INTO pattern_cache (fingerprint, pattern_data, fetched_at)
+         VALUES (?1, ?2, ?3)",
+        params![fingerprint, pattern_data, now],
+    )?;
+    Ok(())
 }
 
 fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
