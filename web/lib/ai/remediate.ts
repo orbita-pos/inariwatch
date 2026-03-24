@@ -21,6 +21,7 @@ import * as gh from "@/lib/services/github-api";
 import { gatherRemediationContext } from "./context-gatherer";
 import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
 import { startPostMergeMonitoring } from "./post-merge-monitor";
+import { linkRemediationToIncident, updateIncidentStatus, resolveIncident as resolveStatusIncident } from "./status-page-automation";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
 
@@ -225,6 +226,9 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     await updateSession(sessionId, { status: "analyzing", repo: fullRepo });
     emit("status", { status: "analyzing" });
 
+    // Link this remediation session to any existing status page incident
+    try { await linkRemediationToIncident(alert.id, sessionId); } catch { /* non-blocking */ }
+
     steps = await pushStep(sessionId, steps,
       makeStep("analyze", "Connecting to repository and analyzing error..."), emit);
 
@@ -353,6 +357,16 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
     // Emit confidence so UI can show the score badge
     emit("confidence", { score: diagnosis.confidence });
+
+    // Update status page incident → identified
+    try {
+      await updateIncidentStatus({
+        alertId: alert.id,
+        remediationSessionId: sessionId,
+        status: "identified",
+        message: `Root cause identified: ${diagnosis.diagnosis.slice(0, 200)}. Automated fix in progress.`,
+      });
+    } catch { /* non-blocking */ }
 
     // ── READ CODE ──────────────────────────────────────────────────────────
     await updateSession(sessionId, { status: "reading_code" });
@@ -631,6 +645,18 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           );
           await updateSession(sessionId, { prUrl: pr.url, prNumber: pr.number });
 
+          // Update status page incident → fixing
+          try {
+            await updateIncidentStatus({
+              alertId: alert.id,
+              remediationSessionId: sessionId,
+              status: isAutoMerge ? "fixing" : "identified",
+              message: isAutoMerge
+                ? `A fix has been deployed and is being verified by CI.`
+                : `A draft fix (PR #${pr.number}) has been created for human review.`,
+            });
+          } catch { /* non-blocking */ }
+
           if (isAutoMerge) {
             // Auto-merge the PR
             steps = await resolveStep(sessionId, steps, "completed", `PR #${pr.number} created`, emit);
@@ -643,6 +669,16 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               const mergedSha = mergeResult.sha;
               steps = await resolveStep(sessionId, steps, "completed",
                 `PR #${pr.number} auto-merged successfully`, emit);
+
+              // Update status page → monitoring
+              try {
+                await updateIncidentStatus({
+                  alertId: alert.id,
+                  remediationSessionId: sessionId,
+                  status: "monitoring",
+                  message: `Fix merged successfully. Monitoring for regressions (10 min).`,
+                });
+              } catch { /* non-blocking */ }
 
               // Start post-merge monitoring if enabled
               if (autoMergeConfig.postMergeMonitor) {
@@ -662,6 +698,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 return; // post-merge monitor handles emit("done")
               } else {
                 await updateSession(sessionId, { status: "completed" });
+                // No post-merge monitor → resolve status page incident immediately
+                try { await resolveStatusIncident({ remediationSessionId: sessionId }); } catch { /* non-blocking */ }
                 emit("done", { status: "completed", prUrl: pr.url, prNumber: pr.number, autoMerged: true });
                 return;
               }

@@ -1,5 +1,8 @@
-import { db, alerts, statusPages, projects, projectIntegrations, uptimeMonitors, uptimeChecks } from "@/lib/db";
-import { eq, and, desc, inArray, gte } from "drizzle-orm";
+import {
+  db, alerts, statusPages, projects, projectIntegrations,
+  uptimeMonitors, uptimeChecks, statusPageIncidents, statusPageUpdates,
+} from "@/lib/db";
+import { eq, and, desc, inArray, gte, ne } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
@@ -16,6 +19,17 @@ export async function generateMetadata({
     .limit(1);
   return { title: page ? `${page.title} — Status` : "Status" };
 }
+
+// ── Status config ─────────────────────────────────────────────────────────────
+
+const INCIDENT_STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
+  investigating: { label: "Investigating", color: "text-amber-400", dot: "bg-amber-400" },
+  identified:    { label: "Identified",    color: "text-amber-400", dot: "bg-amber-400" },
+  fixing:        { label: "Fix in Progress", color: "text-blue-400", dot: "bg-blue-400" },
+  monitoring:    { label: "Monitoring",    color: "text-blue-400", dot: "bg-blue-400" },
+  resolved:      { label: "Resolved",      color: "text-green-400", dot: "bg-green-400" },
+  regressed:     { label: "Regressed",     color: "text-red-400", dot: "bg-red-400" },
+};
 
 export default async function PublicStatusPage({
   params,
@@ -78,13 +92,55 @@ export default async function PublicStatusPage({
       ))
     : [];
 
+  // Get status page incidents (active + recently resolved)
+  const activeIncidents = await db
+    .select()
+    .from(statusPageIncidents)
+    .where(
+      and(
+        eq(statusPageIncidents.statusPageId, page.id),
+        ne(statusPageIncidents.status, "resolved"),
+      )
+    )
+    .orderBy(desc(statusPageIncidents.createdAt))
+    .limit(10);
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const resolvedIncidents = await db
+    .select()
+    .from(statusPageIncidents)
+    .where(
+      and(
+        eq(statusPageIncidents.statusPageId, page.id),
+        eq(statusPageIncidents.status, "resolved"),
+        gte(statusPageIncidents.createdAt, thirtyDaysAgo),
+      )
+    )
+    .orderBy(desc(statusPageIncidents.resolvedAt))
+    .limit(10);
+
+  const allIncidents = [...activeIncidents, ...resolvedIncidents];
+
+  // Get timeline updates for all incidents
+  const incidentIds = allIncidents.map((i) => i.id);
+  const allUpdates = incidentIds.length > 0
+    ? await db
+      .select()
+      .from(statusPageUpdates)
+      .where(inArray(statusPageUpdates.incidentId, incidentIds))
+      .orderBy(desc(statusPageUpdates.createdAt))
+    : [];
+
+  // Determine overall status — prioritize active incidents over alert-based logic
+  const hasActiveIncidents = activeIncidents.length > 0;
+  const hasCriticalIncident = activeIncidents.some((i) => i.severity === "critical");
   const openCritical = recentAlerts.filter((a) => a.severity === "critical" && !a.isResolved);
   const openWarning = recentAlerts.filter((a) => a.severity === "warning" && !a.isResolved);
 
   const overallStatus =
-    openCritical.length > 0
+    hasCriticalIncident || openCritical.length > 0
       ? "major_outage"
-      : openWarning.length > 0
+      : hasActiveIncidents || openWarning.length > 0
       ? "degraded"
       : "operational";
 
@@ -96,7 +152,7 @@ export default async function PublicStatusPage({
 
   const status = STATUS_CONFIG[overallStatus];
 
-  // Build day-by-day incident history (last 7 days)
+  // Build day-by-day alert history (last 7 days)
   const days: { date: string; alerts: typeof recentAlerts }[] = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date();
@@ -127,6 +183,63 @@ export default async function PublicStatusPage({
           <span className={`h-3 w-3 rounded-full ${status.dot} animate-pulse`} />
           <span className={`text-lg font-semibold ${status.color}`}>{status.label}</span>
         </div>
+
+        {/* Active incidents */}
+        {activeIncidents.length > 0 && (
+          <div className="mb-8 rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden">
+            <div className="border-b border-red-500/10 px-5 py-3">
+              <h2 className="text-sm font-medium text-red-400">Active Incidents</h2>
+            </div>
+            <div className="divide-y divide-red-500/10">
+              {activeIncidents.map((incident) => {
+                const updates = allUpdates.filter((u) => u.incidentId === incident.id);
+                const statusInfo = INCIDENT_STATUS_CONFIG[incident.status] ?? INCIDENT_STATUS_CONFIG.investigating;
+
+                return (
+                  <div key={incident.id} className="px-5 py-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="text-sm font-medium text-zinc-200">{incident.title}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot} animate-pulse`} />
+                          <span className={`text-xs font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
+                          <span className="text-xs text-zinc-600">
+                            {incident.startedAt?.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded ${
+                        incident.severity === "critical" ? "bg-red-500/20 text-red-400" :
+                        incident.severity === "major" ? "bg-amber-500/20 text-amber-400" :
+                        "bg-blue-500/20 text-blue-400"
+                      }`}>
+                        {incident.severity}
+                      </span>
+                    </div>
+                    {/* Timeline */}
+                    {updates.length > 0 && (
+                      <div className="ml-1 border-l border-[#1a1a1a] pl-4 space-y-3">
+                        {updates.slice(0, 5).map((update) => {
+                          const uStatus = INCIDENT_STATUS_CONFIG[update.status] ?? INCIDENT_STATUS_CONFIG.investigating;
+                          return (
+                            <div key={update.id} className="relative">
+                              <span className={`absolute -left-[21px] top-1 h-2 w-2 rounded-full ${uStatus.dot}`} />
+                              <p className={`text-xs font-medium ${uStatus.color}`}>{uStatus.label}</p>
+                              <p className="text-xs text-zinc-500 mt-0.5">{update.message}</p>
+                              <p className="text-[10px] text-zinc-700 mt-0.5">
+                                {update.createdAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Components / integrations */}
         <div className="mb-8 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
@@ -231,10 +344,53 @@ export default async function PublicStatusPage({
           </div>
         )}
 
-        {/* Incident history */}
+        {/* Resolved incidents */}
+        {resolvedIncidents.length > 0 && (
+          <div className="mb-8 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
+            <div className="border-b border-[#1a1a1a] px-5 py-3">
+              <h2 className="text-sm font-medium text-zinc-400">Resolved Incidents (30 days)</h2>
+            </div>
+            <div className="divide-y divide-[#131313]">
+              {resolvedIncidents.map((incident) => {
+                const updates = allUpdates.filter((u) => u.incidentId === incident.id);
+                const duration = incident.resolvedAt && incident.startedAt
+                  ? Math.round((incident.resolvedAt.getTime() - incident.startedAt.getTime()) / 60000)
+                  : null;
+
+                return (
+                  <div key={incident.id} className="px-5 py-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <p className="text-sm font-medium text-zinc-300">{incident.title}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                          <span className="text-xs text-green-400">Resolved</span>
+                          {duration !== null && (
+                            <span className="text-xs text-zinc-600">
+                              {duration < 60 ? `${duration}m` : `${Math.floor(duration / 60)}h ${duration % 60}m`}
+                            </span>
+                          )}
+                          <span className="text-xs text-zinc-700">
+                            {incident.resolvedAt?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Collapsed timeline — show last update only */}
+                    {updates.length > 0 && (
+                      <p className="text-xs text-zinc-600 ml-4">{updates[0].message}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Alert history (7 days) */}
         <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
           <div className="border-b border-[#1a1a1a] px-5 py-3">
-            <h2 className="text-sm font-medium text-zinc-400">Incident History (7 days)</h2>
+            <h2 className="text-sm font-medium text-zinc-400">Alert History (7 days)</h2>
           </div>
           <div className="divide-y divide-[#131313]">
             {days.map((day) => (

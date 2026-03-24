@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, statusPages } from "@/lib/db";
+import { db, projects, statusPages, type StatusPageConfig } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -63,6 +63,30 @@ export async function toggleStatusPage(
   await db
     .update(statusPages)
     .set({ isPublic })
+    .where(eq(statusPages.id, statusPageId));
+
+  revalidatePath(`/projects`);
+}
+
+export async function updateStatusPageConfig(
+  statusPageId: string,
+  updates: Partial<StatusPageConfig>
+): Promise<void> {
+  const [page] = await db
+    .select({ projectId: statusPages.projectId, config: statusPages.config })
+    .from(statusPages)
+    .where(eq(statusPages.id, statusPageId))
+    .limit(1);
+
+  if (!page) return;
+  if (!(await verifyProjectOwner(page.projectId))) return;
+
+  const currentConfig = (page.config ?? {}) as StatusPageConfig;
+  const newConfig = { ...currentConfig, ...updates };
+
+  await db
+    .update(statusPages)
+    .set({ config: newConfig })
     .where(eq(statusPages.id, statusPageId));
 
   revalidatePath(`/projects`);

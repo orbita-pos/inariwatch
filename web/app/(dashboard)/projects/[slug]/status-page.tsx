@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Globe, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { createStatusPage, deleteStatusPage, toggleStatusPage } from "./status-page-actions";
+import { createStatusPage, deleteStatusPage, toggleStatusPage, updateStatusPageConfig } from "./status-page-actions";
+import type { StatusPageConfig } from "@/lib/db/schema";
 
 interface Props {
   projectId: string;
@@ -13,14 +14,29 @@ interface Props {
     slug: string;
     title: string;
     isPublic: boolean;
+    config: StatusPageConfig | null;
   } | null;
 }
+
+const SEVERITY_OPTIONS = [
+  { value: "critical", label: "Critical only" },
+  { value: "error", label: "Error and above" },
+  { value: "warning", label: "Warning and above" },
+] as const;
 
 export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [isPending, start] = useTransition();
+
+  const config: StatusPageConfig = {
+    autoCreateIncident: false,
+    autoResolve: true,
+    notifySubscribers: true,
+    minSeverityToPost: "critical",
+    ...(statusPage?.config ?? {}),
+  };
 
   const handleCreate = () => {
     if (!title.trim() || !slug.trim()) return;
@@ -32,6 +48,20 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
     });
   };
 
+  const toggleConfig = (key: keyof StatusPageConfig) => {
+    if (!statusPage) return;
+    start(async () => {
+      await updateStatusPageConfig(statusPage.id, { [key]: !config[key] });
+    });
+  };
+
+  const setSeverity = (value: string) => {
+    if (!statusPage) return;
+    start(async () => {
+      await updateStatusPageConfig(statusPage.id, { minSeverityToPost: value as StatusPageConfig["minSeverityToPost"] });
+    });
+  };
+
   return (
     <section>
       <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
@@ -39,7 +69,7 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
       </h2>
       <div className="rounded-xl border border-line bg-surface px-5 py-4">
         {statusPage ? (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Globe className="h-4 w-4 text-zinc-500" />
@@ -94,6 +124,93 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
                 ? "This page is publicly accessible."
                 : "This page is private (not visible to the public)."}
             </p>
+
+            {/* Automation config */}
+            {isAdmin && (
+              <div className="border-t border-line pt-3 space-y-3">
+                <p className="text-xs font-medium text-zinc-400">Automation</p>
+
+                <label className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-zinc-300">Auto-create incidents</span>
+                    <p className="text-xs text-zinc-600">Automatically post incidents when qualifying alerts arrive</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!config.autoCreateIncident}
+                    onClick={() => toggleConfig("autoCreateIncident")}
+                    disabled={isPending}
+                    className={`relative h-5 w-9 rounded-full transition-colors ${
+                      config.autoCreateIncident ? "bg-green-500" : "bg-zinc-700"
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                      config.autoCreateIncident ? "translate-x-4" : ""
+                    }`} />
+                  </button>
+                </label>
+
+                <label className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-zinc-300">Auto-resolve</span>
+                    <p className="text-xs text-zinc-600">Resolve incidents when the fix passes post-merge monitoring</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!config.autoResolve}
+                    onClick={() => toggleConfig("autoResolve")}
+                    disabled={isPending}
+                    className={`relative h-5 w-9 rounded-full transition-colors ${
+                      config.autoResolve ? "bg-green-500" : "bg-zinc-700"
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                      config.autoResolve ? "translate-x-4" : ""
+                    }`} />
+                  </button>
+                </label>
+
+                <label className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-zinc-300">Notify subscribers</span>
+                    <p className="text-xs text-zinc-600">Email subscribers on incident creation and resolution</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!config.notifySubscribers}
+                    onClick={() => toggleConfig("notifySubscribers")}
+                    disabled={isPending}
+                    className={`relative h-5 w-9 rounded-full transition-colors ${
+                      config.notifySubscribers ? "bg-green-500" : "bg-zinc-700"
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                      config.notifySubscribers ? "translate-x-4" : ""
+                    }`} />
+                  </button>
+                </label>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-zinc-300">Minimum severity</span>
+                    <p className="text-xs text-zinc-600">Only create incidents for alerts at or above this level</p>
+                  </div>
+                  <select
+                    value={config.minSeverityToPost ?? "critical"}
+                    onChange={(e) => setSeverity(e.target.value)}
+                    disabled={isPending}
+                    className="rounded-lg border border-line-medium bg-surface-dim px-2 py-1 text-xs text-fg-base focus:border-inari-accent/40 focus:outline-none"
+                  >
+                    {SEVERITY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
         ) : isAdmin ? (
           showForm ? (
@@ -131,7 +248,7 @@ export function StatusPageSection({ projectId, isAdmin, statusPage }: Props) {
                   onClick={handleCreate}
                   disabled={isPending || !title.trim() || !slug.trim()}
                 >
-                  {isPending ? "Creating…" : "Create Status Page"}
+                  {isPending ? "Creating..." : "Create Status Page"}
                 </Button>
               </div>
             </div>

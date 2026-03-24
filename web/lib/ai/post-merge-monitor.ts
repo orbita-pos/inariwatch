@@ -10,6 +10,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import { createAlertIfNew } from "@/lib/webhooks/shared";
+import { resolveIncident, regressIncident } from "./status-page-automation";
 
 type Emit = (event: string, data: unknown) => void;
 
@@ -173,6 +174,14 @@ export async function startPostMergeMonitoring(params: {
           isResolved: false,
         }, projectId);
 
+        // Regress the status page incident
+        try {
+          await regressIncident({
+            remediationSessionId: sessionId,
+            reason: sentryRegression ? "Same error pattern reappeared in Sentry" : "Service uptime dropped",
+          });
+        } catch { /* non-blocking */ }
+
         emit("auto_revert", {
           reason: sentryRegression ? "Sentry regression" : "Uptime regression",
           revertPrUrl: revertPr.url,
@@ -200,6 +209,9 @@ export async function startPostMergeMonitoring(params: {
     status: "completed",
     updatedAt: new Date(),
   }).where(eq(remediationSessions.id, sessionId));
+
+  // Resolve the status page incident
+  try { await resolveIncident({ remediationSessionId: sessionId }); } catch { /* non-blocking */ }
 
   emit("monitoring_result", { status: "passed", duration: Math.round(MONITOR_DURATION_MS / 1000) });
   emit("done", { status: "completed" });
