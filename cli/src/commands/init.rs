@@ -5,6 +5,7 @@ use dialoguer::Input;
 use crate::config::{self, Integrations, Notifications, ProjectConfig};
 
 pub async fn run() -> Result<()> {
+    crate::banner::print_banner().await;
     println!("{}", "inariwatch init".bold());
     println!("Setting up a new project\n");
 

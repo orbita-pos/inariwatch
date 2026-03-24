@@ -1,4 +1,5 @@
 mod ai;
+mod banner;
 mod commands;
 mod config;
 mod db;

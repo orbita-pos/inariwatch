@@ -147,6 +147,7 @@ fn day_key() -> String {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run(project_name: Option<String>) -> Result<()> {
+    crate::banner::print_banner().await;
     let cfg = config::load()?;
 
     if cfg.projects.is_empty() {
