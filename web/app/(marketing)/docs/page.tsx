@@ -91,6 +91,16 @@ const NAV = [
     ],
   },
   {
+    group: "Fix Replay (v2)",
+    items: [
+      { id: "replay-overview",     label: "How it works" },
+      { id: "replay-fingerprint",  label: "Error fingerprinting" },
+      { id: "replay-community",    label: "Community patterns" },
+      { id: "replay-search",       label: "Semantic search" },
+      { id: "replay-risk",         label: "Risk assessment" },
+    ],
+  },
+  {
     group: "Reference",
     items: [
       { id: "ref-alerts",     label: "Alert types & severity" },
@@ -1093,6 +1103,118 @@ api_token = "rdr_your_token_here"`}</CodeBlock>
               The app polls <InlineCode>/api/desktop/alerts</InlineCode> every 60 seconds using this token.
               Alerts are shown as OS notifications and marked as read in the dashboard.
             </P>
+
+            {/* ────────────────────────────────────────────────────────────────
+                FIX REPLAY (v2)
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="replay-overview">Fix Replay — How it works</SectionHeading>
+            <P>
+              Fix Replay is InariWatch&apos;s learning system. Every successful AI fix teaches the system to fix
+              similar errors faster. Knowledge is shared across all users via a community pattern database.
+            </P>
+            <P>
+              The pipeline: when an error arrives, InariWatch computes a <strong>fingerprint</strong> (deterministic hash
+              of the normalized error message). It searches for matching patterns — first by exact fingerprint, then by
+              text similarity. If a match is found, the proven fix is injected as a hint into the AI diagnosis,
+              dramatically improving accuracy and speed.
+            </P>
+            <P>
+              After a successful fix (CI passes), the error pattern and fix approach are automatically contributed back
+              to the community database. Success and failure rates are tracked per fix, so the best approaches float to
+              the top over time.
+            </P>
+            <CodeBlock>{`# Flow:
+Error → Fingerprint → Search patterns (exact + semantic)
+  → Match? → Inject past fix as AI hint
+  → AI diagnoses + generates fix → CI passes
+  → Auto-contribute pattern back to community DB`}</CodeBlock>
+
+            <SectionHeading id="replay-fingerprint">Fix Replay — Error fingerprinting</SectionHeading>
+            <P>
+              Error fingerprinting normalizes error messages to strip volatile parts (timestamps, UUIDs, line numbers,
+              file paths, version numbers) then SHA-256 hashes the result. The same class of error always produces the
+              same fingerprint, regardless of when or where it occurred.
+            </P>
+            <P>
+              The algorithm is identical in both the Rust CLI (<InlineCode>cli/src/mcp/fingerprint.rs</InlineCode>) and the TypeScript
+              web layer (<InlineCode>web/lib/ai/fingerprint.ts</InlineCode>), ensuring cross-platform parity.
+            </P>
+            <Table
+              head={["Normalization", "Example", "Replaced with"]}
+              rows={[
+                ["ISO timestamps", "2024-03-15T14:30:00Z", "<timestamp>"],
+                ["UUIDs",          "a1b2c3d4-e5f6-...",    "<uuid>"],
+                ["File paths",     "/app/src/index.ts",    "<path>"],
+                ["Line numbers",   "at line 42",           "at line <N>"],
+                ["Versions",       "v3.2.1",               "<version>"],
+                ["URLs",           "https://api.example.com", "<url>"],
+              ]}
+            />
+
+            <SectionHeading id="replay-community">Fix Replay — Community patterns</SectionHeading>
+            <P>
+              The community pattern database stores anonymized error→fix mappings shared across all InariWatch users.
+              Patterns are categorized (Runtime, Build, CI, Infrastructure) and track occurrence counts and fix success rates.
+            </P>
+            <P>
+              Browse patterns at <InlineCode>/community</InlineCode> in the dashboard. Each pattern shows the error text, category,
+              occurrence count, number of community fixes, and the top fix with its success rate.
+            </P>
+            <SubHeading id="replay-contribute">Auto-contribution</SubHeading>
+            <P>
+              When a fix succeeds (CI passes), InariWatch automatically contributes the anonymized pattern via
+              <InlineCode>POST /api/patterns/contribute</InlineCode>. The fix approach, description, files changed, and confidence
+              are recorded. Existing patterns are deduplicated by fingerprint — new fixes are added alongside existing ones.
+            </P>
+            <SubHeading id="replay-api-endpoints">API endpoints</SubHeading>
+            <Table
+              head={["Endpoint", "Method", "Description"]}
+              rows={[
+                ["/api/patterns/search", "GET", "Hybrid search: fingerprint exact match + text similarity"],
+                ["/api/patterns/trending", "GET", "Trending patterns by occurrence (filterable by days, category)"],
+                ["/api/patterns/contribute", "POST", "Submit a new fix pattern to the community database"],
+              ]}
+            />
+
+            <SectionHeading id="replay-search">Fix Replay — Semantic search</SectionHeading>
+            <P>
+              When no exact fingerprint match exists, InariWatch falls back to <strong>trigram similarity search</strong> via
+              PostgreSQL&apos;s <InlineCode>pg_trgm</InlineCode> extension. This catches errors with similar but not identical wording —
+              e.g., the same class of error with different variable names or stack frames.
+            </P>
+            <P>
+              The search API accepts both <InlineCode>fingerprint</InlineCode> and <InlineCode>q</InlineCode> (text query) parameters.
+              Strategy is returned in the response: <InlineCode>&quot;fingerprint&quot;</InlineCode>, <InlineCode>&quot;similarity&quot;</InlineCode>, or <InlineCode>&quot;none&quot;</InlineCode>.
+              Similarity threshold is 0.15 (configurable). Results are ranked by similarity score, then by occurrence count.
+            </P>
+            <P>
+              The CLI also uses semantic search — when querying the Fix Replay API, it sends the alert title as a text
+              query parameter alongside the fingerprint, so the API can fall back to trigram matching automatically.
+            </P>
+
+            <SectionHeading id="replay-risk">Fix Replay — Risk assessment</SectionHeading>
+            <P>
+              Pre-deploy risk assessment analyzes pull requests before they reach production. Available as both a
+              web webhook handler (triggered on PR open/update) and a CLI MCP tool (<InlineCode>assess_risk</InlineCode>).
+            </P>
+            <P>
+              The assessment cross-references the PR diff against:
+            </P>
+            <ul className="list-disc pl-6 space-y-1 text-sm text-fg-base mb-4">
+              <li>Historical incidents from the last 90 days</li>
+              <li>Files that previously caused production errors</li>
+              <li>Dependency file changes (package.json, Cargo.toml, go.mod, etc.)</li>
+              <li>Community fix patterns related to changed files (via semantic search)</li>
+            </ul>
+            <P>
+              The AI returns a risk level (<strong>Low</strong>, <strong>Medium</strong>, or <strong>High</strong>) with
+              specific findings, historical context, and recommendations. The assessment is posted as a PR comment,
+              updated in-place on subsequent pushes to avoid comment spam.
+            </P>
+            <CodeBlock>{`# CLI usage (MCP tool):
+assess_risk { "pr_number": 42 }
+assess_risk { "pr_number": 42, "post_comment": false }  # dry run`}</CodeBlock>
 
             {/* ────────────────────────────────────────────────────────────────
                 REFERENCE

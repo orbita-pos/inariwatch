@@ -118,7 +118,7 @@ const TRUST_LEVELS = [
 
 export default function TrustPage() {
   return (
-    <div className="min-h-screen bg-[#06060a] text-white">
+    <div className="min-h-screen bg-page text-fg-base">
       <MarketingNav />
 
       {/* ── Hero ──────────────────────────────────────────────────── */}
@@ -135,7 +135,7 @@ export default function TrustPage() {
             </span>
           </div>
 
-          <h1 className="text-4xl font-bold tracking-tight sm:text-6xl lg:text-7xl leading-[1.05]">
+          <h1 className="text-4xl font-bold tracking-tight text-fg-strong sm:text-6xl lg:text-7xl leading-[1.05]">
             6 layers between
             <br />
             <span className="text-gradient-accent glow-accent-text">
@@ -143,7 +143,7 @@ export default function TrustPage() {
             </span>
           </h1>
 
-          <p className="mt-6 text-lg text-zinc-400 max-w-2xl mx-auto leading-relaxed">
+          <p className="mt-6 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
             Auto-generated fixes on a misdiagnosed alert? That&apos;s what these
             gates prevent. Every fix must survive all six — or a human
             decides.
@@ -176,8 +176,8 @@ export default function TrustPage() {
       {LAYERS.map((layer, i) => (
         <section
           key={layer.n}
-          className={`relative border-t border-white/[0.04] ${
-            i % 2 === 0 ? "bg-[#06060a]" : "bg-[#08080e]"
+          className={`relative border-t border-line-subtle ${
+            i % 2 === 0 ? "bg-page" : "bg-surface"
           }`}
         >
           <div className="mx-auto max-w-5xl px-6 py-24 sm:py-32">
@@ -185,7 +185,7 @@ export default function TrustPage() {
               {/* Text side */}
               <div className={i % 2 === 1 ? "lg:order-2" : ""}>
                 <div className="flex items-center gap-3 mb-6">
-                  <span className="font-mono text-5xl sm:text-6xl font-bold text-white/[0.06] leading-none select-none">
+                  <span className="font-mono text-5xl sm:text-6xl font-bold text-fg-strong/[0.06] leading-none select-none">
                     {layer.n}
                   </span>
                   <div>
@@ -198,11 +198,11 @@ export default function TrustPage() {
                   </div>
                 </div>
 
-                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white leading-tight">
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-fg-strong leading-tight">
                   {layer.headline}
                 </h2>
 
-                <p className="mt-4 text-sm text-zinc-400 leading-relaxed max-w-md">
+                <p className="mt-4 text-sm text-fg-base leading-relaxed max-w-md">
                   {layer.detail}
                 </p>
               </div>
@@ -221,14 +221,14 @@ export default function TrustPage() {
       ))}
 
       {/* ── The answer ────────────────────────────────────────────── */}
-      <section className="relative border-t border-white/[0.04] bg-[#06060a]">
+      <section className="relative border-t border-line-subtle bg-page">
         <div className="absolute inset-0 bg-radial-fade opacity-50" />
         <div className="relative mx-auto max-w-4xl px-6 py-24 sm:py-32">
           <div className="text-center">
             <p className="font-mono text-[10px] text-inari-accent tracking-[0.3em] uppercase mb-6">
               THE ANSWER
             </p>
-            <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-white leading-tight">
+            <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-fg-strong leading-tight">
               &ldquo;How much human review
               <br />
               is expected?&rdquo;
@@ -256,17 +256,17 @@ export default function TrustPage() {
       </section>
 
       {/* ── Comparison ────────────────────────────────────────────── */}
-      <section className="border-t border-white/[0.04] bg-[#08080e]">
+      <section className="border-t border-line-subtle bg-surface">
         <div className="mx-auto max-w-4xl px-6 py-24 sm:py-32">
-          <p className="font-mono text-[10px] text-zinc-600 tracking-[0.3em] uppercase mb-8 text-center">
+          <p className="font-mono text-[10px] text-zinc-500 tracking-[0.3em] uppercase mb-8 text-center">
             PERSPECTIVE
           </p>
           <div className="grid gap-6 sm:grid-cols-2">
-            <div className="rounded-xl border border-red-900/30 bg-red-950/10 p-6">
-              <p className="font-mono text-xs text-red-400/70 uppercase tracking-wider mb-3">
+            <div className="rounded-xl border border-red-300/30 dark:border-red-900/30 bg-red-50 dark:bg-red-950/10 p-6">
+              <p className="font-mono text-xs text-red-600/70 dark:text-red-400/70 uppercase tracking-wider mb-3">
                 Dev hotfix at 3 AM
               </p>
-              <ul className="space-y-2 text-sm text-zinc-400">
+              <ul className="space-y-2 text-sm text-fg-base">
                 <li className="flex items-start gap-2">
                   <span className="text-red-500 mt-0.5">-</span>
                   No second reviewer
@@ -293,7 +293,7 @@ export default function TrustPage() {
               <p className="font-mono text-xs text-inari-accent/70 uppercase tracking-wider mb-3">
                 InariWatch auto-fix
               </p>
-              <ul className="space-y-2 text-sm text-zinc-400">
+              <ul className="space-y-2 text-sm text-fg-base">
                 <li className="flex items-start gap-2">
                   <span className="text-inari-accent mt-0.5">+</span>
                   AI self-review on every fix
@@ -321,14 +321,14 @@ export default function TrustPage() {
       </section>
 
       {/* ── CTA ───────────────────────────────────────────────────── */}
-      <section className="border-t border-white/[0.04] bg-[#06060a]">
+      <section className="border-t border-line-subtle bg-page">
         <div className="relative mx-auto max-w-4xl px-6 py-24 sm:py-32 text-center">
           <div className="absolute inset-0 bg-radial-fade opacity-30" />
           <div className="relative">
-            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-fg-strong">
               Safer than your 3 AM hotfix.
             </h2>
-            <p className="mt-4 text-zinc-500 max-w-lg mx-auto">
+            <p className="mt-4 text-fg-base max-w-lg mx-auto">
               Start at zero trust. Watch it earn your confidence — one
               successful fix at a time.
             </p>
@@ -342,7 +342,7 @@ export default function TrustPage() {
               <Link href="/docs">
                 <Button
                   variant="outline"
-                  className="px-8 py-3 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600"
+                  className="px-8 py-3 border-line-medium text-fg-base hover:text-fg-strong hover:border-line"
                 >
                   Read the docs
                 </Button>
@@ -369,8 +369,8 @@ function MetricCard({
   return (
     <div className="relative w-full max-w-[280px]">
       {/* Outer ring */}
-      <div className="aspect-square rounded-2xl border border-white/[0.04] bg-white/[0.01] p-6 flex flex-col items-center justify-center text-center">
-        <p className="font-mono text-5xl sm:text-6xl font-bold text-white tracking-tight">
+      <div className="aspect-square rounded-2xl border border-line bg-surface-dim p-6 flex flex-col items-center justify-center text-center">
+        <p className="font-mono text-5xl sm:text-6xl font-bold text-fg-strong tracking-tight">
           {metric}
         </p>
         <p className="mt-2 font-mono text-xs text-zinc-500 uppercase tracking-wider">
@@ -416,8 +416,8 @@ function TrustLevelVisual() {
 function AnswerBlock({ title, body }: { title: string; body: string }) {
   return (
     <div className="border-l-2 border-inari-accent/30 pl-5">
-      <p className="text-sm font-semibold text-white">{title}</p>
-      <p className="mt-1 text-sm text-zinc-400 leading-relaxed">{body}</p>
+      <p className="text-sm font-semibold text-fg-strong">{title}</p>
+      <p className="mt-1 text-sm text-fg-base leading-relaxed">{body}</p>
     </div>
   );
 }
