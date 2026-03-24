@@ -7,6 +7,8 @@ mod integrations;
 mod mcp;
 mod notifications;
 mod orchestrator;
+#[cfg(test)]
+mod training_loop_test;
 
 use clap::{Parser, Subcommand};
 
