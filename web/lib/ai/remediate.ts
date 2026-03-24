@@ -10,9 +10,10 @@
  */
 
 import { db, remediationSessions, alerts, projectIntegrations, projects } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { callAI } from "./client";
-import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt } from "./prompts";
+import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, type MemoryHint } from "./prompts";
+import { computeErrorFingerprint } from "./fingerprint";
 import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
 import { decryptConfig } from "@/lib/crypto";
@@ -149,6 +150,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, session.alertId)).limit(1);
   if (!alert) { await fail(sessionId, emit, "Alert not found"); return; }
 
+  // Compute and store error fingerprint for fix replay
+  const alertFingerprint = computeErrorFingerprint(alert.title, alert.body);
+  await updateSession(sessionId, { fingerprint: alertFingerprint });
+
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(session.projectId);
   if (!aiKey) { await fail(sessionId, emit, "No AI key configured. Add one in Settings."); return; }
@@ -261,6 +266,41 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         : "No additional context found — proceeding with alert details",
       emit);
 
+    // Query past sessions by fingerprint for fix replay hints
+    const pastMatches = await db
+      .select()
+      .from(remediationSessions)
+      .where(
+        and(
+          eq(remediationSessions.projectId, session.projectId),
+          eq(remediationSessions.fingerprint, alertFingerprint),
+          eq(remediationSessions.status, "completed"),
+        )
+      )
+      .orderBy(remediationSessions.createdAt)
+      .limit(3);
+
+    const pastHints: MemoryHint[] = pastMatches
+      .filter((s) => s.confidenceScore && s.confidenceScore >= 50)
+      .map((s) => {
+        const files = (s.fileChanges as { path: string }[] | null) ?? [];
+        const stepsArr = (s.steps as RemediationStep[]) ?? [];
+        return {
+          alertTitle: alert.title,
+          rootCause:
+            stepsArr.find((st) => st.type === "diagnose" && st.status === "completed")?.message ?? "Unknown",
+          fixSummary:
+            stepsArr.find((st) => st.type === "generate_fix" && st.status === "completed")?.message ?? "Unknown",
+          filesFixed: files.map((f) => f.path),
+          confidence: s.confidenceScore ?? 0,
+        };
+      });
+
+    if (pastHints.length > 0) {
+      steps = await pushStep(sessionId, steps,
+        makeStep("memory", `Found ${pastHints.length} past fix(es) with matching fingerprint — injecting into diagnosis`, "completed"), emit);
+    }
+
     steps = await pushStep(sessionId, steps,
       makeStep("diagnose", "AI is diagnosing the root cause and identifying affected files..."), emit);
 
@@ -271,7 +311,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         body: alert.body,
         sourceIntegrations: alert.sourceIntegrations,
         aiReasoning: alert.aiReasoning,
-      }, repoFiles, remediationContext) },
+      }, repoFiles, remediationContext, pastHints) },
     ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: number };

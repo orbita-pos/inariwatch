@@ -24,6 +24,8 @@ pub struct IncidentMemory {
     pub confidence: i64,
     pub pr_url: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// Error fingerprint for fix replay matching (None for legacy rows)
+    pub fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +109,21 @@ fn migrate(conn: &Connection) -> Result<()> {
             ON incident_memory(project, fix_worked, created_at DESC);
         ",
     )?;
+
+    // v2 migration: add fingerprint column if missing
+    let has_fp: bool = conn
+        .prepare("PRAGMA table_info(incident_memory)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("fingerprint"));
+
+    if !has_fp {
+        conn.execute_batch(
+            "ALTER TABLE incident_memory ADD COLUMN fingerprint TEXT;
+             CREATE INDEX IF NOT EXISTS idx_memory_fingerprint
+                 ON incident_memory(project, fingerprint);",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -229,8 +246,8 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
     conn.execute(
         "INSERT OR REPLACE INTO incident_memory
              (id, project, alert_title, root_cause, fix_summary, files_fixed,
-              fix_worked, confidence, pr_url, created_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+              fix_worked, confidence, pr_url, created_at, fingerprint)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         params![
             mem.id,
             mem.project,
@@ -242,6 +259,7 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
             mem.confidence,
             mem.pr_url,
             mem.created_at.to_rfc3339(),
+            mem.fingerprint,
         ],
     )?;
     Ok(())
@@ -401,7 +419,7 @@ pub fn get_track_record(conn: &Connection, project: &str) -> Result<TrackRecord>
     // Recent 5 fixes
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at
+                fix_worked, confidence, pr_url, created_at, fingerprint
          FROM incident_memory
          WHERE project = ?1
          ORDER BY created_at DESC
@@ -433,15 +451,24 @@ pub fn mark_memory_failed(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Find past successful fixes similar to the given alert title.
-/// Uses simple keyword matching — good enough for local SQLite.
+/// Find past successful fixes similar to the given alert.
+/// Tries fingerprint exact match first, then falls back to keyword LIKE search.
 pub fn get_relevant_memories(
     conn: &Connection,
     project: &str,
     alert_title: &str,
+    fingerprint: Option<&str>,
     limit: usize,
 ) -> Result<Vec<IncidentMemory>> {
-    // Extract words > 3 chars as search terms
+    // Try fingerprint match first — instant, exact
+    if let Some(fp) = fingerprint {
+        let fp_results = get_memories_by_fingerprint(conn, project, fp, limit)?;
+        if !fp_results.is_empty() {
+            return Ok(fp_results);
+        }
+    }
+
+    // Fall back to keyword matching
     let keywords: Vec<String> = alert_title
         .split_whitespace()
         .filter(|w| w.len() > 3)
@@ -462,7 +489,7 @@ pub fn get_relevant_memories(
 
     let sql = format!(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at
+                fix_worked, confidence, pr_url, created_at, fingerprint
          FROM incident_memory
          WHERE project = ?1 AND fix_worked = 1 AND ({})
          ORDER BY confidence DESC, created_at DESC
@@ -490,6 +517,27 @@ pub fn get_relevant_memories(
     Ok(rows_result)
 }
 
+/// Find past successful fixes by exact fingerprint match.
+pub fn get_memories_by_fingerprint(
+    conn: &Connection,
+    project: &str,
+    fingerprint: &str,
+    limit: usize,
+) -> Result<Vec<IncidentMemory>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
+                fix_worked, confidence, pr_url, created_at, fingerprint
+         FROM incident_memory
+         WHERE project = ?1 AND fingerprint = ?2 AND fix_worked = 1
+         ORDER BY confidence DESC, created_at DESC
+         LIMIT ?3",
+    )?;
+    let rows = stmt
+        .query_map(params![project, fingerprint, limit as i64], row_to_memory)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
     let files_str: String = row.get(5)?;
     let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();
@@ -507,6 +555,7 @@ fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
         created_at: DateTime::parse_from_rfc3339(&created_at_str)
             .map(|t| t.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
+        fingerprint: row.get(10)?,
     })
 }
 

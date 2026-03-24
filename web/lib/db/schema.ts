@@ -362,6 +362,7 @@ export const remediationSessions = pgTable("remediation_sessions", {
   monitoringUntil: timestamp("monitoring_until", { withTimezone: true }),
   monitoringStatus: text("monitoring_status"),     // 'watching' | 'passed' | 'reverted'
   revertPrUrl: text("revert_pr_url"),
+  fingerprint: text("fingerprint"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

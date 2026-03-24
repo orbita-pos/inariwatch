@@ -82,6 +82,14 @@ export type RemediationContext = {
   datadogMetrics: string | null;
 };
 
+export type MemoryHint = {
+  alertTitle: string;
+  rootCause: string;
+  fixSummary: string;
+  filesFixed: string[];
+  confidence: number;
+};
+
 export function buildDiagnosePrompt(
   alert: {
     title: string;
@@ -90,7 +98,8 @@ export function buildDiagnosePrompt(
     aiReasoning?: string | null;
   },
   repoFiles: string[],
-  context?: RemediationContext | null
+  context?: RemediationContext | null,
+  pastIncidents?: MemoryHint[]
 ): string {
   // Show a subset of the file tree to avoid token explosion
   const fileTree = repoFiles
@@ -106,6 +115,17 @@ export function buildDiagnosePrompt(
   if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1500)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
+  let memorySection = "";
+  if (pastIncidents && pastIncidents.length > 0) {
+    const entries = pastIncidents
+      .map(
+        (m) =>
+          `  Alert: "${m.alertTitle}"\n  Root cause: ${m.rootCause}\n  Fix: ${m.fixSummary}\n  Files: ${m.filesFixed.join(", ")}  (confidence ${m.confidence})`
+      )
+      .join("\n---\n");
+    memorySection = `\n\nSIMILAR PAST INCIDENTS (already resolved — use as hints):\n${entries}\nIf this matches a past incident, bias toward the same root cause and files.`;
+  }
+
   return `Analyze this error and identify the files that need to be fixed.
 
 ERROR:
@@ -113,7 +133,7 @@ Title: ${alert.title}
 Details: ${alert.body.slice(0, 1500)}
 Source: ${alert.sourceIntegrations.join(", ")}
 ${alert.aiReasoning ? `\nPrevious AI analysis:\n${alert.aiReasoning.slice(0, 800)}` : ""}
-${buildLogSection}
+${buildLogSection}${memorySection}
 
 REPOSITORY FILE TREE:
 ${fileTree}

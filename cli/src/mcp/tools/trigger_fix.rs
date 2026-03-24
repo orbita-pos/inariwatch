@@ -9,6 +9,7 @@ use crate::db;
 use crate::integrations::github::{CIStatus, GitHubClient};
 use crate::integrations::sentry::SentryClient;
 use crate::integrations::vercel::VercelClient;
+use crate::mcp::fingerprint;
 use crate::mcp::progress::Step;
 use crate::mcp::safety;
 
@@ -29,11 +30,16 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
     let alert = db::get_alert_by_id(&conn, alert_id)?
         .ok_or_else(|| anyhow::anyhow!("Alert not found: {}", alert_id))?;
 
+    // Compute error fingerprint for fix replay matching
+    let alert_fingerprint = fingerprint::compute_error_fingerprint(&alert.title, &alert.body);
+
     // Load incident memories + track record before closing the connection
     let project_slug_for_mem = alert.project.clone();
     let alert_title_for_mem = alert.title.clone();
-    let raw_memories = db::get_relevant_memories(&conn, &project_slug_for_mem, &alert_title_for_mem, 3)
-        .unwrap_or_default();
+    let raw_memories = db::get_relevant_memories(
+        &conn, &project_slug_for_mem, &alert_title_for_mem,
+        Some(&alert_fingerprint), 3,
+    ).unwrap_or_default();
     let track = db::get_track_record(&conn, &project_slug_for_mem).unwrap_or_else(|_| db::TrackRecord {
         total: 0, succeeded: 0, failed: 0, success_rate: 0.0,
         avg_confidence: 0.0, auto_merged: 0,
@@ -165,10 +171,20 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         .collect();
 
     if !past_hints.is_empty() {
-        steps.push(Step::ok(
-            "memory",
-            format!("Found {} similar past incident(s) — injecting into diagnosis", past_hints.len()),
-        ));
+        let is_fp_match = raw_memories.iter().any(|m| {
+            m.fingerprint.as_deref() == Some(alert_fingerprint.as_str())
+                && m.confidence >= 80
+        });
+        let msg = if is_fp_match {
+            format!(
+                "Exact fingerprint match — replaying {} past fix(es) (confidence: {}%)",
+                past_hints.len(),
+                raw_memories[0].confidence,
+            )
+        } else {
+            format!("Found {} similar past incident(s) — injecting into diagnosis", past_hints.len())
+        };
+        steps.push(Step::ok("memory", msg));
     }
 
     let model = Some(cfg.global.ai_model.as_str());
@@ -667,6 +683,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             confidence: confidence as i64,
             pr_url: Some(pr_url.clone()),
             created_at: Utc::now(),
+            fingerprint: Some(alert_fingerprint.clone()),
         };
         let _ = db::save_incident_memory(&mem_conn, &memory);
     }
