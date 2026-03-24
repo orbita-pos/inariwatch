@@ -9,6 +9,7 @@ use crate::db;
 use crate::integrations::github::{CIStatus, GitHubClient};
 use crate::integrations::sentry::SentryClient;
 use crate::integrations::vercel::VercelClient;
+use crate::mcp::escalation;
 use crate::mcp::fingerprint;
 use crate::mcp::progress::Step;
 use crate::mcp::safety;
@@ -221,6 +222,19 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             "Confidence too low ({}%) to proceed. Diagnosis: {}",
             confidence, diagnosis
         )).with_score(confidence));
+        // Escalate via Telegram
+        let _ = escalation::escalate(&escalation::EscalationContext {
+            alert_title: alert.title.clone(),
+            project: project.name.clone(),
+            reason: "Confidence too low to proceed".to_string(),
+            diagnosis: Some(diagnosis.clone()),
+            confidence: Some(confidence),
+            attempts: None,
+            max_attempts: None,
+            ci_error: None,
+            pr_url: None,
+            branch: None,
+        }).await;
         return Ok(abort_result(&steps, confidence, &diagnosis));
     }
 
@@ -520,6 +534,20 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
             steps.push(Step::ok("create_pr", format!("Draft PR (CI failed): {}", pr_url)));
 
+            // Escalate via Telegram
+            let _ = escalation::escalate(&escalation::EscalationContext {
+                alert_title: alert.title.clone(),
+                project: project.name.clone(),
+                reason: "CI failed after fix attempt".to_string(),
+                diagnosis: Some(diagnosis.clone()),
+                confidence: Some(confidence),
+                attempts: Some(1),
+                max_attempts: Some(max_attempts),
+                ci_error: Some(ci_logs[..ci_logs.len().min(200)].to_string()),
+                pr_url: Some(pr_url.clone()),
+                branch: Some(branch_name.clone()),
+            }).await;
+
             return Ok(serde_json::to_string_pretty(&json!({
                 "status": "failed",
                 "steps": steps,
@@ -658,6 +686,19 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
                 if let Ok(conn) = db::open() {
                     let _ = db::mark_memory_failed(&conn, &memory_id);
                 }
+                // Escalate: regression after merge
+                let _ = escalation::escalate(&escalation::EscalationContext {
+                    alert_title: alert.title.clone(),
+                    project: project.name.clone(),
+                    reason: "Regression detected after auto-merge — fix reverted".to_string(),
+                    diagnosis: Some(diagnosis.clone()),
+                    confidence: Some(confidence),
+                    attempts: None,
+                    max_attempts: None,
+                    ci_error: None,
+                    pr_url: Some(revert_pr_url.clone()),
+                    branch: None,
+                }).await;
                 steps.push(Step::fail("monitor", format!("Regression detected — auto-reverted: {}", revert_pr_url)));
             }
             PostMergeResult::RevertFailed { error } => {
