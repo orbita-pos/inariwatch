@@ -41,6 +41,8 @@ const NAV = [
       { id: "cli-install",    label: "Installation" },
       { id: "cli-commands",   label: "Commands" },
       { id: "cli-config",     label: "Configuration" },
+      { id: "cli-daemon",     label: "Daemon" },
+      { id: "cli-autofix",    label: "Auto-fix" },
       { id: "cli-mcp",        label: "MCP Server" },
       { id: "cli-rollback",   label: "Rollback" },
     ],
@@ -355,11 +357,17 @@ cargo build --release
                 ["inariwatch watch",                   "Main loop — polls every 60s, sends alerts, runs AI correlation"],
                 ["inariwatch status",                  "Show integration health and last poll times"],
                 ["inariwatch logs",                    "Show recent alerts from the local SQLite database"],
-                ["inariwatch config --ai-key <key>",   "Set AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini)"],
-                ["inariwatch config --model <model>",  "Set the AI model"],
-                ["inariwatch config --show",           "Print current config (keys masked)"],
-                ["inariwatch serve-mcp",               "Start an MCP server over stdio (Claude Code, Cursor, etc.)"],
-                ["inariwatch rollback vercel",         "Interactive rollback — pick a previous deployment to restore"],
+                ["inariwatch config --ai-key <key>",        "Set AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini)"],
+                ["inariwatch config --model <model>",       "Set the AI model"],
+                ["inariwatch config --auto-fix true",       "Enable autonomous AI fix pipeline on critical alerts"],
+                ["inariwatch config --auto-merge true",     "Auto-merge generated PRs when all safety gates pass"],
+                ["inariwatch config --show",                "Print current config (keys masked)"],
+                ["inariwatch daemon install",               "Register InariWatch as a background service (systemd / launchd / Task Scheduler)"],
+                ["inariwatch daemon start|stop|status",     "Control the background daemon"],
+                ["inariwatch daemon uninstall",             "Remove the background service"],
+                ["inariwatch agent-stats",                  "Show AI agent track record, trust level, and auto-merge gates"],
+                ["inariwatch serve-mcp",                    "Start an MCP server over stdio (Claude Code, Cursor, etc.)"],
+                ["inariwatch rollback vercel",              "Interactive rollback — pick a previous deployment to restore"],
               ]}
             />
 
@@ -373,8 +381,10 @@ cargo build --release
               ]}
             />
             <CodeBlock label="~/.config/inariwatch/config.toml (example)">{`[global]
-ai_key   = "sk-ant-..."
-ai_model = "claude-haiku-4-5-20251001"
+ai_key    = "sk-ant-..."
+ai_model  = "claude-haiku-4-5-20251001"
+auto_fix  = false   # enable autonomous fix pipeline on critical alerts
+auto_merge = false  # auto-merge PRs when all safety gates pass
 
 [[projects]]
 name = "my-app"
@@ -402,6 +412,58 @@ chat_id   = "987654321"`}</CodeBlock>
             <Callout type="info">
               You can edit this file directly, but using <InlineCode>inariwatch add</InlineCode> and <InlineCode>inariwatch config</InlineCode> is safer — they validate tokens before saving.
             </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                CLI DAEMON
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="cli-daemon">CLI — Daemon</SectionHeading>
+            <P>
+              Run InariWatch as a background service so it monitors your project 24/7 — even when your terminal is closed.
+              It registers as a <strong>systemd user service</strong> on Linux, a <strong>launchd agent</strong> on macOS,
+              and a <strong>Task Scheduler task</strong> on Windows.
+            </P>
+            <CodeBlock label="Terminal">{`inariwatch daemon install   # register and enable the service
+inariwatch daemon start     # start immediately
+inariwatch daemon stop      # stop the service
+inariwatch daemon status    # check if running + tail recent logs
+inariwatch daemon uninstall # remove the service`}</CodeBlock>
+            <P>
+              Logs are written to <InlineCode>~/.inariwatch/daemon.log</InlineCode> on all platforms.
+              The daemon runs <InlineCode>inariwatch watch</InlineCode> in the background — any config you set
+              with <InlineCode>inariwatch config</InlineCode> applies to it automatically.
+            </P>
+
+            {/* ────────────────────────────────────────────────────────────────
+                CLI AUTO-FIX
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="cli-autofix">CLI — Auto-fix &amp; Auto-merge</SectionHeading>
+            <P>
+              When <InlineCode>auto_fix</InlineCode> is enabled, every critical alert automatically triggers the full
+              AI remediation pipeline: diagnose → read code → generate fix → self-review → push branch → wait CI → open PR.
+              No human needed until the PR appears.
+            </P>
+            <CodeBlock label="Terminal">{`inariwatch config --auto-fix true    # enable autonomous fix pipeline
+inariwatch config --auto-merge true  # also merge PRs when all safety gates pass`}</CodeBlock>
+            <P>
+              <InlineCode>auto_merge</InlineCode> requires <InlineCode>auto_fix</InlineCode> to be enabled.
+              Even then, a PR is only merged when <strong>all 5 safety gates pass</strong>: CI green, confidence ≥ 90%,
+              self-review score ≥ 70, lines changed ≤ 50, and trust level ≥ Apprentice.
+            </P>
+            <Callout type="info">
+              Use <InlineCode>inariwatch agent-stats</InlineCode> to see the AI&apos;s track record, current trust level,
+              and which gates apply at your trust level. The agent earns relaxed gates as it accumulates successful fixes.
+            </Callout>
+            <Table
+              head={["Trust level", "Requires", "Auto-merge gates"]}
+              rows={[
+                ["Rookie",     "0 fixes",              "Never auto-merges"],
+                ["Apprentice", "3 fixes, ≥ 50% success", "Conf ≥ 90, lines ≤ 50"],
+                ["Trusted",    "5 fixes, ≥ 70% success", "Conf ≥ 80, lines ≤ 100"],
+                ["Expert",     "10 fixes, ≥ 85% success", "Conf ≥ 70, lines ≤ 200"],
+              ]}
+            />
 
             {/* ────────────────────────────────────────────────────────────────
                 CLI MCP SERVER
