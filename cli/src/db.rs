@@ -77,7 +77,167 @@ pub fn open_sim() -> Result<Connection> {
     }
     let conn = Connection::open(&path)?;
     migrate(&conn)?;
+    migrate_sim(&conn)?;
     Ok(conn)
+}
+
+/// Extra tables only used by the simulator.
+fn migrate_sim(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS scenario_bank (
+            id                TEXT PRIMARY KEY,
+            title             TEXT NOT NULL,
+            body              TEXT NOT NULL,
+            category          TEXT NOT NULL DEFAULT 'unknown',
+            fingerprint       TEXT NOT NULL,
+            source            TEXT NOT NULL DEFAULT 'synthetic',
+            files             TEXT,
+            fix_approach      TEXT,
+            base_success_rate REAL NOT NULL DEFAULT 0.5,
+            created_at        TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_scenario_fp ON scenario_bank(fingerprint);
+
+        CREATE TABLE IF NOT EXISTS sim_runs (
+            id              TEXT PRIMARY KEY,
+            run_number      INTEGER NOT NULL,
+            cycles          INTEGER NOT NULL,
+            total           INTEGER NOT NULL,
+            succeeded       INTEGER NOT NULL,
+            failed          INTEGER NOT NULL,
+            success_rate    REAL NOT NULL,
+            learned_count   INTEGER NOT NULL,
+            avg_confidence  REAL NOT NULL,
+            trust_level     TEXT NOT NULL,
+            created_at      TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sim_runs_num ON sim_runs(run_number DESC);",
+    )?;
+    Ok(())
+}
+
+// ── Scenario bank ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct BankScenario {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+    pub category: String,
+    pub fingerprint: String,
+    pub source: String,
+    pub files: Vec<String>,
+    pub fix_approach: Option<String>,
+    pub base_success_rate: f64,
+}
+
+pub fn save_scenario(conn: &Connection, s: &BankScenario) -> Result<()> {
+    let files = serde_json::to_string(&s.files)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO scenario_bank
+             (id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        params![s.id, s.title, s.body, s.category, s.fingerprint, s.source,
+                files, s.fix_approach, s.base_success_rate, Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn get_all_scenarios(conn: &Connection) -> Result<Vec<BankScenario>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate
+         FROM scenario_bank ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let files_str: Option<String> = row.get(6)?;
+        let files: Vec<String> = files_str
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Ok(BankScenario {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            body: row.get(2)?,
+            category: row.get(3)?,
+            fingerprint: row.get(4)?,
+            source: row.get(5)?,
+            files,
+            fix_approach: row.get(7)?,
+            base_success_rate: row.get(8)?,
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn count_scenarios(conn: &Connection) -> usize {
+    conn.query_row("SELECT COUNT(*) FROM scenario_bank", [], |row| row.get::<_, i64>(0))
+        .unwrap_or(0) as usize
+}
+
+// ── Sim runs ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SimRun {
+    pub id: String,
+    pub run_number: i64,
+    pub cycles: i64,
+    pub total: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub success_rate: f64,
+    pub learned_count: i64,
+    pub avg_confidence: f64,
+    pub trust_level: String,
+    pub created_at: DateTime<Utc>,
+}
+
+pub fn save_sim_run(conn: &Connection, r: &SimRun) -> Result<()> {
+    conn.execute(
+        "INSERT INTO sim_runs
+             (id, run_number, cycles, total, succeeded, failed, success_rate,
+              learned_count, avg_confidence, trust_level, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        params![r.id, r.run_number, r.cycles, r.total, r.succeeded, r.failed,
+                r.success_rate, r.learned_count, r.avg_confidence, r.trust_level,
+                r.created_at.to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn get_next_run_number(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COALESCE(MAX(run_number), 0) + 1 FROM sim_runs", [], |row| row.get(0))
+        .unwrap_or(1)
+}
+
+pub fn get_sim_runs(conn: &Connection, limit: usize) -> Result<Vec<SimRun>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, run_number, cycles, total, succeeded, failed, success_rate,
+                learned_count, avg_confidence, trust_level, created_at
+         FROM sim_runs ORDER BY run_number DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], |row| {
+        let created_str: String = row.get(10)?;
+        Ok(SimRun {
+            id: row.get(0)?,
+            run_number: row.get(1)?,
+            cycles: row.get(2)?,
+            total: row.get(3)?,
+            succeeded: row.get(4)?,
+            failed: row.get(5)?,
+            success_rate: row.get(6)?,
+            learned_count: row.get(7)?,
+            avg_confidence: row.get(8)?,
+            trust_level: row.get(9)?,
+            created_at: DateTime::parse_from_rfc3339(&created_str)
+                .map(|t| t.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn get_last_sim_run(conn: &Connection) -> Result<Option<SimRun>> {
+    let mut runs = get_sim_runs(conn, 1)?;
+    Ok(runs.pop())
 }
 
 fn migrate(conn: &Connection) -> Result<()> {

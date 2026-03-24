@@ -118,6 +118,12 @@ enum Commands {
         /// Delay between steps in ms (default: 150)
         #[arg(long, default_value = "150")]
         speed: u64,
+        /// Import real errors from production DB into the scenario bank
+        #[arg(long)]
+        import: bool,
+        /// Show simulation run history and improvement trend
+        #[arg(long)]
+        history: bool,
     },
 }
 
@@ -143,6 +149,14 @@ async fn main() -> anyhow::Result<()> {
         Commands::Rollback { service, project } => {
             commands::rollback::run(&service, project).await
         }
-        Commands::Simulate { cycles, speed } => commands::simulate::run(cycles, speed).await,
+        Commands::Simulate { cycles, speed, import, history } => {
+            if import {
+                commands::simulate::run_import().await
+            } else if history {
+                commands::simulate::run_history().await
+            } else {
+                commands::simulate::run(cycles, speed).await
+            }
+        }
     }
 }
