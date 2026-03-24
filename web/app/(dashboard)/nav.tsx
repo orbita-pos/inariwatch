@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone } from "lucide-react";
+import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ElementType };
 type NavGroup = { label?: string; items: NavItem[] };
@@ -32,6 +32,13 @@ const NAV_GROUPS: NavGroup[] = [
     label: "AI",
     items: [
       { href: "/chat", label: "Ask Inari", icon: MessageSquare },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [
+      { href: "/community",       label: "Community",  icon: Users },
+      { href: "/community/fleet", label: "Fleet Stats", icon: Activity },
     ],
   },
 ];
