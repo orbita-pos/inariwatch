@@ -738,6 +738,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                   defaultBranch,
                   ghToken: token,
                   emit,
+                  fingerprint: alertFingerprint,
                 });
                 return; // post-merge monitor handles emit("done")
               } else {

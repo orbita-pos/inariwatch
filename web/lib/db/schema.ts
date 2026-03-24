@@ -182,6 +182,8 @@ export const alerts = pgTable("alerts", {
   postmortem: text("postmortem"),
   isRead: boolean("is_read").default(false).notNull(),
   isResolved: boolean("is_resolved").default(false).notNull(),
+  /** Error fingerprint for outcome tracking (SHA-256 of normalized error) */
+  fingerprint: text("fingerprint"),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
