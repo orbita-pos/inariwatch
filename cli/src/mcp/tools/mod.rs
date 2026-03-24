@@ -4,6 +4,7 @@ pub mod run_check;
 pub mod get_root_cause;
 pub mod get_postmortem;
 pub mod trigger_fix;
+pub mod assess_risk;
 pub mod rollback_vercel;
 pub mod get_build_logs;
 pub mod silence_alert;

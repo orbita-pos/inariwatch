@@ -758,4 +758,120 @@ impl GitHubClient {
             Ok(logs.join("\n"))
         }
     }
+
+    // ── PR Risk Assessment helpers ──────────────────────────────────────────
+
+    /// Get the unified diff for a pull request.
+    pub async fn get_pr_diff(&self, pr_number: u64) -> Result<String> {
+        let url = format!(
+            "https://api.github.com/repos/{}/pulls/{}",
+            self.repo, pr_number
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .header("User-Agent", "inariwatch-cli")
+            .header("Accept", "application/vnd.github.v3.diff")
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("Failed to get PR diff ({})", resp.status());
+        }
+        Ok(resp.text().await?)
+    }
+
+    /// Get files changed in a pull request with stats.
+    pub async fn get_pr_files(&self, pr_number: u64) -> Result<Vec<PRFile>> {
+        let files: Vec<PRFile> = self
+            .get(&format!(
+                "/repos/{}/pulls/{}/files?per_page=100",
+                self.repo, pr_number
+            ))
+            .await?;
+        Ok(files)
+    }
+
+    /// Get basic PR info (title, body).
+    pub async fn get_pr_info(&self, pr_number: u64) -> Result<PRInfo> {
+        self.get(&format!("/repos/{}/pulls/{}", self.repo, pr_number))
+            .await
+    }
+
+    /// Post a comment on a PR.
+    pub async fn comment_on_pr(&self, pr_number: u64, body: &str) -> Result<()> {
+        let url = format!(
+            "https://api.github.com/repos/{}/issues/{}/comments",
+            self.repo, pr_number
+        );
+        let resp = self
+            .client
+            .post(&url)
+            .header("User-Agent", "inariwatch-cli")
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "body": body }))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("Failed to comment on PR ({})", resp.status());
+        }
+        Ok(())
+    }
+
+    /// Find an existing bot comment containing a marker string.
+    pub async fn find_bot_comment(&self, pr_number: u64, marker: &str) -> Result<Option<u64>> {
+        #[derive(Deserialize)]
+        struct Comment {
+            id: u64,
+            body: Option<String>,
+        }
+        let comments: Vec<Comment> = self
+            .get(&format!(
+                "/repos/{}/issues/{}/comments?per_page=100",
+                self.repo, pr_number
+            ))
+            .await?;
+        Ok(comments
+            .iter()
+            .find(|c| c.body.as_deref().unwrap_or("").contains(marker))
+            .map(|c| c.id))
+    }
+
+    /// Update an existing PR comment.
+    pub async fn update_pr_comment(&self, comment_id: u64, body: &str) -> Result<()> {
+        let url = format!(
+            "https://api.github.com/repos/{}/issues/comments/{}",
+            self.repo, comment_id
+        );
+        let resp = self
+            .client
+            .patch(&url)
+            .header("User-Agent", "inariwatch-cli")
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "body": body }))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("Failed to update comment ({})", resp.status());
+        }
+        Ok(())
+    }
+}
+
+// ── PR types ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PRFile {
+    pub filename: String,
+    pub status: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub patch: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PRInfo {
+    pub title: String,
+    pub body: Option<String>,
+    pub number: u64,
 }

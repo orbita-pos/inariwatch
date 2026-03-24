@@ -116,6 +116,28 @@ pub fn tools_list() -> Value {
             }
         },
         {
+            "name": "assess_risk",
+            "description": "Pre-deploy risk assessment for a pull request. Analyzes the PR diff against historical incident data and uses AI to assess deployment risk. Posts a risk assessment comment on the PR. Returns risk level (Low/Medium/High) with findings and recommendations.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pr_number": {
+                        "type": "number",
+                        "description": "The pull request number to assess."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Project slug. If omitted, auto-detected from current directory."
+                    },
+                    "post_comment": {
+                        "type": "boolean",
+                        "description": "If true (default), posts the assessment as a PR comment. Set false to just return the assessment."
+                    }
+                },
+                "required": ["pr_number"]
+            }
+        },
+        {
             "name": "rollback_vercel",
             "description": "Roll back a Vercel project to a previous production deployment. If no deployment_id is given, automatically selects the last successful production deployment. Returns the deployment that was promoted.",
             "inputSchema": {
@@ -179,6 +201,7 @@ pub async fn call_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         "get_root_cause"  => tools::get_root_cause::execute(args).await,
         "get_postmortem"  => tools::get_postmortem::execute(args).await,
         "trigger_fix"     => tools::trigger_fix::execute(args).await,
+        "assess_risk"     => tools::assess_risk::execute(args).await,
         "rollback_vercel" => tools::rollback_vercel::execute(args).await,
         "get_build_logs"  => tools::get_build_logs::execute(args).await,
         "silence_alert"   => tools::silence_alert::execute(args).await,

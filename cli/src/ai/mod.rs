@@ -218,6 +218,17 @@ pub async fn generate_postmortem(
     call_ai(key, model, prompts::SYSTEM_POSTMORTEM, &prompt, 2048).await
 }
 
+/// Pre-deploy risk assessment for a pull request.
+/// Returns markdown-formatted risk assessment.
+pub async fn assess_risk(
+    key: &str,
+    model: Option<&str>,
+    ctx: &prompts::RiskContext,
+) -> Result<String> {
+    let prompt = prompts::build_risk_assessment_prompt(ctx);
+    call_ai(key, model, prompts::SYSTEM_RISK_ASSESSOR, &prompt, 1024).await
+}
+
 // ── Prompt builder (v1 — existing) ──────────────────────────────────────────
 
 fn build_prompt(events: &[RawEvent]) -> String {
