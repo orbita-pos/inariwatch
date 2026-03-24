@@ -94,6 +94,12 @@ enum Commands {
         action: String,
     },
 
+    /// Review pending fix outcomes and provide feedback
+    Feedback {
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+
     /// Roll back a deployment (vercel)
     Rollback {
         /// Service to roll back: vercel
@@ -118,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
             commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show).await
         }
         Commands::Postmortem { alert_id } => commands::postmortem::run(&alert_id).await,
+        Commands::Feedback { project } => commands::feedback::run(project).await,
         Commands::AgentStats { project } => commands::agent_stats::run(project).await,
         Commands::Daemon { action } => commands::daemon::run(&action).await,
         Commands::ServeMcp => commands::serve_mcp::run().await,

@@ -152,6 +152,16 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
         }
     }
 
+    // Show pending feedback count
+    let pending = db::count_pending_feedback(&conn);
+    if pending > 0 {
+        println!(
+            "  {} pending feedback \u{2014} run {}",
+            pending.to_string().yellow().bold(),
+            "inariwatch feedback".cyan()
+        );
+    }
+
     println!();
     Ok(())
 }

@@ -798,6 +798,20 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             community_fix_id: None, // set later if fix_replay contribute succeeds
         };
         let _ = db::save_incident_memory(&mem_conn, &memory);
+
+        // Queue feedback request for later review
+        let fb = db::PendingFeedback {
+            id: Uuid::new_v4().to_string(),
+            memory_id: memory_id.clone(),
+            project: alert.project.clone(),
+            alert_title: alert.title.clone(),
+            pr_url: Some(pr_url.clone()),
+            fix_summary: fix_explanation.clone(),
+            created_at: Utc::now(),
+            answered: false,
+            answer: None,
+        };
+        let _ = db::save_pending_feedback(&mem_conn, &fb);
     }
 
     // ── Fix Replay: contribute pattern to web API ────────────────────────

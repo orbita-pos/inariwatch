@@ -3,6 +3,7 @@ pub mod agent_stats;
 pub mod config_cmd;
 pub mod daemon;
 pub mod connect;
+pub mod feedback;
 pub mod init;
 pub mod logs;
 pub mod postmortem;

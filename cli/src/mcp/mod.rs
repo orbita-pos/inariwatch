@@ -188,6 +188,24 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["alert_id"]
             }
+        },
+        {
+            "name": "submit_feedback",
+            "description": "Submit feedback on whether a previous AI fix worked. Closes the learning loop — fixes marked as failed reduce confidence and inform future diagnoses.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "memory_id": {
+                        "type": "string",
+                        "description": "The incident memory ID of the fix to rate."
+                    },
+                    "worked": {
+                        "type": "boolean",
+                        "description": "Whether the fix resolved the issue (true) or not (false)."
+                    }
+                },
+                "required": ["memory_id", "worked"]
+            }
         }
     ])
 }
@@ -205,6 +223,7 @@ pub async fn call_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         "rollback_vercel" => tools::rollback_vercel::execute(args).await,
         "get_build_logs"  => tools::get_build_logs::execute(args).await,
         "silence_alert"   => tools::silence_alert::execute(args).await,
+        "submit_feedback" => tools::submit_feedback::execute(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     }
 }

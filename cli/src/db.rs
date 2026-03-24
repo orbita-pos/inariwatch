@@ -166,6 +166,23 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
+    // v3 migration: pending_feedback table
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pending_feedback (
+            id          TEXT PRIMARY KEY,
+            memory_id   TEXT NOT NULL,
+            project     TEXT NOT NULL,
+            alert_title TEXT NOT NULL,
+            pr_url      TEXT,
+            fix_summary TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            answered    INTEGER NOT NULL DEFAULT 0,
+            answer      INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_pending
+            ON pending_feedback(answered, created_at DESC);",
+    )?;
+
     // v3 migration: shadow_predictions table
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS shadow_predictions (
@@ -621,6 +638,84 @@ pub fn get_memories_by_fingerprint(
         .query_map(params![project, fingerprint, limit as i64], row_to_memory)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+// ── Pending feedback ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingFeedback {
+    pub id: String,
+    pub memory_id: String,
+    pub project: String,
+    pub alert_title: String,
+    pub pr_url: Option<String>,
+    pub fix_summary: String,
+    pub created_at: DateTime<Utc>,
+    pub answered: bool,
+    pub answer: Option<bool>, // true = worked, false = failed, None = unanswered
+}
+
+pub fn save_pending_feedback(conn: &Connection, fb: &PendingFeedback) -> Result<()> {
+    let answer_val: Option<i64> = fb.answer.map(|a| a as i64);
+    conn.execute(
+        "INSERT OR REPLACE INTO pending_feedback
+             (id, memory_id, project, alert_title, pr_url, fix_summary, created_at, answered, answer)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![
+            fb.id, fb.memory_id, fb.project, fb.alert_title, fb.pr_url,
+            fb.fix_summary, fb.created_at.to_rfc3339(),
+            fb.answered as i64, answer_val,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_pending_feedback(conn: &Connection, limit: usize) -> Result<Vec<PendingFeedback>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, memory_id, project, alert_title, pr_url, fix_summary,
+                created_at, answered, answer
+         FROM pending_feedback
+         WHERE answered = 0
+         ORDER BY created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            let created_str: String = row.get(6)?;
+            let answer_val: Option<i64> = row.get(8)?;
+            Ok(PendingFeedback {
+                id: row.get(0)?,
+                memory_id: row.get(1)?,
+                project: row.get(2)?,
+                alert_title: row.get(3)?,
+                pr_url: row.get(4)?,
+                fix_summary: row.get(5)?,
+                created_at: DateTime::parse_from_rfc3339(&created_str)
+                    .map(|t| t.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                answered: row.get::<_, i64>(7)? != 0,
+                answer: answer_val.map(|v| v != 0),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn answer_feedback(conn: &Connection, id: &str, worked: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE pending_feedback SET answered = 1, answer = ?1 WHERE id = ?2",
+        params![worked as i64, id],
+    )?;
+    Ok(())
+}
+
+pub fn count_pending_feedback(conn: &Connection) -> usize {
+    conn.query_row(
+        "SELECT COUNT(*) FROM pending_feedback WHERE answered = 0",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .unwrap_or(0) as usize
 }
 
 // ── Shadow predictions ───────────────────────────────────────────────────
