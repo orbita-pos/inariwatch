@@ -109,6 +109,16 @@ enum Commands {
         #[arg(short, long)]
         project: Option<String>,
     },
+
+    /// Simulate the training loop with fake errors to see the system learn
+    Simulate {
+        /// Number of error cycles to simulate (default: 30)
+        #[arg(short, long, default_value = "30")]
+        cycles: usize,
+        /// Delay between steps in ms (default: 150)
+        #[arg(long, default_value = "150")]
+        speed: u64,
+    },
 }
 
 #[tokio::main]
@@ -133,5 +143,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Rollback { service, project } => {
             commands::rollback::run(&service, project).await
         }
+        Commands::Simulate { cycles, speed } => commands::simulate::run(cycles, speed).await,
     }
 }

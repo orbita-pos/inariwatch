@@ -9,6 +9,7 @@ pub mod logs;
 pub mod postmortem;
 pub mod rollback;
 pub mod serve_mcp;
+pub mod simulate;
 pub mod status;
 pub mod watch;
 
