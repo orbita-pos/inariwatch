@@ -28,6 +28,8 @@ pub struct IncidentMemory {
     pub fingerprint: Option<String>,
     /// Auto-generated post-mortem text (None if not yet generated)
     pub postmortem_text: Option<String>,
+    /// Community fix ID returned from /api/patterns/contribute (for outcome reporting)
+    pub community_fix_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +43,8 @@ pub struct Alert {
     pub is_read: bool,
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// Error fingerprint for outcome tracking (None for legacy alerts)
+    pub fingerprint: Option<String>,
 }
 
 // ── Connection ────────────────────────────────────────────────────────────────
@@ -138,6 +142,30 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
+    // v3 migration: add fingerprint column to alerts for outcome tracking
+    let has_alert_fp: bool = conn
+        .prepare("PRAGMA table_info(alerts)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("fingerprint"));
+
+    if !has_alert_fp {
+        conn.execute_batch(
+            "ALTER TABLE alerts ADD COLUMN fingerprint TEXT;",
+        )?;
+    }
+
+    // v3 migration: add community_fix_id to incident_memory for outcome reporting
+    let has_cfi: bool = conn
+        .prepare("PRAGMA table_info(incident_memory)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("community_fix_id"));
+
+    if !has_cfi {
+        conn.execute_batch(
+            "ALTER TABLE incident_memory ADD COLUMN community_fix_id TEXT;",
+        )?;
+    }
+
     // v2 migration: pattern_cache for Fix Replay
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS pattern_cache (
@@ -186,8 +214,8 @@ pub fn insert_alert(conn: &Connection, alert: &Alert) -> Result<()> {
     let sent_at = alert.sent_at.map(|t| t.to_rfc3339());
     conn.execute(
         "INSERT INTO alerts
-             (id, project, severity, title, body, source_integrations, is_read, sent_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, project, severity, title, body, source_integrations, is_read, sent_at, created_at, fingerprint)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             alert.id,
             alert.project,
@@ -197,7 +225,8 @@ pub fn insert_alert(conn: &Connection, alert: &Alert) -> Result<()> {
             sources,
             alert.is_read as i64,
             sent_at,
-            alert.created_at.to_rfc3339()
+            alert.created_at.to_rfc3339(),
+            alert.fingerprint,
         ],
     )?;
     Ok(())
@@ -212,7 +241,7 @@ pub fn get_recent_alerts(
         Some(proj) => {
             let mut stmt = conn.prepare(
                 "SELECT id, project, severity, title, body, source_integrations,
-                        is_read, sent_at, created_at
+                        is_read, sent_at, created_at, fingerprint
                  FROM alerts
                  WHERE project = ?1
                  ORDER BY created_at DESC
@@ -226,7 +255,7 @@ pub fn get_recent_alerts(
         None => {
             let mut stmt = conn.prepare(
                 "SELECT id, project, severity, title, body, source_integrations,
-                        is_read, sent_at, created_at
+                        is_read, sent_at, created_at, fingerprint
                  FROM alerts
                  ORDER BY created_at DESC
                  LIMIT ?1",
@@ -269,8 +298,8 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
     conn.execute(
         "INSERT OR REPLACE INTO incident_memory
              (id, project, alert_title, root_cause, fix_summary, files_fixed,
-              fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+              fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         params![
             mem.id,
             mem.project,
@@ -284,6 +313,7 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
             mem.created_at.to_rfc3339(),
             mem.fingerprint,
             mem.postmortem_text,
+            mem.community_fix_id,
         ],
     )?;
     Ok(())
@@ -452,7 +482,7 @@ pub fn get_track_record(conn: &Connection, project: &str) -> Result<TrackRecord>
     // Recent 5 fixes
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id
          FROM incident_memory
          WHERE project = ?1
          ORDER BY created_at DESC
@@ -522,7 +552,7 @@ pub fn get_relevant_memories(
 
     let sql = format!(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id
          FROM incident_memory
          WHERE project = ?1 AND fix_worked = 1 AND ({})
          ORDER BY confidence DESC, created_at DESC
@@ -559,7 +589,7 @@ pub fn get_memories_by_fingerprint(
 ) -> Result<Vec<IncidentMemory>> {
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id
          FROM incident_memory
          WHERE project = ?1 AND fingerprint = ?2 AND fix_worked = 1
          ORDER BY confidence DESC, created_at DESC
@@ -569,6 +599,43 @@ pub fn get_memories_by_fingerprint(
         .query_map(params![project, fingerprint, limit as i64], row_to_memory)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+// ── Outcome tracking ─────────────────────────────────────────────────────
+
+/// Check if an alert with the same fingerprint was created after the given time.
+/// Excludes the alert with `exclude_id` (the original alert that triggered the fix).
+pub fn has_alert_with_fingerprint_since(
+    conn: &Connection,
+    fingerprint: &str,
+    since: DateTime<Utc>,
+    exclude_id: &str,
+) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM alerts WHERE fingerprint = ?1 AND created_at > ?2 AND id != ?3",
+        params![fingerprint, since.to_rfc3339(), exclude_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+/// Adjust the confidence of an incident memory by a delta (positive or negative).
+/// Clamps to [0, 100].
+pub fn update_memory_confidence(conn: &Connection, id: &str, delta: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE incident_memory SET confidence = MAX(0, MIN(100, confidence + ?1)) WHERE id = ?2",
+        params![delta, id],
+    )?;
+    Ok(())
+}
+
+/// Store the community fix ID on an incident memory (for outcome reporting).
+pub fn set_memory_community_fix_id(conn: &Connection, id: &str, fix_id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE incident_memory SET community_fix_id = ?1 WHERE id = ?2",
+        params![fix_id, id],
+    )?;
+    Ok(())
 }
 
 // ── Pattern cache (Fix Replay) ───────────────────────────────────────────────
@@ -660,6 +727,7 @@ fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
             .unwrap_or_else(|_| Utc::now()),
         fingerprint: row.get(10)?,
         postmortem_text: row.get(11).ok(),
+        community_fix_id: row.get(12).ok().flatten(),
     })
 }
 
@@ -684,5 +752,6 @@ fn row_to_alert(row: &rusqlite::Row) -> rusqlite::Result<Alert> {
         created_at: DateTime::parse_from_rfc3339(&created_at_str)
             .map(|t| t.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
+        fingerprint: row.get(9).ok().flatten(),
     })
 }

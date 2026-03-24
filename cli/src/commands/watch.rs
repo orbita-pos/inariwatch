@@ -154,6 +154,7 @@ pub async fn poll_once(project_name: Option<String>) -> anyhow::Result<Vec<db::A
                 .collect()
         };
 
+        let fp = crate::mcp::fingerprint::compute_error_fingerprint(&title, &body);
         let alert = db::Alert {
             id: Uuid::new_v4().to_string(),
             project: project.slug.clone(),
@@ -164,6 +165,7 @@ pub async fn poll_once(project_name: Option<String>) -> anyhow::Result<Vec<db::A
             is_read: false,
             sent_at: None,
             created_at: Utc::now(),
+            fingerprint: Some(fp),
         };
         db::insert_alert(&conn, &alert)?;
         result.push(alert);
@@ -406,6 +408,7 @@ async fn run_cycle(
                 .collect()
         };
 
+        let fp = crate::mcp::fingerprint::compute_error_fingerprint(&title, &body);
         let alert = Alert {
             id: Uuid::new_v4().to_string(),
             project: project.slug.clone(),
@@ -416,6 +419,7 @@ async fn run_cycle(
             is_read: false,
             sent_at: Some(Utc::now()),
             created_at: Utc::now(),
+            fingerprint: Some(fp),
         };
 
         db::insert_alert(conn, &alert)?;
