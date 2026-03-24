@@ -100,6 +100,28 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
         rec.auto_merged.to_string().bold()
     );
 
+    // ── Fix Replay ───────────────────────────────────────────────────────────
+
+    if let Ok(replay) = db::get_fix_replay_stats(&conn, &project.slug) {
+        println!();
+        println!("  {}", "Fix Replay:".dimmed());
+        println!(
+            "  {:<20} {}",
+            "Cache entries".dimmed(),
+            replay.cache_entries.to_string().bold()
+        );
+        println!(
+            "  {:<20} {}",
+            "FP matches".dimmed(),
+            replay.fingerprint_matches.to_string().cyan().bold()
+        );
+        println!(
+            "  {:<20} {}",
+            "Contributions".dimmed(),
+            replay.contributions.to_string().green().bold()
+        );
+    }
+
     // ── Recent fixes ─────────────────────────────────────────────────────────
 
     if rec.recent.is_empty() {
