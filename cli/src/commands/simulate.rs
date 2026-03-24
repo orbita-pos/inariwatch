@@ -110,7 +110,7 @@ const SCENARIOS: &[ErrorScenario] = &[
 // ── Simulation engine ────────────────────────────────────────────────────────
 
 pub async fn run(cycles: usize, speed: u64) -> Result<()> {
-    let conn = db::open()?;
+    let conn = db::open_sim()?;
     let project = "simulate";
     let mut rng = rand::thread_rng();
 

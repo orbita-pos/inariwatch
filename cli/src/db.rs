@@ -66,6 +66,20 @@ pub fn open() -> Result<Connection> {
     Ok(conn)
 }
 
+/// Open the simulation database (separate from production).
+pub fn open_sim() -> Result<Connection> {
+    let path = data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("inariwatch")
+        .join("inariwatch_sim.db");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let conn = Connection::open(&path)?;
+    migrate(&conn)?;
+    Ok(conn)
+}
+
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
