@@ -515,6 +515,8 @@ inariwatch config --auto-merge true  # also merge PRs when all safety gates pass
                 ["run_check",       "read",   "Trigger one monitoring cycle and return any new alerts found."],
                 ["get_root_cause",  "action", "Deep AI analysis of an alert: root cause, confidence, impact, and prevention steps. Pulls context from Sentry, Vercel, and GitHub in parallel."],
                 ["trigger_fix",     "action", "Full autonomous remediation: diagnose → read code → AI fix → self-review → branch → CI wait → PR → optional auto-merge. Supports dry_run to preview without side effects."],
+                ["get_postmortem",  "action", "Generate or retrieve a post-mortem document for a resolved alert. Returns structured markdown with Summary, Timeline, Root Cause, Impact, Resolution, and Prevention."],
+                ["assess_risk",     "action", "Pre-deploy risk assessment for a PR. Analyzes diff against historical incidents and community patterns. Posts a risk comment on the PR (Low/Medium/High)."],
                 ["rollback_vercel", "action", "Roll back a Vercel project to the last successful production deployment. Accepts an optional deployment ID."],
                 ["get_build_logs",  "action", "Fetch Vercel build logs for a deployment with error extraction. Defaults to the latest failed deploy."],
                 ["silence_alert",   "action", "Mark an alert as read in the local database."],
