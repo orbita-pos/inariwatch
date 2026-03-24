@@ -380,6 +380,17 @@ export default async function PublicStatusPage({
                     {updates.length > 0 && (
                       <p className="text-xs text-zinc-600 ml-4">{updates[0].message}</p>
                     )}
+                    {/* Post-mortem (if available) */}
+                    {incident.postmortem && (
+                      <details className="mt-3 ml-4">
+                        <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400 transition-colors">
+                          View post-mortem
+                        </summary>
+                        <div className="mt-2 text-xs text-zinc-500 prose prose-invert prose-xs max-w-none whitespace-pre-wrap border-l-2 border-zinc-800 pl-3">
+                          {incident.postmortem}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 );
               })}

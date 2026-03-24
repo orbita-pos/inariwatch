@@ -120,3 +120,41 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
 
   await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));
 }
+
+/**
+ * Generate a post-mortem from within the remediation engine (no userId needed).
+ * Called internally — ownership already verified by the remediation session.
+ */
+export async function generatePostmortemInternal(alertId: string): Promise<void> {
+  const [alert] = await db.select().from(alerts).where(eq(alerts.id, alertId)).limit(1);
+  if (!alert || alert.postmortem) return;
+
+  const aiKey = await getProjectOwnerAIKey(alert.projectId);
+  if (!aiKey) return;
+
+  const [remediation] = await db
+    .select()
+    .from(remediationSessions)
+    .where(eq(remediationSessions.alertId, alertId))
+    .orderBy(desc(remediationSessions.createdAt))
+    .limit(1);
+
+  const remData = remediation ? {
+    steps: (remediation.steps ?? []) as RemediationStep[],
+    prUrl: remediation.prUrl,
+    prNumber: remediation.prNumber,
+    attempt: remediation.attempt,
+    repo: remediation.repo,
+    branch: remediation.branch,
+  } : null;
+
+  const model = resolveModel("postmortem", aiKey.provider, aiKey.modelPrefs);
+  const postmortem = await callAI(
+    aiKey.key,
+    SYSTEM_POSTMORTEM,
+    [{ role: "user", content: buildPostmortemPrompt(alert, remData) }],
+    { maxTokens: 2048, timeout: 45000, model, provider: aiKey.provider }
+  );
+
+  await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));
+}

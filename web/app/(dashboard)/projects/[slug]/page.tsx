@@ -15,8 +15,9 @@ import {
   onCallSchedules,
   onCallSlots,
   onCallOverrides,
+  alerts,
 } from "@/lib/db";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, sql, isNotNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -27,6 +28,7 @@ import { StatusPageSection } from "./status-page";
 import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
+import { PostmortemsSection } from "./postmortems";
 import { ProGate } from "@/components/pro-gate";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
@@ -285,6 +287,34 @@ export default async function ProjectDetailPage({
   // Resolve who is currently on-call
   const currentOnCallUserId = await getCurrentOnCallUserId(project.id);
 
+  // Get alerts with post-mortems
+  const postmortemAlerts = await db
+    .select({
+      id: alerts.id,
+      title: alerts.title,
+      severity: alerts.severity,
+      postmortem: alerts.postmortem,
+      createdAt: alerts.createdAt,
+    })
+    .from(alerts)
+    .where(
+      and(
+        eq(alerts.projectId, project.id),
+        isNotNull(alerts.postmortem),
+      )
+    )
+    .orderBy(desc(alerts.createdAt))
+    .limit(20);
+
+  const postmortems = postmortemAlerts.map((a) => ({
+    id: a.id,
+    alertTitle: a.title,
+    severity: a.severity,
+    postmortem: a.postmortem!,
+    createdAt: a.createdAt.toISOString(),
+    resolvedAt: null,
+  }));
+
   return (
     <div className="mx-auto max-w-[680px] space-y-8">
       <div className="flex items-center gap-3">
@@ -382,6 +412,8 @@ export default async function ProjectDetailPage({
       </ProGate>
 
       <ProGate feature="Status page">
+        <PostmortemsSection postmortems={postmortems} />
+
         <StatusPageSection
           projectId={project.id}
           isAdmin={isAdmin}
