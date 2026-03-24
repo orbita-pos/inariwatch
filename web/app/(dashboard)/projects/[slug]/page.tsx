@@ -390,6 +390,7 @@ export default async function ProjectDetailPage({
             slug: statusPage.slug,
             title: statusPage.title,
             isPublic: statusPage.isPublic,
+            config: statusPage.config,
           } : null}
         />
       </ProGate>
