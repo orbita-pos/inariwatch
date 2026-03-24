@@ -193,7 +193,12 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
     }
 
     let ai_status = if cfg.global.ai_key.is_some() {
-        format!("AI {}", "ON".green())
+        if cfg.global.auto_fix {
+            let merge_note = if cfg.global.auto_merge { " + auto-merge" } else { "" };
+            format!("AI {} | auto-fix {}", "ON".green(), format!("ON{}", merge_note).green())
+        } else {
+            format!("AI {}", "ON".green())
+        }
     } else {
         format!("AI {} (set with `inariwatch config --ai-key`)", "OFF".dimmed())
     };
@@ -211,8 +216,40 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
         let conn = db::open()?;
 
         match run_cycle(&project, &conn, &cfg.global).await {
-            Ok(0) => println!("{}  {} all clear", ts.dimmed(), "✓".green()),
-            Ok(n) => println!("{}  {} {} alert(s) sent", ts.dimmed(), "📨".bold(), n),
+            Ok((0, _)) => println!("{}  {} all clear", ts.dimmed(), "✓".green()),
+            Ok((n, new_alerts)) => {
+                println!("{}  {} {} alert(s) sent", ts.dimmed(), "📨".bold(), n);
+                // Auto-fix: spawn a background task for each critical alert
+                if cfg.global.auto_fix && cfg.global.ai_key.is_some() {
+                    for alert in new_alerts.into_iter().filter(|a| a.severity == "critical") {
+                        let alert_id = alert.id.clone();
+                        let auto_merge = cfg.global.auto_merge;
+                        println!("  {} Queuing auto-fix for: {}", "🤖".bold(), alert.title.dimmed());
+                        tokio::spawn(async move {
+                            let args = serde_json::json!({
+                                "alert_id": alert_id,
+                                "auto_merge": auto_merge,
+                            });
+                            match crate::mcp::tools::trigger_fix::execute(&args).await {
+                                Ok(result) => {
+                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
+                                        let status = v["status"].as_str().unwrap_or("unknown");
+                                        let pr = v["pr_url"].as_str().unwrap_or("");
+                                        if pr.is_empty() {
+                                            println!("  {} Auto-fix [{}]: {}", "🤖".bold(), &alert_id[..8], status);
+                                        } else {
+                                            println!("  {} Auto-fix [{}]: {} → {}", "🤖".bold(), &alert_id[..8], status, pr);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("  {} Auto-fix [{}] failed: {}", "✗".red(), &alert_id[..8], e);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
             Err(e) => println!("{} {} {}", ts.dimmed(), "✗".red(), e),
         }
 
@@ -227,7 +264,7 @@ async fn run_cycle(
     project: &ProjectConfig,
     conn: &rusqlite::Connection,
     global: &config::GlobalConfig,
-) -> Result<usize> {
+) -> Result<(usize, Vec<Alert>)> {
     // 1. Collect from every enabled integration
     let mut all_events: Vec<RawEvent> = vec![];
 
@@ -256,12 +293,13 @@ async fn run_cycle(
         .collect();
 
     if new_events.is_empty() {
-        return Ok(0);
+        return Ok((0, vec![]));
     }
 
     // 3. Group by time proximity → one alert per group
     let groups = group_by_time(new_events, CORRELATION_WINDOW_MINUTES);
     let mut sent = 0;
+    let mut new_alerts: Vec<Alert> = vec![];
 
     for group in groups {
         let (severity, title, body) = if group.events.len() > 1 && global.ai_key.is_some() {
@@ -348,9 +386,10 @@ async fn run_cycle(
         }
 
         db::insert_alert(conn, &alert)?;
+        new_alerts.push(alert);
     }
 
-    Ok(sent)
+    Ok((sent, new_alerts))
 }
 
 // ── Collectors ────────────────────────────────────────────────────────────────

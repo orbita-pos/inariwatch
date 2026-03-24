@@ -47,18 +47,30 @@ enum Commands {
         project: Option<String>,
     },
 
-    /// Configure AI key and model
+    /// Configure AI key, model, and daemon behaviour
     Config {
         #[arg(long = "ai-key")]
         ai_key: Option<String>,
         #[arg(long)]
         model: Option<String>,
+        /// Enable autonomous AI fix pipeline on critical alerts
+        #[arg(long)]
+        auto_fix: Option<bool>,
+        /// Auto-merge generated PRs when all safety gates pass (requires --auto-fix true)
+        #[arg(long)]
+        auto_merge: Option<bool>,
         #[arg(long)]
         show: bool,
     },
 
     /// Start an MCP server over stdio (for Claude Code, Cursor, etc.)
     ServeMcp,
+
+    /// Manage the background monitoring daemon
+    Daemon {
+        /// Action: install | uninstall | start | stop | status
+        action: String,
+    },
 
     /// Roll back a deployment (vercel)
     Rollback {
@@ -80,9 +92,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Watch { project } => commands::watch::run(project).await,
         Commands::Status { project } => commands::status::run(project).await,
         Commands::Logs { limit, project } => commands::logs::run(limit, project).await,
-        Commands::Config { ai_key, model, show } => {
-            commands::config_cmd::run(ai_key, model, show).await
+        Commands::Config { ai_key, model, auto_fix, auto_merge, show } => {
+            commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, show).await
         }
+        Commands::Daemon { action } => commands::daemon::run(&action).await,
         Commands::ServeMcp => commands::serve_mcp::run().await,
         Commands::Rollback { service, project } => {
             commands::rollback::run(&service, project).await

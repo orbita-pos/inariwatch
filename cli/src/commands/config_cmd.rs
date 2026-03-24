@@ -6,11 +6,14 @@ use crate::config;
 pub async fn run(
     ai_key: Option<String>,
     model: Option<String>,
+    auto_fix: Option<bool>,
+    auto_merge: Option<bool>,
     show: bool,
 ) -> Result<()> {
     let mut cfg = config::load()?;
 
-    if show || (ai_key.is_none() && model.is_none()) {
+    let no_args = ai_key.is_none() && model.is_none() && auto_fix.is_none() && auto_merge.is_none();
+    if show || no_args {
         println!("{}", "inariwatch config".bold());
         println!();
 
@@ -22,8 +25,16 @@ pub async fn run(
             },
         );
 
-        println!("  AI key:   {}", key_display);
-        println!("  AI model: {}", cfg.global.ai_model.cyan());
+        println!("  AI key:    {}", key_display);
+        println!("  AI model:  {}", cfg.global.ai_model.cyan());
+        println!(
+            "  auto_fix:  {}",
+            if cfg.global.auto_fix { "on".green().to_string() } else { "off".dimmed().to_string() }
+        );
+        println!(
+            "  auto_merge: {}",
+            if cfg.global.auto_merge { "on".green().to_string() } else { "off".dimmed().to_string() }
+        );
         println!();
         println!(
             "  Config file: {}",
@@ -36,10 +47,17 @@ pub async fn run(
         cfg.global.ai_key = Some(key);
         println!("{} AI key saved.", "✓".green());
     }
-
     if let Some(m) = model {
         println!("{} AI model set to {}.", "✓".green(), m.cyan());
         cfg.global.ai_model = m;
+    }
+    if let Some(v) = auto_fix {
+        cfg.global.auto_fix = v;
+        println!("{} auto_fix = {}", "✓".green(), if v { "on".green().to_string() } else { "off".dimmed().to_string() });
+    }
+    if let Some(v) = auto_merge {
+        cfg.global.auto_merge = v;
+        println!("{} auto_merge = {}", "✓".green(), if v { "on".green().to_string() } else { "off".dimmed().to_string() });
     }
 
     config::save(&cfg)?;

@@ -1,5 +1,6 @@
 pub mod add;
 pub mod config_cmd;
+pub mod daemon;
 pub mod connect;
 pub mod init;
 pub mod logs;

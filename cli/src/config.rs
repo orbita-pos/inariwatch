@@ -18,6 +18,12 @@ pub struct GlobalConfig {
     pub ai_key: Option<String>,
     #[serde(default = "default_model")]
     pub ai_model: String,
+    /// Automatically trigger AI fix pipeline when a critical alert is detected.
+    #[serde(default)]
+    pub auto_fix: bool,
+    /// Auto-merge the generated PR when all safety gates pass (requires auto_fix = true).
+    #[serde(default)]
+    pub auto_merge: bool,
 }
 
 impl Default for GlobalConfig {
@@ -25,6 +31,8 @@ impl Default for GlobalConfig {
         Self {
             ai_key: None,
             ai_model: default_model(),
+            auto_fix: false,
+            auto_merge: false,
         }
     }
 }
