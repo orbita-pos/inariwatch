@@ -40,8 +40,8 @@ export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
         </Link>
 
         <div className={`hidden items-center gap-6 text-sm md:flex transition-colors ${scrolled ? "text-fg-base" : "text-white/80"}`}>
-          <Link href="#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Integrations</Link>
-          <Link href="#ai"           className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>AI features</Link>
+          <Link href="/#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Integrations</Link>
+          <Link href="/#ai"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>AI features</Link>
           <Link href="/docs"         className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Docs</Link>
           <Link href="/blog"         className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Blog</Link>
         </div>
