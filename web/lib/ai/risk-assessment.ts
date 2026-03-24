@@ -6,7 +6,7 @@
  * Fire-and-forget — called from the GitHub webhook handler.
  */
 
-import { db, alerts, remediationSessions } from "@/lib/db";
+import { db, alerts, remediationSessions, errorPatterns, communityFixes } from "@/lib/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { callAI } from "./client";
 import { getProjectOwnerAIKey } from "./get-key";
@@ -56,6 +56,7 @@ type PRContext = {
 type HistoricalContext = {
   recentAlerts: { title: string; severity: string; body: string; createdAt: string; aiReasoning: string | null }[];
   remediations: { repo: string | null; fileChanges: unknown; status: string; createdAt: string }[];
+  communityPatterns: { patternText: string; category: string; occurrenceCount: number; topFix: string | null }[];
 };
 
 function buildRiskPrompt(pr: PRContext, history: HistoricalContext): string {
@@ -85,6 +86,20 @@ function buildRiskPrompt(pr: PRContext, history: HistoricalContext): string {
     ? pr.diff.slice(0, 8000) + "\n\n... (diff truncated)"
     : pr.diff;
 
+  // Dependency change detection
+  const depFiles = ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "Cargo.toml", "Cargo.lock", "go.mod", "go.sum", "requirements.txt", "Pipfile.lock",
+    "Gemfile.lock", "composer.lock"];
+  const changedDeps = pr.files.filter((f) => depFiles.some((d) => f.filename.endsWith(d)));
+  const depSection = changedDeps.length > 0
+    ? `## Dependency Changes\n⚠️ This PR modifies dependency files:\n${changedDeps.map((f) => `- \`${f.filename}\` (+${f.additions}/-${f.deletions})`).join("\n")}\nDependency changes can introduce supply chain risks, version conflicts, or breaking changes.`
+    : "";
+
+  // Community fix pattern correlation
+  const patternSection = history.communityPatterns.length > 0
+    ? `## Related Community Fix Patterns\nThese known error patterns from the community database are related to the files being changed:\n${history.communityPatterns.map((p) => `- [${p.category}] "${p.patternText.slice(0, 100)}" (${p.occurrenceCount} occurrences)${p.topFix ? `\n  Known fix: ${p.topFix.slice(0, 150)}` : ""}`).join("\n")}`
+    : "";
+
   return `Analyze this pull request for deployment risk.
 
 ## Pull Request
@@ -98,7 +113,7 @@ ${fileList}
 \`\`\`diff
 ${diffTruncated}
 \`\`\`
-
+${depSection ? `\n${depSection}\n` : ""}
 ## Historical Incidents (last 90 days for this project)
 ${alertSummary}
 
@@ -107,7 +122,7 @@ ${remSummary}
 
 ## Files That Previously Caused Incidents
 ${findOverlappingFiles(pr.files.map((f) => f.filename), history)}
-
+${patternSection ? `\n${patternSection}\n` : ""}
 Provide your risk assessment.`;
 }
 
@@ -207,6 +222,30 @@ export async function assessPRRisk(
       .limit(10),
   ]);
 
+  // Query community fix patterns related to changed files
+  const prFileNames = prFiles.map((f) => f.filename);
+  let communityPatterns: { patternText: string; category: string; occurrenceCount: number; topFix: string | null }[] = [];
+  try {
+    // Search for patterns that mention any of the changed file paths
+    const patternSearch = prFileNames.slice(0, 5).join(" ");
+    if (patternSearch.length >= 3) {
+      const patterns = await db.execute(sql`
+        SELECT ep.id, ep.pattern_text, ep.category, ep.occurrence_count,
+          (SELECT cf.fix_approach FROM community_fixes cf WHERE cf.pattern_id = ep.id ORDER BY cf.success_count DESC LIMIT 1) AS top_fix
+        FROM error_patterns ep
+        WHERE similarity(ep.pattern_text, ${patternSearch}) > 0.1
+        ORDER BY ep.occurrence_count DESC
+        LIMIT 5
+      `);
+      communityPatterns = (patterns.rows ?? []).map((r: Record<string, unknown>) => ({
+        patternText: r.pattern_text as string,
+        category: r.category as string,
+        occurrenceCount: r.occurrence_count as number,
+        topFix: r.top_fix as string | null,
+      }));
+    }
+  } catch { /* pg_trgm may not be available */ }
+
   const history: HistoricalContext = {
     recentAlerts: recentAlerts.map((a) => ({
       ...a,
@@ -216,6 +255,7 @@ export async function assessPRRisk(
       ...r,
       createdAt: r.createdAt.toISOString().slice(0, 10),
     })),
+    communityPatterns,
   };
 
   const prContext: PRContext = {
