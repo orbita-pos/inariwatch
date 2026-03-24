@@ -69,11 +69,15 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
   const defaults   = DEFAULT_ENABLED[service] ?? {};
   const hasFilter  = HAS_FILTER.includes(service);
 
-  const saved = (currentConfig.alertConfig ?? {}) as Record<string, Record<string, unknown>>;
+  const saved    = (currentConfig.alertConfig ?? {}) as Record<string, Record<string, unknown>>;
+  const savedRaw = (currentConfig.alertConfig ?? {}) as Record<string, unknown>;
 
   const [tab, setTab]         = useState<"alerts" | "filter">("alerts");
   const [open, setOpen]       = useState(false);
   const [isPending, start]    = useTransition();
+  const [autoRollback, setAutoRollback] = useState<boolean>(
+    savedRaw.autoRollback === true
+  );
 
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(
@@ -130,6 +134,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
     if (service === "github"  && selectedFilter.length > 0) alertConfig.repoFilter          = selectedFilter;
     if (service === "vercel"  && selectedFilter.length > 0) alertConfig.projectFilter        = selectedFilter;
     if (service === "sentry"  && selectedFilter.length > 0) alertConfig.sentryProjectFilter  = selectedFilter;
+    if (service === "vercel") alertConfig.autoRollback = autoRollback;
 
     start(async () => {
       await saveAlertConfig(integrationId, alertConfig);
@@ -228,6 +233,31 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                   )}
                 </div>
               ))}
+
+              {/* ── Auto-rollback (Vercel only) ── */}
+              {tab === "alerts" && service === "vercel" && (
+                <div className="rounded-xl border border-orange-900/30 bg-orange-950/10 px-4 py-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-orange-300">Auto-rollback on failure</p>
+                      <p className="mt-0.5 text-[12px] text-zinc-500">
+                        When a production deployment fails, automatically roll back to the last successful deployment — no action needed.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAutoRollback((v) => !v)}
+                      className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
+                        autoRollback ? "bg-orange-500" : "bg-zinc-800"
+                      }`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                        autoRollback ? "translate-x-4" : "translate-x-0"
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* ── Filter tab ── */}
               {tab === "filter" && (

@@ -3,6 +3,8 @@ pub mod config_cmd;
 pub mod connect;
 pub mod init;
 pub mod logs;
+pub mod rollback;
+pub mod serve_mcp;
 pub mod status;
 pub mod watch;
 

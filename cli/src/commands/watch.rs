@@ -18,6 +18,115 @@ const POLL_SECS: u64 = 60;
 /// Events within this window are treated as potentially related.
 const CORRELATION_WINDOW_MINUTES: i64 = 30;
 
+/// Run one monitoring cycle without sending notifications.
+/// Returns newly detected alerts (already persisted to the local DB).
+pub async fn poll_once(project_name: Option<String>) -> anyhow::Result<Vec<db::Alert>> {
+    let cfg = config::load()?;
+    if cfg.projects.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let project = if let Some(ref name) = project_name {
+        cfg.projects
+            .iter()
+            .find(|p| p.name == *name || p.slug == *name)
+            .ok_or_else(|| anyhow::anyhow!("Project '{}' not found", name))?
+            .clone()
+    } else {
+        config::current_project(&cfg)
+            .ok_or_else(|| anyhow::anyhow!("No project found"))?
+            .clone()
+    };
+
+    let conn = db::open()?;
+    let mut all_events: Vec<RawEvent> = vec![];
+
+    if let Some(gh) = &project.integrations.github {
+        all_events.extend(collect_github(gh).await);
+    }
+    if let Some(vc) = &project.integrations.vercel {
+        all_events.extend(collect_vercel(vc).await);
+    }
+    if let Some(sn) = &project.integrations.sentry {
+        all_events.extend(collect_sentry(sn).await);
+    }
+    if let Some(git) = &project.integrations.git {
+        let repo_path = git.path.as_deref().or(project.path.as_deref()).unwrap_or(".");
+        all_events.extend(collect_git(git, repo_path));
+    }
+
+    let new_events: Vec<RawEvent> = all_events
+        .into_iter()
+        .filter(|e| !db::fingerprint_exists(&conn, &e.fingerprint).unwrap_or(false))
+        .collect();
+
+    if new_events.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let groups = group_by_time(new_events, CORRELATION_WINDOW_MINUTES);
+    let mut result = vec![];
+
+    for group in groups {
+        let (severity, title, body) = if group.events.len() > 1 && cfg.global.ai_key.is_some() {
+            match ai::analyze(&cfg.global, &group.events).await {
+                Ok(Some(a)) => {
+                    let body = match (&a.root_cause, &a.suggested_action) {
+                        (Some(rc), Some(sa)) => {
+                            format!("{}\n\nRoot cause: {}\nNext: {}", a.body, rc, sa)
+                        }
+                        _ => a.body,
+                    };
+                    (a.severity, a.title, body)
+                }
+                Ok(None) => (group.severity.clone(), group.format_title(), group.format_body()),
+                Err(_) => (group.severity.clone(), group.format_title(), group.format_body()),
+            }
+        } else {
+            (group.severity.clone(), group.format_title(), group.format_body())
+        };
+
+        for e in &group.events {
+            let _ = db::insert_event(
+                &conn,
+                &Uuid::new_v4().to_string(),
+                &project.slug,
+                &e.integration,
+                &e.event_type,
+                &e.payload.to_string(),
+                &e.fingerprint,
+                &e.occurred_at.to_rfc3339(),
+            );
+        }
+
+        let source_integrations: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            group
+                .events
+                .iter()
+                .filter(|e| seen.insert(e.integration.clone()))
+                .map(|e| e.integration.clone())
+                .collect()
+        };
+
+        let alert = db::Alert {
+            id: Uuid::new_v4().to_string(),
+            project: project.slug.clone(),
+            severity,
+            title,
+            body,
+            source_integrations,
+            is_read: false,
+            sent_at: None,
+            created_at: Utc::now(),
+        };
+        db::insert_alert(&conn, &alert)?;
+        result.push(alert);
+    }
+
+    Ok(result)
+}
+
 // ── Fingerprint helpers ───────────────────────────────────────────────────────
 //
 // One-time events (CI run, deploy, Sentry issue):  fingerprint = stable ID

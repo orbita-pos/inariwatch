@@ -32,6 +32,8 @@ pub struct DeploymentMeta {
     pub commit_message: Option<String>,
     #[serde(rename = "githubCommitRef")]
     pub branch: Option<String>,
+    #[serde(rename = "githubCommitSha")]
+    pub commit_sha: Option<String>,
     #[serde(rename = "githubCommitAuthorName")]
     pub author: Option<String>,
     #[serde(rename = "githubPrId")]
@@ -41,6 +43,14 @@ pub struct DeploymentMeta {
 #[derive(Debug, Deserialize)]
 struct DeploymentsResponse {
     deployments: Vec<Deployment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeploymentEvent {
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    level: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +120,119 @@ impl VercelClient {
             qs.trim_end_matches('&')
         ))
         .await
+    }
+
+    /// Most recent successful (READY) deployments for a project.
+    pub async fn get_recent_ready_deployments(
+        &self,
+        project_id: &str,
+        limit: usize,
+    ) -> Result<Vec<Deployment>> {
+        let qs = self.team_qs();
+        let path = format!(
+            "/v6/deployments?{}projectId={}&limit={}&state=READY",
+            qs, project_id, limit
+        );
+        let resp: DeploymentsResponse = self.get(&path).await?;
+        Ok(resp.deployments)
+    }
+
+    /// Rollback: re-promote an existing READY deployment to production.
+    ///
+    /// Uses the deployment creation endpoint with `deploymentId` to create
+    /// a production copy of a previous deployment (documented Vercel API).
+    pub async fn rollback_to(&self, project_id: &str, target_id: &str) -> Result<()> {
+        let qs = self.team_qs();
+        let qs_str = if qs.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", qs.trim_end_matches('&'))
+        };
+        let url = format!(
+            "https://api.vercel.com/v13/deployments{}",
+            qs_str
+        );
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .json(&serde_json::json!({
+                "deploymentId": target_id,
+                "name": project_id,
+                "target": "production"
+            }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "Vercel API returned {} — {}\n\n\
+                 Fallback: install the Vercel CLI and run:\n  \
+                 vercel rollback {}",
+                status, body, target_id
+            );
+        }
+        Ok(())
+    }
+
+    /// Fetch build log events for a specific deployment.
+    /// Returns (log_text, error_summary).
+    pub async fn get_deployment_events(
+        &self,
+        deployment_id: &str,
+    ) -> Result<(String, String)> {
+        let qs = self.team_qs();
+        let path = format!(
+            "/v3/deployments/{}/events?{}direction=backward&limit=200",
+            deployment_id, qs
+        );
+
+        let events: Vec<DeploymentEvent> = self.get(&path).await?;
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut error_lines: Vec<String> = Vec::new();
+
+        for event in &events {
+            let text = event.text.as_deref().unwrap_or("");
+            if text.is_empty() {
+                continue;
+            }
+            lines.push(text.to_string());
+
+            // Collect error-level lines
+            let is_error = event.level.as_deref() == Some("error")
+                || text.contains("Error:")
+                || text.contains("error[")
+                || text.contains("FATAL")
+                || text.contains("Module not found")
+                || text.contains("Cannot find module")
+                || text.contains("Build failed");
+
+            if is_error {
+                error_lines.push(text.to_string());
+            }
+        }
+
+        // Reverse since we fetched backward
+        lines.reverse();
+        error_lines.reverse();
+
+        let full_log = if lines.len() > 100 {
+            // Keep last 100 lines
+            lines[lines.len() - 100..].join("\n")
+        } else {
+            lines.join("\n")
+        };
+
+        let error_summary = if error_lines.is_empty() {
+            "No explicit error lines found in build logs.".to_string()
+        } else {
+            error_lines.join("\n")
+        };
+
+        Ok((full_log, error_summary))
     }
 
     /// Deployments in ERROR state created in the last `hours` hours.

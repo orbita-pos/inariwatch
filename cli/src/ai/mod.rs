@@ -1,3 +1,5 @@
+pub mod prompts;
+
 use anyhow::Result;
 use serde::Deserialize;
 
@@ -36,7 +38,162 @@ pub async fn analyze(
     Ok(Some(analysis))
 }
 
-// ── Prompt builder ────────────────────────────────────────────────────────────
+// ── v2: Configurable AI calls ────────────────────────────────────────────────
+
+/// Detect the AI provider from the API key prefix.
+/// Ported from web/lib/ai/client.ts detectProvider().
+pub fn detect_provider(key: &str) -> Provider {
+    if key.starts_with("sk-ant-") {
+        Provider::Claude
+    } else if key.starts_with("gsk_") {
+        Provider::Grok
+    } else if key.starts_with("AIza") {
+        Provider::Gemini
+    } else if key.starts_with("sk-") && key.len() > 40 {
+        // DeepSeek keys are also sk- but tend to be shorter
+        Provider::OpenAI
+    } else {
+        // Default to OpenAI-compatible for unknown prefixes
+        Provider::OpenAI
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Provider {
+    Claude,
+    OpenAI,
+    Grok,
+    Gemini,
+}
+
+impl Provider {
+    /// Default model for this provider.
+    pub fn default_model(&self) -> &'static str {
+        match self {
+            Provider::Claude => "claude-haiku-4-5-20251001",
+            Provider::OpenAI => "gpt-4o-mini",
+            Provider::Grok => "grok-3-mini-beta",
+            Provider::Gemini => "gemini-2.0-flash",
+        }
+    }
+
+    /// API base URL.
+    fn api_url(&self) -> &'static str {
+        match self {
+            Provider::Claude => "https://api.anthropic.com/v1/messages",
+            Provider::OpenAI => "https://api.openai.com/v1/chat/completions",
+            Provider::Grok => "https://api.x.ai/v1/chat/completions",
+            Provider::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        }
+    }
+}
+
+/// Generic AI call with configurable parameters.
+/// Returns the raw text response from the model.
+pub async fn call_ai(
+    key: &str,
+    model: Option<&str>,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> Result<String> {
+    let provider = detect_provider(key);
+    let model = model.unwrap_or(provider.default_model());
+
+    match provider {
+        Provider::Claude => call_claude_raw(key, model, system, prompt, max_tokens).await,
+        _ => call_openai_compat(key, provider.api_url(), model, system, prompt, max_tokens).await,
+    }
+}
+
+/// Call AI and parse the response as JSON, stripping markdown fences.
+pub async fn call_ai_json(
+    key: &str,
+    model: Option<&str>,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> Result<serde_json::Value> {
+    let text = call_ai(key, model, system, prompt, max_tokens).await?;
+    let clean = text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    serde_json::from_str(clean)
+        .map_err(|e| anyhow::anyhow!("Failed to parse AI response as JSON: {}. Raw: {}", e, &clean[..clean.len().min(200)]))
+}
+
+// ── v2: High-level AI functions ──────────────────────────────────────────────
+
+/// Deep root cause analysis for get_root_cause tool.
+pub async fn deep_analyze(
+    key: &str,
+    model: Option<&str>,
+    alert_title: &str,
+    alert_body: &str,
+    alert_sources: &[String],
+    context: &prompts::RemediationContext,
+) -> Result<serde_json::Value> {
+    let prompt = prompts::build_deep_analyze_prompt(
+        alert_title,
+        alert_body,
+        alert_sources,
+        context,
+    );
+    call_ai_json(key, model, prompts::SYSTEM_DEEP_ANALYZER, &prompt, 800).await
+}
+
+/// Diagnose an alert and identify files to read (step 2 of trigger_fix).
+pub async fn diagnose(
+    key: &str,
+    model: Option<&str>,
+    alert_title: &str,
+    alert_body: &str,
+    alert_sources: &[String],
+    repo_files: &[String],
+    context: &prompts::RemediationContext,
+    ai_reasoning: Option<&str>,
+) -> Result<serde_json::Value> {
+    let prompt = prompts::build_diagnose_prompt(
+        alert_title,
+        alert_body,
+        alert_sources,
+        repo_files,
+        context,
+        ai_reasoning,
+    );
+    call_ai_json(key, model, prompts::SYSTEM_REMEDIATOR, &prompt, 600).await
+}
+
+/// Generate a code fix (step 4 of trigger_fix).
+pub async fn generate_fix(
+    key: &str,
+    model: Option<&str>,
+    diagnosis: &str,
+    files: &[(&str, &str)],
+    error_details: &str,
+    previous_attempt: Option<(&[String], &str)>,
+) -> Result<serde_json::Value> {
+    let prompt = prompts::build_fix_prompt(diagnosis, files, error_details, previous_attempt);
+    call_ai_json(key, model, prompts::SYSTEM_REMEDIATOR, &prompt, 4096).await
+}
+
+/// Self-review a generated fix (step 5 of trigger_fix).
+pub async fn self_review(
+    key: &str,
+    model: Option<&str>,
+    diagnosis: &str,
+    original_files: &[(&str, &str)],
+    fixed_files: &[(&str, &str)],
+    error_details: &str,
+) -> Result<serde_json::Value> {
+    let prompt = prompts::build_self_review_prompt(diagnosis, original_files, fixed_files, error_details);
+    call_ai_json(key, model, prompts::SYSTEM_REVIEWER, &prompt, 1024).await
+}
+
+// ── Prompt builder (v1 — existing) ──────────────────────────────────────────
 
 fn build_prompt(events: &[RawEvent]) -> String {
     let mut lines = vec![
@@ -74,19 +231,15 @@ fn build_prompt(events: &[RawEvent]) -> String {
     lines.join("\n")
 }
 
-// ── Claude ────────────────────────────────────────────────────────────────────
+// ── Claude (v2 — with system prompt + configurable max_tokens) ──────────────
 
-#[derive(Deserialize)]
-struct ClaudeResponse {
-    content: Vec<ClaudeBlock>,
-}
-
-#[derive(Deserialize)]
-struct ClaudeBlock {
-    text: String,
-}
-
-async fn call_claude(key: &str, model: &str, prompt: &str) -> Result<AiAnalysis> {
+async fn call_claude_raw(
+    key: &str,
+    model: &str,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> Result<String> {
     let client = reqwest::Client::new();
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
@@ -94,7 +247,8 @@ async fn call_claude(key: &str, model: &str, prompt: &str) -> Result<AiAnalysis>
         .header("anthropic-version", "2023-06-01")
         .json(&serde_json::json!({
             "model": model,
-            "max_tokens": 512,
+            "max_tokens": max_tokens,
+            "system": system,
             "messages": [{"role": "user", "content": prompt}]
         }))
         .send()
@@ -106,11 +260,86 @@ async fn call_claude(key: &str, model: &str, prompt: &str) -> Result<AiAnalysis>
     }
 
     let raw: ClaudeResponse = resp.json().await?;
-    let text = raw.content.first().map(|b| b.text.as_str()).unwrap_or("{}");
-    parse_response(text)
+    Ok(raw.content.first().map(|b| b.text.clone()).unwrap_or_default())
 }
 
-// ── OpenAI ────────────────────────────────────────────────────────────────────
+// ── OpenAI-compatible (v2 — works for OpenAI, Grok, Gemini) ────────────────
+
+async fn call_openai_compat(
+    key: &str,
+    api_url: &str,
+    model: &str,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> Result<String> {
+    let client = reqwest::Client::new();
+
+    let auth_header = if api_url.contains("googleapis.com") {
+        // Gemini uses API key as query param, but also accepts Bearer
+        format!("Bearer {}", key)
+    } else {
+        format!("Bearer {}", key)
+    };
+
+    let resp = client
+        .post(api_url)
+        .header("Authorization", &auth_header)
+        .json(&serde_json::json!({
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ]
+        }))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("AI API error ({}): {}", api_url, body);
+    }
+
+    let raw: OpenAIResponse = resp.json().await?;
+    Ok(raw
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default())
+}
+
+// ── v1 legacy wrappers (kept for backwards compat with analyze()) ───────────
+
+async fn call_claude(key: &str, model: &str, prompt: &str) -> Result<AiAnalysis> {
+    let text = call_claude_raw(key, model, "", prompt, 512).await?;
+    parse_response(&text)
+}
+
+async fn call_openai(key: &str, prompt: &str) -> Result<AiAnalysis> {
+    let text = call_openai_compat(
+        key,
+        "https://api.openai.com/v1/chat/completions",
+        "gpt-4o-mini",
+        "",
+        prompt,
+        512,
+    )
+    .await?;
+    parse_response(&text)
+}
+
+// ── Response types ───────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ClaudeResponse {
+    content: Vec<ClaudeBlock>,
+}
+
+#[derive(Deserialize)]
+struct ClaudeBlock {
+    text: String,
+}
 
 #[derive(Deserialize)]
 struct OpenAIResponse {
@@ -127,37 +356,7 @@ struct OpenAIMessage {
     content: String,
 }
 
-async fn call_openai(key: &str, prompt: &str) -> Result<AiAnalysis> {
-    let client = reqwest::Client::new();
-    let resp = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", key))
-        .json(&serde_json::json!({
-            "model": "gpt-4o-mini",
-            "max_tokens": 512,
-            "messages": [{"role": "user", "content": prompt}]
-        }))
-        .send()
-        .await?;
-
-    if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("OpenAI API error: {}", body);
-    }
-
-    let raw: OpenAIResponse = resp.json().await?;
-    let text = raw
-        .choices
-        .first()
-        .map(|c| c.message.content.as_str())
-        .unwrap_or("{}");
-    parse_response(text)
-}
-
-// ── Response parser ───────────────────────────────────────────────────────────
-
 fn parse_response(text: &str) -> Result<AiAnalysis> {
-    // Strip markdown code fences if the model forgot
     let clean = text
         .trim()
         .trim_start_matches("```json")

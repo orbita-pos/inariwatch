@@ -165,6 +165,28 @@ pub fn get_recent_alerts(
     Ok(alerts)
 }
 
+pub fn get_alert_by_id(conn: &Connection, id: &str) -> Result<Option<Alert>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project, severity, title, body, source_integrations,
+                is_read, sent_at, created_at
+         FROM alerts
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt
+        .query_map(params![id], row_to_alert)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows.pop())
+}
+
+/// Mark an alert as read. Returns true if the alert existed and was updated.
+pub fn mark_alert_read(conn: &Connection, id: &str) -> Result<bool> {
+    let affected = conn.execute(
+        "UPDATE alerts SET is_read = 1 WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(affected > 0)
+}
+
 fn row_to_alert(row: &rusqlite::Row) -> rusqlite::Result<Alert> {
     let sources_str: String = row.get(5)?;
     let sources: Vec<String> = serde_json::from_str(&sources_str).unwrap_or_default();

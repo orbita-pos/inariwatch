@@ -51,22 +51,24 @@ export async function rollbackVercelDeploy(
   const config = decryptConfig(integration.configEncrypted);
   const token = config.token as string;
   const teamId = config.teamId as string | undefined;
+  // projectId is stored in the Vercel integration config (e.g. "prj_xxx")
+  const vercelProjectId = (config.projectId as string | undefined) ?? project.name;
 
   if (!token) return { error: "Vercel token not found in integration config." };
 
-  // Extract project name from alert title (pattern: "Production deploy failed — {projectName}")
+  // Extract project name from alert title (pattern: "Deploy failed — {name}")
   const nameMatch = alert.title.match(/—\s+(.+)$/);
-  const projectName = nameMatch?.[1] ?? project.name;
+  const projectName = nameMatch?.[1]?.trim() ?? vercelProjectId;
 
   try {
     // Find last successful deployment
-    const lastGood = await vercel.getLastSuccessfulDeploy(token, teamId, projectName);
+    const lastGood = await vercel.getLastSuccessfulDeploy(token, teamId, vercelProjectId);
     if (!lastGood) {
       return { error: "No successful production deployment found to rollback to." };
     }
 
     // Perform rollback
-    const result = await vercel.rollbackToDeployment(token, teamId, lastGood.uid);
+    const result = await vercel.rollbackToDeployment(token, teamId, lastGood.uid, projectName);
 
     // Auto-resolve the alert
     await db

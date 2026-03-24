@@ -10,6 +10,7 @@ import { db, alerts } from "@/lib/db";
 import { eq, and, like, sql } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
+import { triggerAutoRollback } from "@/lib/services/auto-rollback";
 
 /**
  * POST /api/webhooks/vercel/[integrationId]
@@ -73,6 +74,8 @@ export async function POST(
 
   const config = decryptConfig(integ.configEncrypted);
   const alertConfig = (config.alertConfig ?? {}) as Record<string, { enabled?: boolean }>;
+  const rawAlertConfig = config.alertConfig as Record<string, unknown> | undefined;
+  const autoRollbackEnabled = rawAlertConfig?.autoRollback === true;
 
   const type = payload.type as string | undefined;
 
@@ -138,7 +141,19 @@ export async function POST(
       },
       integ.projectId
     );
-    if (result) { created++; autoAnalyzeAlert(result).catch(() => {}); }
+    if (result) {
+      created++;
+      autoAnalyzeAlert(result).catch(() => {});
+      if (isProduction && autoRollbackEnabled) {
+        triggerAutoRollback({
+          alertId: result.id,
+          token: config.token as string,
+          teamId: config.teamId as string | undefined,
+          vercelProjectId: (config.projectId as string) || String(projectName),
+          projectName: String(projectName),
+        }).catch((e) => console.error("[auto-rollback]", e));
+      }
+    }
   }
 
   // ── deployment.succeeded → auto-resolve related alerts ────────────────

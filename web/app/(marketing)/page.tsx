@@ -21,9 +21,13 @@ import {
   Heart,
   Plus,
   Bell,
+  Code2,
+  Plug,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "./copy-button";
+import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
 import { SubscribeForm } from "./blog/subscribe-form";
 
@@ -88,11 +92,7 @@ function Hero() {
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
-              <div className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-black/50 backdrop-blur-sm px-4 py-3 font-mono text-sm hover:border-white/20 transition-colors">
-                <span className="text-inari-accent select-none">$</span>
-                <span className="flex-1 text-zinc-300">curl -fsSL https://get.inariwatch.com | sh</span>
-                <CopyButton text="curl -fsSL https://get.inariwatch.com | sh" />
-              </div>
+              <InstallSnippet />
             </div>
 
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/50">
@@ -574,7 +574,7 @@ function WhyNotNative() {
             { cap: "Pushes branch + waits for CI", dd: false, us: true },
             { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
             { cap: "Anomaly detection", dd: "Paid", us: true },
-            { cap: "Open source CLI", dd: false, us: true },
+            { cap: "Fully open source (MIT)", dd: false, us: true },
             { cap: "BYOK (your AI key)", dd: false, us: true },
           ].map((row, idx) => (
             <div key={row.cap} className={`grid grid-cols-3 border-b border-inari-border last:border-0 px-4 py-3 ${idx % 2 === 0 ? "bg-inari-bg" : "bg-inari-card/30"}`}>
@@ -802,6 +802,137 @@ function AIFeatures() {
   );
 }
 
+// ── MCP Section ───────────────────────────────────────────────────────────────
+
+function McpSection() {
+  const tools = [
+    {
+      name: "get_root_cause",
+      desc: "Deep AI analysis of an alert — pulls Sentry stack traces, Vercel build logs, and GitHub CI output in parallel.",
+    },
+    {
+      name: "trigger_fix",
+      desc: "Full remediation pipeline: diagnose → read code → AI fix → self-review → push branch → wait CI → open PR.",
+    },
+    {
+      name: "rollback_vercel",
+      desc: "Instantly roll back to the last successful production deployment. No CLI flags needed.",
+    },
+    {
+      name: "get_build_logs",
+      desc: "Fetch Vercel build logs with automatic error extraction — ready to paste into a prompt.",
+    },
+    {
+      name: "silence_alert",
+      desc: "Mark an alert as resolved from inside your editor once you've handled it.",
+    },
+  ];
+
+  const editors = [
+    { name: "Claude Code", logo: "/editor-logos/claude-code.svg" },
+    { name: "Cursor",      logo: "/editor-logos/cursor.svg" },
+    { name: "Windsurf",    logo: "/editor-logos/windsurf.svg" },
+  ];
+
+  return (
+    <section className="py-24 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+
+        {/* Header */}
+        <div className="mb-14 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+          <div>
+            <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">MCP Server</p>
+            <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
+              Your editor becomes the ops dashboard
+            </h2>
+            <p className="mt-4 text-fg-base max-w-md">
+              InariWatch runs as an MCP server alongside your AI editor.
+              Claude Code, Cursor, and Windsurf can query alerts, trigger fixes,
+              and roll back deployments — without leaving your code.
+            </p>
+          </div>
+          {/* Editor compatibility badges */}
+          <div className="flex items-center gap-3 shrink-0">
+            {editors.map((e) => (
+              <div
+                key={e.name}
+                className="flex items-center gap-2 rounded-lg border border-inari-border bg-inari-card px-3 py-2 text-xs text-zinc-400"
+              >
+                <Code2 className="h-3.5 w-3.5 text-zinc-500" />
+                {e.name}
+              </div>
+            ))}
+            <div className="flex items-center gap-2 rounded-lg border border-inari-border bg-inari-card px-3 py-2 text-xs text-zinc-500">
+              <Plug className="h-3.5 w-3.5" />
+              + any MCP client
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+
+          {/* Left: config snippet */}
+          <div className="rounded-2xl border border-inari-border bg-inari-card overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
+              <div className="flex gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+                <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+                <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+              </div>
+              <span className="text-xs text-zinc-500 font-mono ml-1">.mcp.json</span>
+            </div>
+            <pre className="p-5 text-sm font-mono leading-relaxed text-zinc-300 overflow-x-auto">{`{
+  "mcpServers": {
+    "inariwatch": {
+      "command": "inariwatch",
+      "args": ["serve-mcp"]
+    }
+  }
+}`}</pre>
+            <div className="border-t border-inari-border px-5 py-4 bg-inari-bg/50">
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Drop this in your project root. The server starts automatically — no daemon, no ports.
+                Works the same in Claude Code, Cursor, and Windsurf.
+              </p>
+            </div>
+          </div>
+
+          {/* Right: action tools list */}
+          <div className="space-y-3">
+            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4">5 action tools</p>
+            {tools.map((t) => (
+              <div
+                key={t.name}
+                className="flex gap-3 rounded-xl border border-inari-border bg-inari-card px-4 py-3 hover:border-inari-accent/30 transition-colors"
+              >
+                <div className="mt-0.5 shrink-0">
+                  <Wand2 className="h-4 w-4 text-inari-accent/60" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-mono text-inari-accent font-medium">{t.name}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{t.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-8 flex items-center gap-4">
+          <Link href="/docs#cli-mcp" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
+            Read the MCP docs
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+          <span className="text-zinc-700 text-sm">·</span>
+          <Link href="/docs#cli-installation" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+            Install the CLI
+          </Link>
+        </div>
+
+      </div>
+    </section>
+  );
+}
+
 // ── Correlation demo ──────────────────────────────────────────────────────────
 
 function CorrelationDemo() {
@@ -1006,7 +1137,7 @@ function OpenSourceModel() {
                 </li>
               ))}
             </ul>
-            <a href="#" className="mt-8 block">
+            <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noreferrer" className="mt-8 block">
               <Button variant="outline" className="w-full">View on GitHub</Button>
             </a>
           </div>
@@ -1024,7 +1155,7 @@ function OpenSourceModel() {
               </div>
               <div>
                 <h3 className="font-semibold text-fg-strong text-lg">Cloud Dashboard</h3>
-                <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mt-0.5">Free SaaS</p>
+                <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mt-0.5">Free · Open Source</p>
               </div>
             </div>
             <p className="text-sm text-fg-base mb-6 leading-relaxed">
@@ -1175,6 +1306,7 @@ export default function LandingPage() {
         <WhyNotNative />
         <Integrations />
         <AIFeatures />
+        <McpSection />
         <CorrelationDemo />
         <HowItWorks />
         <OpenSourceModel />

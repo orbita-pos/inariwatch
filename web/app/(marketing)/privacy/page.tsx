@@ -61,6 +61,7 @@ export default function PrivacyPage() {
             <li><strong>Resend</strong> — transactional email delivery.</li>
             <li><strong>AI providers</strong> — when you use AI features, requests are sent to the provider whose key you configured (Anthropic, OpenAI, Google, xAI/Grok, DeepSeek). We do not store AI responses beyond what is shown in the app.</li>
             <li><strong>GitHub / Google / GitLab</strong> — optional OAuth sign-in. We only store the provider account ID, email, and name returned by the provider.</li>
+            <li><strong>Plausible Analytics</strong> — privacy-friendly, cookieless analytics. No personal data is collected. See <a href="https://plausible.io/privacy" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">plausible.io/privacy</a>.</li>
             <li><strong>Telegram / Slack</strong> — if you configure these as notification channels, alert data is sent to your Telegram bot or Slack webhook.</li>
           </ul>
         </Section>

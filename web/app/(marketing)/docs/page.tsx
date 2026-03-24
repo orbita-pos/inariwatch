@@ -41,6 +41,8 @@ const NAV = [
       { id: "cli-install",    label: "Installation" },
       { id: "cli-commands",   label: "Commands" },
       { id: "cli-config",     label: "Configuration" },
+      { id: "cli-mcp",        label: "MCP Server" },
+      { id: "cli-rollback",   label: "Rollback" },
     ],
   },
   {
@@ -329,13 +331,15 @@ export default function DocsPage() {
             <SectionHeading id="cli-install">CLI — Installation</SectionHeading>
             <P>The CLI is a single Rust binary with no runtime dependencies.</P>
             <CodeBlock label="Linux / macOS">{`curl -fsSL https://get.inariwatch.com | sh`}</CodeBlock>
-            <CodeBlock label="Build from source">{`git clone https://github.com/inariwatch/cli
-cd cli
+            <CodeBlock label="Windows (PowerShell)">{`irm https://get.inariwatch.com/install.ps1 | iex`}</CodeBlock>
+            <CodeBlock label="Build from source">{`git clone https://github.com/orbita-pos/inariwatch
+cd inariwatch/cli
 cargo build --release
 # binary at: ./target/release/inariwatch`}</CodeBlock>
             <P>
               After installing, run <InlineCode>inariwatch --help</InlineCode> to confirm it works.
-              The binary is placed in <InlineCode>~/.local/bin/inariwatch</InlineCode> — make sure that's in your <InlineCode>$PATH</InlineCode>.
+              On Linux/macOS the binary is placed in <InlineCode>~/.local/bin/inariwatch</InlineCode>.
+              On Windows it installs to <InlineCode>%USERPROFILE%\.inariwatch\bin</InlineCode> and is added to your user PATH automatically.
             </P>
 
             <SectionHeading id="cli-commands">CLI — Commands</SectionHeading>
@@ -354,6 +358,8 @@ cargo build --release
                 ["inariwatch config --ai-key <key>",   "Set AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini)"],
                 ["inariwatch config --model <model>",  "Set the AI model"],
                 ["inariwatch config --show",           "Print current config (keys masked)"],
+                ["inariwatch serve-mcp",               "Start an MCP server over stdio (Claude Code, Cursor, etc.)"],
+                ["inariwatch rollback vercel",         "Interactive rollback — pick a previous deployment to restore"],
               ]}
             />
 
@@ -395,6 +401,86 @@ bot_token = "123456:ABC-..."
 chat_id   = "987654321"`}</CodeBlock>
             <Callout type="info">
               You can edit this file directly, but using <InlineCode>inariwatch add</InlineCode> and <InlineCode>inariwatch config</InlineCode> is safer — they validate tokens before saving.
+            </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                CLI MCP SERVER
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="cli-mcp">CLI — MCP Server</SectionHeading>
+            <P>
+              InariWatch exposes an <strong>MCP (Model Context Protocol) server</strong> that gives your AI editor direct access
+              to your alerts, integrations, and infrastructure actions — without leaving your code.
+              Works with <strong>Claude Code</strong>, <strong>Cursor</strong>, <strong>Windsurf</strong>, <strong>VS Code</strong>, and any MCP-compatible client.
+            </P>
+            <P>
+              The MCP server has two tiers of tools: <strong>read tools</strong> to query alerts and run checks,
+              and <strong>action tools</strong> that let the AI autonomously fix issues, roll back deploys, and silence alerts.
+            </P>
+
+            <SubHeading id="cli-mcp-connect">Connecting to your editor</SubHeading>
+            <P>Add InariWatch to your <InlineCode>.mcp.json</InlineCode> (project-level) or your editor&apos;s global MCP config:</P>
+            <CodeBlock label=".mcp.json">{`{
+  "mcpServers": {
+    "inariwatch": {
+      "command": "inariwatch",
+      "args": ["serve-mcp"]
+    }
+  }
+}`}</CodeBlock>
+            <P>
+              For <strong>Cursor</strong>: Settings → MCP → Add server → paste the config above.<br />
+              For <strong>Claude Code</strong>: save as <InlineCode>.mcp.json</InlineCode> in your project root or <InlineCode>~/.claude/settings.json</InlineCode> globally.<br />
+              Then reload your editor — InariWatch starts automatically when the AI needs it.
+            </P>
+
+            <SubHeading id="cli-mcp-tools">Available tools</SubHeading>
+            <Table
+              head={["Tool", "Type", "Description"]}
+              rows={[
+                ["query_alerts",    "read",   "Fetch recent alerts from local DB. Filterable by project, severity, and limit."],
+                ["get_status",      "read",   "List configured projects and active integrations."],
+                ["run_check",       "read",   "Trigger one monitoring cycle and return any new alerts found."],
+                ["get_root_cause",  "action", "Deep AI analysis of an alert: root cause, confidence, impact, and prevention steps. Pulls context from Sentry, Vercel, and GitHub in parallel."],
+                ["trigger_fix",     "action", "Full autonomous remediation: diagnose → read code → AI fix → self-review → branch → CI wait → PR → optional auto-merge. Supports dry_run to preview without side effects."],
+                ["rollback_vercel", "action", "Roll back a Vercel project to the last successful production deployment. Accepts an optional deployment ID."],
+                ["get_build_logs",  "action", "Fetch Vercel build logs for a deployment with error extraction. Defaults to the latest failed deploy."],
+                ["silence_alert",   "action", "Mark an alert as read in the local database."],
+              ]}
+            />
+            <Callout type="tip">
+              With the MCP server active you can tell your editor: <em>&ldquo;Fix that Sentry error&rdquo;</em> — the AI will call <InlineCode>query_alerts</InlineCode> to find it,
+              then <InlineCode>trigger_fix</InlineCode> to diagnose, generate a fix, push a branch, wait for CI, and open a PR — all without leaving your editor.
+            </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                CLI ROLLBACK
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="cli-rollback">CLI — Rollback</SectionHeading>
+            <P>
+              When a bad deploy reaches production, <InlineCode>inariwatch rollback vercel</InlineCode> gives you an interactive list
+              of your last 10 successful deployments so you can pick one and restore it in seconds.
+            </P>
+            <CodeBlock label="Terminal">{`inariwatch rollback vercel
+
+Fetching recent successful deployments for my-app…
+? Roll back to which deployment?
+> dpl_abc123 a1b2c3d (main) — fix: remove debug log — 2h ago
+  dpl_def456 e4f5g6h (main) — feat: add dark mode  — 5h ago
+  dpl_ghi789 i7j8k9l (main) — chore: bump deps     — 1d ago
+
+  Deploy:  dpl_abc12345
+  Branch:  main
+  Commit:  a1b2c3d
+  URL:     https://my-app.vercel.app
+
+? Confirm rollback to production? (y/N) y
+Rolling back…
+✓ Rollback triggered!
+  Live at: https://my-app.vercel.app`}</CodeBlock>
+            <Callout type="info">
+              The confirmation prompt defaults to <strong>No</strong> — you have to explicitly type <InlineCode>y</InlineCode> to proceed. This prevents accidental rollbacks.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────

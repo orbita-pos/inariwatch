@@ -9,6 +9,7 @@ import type { NewAlert } from "@/lib/db";
 
 import crypto from "crypto";
 import { cronLog, pingCronHealth } from "@/lib/cron-utils";
+import { triggerAutoRollback } from "@/lib/services/auto-rollback";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -85,10 +86,31 @@ export async function GET(req: Request) {
     const result = results[i];
     const integ = integrations[i];
     if (result.status === "fulfilled") {
+      const cfg = decryptConfig(integ.configEncrypted);
+      const autoRollbackEnabled =
+        (cfg.alertConfig as Record<string, unknown> | undefined)?.autoRollback === true;
+
       for (const { projectId, ...alert } of result.value) {
         const inserted = await createAlertIfNew(alert, projectId);
         if (inserted) {
           created++;
+          const isProductionFail =
+            autoRollbackEnabled &&
+            inserted.title.toLowerCase().includes("production") &&
+            inserted.title.toLowerCase().includes("deploy") &&
+            inserted.sourceIntegrations.includes("vercel");
+
+          if (isProductionFail && cfg.token) {
+            const nameMatch = inserted.title.match(/—\s+(.+)$/);
+            const projectName = nameMatch?.[1]?.trim() ?? String(cfg.projectId ?? "");
+            triggerAutoRollback({
+              alertId: inserted.id,
+              token: cfg.token as string,
+              teamId: cfg.teamId as string | undefined,
+              vercelProjectId: (cfg.projectId as string) || projectName,
+              projectName,
+            }).catch((e) => console.error("[auto-rollback] cron:", e));
+          }
         }
       }
     } else {

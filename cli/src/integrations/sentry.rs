@@ -114,6 +114,85 @@ impl SentryClient {
             .collect())
     }
 
+    /// Get the latest event for an issue (includes stack trace).
+    pub async fn get_issue_latest_event(&self, issue_id: &str) -> Result<Option<String>> {
+        let path = format!(
+            "/issues/{}/events/latest/",
+            issue_id
+        );
+
+        let url = format!("https://sentry.io/api/0{}", path);
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Ok(None); // Gracefully skip if we can't get the event
+        }
+
+        let event: serde_json::Value = resp.json().await?;
+        Ok(Some(Self::extract_stacktrace(&event)))
+    }
+
+    /// Extract a readable stack trace from a Sentry event JSON.
+    fn extract_stacktrace(event: &serde_json::Value) -> String {
+        let mut frames = Vec::new();
+
+        // Navigate: entries[] -> { type: "exception", data: { values: [{ stacktrace: { frames } }] } }
+        if let Some(entries) = event["entries"].as_array() {
+            for entry in entries {
+                if entry["type"].as_str() != Some("exception") {
+                    continue;
+                }
+                if let Some(values) = entry["data"]["values"].as_array() {
+                    for value in values {
+                        let exc_type = value["type"].as_str().unwrap_or("Error");
+                        let exc_value = value["value"].as_str().unwrap_or("");
+                        frames.push(format!("{}: {}", exc_type, exc_value));
+
+                        if let Some(trace_frames) = value["stacktrace"]["frames"].as_array() {
+                            // Sentry frames are bottom-to-top; reverse for readability
+                            for frame in trace_frames.iter().rev().take(15) {
+                                let filename = frame["filename"].as_str().unwrap_or("?");
+                                let lineno = frame["lineNo"]
+                                    .as_u64()
+                                    .or_else(|| frame["lineno"].as_u64())
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_else(|| "?".to_string());
+                                let function = frame["function"].as_str().unwrap_or("?");
+                                let context_line = frame["contextLine"]
+                                    .as_str()
+                                    .or_else(|| frame["context_line"].as_str())
+                                    .unwrap_or("");
+                                frames.push(format!("  at {} ({}:{})", function, filename, lineno));
+                                if !context_line.is_empty() {
+                                    frames.push(format!("    > {}", context_line.trim()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if frames.is_empty() {
+            // Fallback: try top-level message
+            event["message"]
+                .as_str()
+                .or_else(|| event["title"].as_str())
+                .unwrap_or("No stack trace available")
+                .to_string()
+        } else {
+            frames.join("\n")
+        }
+    }
+
     /// Issues that have spiked in volume: seen > `min_events` times
     /// and the last occurrence was in the past `hours` hours.
     pub async fn get_spiking_issues(

@@ -44,42 +44,35 @@ export async function getLastSuccessfulDeploy(
 }
 
 /**
- * Rollback to a specific deployment by promoting it.
- * Uses Vercel's instant rollback API (v6 POST /deployments/:id/rollback).
- * If that's not available, creates a new deployment from the same commit.
+ * Rollback to a specific deployment by creating a new production deployment
+ * from it. Uses POST /v13/deployments with deploymentId (documented Vercel API).
  */
 export async function rollbackToDeployment(
   token: string,
   teamId: string | undefined,
-  deploymentId: string
+  deploymentId: string,
+  projectName: string
 ): Promise<{ url: string }> {
   const teamQuery = teamId ? `?teamId=${teamId}` : "";
 
-  // Use the rollback/promote endpoint
-  const res = await fetch(
-    `${API}/v9/projects/promote/${deploymentId}${teamQuery}`,
-    {
-      method: "POST",
-      headers: headers(token),
-      body: JSON.stringify({}),
-    }
-  );
+  const res = await fetch(`${API}/v13/deployments${teamQuery}`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({
+      deploymentId,
+      name: projectName,
+      target: "production",
+    }),
+  });
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
     throw new Error(`Vercel rollback failed (${res.status}): ${err}`);
   }
 
-  // Get the deployment URL
-  const depRes = await fetch(`${API}/v13/deployments/${deploymentId}${teamQuery}`, {
-    headers: headers(token),
-  });
-  if (depRes.ok) {
-    const depData = await depRes.json();
-    return { url: depData.url ? `https://${depData.url}` : "" };
-  }
-
-  return { url: "" };
+  const data = await res.json();
+  const url = data.url ? `https://${data.url}` : "";
+  return { url };
 }
 
 /**

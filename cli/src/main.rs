@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod db;
 mod integrations;
+mod mcp;
 mod notifications;
 mod orchestrator;
 
@@ -55,6 +56,17 @@ enum Commands {
         #[arg(long)]
         show: bool,
     },
+
+    /// Start an MCP server over stdio (for Claude Code, Cursor, etc.)
+    ServeMcp,
+
+    /// Roll back a deployment (vercel)
+    Rollback {
+        /// Service to roll back: vercel
+        service: String,
+        #[arg(short, long)]
+        project: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -70,6 +82,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Logs { limit, project } => commands::logs::run(limit, project).await,
         Commands::Config { ai_key, model, show } => {
             commands::config_cmd::run(ai_key, model, show).await
+        }
+        Commands::ServeMcp => commands::serve_mcp::run().await,
+        Commands::Rollback { service, project } => {
+            commands::rollback::run(&service, project).await
         }
     }
 }
