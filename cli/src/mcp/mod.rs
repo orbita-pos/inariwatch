@@ -1,3 +1,4 @@
+pub mod escalation;
 pub mod fingerprint;
 pub mod post_merge_monitor;
 pub mod progress;
