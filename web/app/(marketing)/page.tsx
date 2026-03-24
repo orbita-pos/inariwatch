@@ -881,7 +881,7 @@ function McpSection() {
               </div>
               <span className="text-xs text-zinc-500 font-mono ml-1">.mcp.json</span>
             </div>
-            <pre className="p-5 text-sm font-mono leading-relaxed text-zinc-300 overflow-x-auto">{`{
+            <pre className="p-5 text-sm font-mono leading-relaxed text-zinc-700 dark:text-zinc-300 overflow-x-auto">{`{
   "mcpServers": {
     "inariwatch": {
       "command": "inariwatch",
@@ -923,7 +923,7 @@ function McpSection() {
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
           <span className="text-zinc-700 text-sm">·</span>
-          <Link href="/docs#cli-installation" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+          <Link href="/docs#cli-installation" className="text-sm text-zinc-500 hover:text-fg-strong dark:hover:text-zinc-300 transition-colors">
             Install the CLI
           </Link>
         </div>
@@ -1203,7 +1203,7 @@ function Sponsors() {
     <section className="border-t border-b border-inari-border bg-inari-card/20 py-12">
       <div className="mx-auto max-w-6xl px-6 text-center">
         <p className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-8 font-semibold">
-          Developed with the support of our visionary sponsors
+          Backed by
         </p>
         <div className="flex flex-wrap justify-center gap-10 sm:gap-16 opacity-70 grayscale hover:grayscale-0 transition-all duration-300">
           
@@ -1216,7 +1216,7 @@ function Sponsors() {
             <div className="h-8 w-8 rounded-md bg-inari-accent flex items-center justify-center shadow-[0_0_15px_rgba(124,58,237,0.4)] group-hover:shadow-[0_0_25px_rgba(124,58,237,0.7)] transition-shadow">
               <span className="text-white font-bold text-lg leading-none tracking-tighter">O</span>
             </div>
-            <span className="font-bold text-xl tracking-tight text-white/90 group-hover:text-white transition-colors">
+            <span className="font-bold text-xl tracking-tight text-fg-strong dark:text-white/90 dark:group-hover:text-white transition-colors">
               OrbitaPOS
             </span>
           </a>
@@ -1260,7 +1260,7 @@ function Newsletter() {
             <SubscribeForm />
           </div>
           <p className="mt-3 text-xs text-zinc-600">
-            Or read the <Link href="/blog" className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition-colors">blog</Link> first.
+            Or read the <Link href="/blog" className="text-zinc-500 hover:text-fg-strong dark:hover:text-zinc-300 underline underline-offset-2 transition-colors">blog</Link> first.
           </p>
         </div>
       </div>
