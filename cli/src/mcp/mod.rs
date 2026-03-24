@@ -102,6 +102,20 @@ pub fn tools_list() -> Value {
             }
         },
         {
+            "name": "get_postmortem",
+            "description": "Generate or retrieve a post-mortem document for a resolved alert. Returns a structured markdown document with Summary, Timeline, Root Cause, Impact, Resolution, and Prevention Measures. If a postmortem was already generated, returns the stored version.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "alert_id": {
+                        "type": "string",
+                        "description": "The alert ID to generate/retrieve the post-mortem for."
+                    }
+                },
+                "required": ["alert_id"]
+            }
+        },
+        {
             "name": "rollback_vercel",
             "description": "Roll back a Vercel project to a previous production deployment. If no deployment_id is given, automatically selects the last successful production deployment. Returns the deployment that was promoted.",
             "inputSchema": {
@@ -163,6 +177,7 @@ pub async fn call_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         "get_status"      => tools::get_status::execute(args).await,
         "run_check"       => tools::run_check::execute(args).await,
         "get_root_cause"  => tools::get_root_cause::execute(args).await,
+        "get_postmortem"  => tools::get_postmortem::execute(args).await,
         "trigger_fix"     => tools::trigger_fix::execute(args).await,
         "rollback_vercel" => tools::rollback_vercel::execute(args).await,
         "get_build_logs"  => tools::get_build_logs::execute(args).await,

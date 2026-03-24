@@ -607,6 +607,45 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
     let is_draft = !gates_pass;
 
+    // ── Generate post-mortem (non-blocking) ──────────────────────────
+    let step_pairs: Vec<(String, String)> = steps
+        .iter()
+        .map(|s| (s.step.to_string(), s.message.clone()))
+        .collect();
+
+    let postmortem_text = match ai::generate_postmortem(
+        ai_key,
+        model,
+        &alert.title,
+        &alert.body,
+        &alert.source_integrations,
+        &diagnosis,
+        &fix_explanation,
+        &files_changed,
+        confidence,
+        None, // PR not created yet
+        gates_pass,
+        &step_pairs,
+    )
+    .await
+    {
+        Ok(text) => {
+            steps.push(Step::ok("postmortem", "Post-mortem generated"));
+            Some(text)
+        }
+        Err(_) => None,
+    };
+
+    let postmortem_section = postmortem_text
+        .as_ref()
+        .map(|pm| {
+            format!(
+                "\n\n<details>\n<summary>Post-mortem</summary>\n\n{}\n\n</details>",
+                pm
+            )
+        })
+        .unwrap_or_default();
+
     let pr_body = format!(
         "## InariWatch AI Fix\n\n\
          **Alert:** {}\n\
@@ -614,7 +653,8 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
          **Confidence:** {}%\n\
          **Self-review:** {}/100 ({})\n\
          **Files changed:** {}\n\n\
-         ### What changed\n{}\n\n\
+         ### What changed\n{}\
+         {}\n\n\
          ---\n*Automated by InariWatch*",
         alert.title,
         diagnosis,
@@ -623,6 +663,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         review_recommendation,
         files_changed.join(", "),
         fix_explanation,
+        postmortem_section,
     );
 
     let (pr_url, pr_number) = gh
@@ -750,6 +791,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             pr_url: Some(pr_url.clone()),
             created_at: Utc::now(),
             fingerprint: Some(alert_fingerprint.clone()),
+            postmortem_text: postmortem_text.clone(),
         };
         let _ = db::save_incident_memory(&mem_conn, &memory);
     }
