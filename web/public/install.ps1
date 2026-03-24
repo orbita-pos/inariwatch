@@ -22,7 +22,8 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 Invoke-WebRequest -Uri $Url -OutFile $Bin -UseBasicParsing
 
 # Add to user PATH if not already present
-$UserPath = [System.Environment]::GetEnvironmentVariable("PATH", "User") ?? ""
+$UserPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+if (-not $UserPath) { $UserPath = "" }
 if ($UserPath -notlike "*$BinDir*") {
     [System.Environment]::SetEnvironmentVariable("PATH", "$UserPath;$BinDir", "User")
     Write-Host "  PATH    : added $BinDir" -ForegroundColor Gray
