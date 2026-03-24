@@ -8,3 +8,4 @@ pub mod assess_risk;
 pub mod rollback_vercel;
 pub mod get_build_logs;
 pub mod silence_alert;
+pub mod submit_feedback;

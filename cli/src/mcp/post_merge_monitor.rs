@@ -1,6 +1,7 @@
 use chrono::Utc;
 
 use crate::config::ProjectConfig;
+use crate::db;
 use crate::integrations::github::GitHubClient;
 use crate::integrations::sentry::SentryClient;
 
@@ -17,6 +18,12 @@ pub struct PostMergeParams<'a> {
     pub alert_title: String,
     pub default_branch: String,
     pub memory_id: Option<String>,
+    /// Error fingerprint for extended outcome tracking
+    pub alert_fingerprint: Option<String>,
+    /// Original alert ID (to exclude from recurrence checks)
+    pub alert_id: Option<String>,
+    /// Fix Replay web API URL (for reporting outcomes)
+    pub fix_replay_url: Option<String>,
 }
 
 pub async fn run(params: PostMergeParams<'_>) -> PostMergeResult {
@@ -26,7 +33,10 @@ pub async fn run(params: PostMergeParams<'_>) -> PostMergeResult {
         merged_sha,
         alert_title,
         default_branch,
-        memory_id: _,
+        memory_id,
+        alert_fingerprint,
+        alert_id,
+        fix_replay_url,
     } = params;
 
     let merge_time = Utc::now();
@@ -130,5 +140,96 @@ pub async fn run(params: PostMergeParams<'_>) -> PostMergeResult {
         }
     }
 
+    // 10-min active monitoring passed — spawn extended 20-min background check
+    if let (Some(mem_id), Some(fp), Some(a_id)) =
+        (memory_id, alert_fingerprint, alert_id)
+    {
+        let replay_url = fix_replay_url;
+        tokio::spawn(async move {
+            run_extended_monitor(mem_id, fp, a_id, replay_url).await;
+        });
+    }
+
     PostMergeResult::Passed
+}
+
+/// Extended outcome monitor — runs as a fire-and-forget background task.
+/// Waits an additional 20 minutes after the 10-min active monitor (total 30 min from merge).
+/// Checks if the same error fingerprint recurred. If yes, marks fix as failed. If not, boosts confidence.
+async fn run_extended_monitor(
+    memory_id: String,
+    alert_fingerprint: String,
+    alert_id: String,
+    fix_replay_url: Option<String>,
+) {
+    // Wait 20 more minutes (10 already passed in the active monitor)
+    tokio::time::sleep(tokio::time::Duration::from_secs(1200)).await;
+
+    let conn = match db::open() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let since = Utc::now() - chrono::Duration::minutes(30);
+    match db::has_alert_with_fingerprint_since(&conn, &alert_fingerprint, since, &alert_id) {
+        Ok(true) => {
+            // Recurrence detected — mark fix as failed, decrease confidence
+            let _ = db::mark_memory_failed(&conn, &memory_id);
+            let _ = db::update_memory_confidence(&conn, &memory_id, -20);
+            // Look up community_fix_id before dropping conn
+            let cfi = get_community_fix_id(&conn, &memory_id);
+            drop(conn);
+            report_outcome(cfi.as_deref(), false, &fix_replay_url).await;
+            println!("  \u{26A0} Extended monitor: alert recurred \u{2014} fix marked as failed");
+        }
+        Ok(false) => {
+            // Clean — boost confidence
+            let _ = db::update_memory_confidence(&conn, &memory_id, 5);
+            let cfi = get_community_fix_id(&conn, &memory_id);
+            drop(conn);
+            report_outcome(cfi.as_deref(), true, &fix_replay_url).await;
+            println!("  \u{2713} Extended monitor: 30 min clean \u{2014} fix confirmed");
+        }
+        Err(_) => {}
+    }
+}
+
+/// Look up the community_fix_id from an incident memory record.
+fn get_community_fix_id(conn: &rusqlite::Connection, memory_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT community_fix_id FROM incident_memory WHERE id = ?1",
+        rusqlite::params![memory_id],
+        |row| row.get(0),
+    )
+    .ok()
+    .flatten()
+}
+
+/// Report fix outcome to the web API via /api/patterns/rate.
+async fn report_outcome(
+    fix_id: Option<&str>,
+    worked: bool,
+    fix_replay_url: &Option<String>,
+) {
+    let base_url = match fix_replay_url {
+        Some(url) => url,
+        None => return,
+    };
+
+    let fix_id = match fix_id {
+        Some(id) => id,
+        None => return,
+    };
+
+    let url = format!("{}/api/patterns/rate", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(&url)
+        .json(&serde_json::json!({
+            "fixId": fix_id,
+            "worked": worked,
+        }))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
 }

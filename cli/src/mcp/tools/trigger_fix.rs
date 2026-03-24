@@ -741,6 +741,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             alert_title: alert.title.clone(),
             default_branch: default_branch.clone(),
             memory_id: Some(memory_id.clone()),
+            alert_fingerprint: Some(alert_fingerprint.clone()),
+            alert_id: Some(alert.id.clone()),
+            fix_replay_url: cfg.global.fix_replay_url.clone(),
         }).await;
 
         use crate::mcp::post_merge_monitor::PostMergeResult;
@@ -792,8 +795,23 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             created_at: Utc::now(),
             fingerprint: Some(alert_fingerprint.clone()),
             postmortem_text: postmortem_text.clone(),
+            community_fix_id: None, // set later if fix_replay contribute succeeds
         };
         let _ = db::save_incident_memory(&mem_conn, &memory);
+
+        // Queue feedback request for later review
+        let fb = db::PendingFeedback {
+            id: Uuid::new_v4().to_string(),
+            memory_id: memory_id.clone(),
+            project: alert.project.clone(),
+            alert_title: alert.title.clone(),
+            pr_url: Some(pr_url.clone()),
+            fix_summary: fix_explanation.clone(),
+            created_at: Utc::now(),
+            answered: false,
+            answer: None,
+        };
+        let _ = db::save_pending_feedback(&mem_conn, &fb);
     }
 
     // ── Fix Replay: contribute pattern to web API ────────────────────────
@@ -808,7 +826,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             } else {
                 "unknown"
             };
-            let _ = contribute_fix_replay(
+            if let Ok(Some(fix_id)) = contribute_fix_replay(
                 &alert_fingerprint,
                 &alert.title,
                 category,
@@ -817,7 +835,12 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
                 &files_changed,
                 confidence,
                 base_url,
-            ).await;
+            ).await {
+                // Store community fix ID for future outcome reporting
+                if let Ok(conn) = db::open() {
+                    let _ = db::set_memory_community_fix_id(&conn, &memory_id, &fix_id);
+                }
+            }
         }
     }
 
@@ -988,6 +1011,7 @@ fn parse_fix_replay_response(body: &Value) -> Vec<MemoryHint> {
 }
 
 /// Contribute a successful fix pattern to the web Fix Replay API.
+/// Returns the community fix_id if the contribution succeeds.
 async fn contribute_fix_replay(
     fingerprint: &str,
     alert_title: &str,
@@ -997,7 +1021,7 @@ async fn contribute_fix_replay(
     files_changed: &[String],
     confidence: u32,
     base_url: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     let url = format!(
         "{}/api/patterns/contribute",
         base_url.trim_end_matches('/')
@@ -1017,6 +1041,8 @@ async fn contribute_fix_replay(
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
-    client.post(&url).json(&payload).send().await?;
-    Ok(())
+    let resp = client.post(&url).json(&payload).send().await?;
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    let fix_id = body["fixId"].as_str().map(String::from);
+    Ok(fix_id)
 }

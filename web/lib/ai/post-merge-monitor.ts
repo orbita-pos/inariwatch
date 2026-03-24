@@ -5,8 +5,8 @@
  * If the same error recurs or uptime drops, auto-reverts the merge.
  */
 
-import { db, remediationSessions, alerts, projectIntegrations, uptimeMonitors } from "@/lib/db";
-import { eq, and, gt } from "drizzle-orm";
+import { db, remediationSessions, alerts, errorPatterns, communityFixes, projectIntegrations, uptimeMonitors } from "@/lib/db";
+import { eq, and, gt, desc, sql } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import { createAlertIfNew } from "@/lib/webhooks/shared";
@@ -93,8 +93,10 @@ export async function startPostMergeMonitoring(params: {
   defaultBranch: string;
   ghToken: string;
   emit: Emit;
+  /** Error fingerprint for outcome tracking */
+  fingerprint?: string;
 }): Promise<void> {
-  const { sessionId, projectId, mergedCommitSha, alertTitle, repo, defaultBranch, ghToken, emit } = params;
+  const { sessionId, projectId, mergedCommitSha, alertTitle, repo, defaultBranch, ghToken, emit, fingerprint } = params;
   const [owner, repoName] = repo.split("/");
   const mergeTime = new Date();
   const monitorUntil = new Date(Date.now() + MONITOR_DURATION_MS);
@@ -118,6 +120,21 @@ export async function startPostMergeMonitoring(params: {
     const sentryRegression = await checkSentryForRegression(projectId, mergeTime, alertTitle);
     const uptimeRegression = await checkUptimeForRegression(projectId);
 
+    // Also check if same fingerprint alert was ingested since merge
+    let fingerprintRegression = false;
+    if (fingerprint && !sentryRegression) {
+      try {
+        const recurred = await db.select({ id: alerts.id }).from(alerts)
+          .where(and(
+            eq(alerts.projectId, projectId),
+            eq(alerts.fingerprint, fingerprint),
+            gt(alerts.createdAt, mergeTime),
+          ))
+          .limit(1);
+        fingerprintRegression = recurred.length > 0;
+      } catch { /* ignore */ }
+    }
+
     emit("monitoring_poll", {
       elapsed: Math.round(elapsed / 1000),
       total: Math.round(MONITOR_DURATION_MS / 1000),
@@ -128,7 +145,7 @@ export async function startPostMergeMonitoring(params: {
       },
     });
 
-    if (sentryRegression || uptimeRegression) {
+    if (sentryRegression || uptimeRegression || fingerprintRegression) {
       // Regression detected — auto-revert
       emit("monitoring_poll", { elapsed: Math.round(elapsed / 1000), total: Math.round(MONITOR_DURATION_MS / 1000), status: "reverting" });
 
@@ -220,6 +237,26 @@ export async function startPostMergeMonitoring(params: {
     status: "completed",
     updatedAt: new Date(),
   }).where(eq(remediationSessions.id, sessionId));
+
+  // Report success to community patterns (boost the fix's success count)
+  if (fingerprint) {
+    try {
+      const pattern = await db.select({ id: errorPatterns.id }).from(errorPatterns)
+        .where(eq(errorPatterns.fingerprint, fingerprint)).limit(1);
+      if (pattern.length > 0) {
+        const topFix = await db.select({ id: communityFixes.id }).from(communityFixes)
+          .where(eq(communityFixes.patternId, pattern[0].id))
+          .orderBy(desc(communityFixes.successCount)).limit(1);
+        if (topFix.length > 0) {
+          await db.update(communityFixes).set({
+            successCount: sql`${communityFixes.successCount} + 1`,
+            totalApplications: sql`${communityFixes.totalApplications} + 1`,
+            updatedAt: new Date(),
+          }).where(eq(communityFixes.id, topFix[0].id));
+        }
+      }
+    } catch { /* non-blocking */ }
+  }
 
   // Resolve the status page incident
   try { await resolveIncident({ remediationSessionId: sessionId }); } catch { /* non-blocking */ }

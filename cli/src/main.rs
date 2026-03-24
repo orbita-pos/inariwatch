@@ -7,6 +7,8 @@ mod integrations;
 mod mcp;
 mod notifications;
 mod orchestrator;
+#[cfg(test)]
+mod training_loop_test;
 
 use clap::{Parser, Subcommand};
 
@@ -32,6 +34,9 @@ enum Commands {
     Watch {
         #[arg(short, long)]
         project: Option<String>,
+        /// Shadow mode: diagnose alerts without acting. Saves predictions for comparison.
+        #[arg(long)]
+        shadow: bool,
     },
 
     /// Show status of all integrations
@@ -91,12 +96,34 @@ enum Commands {
         action: String,
     },
 
+    /// Review pending fix outcomes and provide feedback
+    Feedback {
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+
     /// Roll back a deployment (vercel)
     Rollback {
         /// Service to roll back: vercel
         service: String,
         #[arg(short, long)]
         project: Option<String>,
+    },
+
+    /// Simulate the training loop with fake errors to see the system learn
+    Simulate {
+        /// Number of error cycles to simulate (default: 30)
+        #[arg(short, long, default_value = "30")]
+        cycles: usize,
+        /// Delay between steps in ms (default: 150)
+        #[arg(long, default_value = "150")]
+        speed: u64,
+        /// Import real errors from production DB into the scenario bank
+        #[arg(long)]
+        import: bool,
+        /// Show simulation run history and improvement trend
+        #[arg(long)]
+        history: bool,
     },
 }
 
@@ -108,18 +135,28 @@ async fn main() -> anyhow::Result<()> {
         Commands::Init => commands::init::run().await,
         Commands::Add { integration } => commands::add::run(&integration).await,
         Commands::Connect { channel } => commands::connect::run(&channel).await,
-        Commands::Watch { project } => commands::watch::run(project).await,
+        Commands::Watch { project, shadow } => commands::watch::run(project, shadow).await,
         Commands::Status { project } => commands::status::run(project).await,
         Commands::Logs { limit, project } => commands::logs::run(limit, project).await,
         Commands::Config { ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show } => {
             commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show).await
         }
         Commands::Postmortem { alert_id } => commands::postmortem::run(&alert_id).await,
+        Commands::Feedback { project } => commands::feedback::run(project).await,
         Commands::AgentStats { project } => commands::agent_stats::run(project).await,
         Commands::Daemon { action } => commands::daemon::run(&action).await,
         Commands::ServeMcp => commands::serve_mcp::run().await,
         Commands::Rollback { service, project } => {
             commands::rollback::run(&service, project).await
+        }
+        Commands::Simulate { cycles, speed, import, history } => {
+            if import {
+                commands::simulate::run_import().await
+            } else if history {
+                commands::simulate::run_history().await
+            } else {
+                commands::simulate::run(cycles, speed).await
+            }
         }
     }
 }

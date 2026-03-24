@@ -3,11 +3,13 @@ pub mod agent_stats;
 pub mod config_cmd;
 pub mod daemon;
 pub mod connect;
+pub mod feedback;
 pub mod init;
 pub mod logs;
 pub mod postmortem;
 pub mod rollback;
 pub mod serve_mcp;
+pub mod simulate;
 pub mod status;
 pub mod watch;
 

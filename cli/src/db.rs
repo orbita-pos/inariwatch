@@ -28,6 +28,8 @@ pub struct IncidentMemory {
     pub fingerprint: Option<String>,
     /// Auto-generated post-mortem text (None if not yet generated)
     pub postmortem_text: Option<String>,
+    /// Community fix ID returned from /api/patterns/contribute (for outcome reporting)
+    pub community_fix_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +43,8 @@ pub struct Alert {
     pub is_read: bool,
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// Error fingerprint for outcome tracking (None for legacy alerts)
+    pub fingerprint: Option<String>,
 }
 
 // ── Connection ────────────────────────────────────────────────────────────────
@@ -60,6 +64,180 @@ pub fn open() -> Result<Connection> {
     let conn = Connection::open(&path)?;
     migrate(&conn)?;
     Ok(conn)
+}
+
+/// Open the simulation database (separate from production).
+pub fn open_sim() -> Result<Connection> {
+    let path = data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("inariwatch")
+        .join("inariwatch_sim.db");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let conn = Connection::open(&path)?;
+    migrate(&conn)?;
+    migrate_sim(&conn)?;
+    Ok(conn)
+}
+
+/// Extra tables only used by the simulator.
+fn migrate_sim(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS scenario_bank (
+            id                TEXT PRIMARY KEY,
+            title             TEXT NOT NULL,
+            body              TEXT NOT NULL,
+            category          TEXT NOT NULL DEFAULT 'unknown',
+            fingerprint       TEXT NOT NULL,
+            source            TEXT NOT NULL DEFAULT 'synthetic',
+            files             TEXT,
+            fix_approach      TEXT,
+            base_success_rate REAL NOT NULL DEFAULT 0.5,
+            created_at        TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_scenario_fp ON scenario_bank(fingerprint);
+
+        CREATE TABLE IF NOT EXISTS sim_runs (
+            id              TEXT PRIMARY KEY,
+            run_number      INTEGER NOT NULL,
+            cycles          INTEGER NOT NULL,
+            total           INTEGER NOT NULL,
+            succeeded       INTEGER NOT NULL,
+            failed          INTEGER NOT NULL,
+            success_rate    REAL NOT NULL,
+            learned_count   INTEGER NOT NULL,
+            avg_confidence  REAL NOT NULL,
+            trust_level     TEXT NOT NULL,
+            created_at      TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sim_runs_num ON sim_runs(run_number DESC);",
+    )?;
+    Ok(())
+}
+
+// ── Scenario bank ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct BankScenario {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+    pub category: String,
+    pub fingerprint: String,
+    pub source: String,
+    pub files: Vec<String>,
+    pub fix_approach: Option<String>,
+    pub base_success_rate: f64,
+}
+
+pub fn save_scenario(conn: &Connection, s: &BankScenario) -> Result<()> {
+    let files = serde_json::to_string(&s.files)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO scenario_bank
+             (id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        params![s.id, s.title, s.body, s.category, s.fingerprint, s.source,
+                files, s.fix_approach, s.base_success_rate, Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn get_all_scenarios(conn: &Connection) -> Result<Vec<BankScenario>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate
+         FROM scenario_bank ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let files_str: Option<String> = row.get(6)?;
+        let files: Vec<String> = files_str
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Ok(BankScenario {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            body: row.get(2)?,
+            category: row.get(3)?,
+            fingerprint: row.get(4)?,
+            source: row.get(5)?,
+            files,
+            fix_approach: row.get(7)?,
+            base_success_rate: row.get(8)?,
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn count_scenarios(conn: &Connection) -> usize {
+    conn.query_row("SELECT COUNT(*) FROM scenario_bank", [], |row| row.get::<_, i64>(0))
+        .unwrap_or(0) as usize
+}
+
+// ── Sim runs ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SimRun {
+    pub id: String,
+    pub run_number: i64,
+    pub cycles: i64,
+    pub total: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub success_rate: f64,
+    pub learned_count: i64,
+    pub avg_confidence: f64,
+    pub trust_level: String,
+    pub created_at: DateTime<Utc>,
+}
+
+pub fn save_sim_run(conn: &Connection, r: &SimRun) -> Result<()> {
+    conn.execute(
+        "INSERT INTO sim_runs
+             (id, run_number, cycles, total, succeeded, failed, success_rate,
+              learned_count, avg_confidence, trust_level, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        params![r.id, r.run_number, r.cycles, r.total, r.succeeded, r.failed,
+                r.success_rate, r.learned_count, r.avg_confidence, r.trust_level,
+                r.created_at.to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn get_next_run_number(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COALESCE(MAX(run_number), 0) + 1 FROM sim_runs", [], |row| row.get(0))
+        .unwrap_or(1)
+}
+
+pub fn get_sim_runs(conn: &Connection, limit: usize) -> Result<Vec<SimRun>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, run_number, cycles, total, succeeded, failed, success_rate,
+                learned_count, avg_confidence, trust_level, created_at
+         FROM sim_runs ORDER BY run_number DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], |row| {
+        let created_str: String = row.get(10)?;
+        Ok(SimRun {
+            id: row.get(0)?,
+            run_number: row.get(1)?,
+            cycles: row.get(2)?,
+            total: row.get(3)?,
+            succeeded: row.get(4)?,
+            failed: row.get(5)?,
+            success_rate: row.get(6)?,
+            learned_count: row.get(7)?,
+            avg_confidence: row.get(8)?,
+            trust_level: row.get(9)?,
+            created_at: DateTime::parse_from_rfc3339(&created_str)
+                .map(|t| t.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn get_last_sim_run(conn: &Connection) -> Result<Option<SimRun>> {
+    let mut runs = get_sim_runs(conn, 1)?;
+    Ok(runs.pop())
 }
 
 fn migrate(conn: &Connection) -> Result<()> {
@@ -138,6 +316,69 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
+    // v3 migration: add fingerprint column to alerts for outcome tracking
+    let has_alert_fp: bool = conn
+        .prepare("PRAGMA table_info(alerts)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("fingerprint"));
+
+    if !has_alert_fp {
+        conn.execute_batch(
+            "ALTER TABLE alerts ADD COLUMN fingerprint TEXT;",
+        )?;
+    }
+
+    // v3 migration: add community_fix_id to incident_memory for outcome reporting
+    let has_cfi: bool = conn
+        .prepare("PRAGMA table_info(incident_memory)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("community_fix_id"));
+
+    if !has_cfi {
+        conn.execute_batch(
+            "ALTER TABLE incident_memory ADD COLUMN community_fix_id TEXT;",
+        )?;
+    }
+
+    // v3 migration: pending_feedback table
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pending_feedback (
+            id          TEXT PRIMARY KEY,
+            memory_id   TEXT NOT NULL,
+            project     TEXT NOT NULL,
+            alert_title TEXT NOT NULL,
+            pr_url      TEXT,
+            fix_summary TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            answered    INTEGER NOT NULL DEFAULT 0,
+            answer      INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_pending
+            ON pending_feedback(answered, created_at DESC);",
+    )?;
+
+    // v3 migration: shadow_predictions table
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS shadow_predictions (
+            id                      TEXT PRIMARY KEY,
+            project                 TEXT NOT NULL,
+            alert_id                TEXT NOT NULL,
+            alert_fingerprint       TEXT,
+            alert_title             TEXT NOT NULL,
+            predicted_diagnosis     TEXT NOT NULL,
+            predicted_files         TEXT NOT NULL,
+            predicted_fix_approach  TEXT NOT NULL,
+            confidence              INTEGER NOT NULL DEFAULT 0,
+            created_at              TEXT NOT NULL,
+            human_fix_detected      INTEGER NOT NULL DEFAULT 0,
+            human_fix_matched       INTEGER NOT NULL DEFAULT 0,
+            human_fix_files         TEXT,
+            resolved_at             TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_project
+            ON shadow_predictions(project, alert_fingerprint, created_at DESC);",
+    )?;
+
     // v2 migration: pattern_cache for Fix Replay
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS pattern_cache (
@@ -186,8 +427,8 @@ pub fn insert_alert(conn: &Connection, alert: &Alert) -> Result<()> {
     let sent_at = alert.sent_at.map(|t| t.to_rfc3339());
     conn.execute(
         "INSERT INTO alerts
-             (id, project, severity, title, body, source_integrations, is_read, sent_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, project, severity, title, body, source_integrations, is_read, sent_at, created_at, fingerprint)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             alert.id,
             alert.project,
@@ -197,7 +438,8 @@ pub fn insert_alert(conn: &Connection, alert: &Alert) -> Result<()> {
             sources,
             alert.is_read as i64,
             sent_at,
-            alert.created_at.to_rfc3339()
+            alert.created_at.to_rfc3339(),
+            alert.fingerprint,
         ],
     )?;
     Ok(())
@@ -212,7 +454,7 @@ pub fn get_recent_alerts(
         Some(proj) => {
             let mut stmt = conn.prepare(
                 "SELECT id, project, severity, title, body, source_integrations,
-                        is_read, sent_at, created_at
+                        is_read, sent_at, created_at, fingerprint
                  FROM alerts
                  WHERE project = ?1
                  ORDER BY created_at DESC
@@ -226,7 +468,7 @@ pub fn get_recent_alerts(
         None => {
             let mut stmt = conn.prepare(
                 "SELECT id, project, severity, title, body, source_integrations,
-                        is_read, sent_at, created_at
+                        is_read, sent_at, created_at, fingerprint
                  FROM alerts
                  ORDER BY created_at DESC
                  LIMIT ?1",
@@ -269,8 +511,8 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
     conn.execute(
         "INSERT OR REPLACE INTO incident_memory
              (id, project, alert_title, root_cause, fix_summary, files_fixed,
-              fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+              fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         params![
             mem.id,
             mem.project,
@@ -284,6 +526,7 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
             mem.created_at.to_rfc3339(),
             mem.fingerprint,
             mem.postmortem_text,
+            mem.community_fix_id,
         ],
     )?;
     Ok(())
@@ -452,7 +695,7 @@ pub fn get_track_record(conn: &Connection, project: &str) -> Result<TrackRecord>
     // Recent 5 fixes
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id
          FROM incident_memory
          WHERE project = ?1
          ORDER BY created_at DESC
@@ -522,7 +765,7 @@ pub fn get_relevant_memories(
 
     let sql = format!(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id
          FROM incident_memory
          WHERE project = ?1 AND fix_worked = 1 AND ({})
          ORDER BY confidence DESC, created_at DESC
@@ -559,7 +802,7 @@ pub fn get_memories_by_fingerprint(
 ) -> Result<Vec<IncidentMemory>> {
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text, community_fix_id
          FROM incident_memory
          WHERE project = ?1 AND fingerprint = ?2 AND fix_worked = 1
          ORDER BY confidence DESC, created_at DESC
@@ -569,6 +812,224 @@ pub fn get_memories_by_fingerprint(
         .query_map(params![project, fingerprint, limit as i64], row_to_memory)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+// ── Pending feedback ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingFeedback {
+    pub id: String,
+    pub memory_id: String,
+    pub project: String,
+    pub alert_title: String,
+    pub pr_url: Option<String>,
+    pub fix_summary: String,
+    pub created_at: DateTime<Utc>,
+    pub answered: bool,
+    pub answer: Option<bool>, // true = worked, false = failed, None = unanswered
+}
+
+pub fn save_pending_feedback(conn: &Connection, fb: &PendingFeedback) -> Result<()> {
+    let answer_val: Option<i64> = fb.answer.map(|a| a as i64);
+    conn.execute(
+        "INSERT OR REPLACE INTO pending_feedback
+             (id, memory_id, project, alert_title, pr_url, fix_summary, created_at, answered, answer)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![
+            fb.id, fb.memory_id, fb.project, fb.alert_title, fb.pr_url,
+            fb.fix_summary, fb.created_at.to_rfc3339(),
+            fb.answered as i64, answer_val,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_pending_feedback(conn: &Connection, limit: usize) -> Result<Vec<PendingFeedback>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, memory_id, project, alert_title, pr_url, fix_summary,
+                created_at, answered, answer
+         FROM pending_feedback
+         WHERE answered = 0
+         ORDER BY created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            let created_str: String = row.get(6)?;
+            let answer_val: Option<i64> = row.get(8)?;
+            Ok(PendingFeedback {
+                id: row.get(0)?,
+                memory_id: row.get(1)?,
+                project: row.get(2)?,
+                alert_title: row.get(3)?,
+                pr_url: row.get(4)?,
+                fix_summary: row.get(5)?,
+                created_at: DateTime::parse_from_rfc3339(&created_str)
+                    .map(|t| t.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                answered: row.get::<_, i64>(7)? != 0,
+                answer: answer_val.map(|v| v != 0),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn answer_feedback(conn: &Connection, id: &str, worked: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE pending_feedback SET answered = 1, answer = ?1 WHERE id = ?2",
+        params![worked as i64, id],
+    )?;
+    Ok(())
+}
+
+pub fn count_pending_feedback(conn: &Connection) -> usize {
+    conn.query_row(
+        "SELECT COUNT(*) FROM pending_feedback WHERE answered = 0",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .unwrap_or(0) as usize
+}
+
+// ── Shadow predictions ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowPrediction {
+    pub id: String,
+    pub project: String,
+    pub alert_id: String,
+    pub alert_fingerprint: Option<String>,
+    pub alert_title: String,
+    pub predicted_diagnosis: String,
+    pub predicted_files: Vec<String>,
+    pub predicted_fix_approach: String,
+    pub confidence: i32,
+    pub created_at: DateTime<Utc>,
+    pub human_fix_detected: bool,
+    pub human_fix_matched: bool,
+    pub human_fix_files: Option<Vec<String>>,
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+pub fn save_shadow_prediction(conn: &Connection, p: &ShadowPrediction) -> Result<()> {
+    let files = serde_json::to_string(&p.predicted_files)?;
+    let human_files = p.human_fix_files.as_ref().map(|f| serde_json::to_string(f).unwrap_or_default());
+    let resolved = p.resolved_at.map(|t| t.to_rfc3339());
+    conn.execute(
+        "INSERT OR REPLACE INTO shadow_predictions
+             (id, project, alert_id, alert_fingerprint, alert_title,
+              predicted_diagnosis, predicted_files, predicted_fix_approach,
+              confidence, created_at, human_fix_detected, human_fix_matched,
+              human_fix_files, resolved_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        params![
+            p.id, p.project, p.alert_id, p.alert_fingerprint, p.alert_title,
+            p.predicted_diagnosis, files, p.predicted_fix_approach,
+            p.confidence, p.created_at.to_rfc3339(),
+            p.human_fix_detected as i64, p.human_fix_matched as i64,
+            human_files, resolved,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_unresolved_shadows(conn: &Connection, project: &str, limit: usize) -> Result<Vec<ShadowPrediction>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project, alert_id, alert_fingerprint, alert_title,
+                predicted_diagnosis, predicted_files, predicted_fix_approach,
+                confidence, created_at, human_fix_detected, human_fix_matched,
+                human_fix_files, resolved_at
+         FROM shadow_predictions
+         WHERE project = ?1 AND resolved_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt
+        .query_map(params![project, limit as i64], |row| {
+            let files_str: String = row.get(6)?;
+            let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();
+            let human_files_str: Option<String> = row.get(12)?;
+            let human_files: Option<Vec<String>> = human_files_str
+                .and_then(|s| serde_json::from_str(&s).ok());
+            let created_str: String = row.get(9)?;
+            let resolved_str: Option<String> = row.get(13)?;
+            Ok(ShadowPrediction {
+                id: row.get(0)?,
+                project: row.get(1)?,
+                alert_id: row.get(2)?,
+                alert_fingerprint: row.get(3)?,
+                alert_title: row.get(4)?,
+                predicted_diagnosis: row.get(5)?,
+                predicted_files: files,
+                predicted_fix_approach: row.get(7)?,
+                confidence: row.get(8)?,
+                created_at: DateTime::parse_from_rfc3339(&created_str)
+                    .map(|t| t.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                human_fix_detected: row.get::<_, i64>(10)? != 0,
+                human_fix_matched: row.get::<_, i64>(11)? != 0,
+                human_fix_files: human_files,
+                resolved_at: resolved_str.and_then(|s|
+                    DateTime::parse_from_rfc3339(&s).ok().map(|t| t.with_timezone(&Utc))),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn resolve_shadow(
+    conn: &Connection,
+    id: &str,
+    human_files: Option<&[String]>,
+    matched: bool,
+) -> Result<()> {
+    let hf = human_files.map(|f| serde_json::to_string(f).unwrap_or_default());
+    conn.execute(
+        "UPDATE shadow_predictions
+         SET human_fix_detected = 1, human_fix_matched = ?1,
+             human_fix_files = ?2, resolved_at = ?3
+         WHERE id = ?4",
+        params![matched as i64, hf, Utc::now().to_rfc3339(), id],
+    )?;
+    Ok(())
+}
+
+// ── Outcome tracking ─────────────────────────────────────────────────────
+
+/// Check if an alert with the same fingerprint was created after the given time.
+/// Excludes the alert with `exclude_id` (the original alert that triggered the fix).
+pub fn has_alert_with_fingerprint_since(
+    conn: &Connection,
+    fingerprint: &str,
+    since: DateTime<Utc>,
+    exclude_id: &str,
+) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM alerts WHERE fingerprint = ?1 AND created_at > ?2 AND id != ?3",
+        params![fingerprint, since.to_rfc3339(), exclude_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+/// Adjust the confidence of an incident memory by a delta (positive or negative).
+/// Clamps to [0, 100].
+pub fn update_memory_confidence(conn: &Connection, id: &str, delta: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE incident_memory SET confidence = MAX(0, MIN(100, confidence + ?1)) WHERE id = ?2",
+        params![delta, id],
+    )?;
+    Ok(())
+}
+
+/// Store the community fix ID on an incident memory (for outcome reporting).
+pub fn set_memory_community_fix_id(conn: &Connection, id: &str, fix_id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE incident_memory SET community_fix_id = ?1 WHERE id = ?2",
+        params![fix_id, id],
+    )?;
+    Ok(())
 }
 
 // ── Pattern cache (Fix Replay) ───────────────────────────────────────────────
@@ -660,6 +1121,7 @@ fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
             .unwrap_or_else(|_| Utc::now()),
         fingerprint: row.get(10)?,
         postmortem_text: row.get(11).ok(),
+        community_fix_id: row.get(12).ok().flatten(),
     })
 }
 
@@ -684,5 +1146,6 @@ fn row_to_alert(row: &rusqlite::Row) -> rusqlite::Result<Alert> {
         created_at: DateTime::parse_from_rfc3339(&created_at_str)
             .map(|t| t.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
+        fingerprint: row.get(9).ok().flatten(),
     })
 }
