@@ -29,11 +29,17 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
     let alert = db::get_alert_by_id(&conn, alert_id)?
         .ok_or_else(|| anyhow::anyhow!("Alert not found: {}", alert_id))?;
 
-    // Load incident memories before closing the connection
+    // Load incident memories + track record before closing the connection
     let project_slug_for_mem = alert.project.clone();
     let alert_title_for_mem = alert.title.clone();
     let raw_memories = db::get_relevant_memories(&conn, &project_slug_for_mem, &alert_title_for_mem, 3)
         .unwrap_or_default();
+    let track = db::get_track_record(&conn, &project_slug_for_mem).unwrap_or_else(|_| db::TrackRecord {
+        total: 0, succeeded: 0, failed: 0, success_rate: 0.0,
+        avg_confidence: 0.0, auto_merged: 0,
+        trust_level: db::TrustLevel::Rookie,
+        recent: vec![],
+    });
     let memory_id = Uuid::new_v4().to_string();
     drop(conn);
 
@@ -68,8 +74,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
     }
 
     steps.push(Step::ok("validate", format!(
-        "Project: {}, GitHub: {}, AI: configured",
-        project.name, gh_config.repo
+        "Project: {}, GitHub: {}, AI: configured, Trust: {} (level {})",
+        project.name, gh_config.repo,
+        track.trust_level.name(), track.trust_level.level()
     )));
 
     // ── Step 2: Diagnose ──────────────────────────────────────────────────
@@ -514,13 +521,17 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
     // ── Step 9: Create PR ─────────────────────────────────────────────────
 
-    // Evaluate auto-merge gates
+    // Evaluate auto-merge gates — thresholds scale with trust level
+    let min_conf   = track.trust_level.min_confidence();
+    let min_review = track.trust_level.min_review_score();
+    let max_lines  = track.trust_level.max_changed_lines();
+
     let gates_pass = auto_merge
         && matches!(ci_status, CIWaitResult::Success(_))
-        && confidence >= safety::CONFIDENCE_DRAFT_ONLY
-        && review_score >= safety::MIN_SELF_REVIEW_SCORE
+        && confidence >= min_conf
+        && review_score >= min_review
         && review_recommendation != "reject"
-        && count_changed_lines(&fix_files) <= safety::MAX_LINES_FOR_AUTO_MERGE;
+        && count_changed_lines(&fix_files) <= max_lines;
 
     let is_draft = !gates_pass;
 
@@ -585,14 +596,17 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         if !matches!(ci_status, CIWaitResult::Success(_)) {
             reasons.push("CI not passed");
         }
-        if confidence < safety::CONFIDENCE_DRAFT_ONLY {
-            reasons.push("confidence below 70%");
+        if confidence < min_conf {
+            reasons.push("confidence below threshold for trust level");
         }
-        if review_score < safety::MIN_SELF_REVIEW_SCORE {
-            reasons.push("self-review score below 70");
+        if review_score < min_review {
+            reasons.push("self-review score below threshold for trust level");
         }
-        if count_changed_lines(&fix_files) > safety::MAX_LINES_FOR_AUTO_MERGE {
+        if count_changed_lines(&fix_files) > max_lines {
             reasons.push("too many lines changed");
+        }
+        if track.trust_level == db::TrustLevel::Rookie {
+            reasons.push("trust level too low (need 3+ successful fixes)");
         }
         steps.push(Step::skipped(
             "merge",

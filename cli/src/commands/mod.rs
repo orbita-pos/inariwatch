@@ -1,4 +1,5 @@
 pub mod add;
+pub mod agent_stats;
 pub mod config_cmd;
 pub mod daemon;
 pub mod connect;

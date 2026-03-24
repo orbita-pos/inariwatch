@@ -247,6 +247,178 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
     Ok(())
 }
 
+// ── Trust level + track record ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrustLevel {
+    Rookie,     // < 3 fixes — only draft PRs, no auto-merge
+    Apprentice, // >= 3 fixes, >= 50% success — auto-merge with strict gates
+    Trusted,    // >= 5 fixes, >= 70% success — standard gates
+    Expert,     // >= 10 fixes, >= 85% success — relaxed gates
+}
+
+impl TrustLevel {
+    pub fn name(&self) -> &'static str {
+        match self {
+            TrustLevel::Rookie => "Rookie",
+            TrustLevel::Apprentice => "Apprentice",
+            TrustLevel::Trusted => "Trusted",
+            TrustLevel::Expert => "Expert",
+        }
+    }
+
+    pub fn level(&self) -> u8 {
+        match self {
+            TrustLevel::Rookie => 0,
+            TrustLevel::Apprentice => 1,
+            TrustLevel::Trusted => 2,
+            TrustLevel::Expert => 3,
+        }
+    }
+
+    /// Minimum confidence required for auto-merge at this trust level.
+    pub fn min_confidence(&self) -> u32 {
+        match self {
+            TrustLevel::Rookie => 101,     // impossible — never auto-merge
+            TrustLevel::Apprentice => 90,
+            TrustLevel::Trusted => 70,
+            TrustLevel::Expert => 60,
+        }
+    }
+
+    /// Minimum self-review score for auto-merge at this trust level.
+    pub fn min_review_score(&self) -> u32 {
+        match self {
+            TrustLevel::Rookie => 101,
+            TrustLevel::Apprentice => 90,
+            TrustLevel::Trusted => 70,
+            TrustLevel::Expert => 60,
+        }
+    }
+
+    /// Max changed lines allowed for auto-merge at this trust level.
+    pub fn max_changed_lines(&self) -> usize {
+        match self {
+            TrustLevel::Rookie => 0,
+            TrustLevel::Apprentice => 100,
+            TrustLevel::Trusted => 200,
+            TrustLevel::Expert => 300,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TrackRecord {
+    pub total: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+    pub success_rate: f64,
+    pub avg_confidence: f64,
+    pub auto_merged: usize,
+    pub trust_level: TrustLevel,
+    pub recent: Vec<IncidentMemory>,
+}
+
+impl TrackRecord {
+    /// How many more successful fixes needed to reach the next trust level.
+    pub fn fixes_to_next_level(&self) -> Option<String> {
+        match self.trust_level {
+            TrustLevel::Rookie => {
+                let need = 3usize.saturating_sub(self.total);
+                Some(format!("Apprentice — {} more fix(es) needed", need))
+            }
+            TrustLevel::Apprentice => {
+                let need_fixes = 5usize.saturating_sub(self.total);
+                let need_rate = if self.success_rate < 0.70 {
+                    format!(", ≥70% success rate (currently {:.0}%)", self.success_rate * 100.0)
+                } else {
+                    String::new()
+                };
+                Some(format!("Trusted — {} more fix(es){}", need_fixes, need_rate))
+            }
+            TrustLevel::Trusted => {
+                let need_fixes = 10usize.saturating_sub(self.total);
+                let need_rate = if self.success_rate < 0.85 {
+                    format!(", ≥85% success rate (currently {:.0}%)", self.success_rate * 100.0)
+                } else {
+                    String::new()
+                };
+                Some(format!("Expert — {} more fix(es){}", need_fixes, need_rate))
+            }
+            TrustLevel::Expert => None,
+        }
+    }
+}
+
+fn compute_trust_level(total: usize, success_rate: f64) -> TrustLevel {
+    if total >= 10 && success_rate >= 0.85 {
+        TrustLevel::Expert
+    } else if total >= 5 && success_rate >= 0.70 {
+        TrustLevel::Trusted
+    } else if total >= 3 && success_rate >= 0.50 {
+        TrustLevel::Apprentice
+    } else {
+        TrustLevel::Rookie
+    }
+}
+
+pub fn get_track_record(conn: &Connection, project: &str) -> Result<TrackRecord> {
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM incident_memory WHERE project = ?1",
+        params![project],
+        |r| r.get(0),
+    ).unwrap_or(0);
+
+    let succeeded: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM incident_memory WHERE project = ?1 AND fix_worked = 1",
+        params![project],
+        |r| r.get(0),
+    ).unwrap_or(0);
+
+    let avg_confidence: f64 = conn.query_row(
+        "SELECT COALESCE(AVG(CAST(confidence AS REAL)), 0) FROM incident_memory WHERE project = ?1",
+        params![project],
+        |r| r.get(0),
+    ).unwrap_or(0.0);
+
+    let auto_merged: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM incident_memory WHERE project = ?1 AND fix_worked = 1 AND pr_url IS NOT NULL",
+        params![project],
+        |r| r.get(0),
+    ).unwrap_or(0);
+
+    let total = total as usize;
+    let succeeded = succeeded as usize;
+    let failed = total.saturating_sub(succeeded);
+    let success_rate = if total > 0 { succeeded as f64 / total as f64 } else { 0.0 };
+    let trust_level = compute_trust_level(total, success_rate);
+
+    // Recent 5 fixes
+    let mut stmt = conn.prepare(
+        "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
+                fix_worked, confidence, pr_url, created_at
+         FROM incident_memory
+         WHERE project = ?1
+         ORDER BY created_at DESC
+         LIMIT 5",
+    )?;
+    let recent = stmt
+        .query_map(params![project], row_to_memory)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap_or_default();
+
+    Ok(TrackRecord {
+        total,
+        succeeded,
+        failed,
+        success_rate,
+        avg_confidence,
+        auto_merged: auto_merged as usize,
+        trust_level,
+        recent,
+    })
+}
+
 /// Update a memory record to mark that the fix did NOT work (regression detected).
 pub fn mark_memory_failed(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(

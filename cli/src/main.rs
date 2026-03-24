@@ -66,6 +66,12 @@ enum Commands {
     /// Start an MCP server over stdio (for Claude Code, Cursor, etc.)
     ServeMcp,
 
+    /// Show AI agent track record and trust level
+    AgentStats {
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+
     /// Manage the background monitoring daemon
     Daemon {
         /// Action: install | uninstall | start | stop | status
@@ -95,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Config { ai_key, model, auto_fix, auto_merge, show } => {
             commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, show).await
         }
+        Commands::AgentStats { project } => commands::agent_stats::run(project).await,
         Commands::Daemon { action } => commands::daemon::run(&action).await,
         Commands::ServeMcp => commands::serve_mcp::run().await,
         Commands::Rollback { service, project } => {
