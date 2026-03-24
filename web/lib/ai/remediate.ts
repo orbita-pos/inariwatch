@@ -22,6 +22,7 @@ import { gatherRemediationContext } from "./context-gatherer";
 import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
 import { startPostMergeMonitoring } from "./post-merge-monitor";
 import { linkRemediationToIncident, updateIncidentStatus, resolveIncident as resolveStatusIncident } from "./status-page-automation";
+import { generatePostmortemInternal } from "./postmortem";
 import { triggerEscalation, type EscalationContext } from "./escalation-engine";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
@@ -741,8 +742,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 return; // post-merge monitor handles emit("done")
               } else {
                 await updateSession(sessionId, { status: "completed" });
-                // No post-merge monitor → resolve status page incident immediately
-                try { await resolveStatusIncident({ remediationSessionId: sessionId }); } catch { /* non-blocking */ }
+                // Generate postmortem and resolve status page incident
+                try {
+                  await generatePostmortemInternal(alert.id);
+                  const postmortemText = (await db.select({ pm: alerts.postmortem }).from(alerts).where(eq(alerts.id, alert.id)).limit(1))[0]?.pm;
+                  await resolveStatusIncident({ remediationSessionId: sessionId, postmortem: postmortemText ?? undefined });
+                } catch { /* non-blocking */ }
                 emit("done", { status: "completed", prUrl: pr.url, prNumber: pr.number, autoMerged: true });
                 return;
               }

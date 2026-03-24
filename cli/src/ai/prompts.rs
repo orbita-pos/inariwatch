@@ -323,6 +323,75 @@ pub struct RemediationContext {
     pub github_ci_logs: Option<String>,
 }
 
+// ── Post-mortem ──────────────────────────────────────────────────────────────
+
+pub const SYSTEM_POSTMORTEM: &str = "\
+You are an expert SRE writing a post-mortem document.
+Write in a clear, factual, blame-free tone.
+Use markdown formatting with ## headers.
+Be specific about root causes and actions.
+Keep it under 600 words.
+Respond ONLY with the markdown post-mortem document. No JSON wrapping.";
+
+pub fn build_postmortem_prompt(
+    alert_title: &str,
+    alert_body: &str,
+    alert_sources: &[String],
+    diagnosis: &str,
+    fix_explanation: &str,
+    files_changed: &[String],
+    confidence: u32,
+    pr_url: Option<&str>,
+    auto_merged: bool,
+    steps: &[(String, String)], // (step_name, message)
+) -> String {
+    let timeline = if steps.is_empty() {
+        "No remediation steps recorded.".to_string()
+    } else {
+        steps
+            .iter()
+            .map(|(name, msg)| format!("- [{}] {}", name, msg))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Generate a post-mortem document for this resolved incident.
+
+INCIDENT:
+Title: {alert_title}
+Source: {sources}
+Details: {body_trunc}
+
+DIAGNOSIS:
+{diagnosis}
+
+RESOLUTION:
+Fix: {fix_explanation}
+Files changed: {files}
+Confidence: {confidence}%
+PR: {pr}
+Auto-merged: {auto_merged}
+
+REMEDIATION TIMELINE:
+{timeline}
+
+Generate the post-mortem with these sections:
+## Summary
+## Timeline
+## Root Cause
+## Impact
+## Resolution
+## Prevention Measures
+
+Be specific. Use the actual data above."#,
+        sources = alert_sources.join(", "),
+        body_trunc = truncate(alert_body, 1500),
+        files = files_changed.join(", "),
+        pr = pr_url.unwrap_or("N/A"),
+    )
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()

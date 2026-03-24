@@ -70,6 +70,12 @@ enum Commands {
         show: bool,
     },
 
+    /// Generate or view a post-mortem for a resolved alert
+    Postmortem {
+        /// The alert ID to generate the post-mortem for
+        alert_id: String,
+    },
+
     /// Start an MCP server over stdio (for Claude Code, Cursor, etc.)
     ServeMcp,
 
@@ -108,6 +114,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Config { ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show } => {
             commands::config_cmd::run(ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show).await
         }
+        Commands::Postmortem { alert_id } => commands::postmortem::run(&alert_id).await,
         Commands::AgentStats { project } => commands::agent_stats::run(project).await,
         Commands::Daemon { action } => commands::daemon::run(&action).await,
         Commands::ServeMcp => commands::serve_mcp::run().await,

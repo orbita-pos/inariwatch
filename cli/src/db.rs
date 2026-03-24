@@ -26,6 +26,8 @@ pub struct IncidentMemory {
     pub created_at: DateTime<Utc>,
     /// Error fingerprint for fix replay matching (None for legacy rows)
     pub fingerprint: Option<String>,
+    /// Auto-generated post-mortem text (None if not yet generated)
+    pub postmortem_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +123,18 @@ fn migrate(conn: &Connection) -> Result<()> {
             "ALTER TABLE incident_memory ADD COLUMN fingerprint TEXT;
              CREATE INDEX IF NOT EXISTS idx_memory_fingerprint
                  ON incident_memory(project, fingerprint);",
+        )?;
+    }
+
+    // v2 migration: add postmortem_text column if missing
+    let has_pm: bool = conn
+        .prepare("PRAGMA table_info(incident_memory)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("postmortem_text"));
+
+    if !has_pm {
+        conn.execute_batch(
+            "ALTER TABLE incident_memory ADD COLUMN postmortem_text TEXT;",
         )?;
     }
 
@@ -255,8 +269,8 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
     conn.execute(
         "INSERT OR REPLACE INTO incident_memory
              (id, project, alert_title, root_cause, fix_summary, files_fixed,
-              fix_worked, confidence, pr_url, created_at, fingerprint)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+              fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         params![
             mem.id,
             mem.project,
@@ -269,7 +283,17 @@ pub fn save_incident_memory(conn: &Connection, mem: &IncidentMemory) -> Result<(
             mem.pr_url,
             mem.created_at.to_rfc3339(),
             mem.fingerprint,
+            mem.postmortem_text,
         ],
+    )?;
+    Ok(())
+}
+
+/// Update the postmortem text on an existing memory record.
+pub fn update_memory_postmortem(conn: &Connection, id: &str, postmortem: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE incident_memory SET postmortem_text = ?1 WHERE id = ?2",
+        params![postmortem, id],
     )?;
     Ok(())
 }
@@ -428,7 +452,7 @@ pub fn get_track_record(conn: &Connection, project: &str) -> Result<TrackRecord>
     // Recent 5 fixes
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
          FROM incident_memory
          WHERE project = ?1
          ORDER BY created_at DESC
@@ -498,7 +522,7 @@ pub fn get_relevant_memories(
 
     let sql = format!(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
          FROM incident_memory
          WHERE project = ?1 AND fix_worked = 1 AND ({})
          ORDER BY confidence DESC, created_at DESC
@@ -535,7 +559,7 @@ pub fn get_memories_by_fingerprint(
 ) -> Result<Vec<IncidentMemory>> {
     let mut stmt = conn.prepare(
         "SELECT id, project, alert_title, root_cause, fix_summary, files_fixed,
-                fix_worked, confidence, pr_url, created_at, fingerprint
+                fix_worked, confidence, pr_url, created_at, fingerprint, postmortem_text
          FROM incident_memory
          WHERE project = ?1 AND fingerprint = ?2 AND fix_worked = 1
          ORDER BY confidence DESC, created_at DESC
@@ -603,6 +627,7 @@ fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
             .map(|t| t.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
         fingerprint: row.get(10)?,
+        postmortem_text: row.get(11).ok(),
     })
 }
 

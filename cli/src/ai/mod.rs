@@ -195,6 +195,29 @@ pub async fn self_review(
     call_ai_json(key, model, prompts::SYSTEM_REVIEWER, &prompt, 1024).await
 }
 
+/// Generate a post-mortem document after successful remediation.
+pub async fn generate_postmortem(
+    key: &str,
+    model: Option<&str>,
+    alert_title: &str,
+    alert_body: &str,
+    alert_sources: &[String],
+    diagnosis: &str,
+    fix_explanation: &str,
+    files_changed: &[String],
+    confidence: u32,
+    pr_url: Option<&str>,
+    auto_merged: bool,
+    steps: &[(String, String)],
+) -> Result<String> {
+    let prompt = prompts::build_postmortem_prompt(
+        alert_title, alert_body, alert_sources,
+        diagnosis, fix_explanation, files_changed,
+        confidence, pr_url, auto_merged, steps,
+    );
+    call_ai(key, model, prompts::SYSTEM_POSTMORTEM, &prompt, 2048).await
+}
+
 // ── Prompt builder (v1 — existing) ──────────────────────────────────────────
 
 fn build_prompt(events: &[RawEvent]) -> String {
