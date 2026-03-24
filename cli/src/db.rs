@@ -609,6 +609,38 @@ pub fn cache_pattern(conn: &Connection, fingerprint: &str, pattern_data: &str) -
     Ok(())
 }
 
+/// Stats for Fix Replay feature usage.
+pub struct FixReplayStats {
+    pub cache_entries: u64,
+    pub fingerprint_matches: u64,
+    pub contributions: u64,
+}
+
+/// Get Fix Replay stats: cache size, fingerprint match count, contribution count.
+pub fn get_fix_replay_stats(conn: &Connection, project: &str) -> Result<FixReplayStats> {
+    let cache_entries: u64 = conn
+        .query_row("SELECT COUNT(*) FROM pattern_cache", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    let fingerprint_matches: u64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM incident_memory WHERE project = ?1 AND fingerprint IS NOT NULL AND fix_worked = 1",
+            params![project],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    let contributions: u64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM incident_memory WHERE project = ?1 AND fix_worked = 1",
+            params![project],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    Ok(FixReplayStats { cache_entries, fingerprint_matches, contributions })
+}
+
 fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<IncidentMemory> {
     let files_str: String = row.get(5)?;
     let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();

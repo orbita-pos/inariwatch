@@ -176,7 +176,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
     if cfg.global.fix_replay {
         if let Some(base_url) = &cfg.global.fix_replay_url {
-            match query_fix_replay(&alert_fingerprint, base_url).await {
+            match query_fix_replay(&alert_fingerprint, &alert.title, base_url).await {
                 Ok(Some(community_hints)) => {
                     let count = community_hints.len();
                     past_hints.extend(community_hints);
@@ -903,9 +903,11 @@ fn abort_result(steps: &[Step], confidence: u32, diagnosis: &str) -> String {
 // ── Fix Replay helpers ───────────────────────────────────────────────────────
 
 /// Query the web Fix Replay API for community patterns matching this fingerprint.
+/// Falls back to text similarity search if no fingerprint match found.
 /// Returns parsed MemoryHints if matches found, None otherwise.
 async fn query_fix_replay(
     fingerprint: &str,
+    alert_title: &str,
     base_url: &str,
 ) -> anyhow::Result<Option<Vec<MemoryHint>>> {
     // Check local cache first (TTL: 1 hour)
@@ -919,10 +921,13 @@ async fn query_fix_replay(
         }
     }
 
+    // Try fingerprint + text similarity (API does hybrid search)
+    let encoded_q = urlencoding::encode(alert_title);
     let url = format!(
-        "{}/api/patterns/search?fingerprint={}",
+        "{}/api/patterns/search?fingerprint={}&q={}",
         base_url.trim_end_matches('/'),
-        fingerprint
+        fingerprint,
+        encoded_q,
     );
 
     let client = reqwest::Client::builder()
