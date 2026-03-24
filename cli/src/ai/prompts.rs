@@ -26,6 +26,15 @@ You perform deep root cause analysis on production incidents.
 You correlate information from stack traces, build logs, CI failures, and error context.
 Be precise and technical. Respond ONLY in valid JSON.";
 
+/// A past resolved incident injected into the diagnosis prompt.
+pub struct MemoryHint {
+    pub alert_title: String,
+    pub root_cause: String,
+    pub fix_summary: String,
+    pub files_fixed: Vec<String>,
+    pub confidence: i64,
+}
+
 /// Build the diagnosis prompt for step 2 of trigger_fix.
 pub fn build_diagnose_prompt(
     alert_title: &str,
@@ -34,6 +43,7 @@ pub fn build_diagnose_prompt(
     repo_files: &[String],
     context: &RemediationContext,
     ai_reasoning: Option<&str>,
+    past_incidents: &[MemoryHint],
 ) -> String {
     let file_tree = repo_files
         .iter()
@@ -67,6 +77,30 @@ pub fn build_diagnose_prompt(
         .map(|r| format!("\nPrevious AI analysis:\n{}", truncate(r, 800)))
         .unwrap_or_default();
 
+    let memory_section = if past_incidents.is_empty() {
+        String::new()
+    } else {
+        let entries = past_incidents
+            .iter()
+            .map(|m| {
+                format!(
+                    "  Alert: \"{}\"\n  Root cause: {}\n  Fix: {}\n  Files: {}  (confidence {})",
+                    m.alert_title,
+                    m.root_cause,
+                    m.fix_summary,
+                    m.files_fixed.join(", "),
+                    m.confidence,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        format!(
+            "\n\nSIMILAR PAST INCIDENTS (already resolved — use as hints):\n{}\n\
+             If this matches a past incident, bias toward the same root cause and files.",
+            entries
+        )
+    };
+
     format!(
         r#"Analyze this error and identify the files that need to be fixed.
 
@@ -75,6 +109,7 @@ Title: {alert_title}
 Details: {alert_body_trunc}
 Source: {sources}
 {reasoning_section}
+{memory_section}
 {build_log_section}
 
 REPOSITORY FILE TREE:

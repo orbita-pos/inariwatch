@@ -155,6 +155,7 @@ pub async fn diagnose(
     repo_files: &[String],
     context: &prompts::RemediationContext,
     ai_reasoning: Option<&str>,
+    past_incidents: &[prompts::MemoryHint],
 ) -> Result<serde_json::Value> {
     let prompt = prompts::build_diagnose_prompt(
         alert_title,
@@ -163,6 +164,7 @@ pub async fn diagnose(
         repo_files,
         context,
         ai_reasoning,
+        past_incidents,
     );
     call_ai_json(key, model, prompts::SYSTEM_REMEDIATOR, &prompt, 600).await
 }

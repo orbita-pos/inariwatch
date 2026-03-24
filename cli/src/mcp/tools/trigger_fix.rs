@@ -1,7 +1,9 @@
+use chrono::Utc;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::ai;
-use crate::ai::prompts::RemediationContext;
+use crate::ai::prompts::{MemoryHint, RemediationContext};
 use crate::config;
 use crate::db;
 use crate::integrations::github::{CIStatus, GitHubClient};
@@ -26,6 +28,13 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
     let conn = db::open()?;
     let alert = db::get_alert_by_id(&conn, alert_id)?
         .ok_or_else(|| anyhow::anyhow!("Alert not found: {}", alert_id))?;
+
+    // Load incident memories before closing the connection
+    let project_slug_for_mem = alert.project.clone();
+    let alert_title_for_mem = alert.title.clone();
+    let raw_memories = db::get_relevant_memories(&conn, &project_slug_for_mem, &alert_title_for_mem, 3)
+        .unwrap_or_default();
+    let memory_id = Uuid::new_v4().to_string();
     drop(conn);
 
     let cfg = config::load()?;
@@ -133,6 +142,25 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
     context.vercel_build_logs = vercel_result;
     context.github_ci_logs = github_result;
 
+    // Convert DB memories to prompt hints
+    let past_hints: Vec<MemoryHint> = raw_memories
+        .iter()
+        .map(|m| MemoryHint {
+            alert_title: m.alert_title.clone(),
+            root_cause: m.root_cause.clone(),
+            fix_summary: m.fix_summary.clone(),
+            files_fixed: m.files_fixed.clone(),
+            confidence: m.confidence,
+        })
+        .collect();
+
+    if !past_hints.is_empty() {
+        steps.push(Step::ok(
+            "memory",
+            format!("Found {} similar past incident(s) — injecting into diagnosis", past_hints.len()),
+        ));
+    }
+
     let model = Some(cfg.global.ai_model.as_str());
     let diagnosis_result = ai::diagnose(
         ai_key,
@@ -142,7 +170,8 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         &alert.source_integrations,
         &repo_files,
         &context,
-        alert.body.lines().next(), // Use first line as previous reasoning hint
+        alert.body.lines().next(),
+        &past_hints,
     )
     .await?;
 
@@ -581,6 +610,24 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         // Note: Full post-merge monitoring (10-min poll + auto-revert) is complex
         // and better suited for the web's long-running process. The CLI tool returns
         // immediately after merge so the AI agent can continue working.
+    }
+
+    // ── Save incident memory ───────────────────────────────────────────────
+
+    if let Ok(mem_conn) = db::open() {
+        let memory = db::IncidentMemory {
+            id: memory_id.clone(),
+            project: alert.project.clone(),
+            alert_title: alert.title.clone(),
+            root_cause: diagnosis.clone(),
+            fix_summary: fix_explanation.clone(),
+            files_fixed: files_changed.clone(),
+            fix_worked: true, // CI passed — mark as successful
+            confidence: confidence as i64,
+            pr_url: Some(pr_url.clone()),
+            created_at: Utc::now(),
+        };
+        let _ = db::save_incident_memory(&mem_conn, &memory);
     }
 
     // ── Final result ──────────────────────────────────────────────────────
