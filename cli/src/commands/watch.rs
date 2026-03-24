@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use colored::Colorize;
 use uuid::Uuid;
 
@@ -17,6 +17,51 @@ use crate::orchestrator::RawEvent;
 const POLL_SECS: u64 = 60;
 /// Events within this window are treated as potentially related.
 const CORRELATION_WINDOW_MINUTES: i64 = 30;
+
+// ── Incident Storm Detection ────────────────────────────────────────────────
+
+const STORM_THRESHOLD: usize = 5;
+const STORM_WINDOW_MINUTES: i64 = 5;
+
+struct StormDetector {
+    recent_timestamps: Vec<DateTime<Utc>>,
+    active: bool,
+}
+
+impl StormDetector {
+    fn new() -> Self {
+        Self {
+            recent_timestamps: Vec::new(),
+            active: false,
+        }
+    }
+
+    /// Record new alerts and check if we're in a storm.
+    /// Returns true if these alerts should be batched (storm active).
+    fn record(&mut self, count: usize) -> bool {
+        let now = Utc::now();
+        for _ in 0..count {
+            self.recent_timestamps.push(now);
+        }
+        // Prune timestamps older than the storm window
+        let cutoff = now - chrono::Duration::minutes(STORM_WINDOW_MINUTES);
+        self.recent_timestamps.retain(|t| *t > cutoff);
+
+        let was_active = self.active;
+        self.active = self.recent_timestamps.len() >= STORM_THRESHOLD;
+
+        // Return true if storm just started or is ongoing
+        if self.active && !was_active {
+            true // Storm just triggered
+        } else {
+            self.active // Ongoing storm suppresses individual notifications
+        }
+    }
+
+    fn alert_count_in_window(&self) -> usize {
+        self.recent_timestamps.len()
+    }
+}
 
 /// Run one monitoring cycle without sending notifications.
 /// Returns newly detected alerts (already persisted to the local DB).
@@ -212,14 +257,26 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
     );
     println!("  Polling every {}s. {}\n", POLL_SECS, "Ctrl+C to stop.".dimmed());
 
+    let mut storm = StormDetector::new();
+
     loop {
         let ts = chrono::Local::now().format("%H:%M:%S").to_string();
         let conn = db::open()?;
 
-        match run_cycle(&project, &conn, &cfg.global).await {
+        match run_cycle(&project, &conn, &cfg.global, &mut storm).await {
             Ok((0, _)) => println!("{}  {} all clear", ts.dimmed(), "✓".green()),
             Ok((n, new_alerts)) => {
-                println!("{}  {} {} alert(s) sent", ts.dimmed(), "📨".bold(), n);
+                if storm.active {
+                    println!(
+                        "{}  {} INCIDENT STORM — {} alerts in {} min (batched)",
+                        ts.dimmed(),
+                        "🌩️".bold(),
+                        storm.alert_count_in_window(),
+                        STORM_WINDOW_MINUTES
+                    );
+                } else {
+                    println!("{}  {} {} alert(s) sent", ts.dimmed(), "📨".bold(), n);
+                }
                 // Auto-fix: spawn a background task for each critical alert
                 if cfg.global.auto_fix && cfg.global.ai_key.is_some() {
                     for alert in new_alerts.into_iter().filter(|a| a.severity == "critical") {
@@ -265,6 +322,7 @@ async fn run_cycle(
     project: &ProjectConfig,
     conn: &rusqlite::Connection,
     global: &config::GlobalConfig,
+    storm: &mut StormDetector,
 ) -> Result<(usize, Vec<Alert>)> {
     // 1. Collect from every enabled integration
     let mut all_events: Vec<RawEvent> = vec![];
@@ -360,34 +418,73 @@ async fn run_cycle(
             created_at: Utc::now(),
         };
 
-        // 5. Send
-        let icon = match severity.as_str() {
-            "critical" => "🔴",
-            "warning" => "⚠️",
-            _ => "ℹ️",
-        };
+        db::insert_alert(conn, &alert)?;
+        new_alerts.push(alert);
+    }
+
+    // 5. Storm detection + send notifications
+    let is_storm = storm.record(new_alerts.len());
+
+    if is_storm && new_alerts.len() > 1 {
+        // Batch all alerts into a single storm notification
+        let storm_title = format!(
+            "INCIDENT STORM — {} alerts in {} min",
+            storm.alert_count_in_window(),
+            STORM_WINDOW_MINUTES
+        );
+        let storm_body = new_alerts
+            .iter()
+            .map(|a| {
+                let icon = match a.severity.as_str() {
+                    "critical" => "🔴",
+                    "warning" => "⚠️",
+                    _ => "ℹ️",
+                };
+                format!("{} {}", icon, a.title)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
 
         if let Some(tg) = &project.notifications.telegram {
-            let correlated = if group.events.len() > 1 {
-                format!(" <i>[{} correlated]</i>", group.events.len())
-            } else {
-                String::new()
-            };
             let msg = format!(
-                "{} <b>{}</b>{}\n\n{}\n\n<i>— Kairo</i>",
-                icon, title, correlated, body
+                "🌩️ <b>{}</b>\n\n{}\n\n<i>Individual notifications suppressed during storm.</i>\n\n<i>— Kairo</i>",
+                storm_title, storm_body
             );
             TelegramClient::new(tg).send_message(&tg.chat_id, &msg).await?;
             sent += 1;
         } else {
-            println!("  {} {}", icon, title.bold());
-            for line in body.lines().take(5) {
-                println!("    {}", line.dimmed());
+            println!("  {} {}", "🌩️".bold(), storm_title.bold());
+            for a in &new_alerts {
+                println!("    {} {}", match a.severity.as_str() {
+                    "critical" => "🔴",
+                    "warning" => "⚠️",
+                    _ => "ℹ️",
+                }, a.title.dimmed());
             }
         }
+    } else {
+        // Normal: send each alert individually
+        for alert in &new_alerts {
+            let icon = match alert.severity.as_str() {
+                "critical" => "🔴",
+                "warning" => "⚠️",
+                _ => "ℹ️",
+            };
 
-        db::insert_alert(conn, &alert)?;
-        new_alerts.push(alert);
+            if let Some(tg) = &project.notifications.telegram {
+                let msg = format!(
+                    "{} <b>{}</b>\n\n{}\n\n<i>— Kairo</i>",
+                    icon, alert.title, alert.body
+                );
+                TelegramClient::new(tg).send_message(&tg.chat_id, &msg).await?;
+                sent += 1;
+            } else {
+                println!("  {} {}", icon, alert.title.bold());
+                for line in alert.body.lines().take(5) {
+                    println!("    {}", line.dimmed());
+                }
+            }
+        }
     }
 
     Ok((sent, new_alerts))
