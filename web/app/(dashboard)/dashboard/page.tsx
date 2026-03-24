@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, notificationChannels, getWorkspaceProjectIds } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, notificationChannels, errorPatterns, communityFixes, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
@@ -54,6 +54,28 @@ export default async function DashboardPage() {
   const criticalCount   = recentAlerts.filter((a) => a.severity === "critical").length;
   const openCount       = recentAlerts.filter((a) => !a.isResolved).length;
 
+  // Trending community fix patterns (last 7 days)
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  let trendingPatterns: { patternText: string; category: string; occurrenceCount: number; topFix: string | null; successRate: number | null }[] = [];
+  try {
+    const rows = await db.execute(sql`
+      SELECT ep.id, ep.pattern_text, ep.category, ep.occurrence_count,
+        (SELECT cf.fix_approach FROM community_fixes cf WHERE cf.pattern_id = ep.id ORDER BY cf.success_count DESC LIMIT 1) AS top_fix,
+        (SELECT CASE WHEN cf.total_applications > 0 THEN ROUND(cf.success_count::numeric / cf.total_applications * 100) ELSE NULL END FROM community_fixes cf WHERE cf.pattern_id = ep.id ORDER BY cf.success_count DESC LIMIT 1) AS success_rate
+      FROM error_patterns ep
+      WHERE ep.last_seen_at >= ${since}
+      ORDER BY ep.occurrence_count DESC, ep.last_seen_at DESC
+      LIMIT 5
+    `);
+    trendingPatterns = (rows.rows ?? []).map((r: Record<string, unknown>) => ({
+      patternText: r.pattern_text as string,
+      category: r.category as string,
+      occurrenceCount: r.occurrence_count as number,
+      topFix: r.top_fix as string | null,
+      successRate: r.success_rate != null ? Number(r.success_rate) : null,
+    }));
+  } catch { /* table may not exist yet */ }
+
   return (
     <div className="space-y-8">
 
@@ -104,6 +126,47 @@ export default async function DashboardPage() {
             accent={criticalCount > 0 ? "red" : undefined}
           />
         </div>
+      )}
+
+      {/* ── Common fixes this week ────────────────────────────────────── */}
+      {trendingPatterns.length > 0 && (
+        <section>
+          <SectionHeader title="Common fixes this week" href="/community" badge={trendingPatterns.length} />
+          <div className="overflow-hidden rounded-xl border border-line divide-y divide-line-subtle">
+            {trendingPatterns.map((p, i) => {
+              const catColors: Record<string, string> = {
+                runtime_error: "bg-red-900/50 text-red-400",
+                build_error: "bg-amber-900/50 text-amber-400",
+                ci_error: "bg-blue-900/50 text-blue-400",
+                infrastructure: "bg-purple-900/50 text-purple-400",
+              };
+              const catLabels: Record<string, string> = {
+                runtime_error: "Runtime", build_error: "Build", ci_error: "CI", infrastructure: "Infra",
+              };
+              return (
+                <div key={i} className="flex items-start gap-3 bg-surface px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-fg-base truncate">{p.patternText.slice(0, 120)}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded ${catColors[p.category] ?? "bg-zinc-800 text-zinc-400"}`}>
+                        {catLabels[p.category] ?? "Other"}
+                      </span>
+                      <span className="text-xs text-zinc-600">{p.occurrenceCount} hits</span>
+                      {p.successRate != null && (
+                        <span className={`text-xs font-medium ${p.successRate >= 70 ? "text-green-400" : p.successRate >= 40 ? "text-amber-400" : "text-zinc-500"}`}>
+                          {p.successRate}% success
+                        </span>
+                      )}
+                    </div>
+                    {p.topFix && (
+                      <p className="mt-1 text-xs text-zinc-500 truncate">Fix: {p.topFix.slice(0, 100)}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* ── Recent alerts ────────────────────────────────────────────────── */}
