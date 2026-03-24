@@ -61,6 +61,9 @@ pub fn build_diagnose_prompt(
     if let Some(s) = &context.sentry_stack_trace {
         context_sections.push(format!("SENTRY STACK TRACE:\n{}", truncate(s, 2500)));
     }
+    if let Some(s) = &context.sentry_issue_details {
+        context_sections.push(format!("SENTRY ISSUE DETAILS:\n{}", truncate(s, 1500)));
+    }
     if let Some(s) = &context.vercel_build_logs {
         context_sections.push(format!("VERCEL BUILD LOGS:\n{}", truncate(s, 2500)));
     }
@@ -271,6 +274,9 @@ pub fn build_deep_analyze_prompt(
     if let Some(s) = &context.sentry_stack_trace {
         context_sections.push(format!("SENTRY STACK TRACE:\n{}", truncate(s, 3000)));
     }
+    if let Some(s) = &context.sentry_issue_details {
+        context_sections.push(format!("SENTRY ISSUE DETAILS:\n{}", truncate(s, 1500)));
+    }
     if let Some(s) = &context.vercel_build_logs {
         context_sections.push(format!("VERCEL BUILD LOGS:\n{}", truncate(s, 3000)));
     }
@@ -312,6 +318,7 @@ Respond in JSON:
 #[derive(Default)]
 pub struct RemediationContext {
     pub sentry_stack_trace: Option<String>,
+    pub sentry_issue_details: Option<String>,
     pub vercel_build_logs: Option<String>,
     pub github_ci_logs: Option<String>,
 }

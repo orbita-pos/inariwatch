@@ -193,6 +193,121 @@ impl SentryClient {
         }
     }
 
+    /// Get summary details for a specific issue by ID. Returns None on 404.
+    pub async fn get_issue_details(&self, issue_id: &str) -> Result<Option<String>> {
+        #[derive(Deserialize)]
+        struct IssueDetail {
+            title: String,
+            level: String,
+            status: String,
+            count: String,
+            #[serde(rename = "userCount")]
+            user_count: u64,
+            culprit: Option<String>,
+        }
+
+        let path = format!("/issues/{}/", issue_id);
+        let url = format!("https://sentry.io/api/0{}", path);
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Ok(None); // Gracefully skip
+        }
+
+        let detail: IssueDetail = match resp.json().await {
+            Ok(d) => d,
+            Err(_) => return Ok(None),
+        };
+
+        let culprit_line = detail
+            .culprit
+            .as_deref()
+            .map(|c| format!("\nCulprit: {}", c))
+            .unwrap_or_default();
+
+        Ok(Some(format!(
+            "Issue: {}\nLevel: {} | Status: {} | Events: {} | Users: {}{}",
+            detail.title,
+            detail.level,
+            detail.status,
+            detail.count,
+            detail.user_count,
+            culprit_line,
+        )))
+    }
+
+    /// Issues first seen after `since` (used for regression detection).
+    pub async fn get_issues_since(&self, since: DateTime<Utc>) -> Result<Vec<SentryIssue>> {
+        #[derive(Deserialize)]
+        struct RegressionIssue {
+            id: String,
+            title: String,
+            culprit: Option<String>,
+            level: String,
+            #[serde(default)]
+            count: String,
+            #[serde(rename = "userCount")]
+            user_count: u64,
+            #[serde(rename = "firstSeen")]
+            first_seen: DateTime<Utc>,
+            #[serde(rename = "lastSeen")]
+            last_seen: DateTime<Utc>,
+            permalink: String,
+            metadata: Option<IssueMetadata>,
+            #[serde(rename = "isRegression", default)]
+            is_regression: bool,
+        }
+
+        impl From<RegressionIssue> for SentryIssue {
+            fn from(r: RegressionIssue) -> Self {
+                SentryIssue {
+                    id: r.id,
+                    title: r.title,
+                    culprit: r.culprit,
+                    level: r.level,
+                    count: r.count,
+                    user_count: r.user_count,
+                    first_seen: r.first_seen,
+                    last_seen: r.last_seen,
+                    permalink: r.permalink,
+                    metadata: r.metadata,
+                }
+            }
+        }
+
+        let url = format!(
+            "https://sentry.io/api/0/projects/{}/{}/issues/?query=is:unresolved&sort=date&limit=20",
+            self.org, self.project
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Sentry API issues: {} — {}", status, body);
+        }
+
+        let raw: Vec<RegressionIssue> = resp.json().await?;
+        Ok(raw
+            .into_iter()
+            .filter(|i| i.first_seen > since || i.is_regression)
+            .map(SentryIssue::from)
+            .collect())
+    }
+
     /// Issues that have spiked in volume: seen > `min_events` times
     /// and the last occurrence was in the past `hours` hours.
     pub async fn get_spiking_issues(

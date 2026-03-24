@@ -510,6 +510,68 @@ impl GitHubClient {
         Ok((pr.html_url, pr.number))
     }
 
+    /// Create a revert branch that points the tree back to the parent of `merge_sha`.
+    /// Returns the new commit SHA.
+    pub async fn create_revert_branch(
+        &self,
+        merge_sha: &str,
+        branch_name: &str,
+        message: &str,
+    ) -> anyhow::Result<String> {
+        #[derive(Deserialize)]
+        struct CommitDetail {
+            parents: Vec<CommitRef>,
+            tree: CommitRef,
+        }
+        #[derive(Deserialize)]
+        struct CommitRef {
+            sha: String,
+        }
+
+        // 1. Get the merge commit to find its parent
+        let merge_commit: CommitDetail = self
+            .get(&format!("/repos/{}/git/commits/{}", self.repo, merge_sha))
+            .await?;
+
+        let parent_sha = merge_commit
+            .parents
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Merge commit {} has no parents", merge_sha))?
+            .sha
+            .clone();
+
+        // 2. Get the parent commit to find its tree
+        let parent_commit: CommitDetail = self
+            .get(&format!("/repos/{}/git/commits/{}", self.repo, parent_sha))
+            .await?;
+        let parent_tree_sha = parent_commit.tree.sha;
+
+        // 3. Create a new commit with the parent's tree, pointing back at the merge commit
+        let new_commit: CreateCommitResponse = self
+            .post(
+                &format!("/repos/{}/git/commits", self.repo),
+                &serde_json::json!({
+                    "message": message,
+                    "tree": parent_tree_sha,
+                    "parents": [merge_sha]
+                }),
+            )
+            .await?;
+
+        // 4. Create the branch pointing at the new commit
+        let _: serde_json::Value = self
+            .post(
+                &format!("/repos/{}/git/refs", self.repo),
+                &serde_json::json!({
+                    "ref": format!("refs/heads/{}", branch_name),
+                    "sha": new_commit.sha
+                }),
+            )
+            .await?;
+
+        Ok(new_commit.sha)
+    }
+
     /// Squash-merge a pull request. Returns the merge commit SHA.
     pub async fn merge_pr(&self, pr_number: u64) -> Result<String> {
         let resp: MergeResponse = self

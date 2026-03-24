@@ -106,9 +106,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             if let Ok(issues) = client.get_new_issues(24).await {
                 for issue in &issues {
                     if alert.title.contains(&issue.title) || issue.title.contains(&alert.title) {
-                        if let Ok(Some(trace)) = client.get_issue_latest_event(&issue.id).await {
-                            return Some(trace);
-                        }
+                        let trace = client.get_issue_latest_event(&issue.id).await.ok().flatten();
+                        let details = client.get_issue_details(&issue.id).await.ok().flatten();
+                        return Some((trace, details));
                     }
                 }
             }
@@ -145,7 +145,10 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
     let (sentry_result, vercel_result, github_result) =
         tokio::join!(sentry_fut, vercel_fut, github_ci_fut);
-    context.sentry_stack_trace = sentry_result;
+    if let Some((trace, details)) = sentry_result {
+        context.sentry_stack_trace = trace;
+        context.sentry_issue_details = details;
+    }
     context.vercel_build_logs = vercel_result;
     context.github_ci_logs = github_result;
 
@@ -577,9 +580,12 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
     let mut auto_merged = false;
 
+    let mut merge_sha = String::new();
+
     if gates_pass {
         match gh.merge_pr(pr_number).await {
-            Ok(_merge_sha) => {
+            Ok(sha) => {
+                merge_sha = sha;
                 steps.push(Step::ok("merge", "Squash-merged successfully."));
                 auto_merged = true;
             }
@@ -617,13 +623,34 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
     // ── Step 12: Post-Merge Monitor (conditional) ─────────────────────────
 
     if auto_merged {
-        steps.push(Step::ok(
-            "monitor",
-            "Post-merge monitoring skipped in CLI v2 (available in web). Monitor manually.",
-        ));
-        // Note: Full post-merge monitoring (10-min poll + auto-revert) is complex
-        // and better suited for the web's long-running process. The CLI tool returns
-        // immediately after merge so the AI agent can continue working.
+        use crate::mcp::post_merge_monitor::{PostMergeParams, run as monitor};
+        let result = monitor(PostMergeParams {
+            project,
+            gh: &gh,
+            merged_sha: merge_sha.clone(),
+            alert_title: alert.title.clone(),
+            default_branch: default_branch.clone(),
+            memory_id: Some(memory_id.clone()),
+        }).await;
+
+        use crate::mcp::post_merge_monitor::PostMergeResult;
+        match result {
+            PostMergeResult::Passed => {
+                steps.push(Step::ok("monitor", "10 min post-merge monitoring passed — no regressions."));
+            }
+            PostMergeResult::Reverted { revert_pr_url } => {
+                if let Ok(conn) = db::open() {
+                    let _ = db::mark_memory_failed(&conn, &memory_id);
+                }
+                steps.push(Step::fail("monitor", format!("Regression detected — auto-reverted: {}", revert_pr_url)));
+            }
+            PostMergeResult::RevertFailed { error } => {
+                if let Ok(conn) = db::open() {
+                    let _ = db::mark_memory_failed(&conn, &memory_id);
+                }
+                steps.push(Step::fail("monitor", format!("Regression detected but revert failed: {}", error)));
+            }
+        }
     }
 
     // ── Save incident memory ───────────────────────────────────────────────

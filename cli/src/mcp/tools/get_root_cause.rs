@@ -47,11 +47,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
                             if alert.title.contains(&issue.title)
                                 || issue.title.contains(&alert.title)
                             {
-                                if let Ok(Some(trace)) =
-                                    client.get_issue_latest_event(&issue.id).await
-                                {
-                                    return Some(trace);
-                                }
+                                let trace = client.get_issue_latest_event(&issue.id).await.ok().flatten();
+                                let details = client.get_issue_details(&issue.id).await.ok().flatten();
+                                return Some((trace, details));
                             }
                         }
                     }
@@ -96,7 +94,10 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             let (sentry_result, vercel_result, github_result) =
                 tokio::join!(sentry_fut, vercel_fut, github_fut);
 
-            context.sentry_stack_trace = sentry_result;
+            if let Some((trace, details)) = sentry_result {
+                context.sentry_stack_trace = trace;
+                context.sentry_issue_details = details;
+            }
             context.vercel_build_logs = vercel_result;
             context.github_ci_logs = github_result;
         }

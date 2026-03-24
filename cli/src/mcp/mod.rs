@@ -1,3 +1,4 @@
+pub mod post_merge_monitor;
 pub mod progress;
 pub mod safety;
 pub mod tools;
