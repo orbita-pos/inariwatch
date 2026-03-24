@@ -1205,23 +1205,23 @@ function Sponsors() {
         <p className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-8 font-semibold">
           Backed by
         </p>
-        <div className="flex flex-wrap justify-center gap-10 sm:gap-16 opacity-70 grayscale hover:grayscale-0 transition-all duration-300">
-          
+        <div className="flex flex-wrap justify-center gap-10 sm:gap-16 transition-all duration-300">
+
           <a
             href="https://orbitapos.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2.5 group"
+            className="flex items-center gap-2.5 group opacity-80 hover:opacity-100 transition-opacity duration-300"
           >
             <Image
               src="/logo-trans.png"
               alt="OrbitaPOS"
-              width={180}
-              height={60}
-              className="h-12 w-auto object-contain"
+              width={300}
+              height={100}
+              className="h-20 w-auto object-contain"
             />
           </a>
-          
+
           <a
             href="https://github.com/sponsors/orbita-pos"
             target="_blank"
