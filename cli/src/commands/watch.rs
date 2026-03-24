@@ -193,7 +193,7 @@ fn day_key() -> String {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-pub async fn run(project_name: Option<String>) -> Result<()> {
+pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
     crate::banner::print_banner().await;
     let cfg = config::load()?;
 
@@ -257,6 +257,9 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
         project.name.bold(),
         ai_status
     );
+    if shadow {
+        println!("  {} Shadow mode — diagnose without acting", "\u{1F441}".dimmed());
+    }
     println!("  Polling every {}s. {}\n", POLL_SECS, "Ctrl+C to stop.".dimmed());
 
     let mut storm = StormDetector::new();
@@ -279,8 +282,20 @@ pub async fn run(project_name: Option<String>) -> Result<()> {
                 } else {
                     println!("{}  {} {} alert(s) sent", ts.dimmed(), "📨".bold(), n);
                 }
-                // Auto-fix: spawn a background task for each critical alert
-                if cfg.global.auto_fix && cfg.global.ai_key.is_some() {
+                if shadow && cfg.global.ai_key.is_some() {
+                    // Shadow mode: diagnose without acting, save predictions
+                    for alert in new_alerts.into_iter().filter(|a| a.severity == "critical") {
+                        let alert_id = alert.id.clone();
+                        let project_slug = project.slug.clone();
+                        println!("  {} Shadow: analyzing \"{}\"", "\u{1F441}".dimmed(), alert.title.dimmed());
+                        tokio::spawn(async move {
+                            if let Err(e) = run_shadow_prediction(&alert_id, &project_slug).await {
+                                println!("  Shadow prediction failed: {}", e);
+                            }
+                        });
+                    }
+                } else if !shadow && cfg.global.auto_fix && cfg.global.ai_key.is_some() {
+                    // Auto-fix: spawn a background task for each critical alert
                     for alert in new_alerts.into_iter().filter(|a| a.severity == "critical") {
                         let alert_id = alert.id.clone();
                         let auto_merge = cfg.global.auto_merge;
@@ -761,6 +776,55 @@ fn collect_git(cfg: &config::GitConfig, repo_path: &str) -> Vec<RawEvent> {
     }
 
     events
+}
+
+// ── Shadow mode ──────────────────────────────────────────────────────────────
+
+/// Run trigger_fix in dry_run mode and save the prediction to the shadow_predictions table.
+async fn run_shadow_prediction(alert_id: &str, project: &str) -> anyhow::Result<()> {
+    let args = serde_json::json!({
+        "alert_id": alert_id,
+        "dry_run": true,
+    });
+    let result = crate::mcp::tools::trigger_fix::execute(&args).await?;
+    let parsed: serde_json::Value = serde_json::from_str(&result)?;
+
+    let status = parsed["status"].as_str().unwrap_or("");
+    if status == "aborted" || status == "error" {
+        return Ok(()); // diagnosis failed, nothing to save
+    }
+
+    let conn = db::open()?;
+    let prediction = db::ShadowPrediction {
+        id: uuid::Uuid::new_v4().to_string(),
+        project: project.to_string(),
+        alert_id: alert_id.to_string(),
+        alert_fingerprint: parsed["fingerprint"].as_str().map(String::from),
+        alert_title: parsed["alert_title"].as_str().unwrap_or("").to_string(),
+        predicted_diagnosis: parsed["diagnosis"].as_str().unwrap_or("").to_string(),
+        predicted_files: parsed["files_changed"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        predicted_fix_approach: parsed["explanation"].as_str().unwrap_or("").to_string(),
+        confidence: parsed["confidence"].as_i64().unwrap_or(0) as i32,
+        created_at: Utc::now(),
+        human_fix_detected: false,
+        human_fix_matched: false,
+        human_fix_files: None,
+        resolved_at: None,
+    };
+
+    let title_preview: String = prediction.alert_title.chars().take(50).collect();
+    let n_files = prediction.predicted_files.len();
+    let conf = prediction.confidence;
+
+    db::save_shadow_prediction(&conn, &prediction)?;
+    println!(
+        "  \u{1F441} Shadow: predicted fix for \"{}\" ({}% confidence, {} files)",
+        title_preview, conf, n_files,
+    );
+    Ok(())
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

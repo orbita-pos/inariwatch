@@ -32,6 +32,9 @@ enum Commands {
     Watch {
         #[arg(short, long)]
         project: Option<String>,
+        /// Shadow mode: diagnose alerts without acting. Saves predictions for comparison.
+        #[arg(long)]
+        shadow: bool,
     },
 
     /// Show status of all integrations
@@ -108,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Init => commands::init::run().await,
         Commands::Add { integration } => commands::add::run(&integration).await,
         Commands::Connect { channel } => commands::connect::run(&channel).await,
-        Commands::Watch { project } => commands::watch::run(project).await,
+        Commands::Watch { project, shadow } => commands::watch::run(project, shadow).await,
         Commands::Status { project } => commands::status::run(project).await,
         Commands::Logs { limit, project } => commands::logs::run(limit, project).await,
         Commands::Config { ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show } => {

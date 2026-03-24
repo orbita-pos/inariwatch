@@ -166,6 +166,28 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
+    // v3 migration: shadow_predictions table
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS shadow_predictions (
+            id                      TEXT PRIMARY KEY,
+            project                 TEXT NOT NULL,
+            alert_id                TEXT NOT NULL,
+            alert_fingerprint       TEXT,
+            alert_title             TEXT NOT NULL,
+            predicted_diagnosis     TEXT NOT NULL,
+            predicted_files         TEXT NOT NULL,
+            predicted_fix_approach  TEXT NOT NULL,
+            confidence              INTEGER NOT NULL DEFAULT 0,
+            created_at              TEXT NOT NULL,
+            human_fix_detected      INTEGER NOT NULL DEFAULT 0,
+            human_fix_matched       INTEGER NOT NULL DEFAULT 0,
+            human_fix_files         TEXT,
+            resolved_at             TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_project
+            ON shadow_predictions(project, alert_fingerprint, created_at DESC);",
+    )?;
+
     // v2 migration: pattern_cache for Fix Replay
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS pattern_cache (
@@ -599,6 +621,109 @@ pub fn get_memories_by_fingerprint(
         .query_map(params![project, fingerprint, limit as i64], row_to_memory)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+// ── Shadow predictions ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowPrediction {
+    pub id: String,
+    pub project: String,
+    pub alert_id: String,
+    pub alert_fingerprint: Option<String>,
+    pub alert_title: String,
+    pub predicted_diagnosis: String,
+    pub predicted_files: Vec<String>,
+    pub predicted_fix_approach: String,
+    pub confidence: i32,
+    pub created_at: DateTime<Utc>,
+    pub human_fix_detected: bool,
+    pub human_fix_matched: bool,
+    pub human_fix_files: Option<Vec<String>>,
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+pub fn save_shadow_prediction(conn: &Connection, p: &ShadowPrediction) -> Result<()> {
+    let files = serde_json::to_string(&p.predicted_files)?;
+    let human_files = p.human_fix_files.as_ref().map(|f| serde_json::to_string(f).unwrap_or_default());
+    let resolved = p.resolved_at.map(|t| t.to_rfc3339());
+    conn.execute(
+        "INSERT OR REPLACE INTO shadow_predictions
+             (id, project, alert_id, alert_fingerprint, alert_title,
+              predicted_diagnosis, predicted_files, predicted_fix_approach,
+              confidence, created_at, human_fix_detected, human_fix_matched,
+              human_fix_files, resolved_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        params![
+            p.id, p.project, p.alert_id, p.alert_fingerprint, p.alert_title,
+            p.predicted_diagnosis, files, p.predicted_fix_approach,
+            p.confidence, p.created_at.to_rfc3339(),
+            p.human_fix_detected as i64, p.human_fix_matched as i64,
+            human_files, resolved,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_unresolved_shadows(conn: &Connection, project: &str, limit: usize) -> Result<Vec<ShadowPrediction>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project, alert_id, alert_fingerprint, alert_title,
+                predicted_diagnosis, predicted_files, predicted_fix_approach,
+                confidence, created_at, human_fix_detected, human_fix_matched,
+                human_fix_files, resolved_at
+         FROM shadow_predictions
+         WHERE project = ?1 AND resolved_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt
+        .query_map(params![project, limit as i64], |row| {
+            let files_str: String = row.get(6)?;
+            let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();
+            let human_files_str: Option<String> = row.get(12)?;
+            let human_files: Option<Vec<String>> = human_files_str
+                .and_then(|s| serde_json::from_str(&s).ok());
+            let created_str: String = row.get(9)?;
+            let resolved_str: Option<String> = row.get(13)?;
+            Ok(ShadowPrediction {
+                id: row.get(0)?,
+                project: row.get(1)?,
+                alert_id: row.get(2)?,
+                alert_fingerprint: row.get(3)?,
+                alert_title: row.get(4)?,
+                predicted_diagnosis: row.get(5)?,
+                predicted_files: files,
+                predicted_fix_approach: row.get(7)?,
+                confidence: row.get(8)?,
+                created_at: DateTime::parse_from_rfc3339(&created_str)
+                    .map(|t| t.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                human_fix_detected: row.get::<_, i64>(10)? != 0,
+                human_fix_matched: row.get::<_, i64>(11)? != 0,
+                human_fix_files: human_files,
+                resolved_at: resolved_str.and_then(|s|
+                    DateTime::parse_from_rfc3339(&s).ok().map(|t| t.with_timezone(&Utc))),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn resolve_shadow(
+    conn: &Connection,
+    id: &str,
+    human_files: Option<&[String]>,
+    matched: bool,
+) -> Result<()> {
+    let hf = human_files.map(|f| serde_json::to_string(f).unwrap_or_default());
+    conn.execute(
+        "UPDATE shadow_predictions
+         SET human_fix_detected = 1, human_fix_matched = ?1,
+             human_fix_files = ?2, resolved_at = ?3
+         WHERE id = ?4",
+        params![matched as i64, hf, Utc::now().to_rfc3339(), id],
+    )?;
+    Ok(())
 }
 
 // ── Outcome tracking ─────────────────────────────────────────────────────
