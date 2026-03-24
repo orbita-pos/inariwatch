@@ -3,6 +3,7 @@ import { db, alerts, incidentStorms, projectIntegrations, projects, users, maint
 import { eq, and, gt, lte, gte } from "drizzle-orm";
 import { enqueueAlert } from "@/lib/notifications/send";
 import { dispatchOutgoingWebhooks } from "@/lib/webhooks/outgoing";
+import { autoCreateIncident } from "@/lib/ai/status-page-automation";
 import { decrypt } from "@/lib/crypto";
 import type { NewAlert, Alert } from "@/lib/db";
 
@@ -162,6 +163,18 @@ export async function createAlertIfNew(
     await dispatchOutgoingWebhooks(inserted as Alert, "alert.created");
   } catch {
     // Non-blocking
+  }
+
+  // Auto-create status page incident for qualifying alerts
+  try {
+    await autoCreateIncident({
+      projectId,
+      alertId: inserted.id,
+      alertTitle: inserted.title,
+      alertSeverity: inserted.severity,
+    });
+  } catch {
+    // Non-blocking — status page automation should never block alert creation
   }
 
   return inserted as Alert;
