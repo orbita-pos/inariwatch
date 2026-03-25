@@ -8,6 +8,8 @@ export interface AIKeyResult {
   key: string;
   provider: AIProvider;
   modelPrefs: AIModelPreferences | null;
+  /** True when using the platform's Haiku key (free tier, limited to basic analysis). */
+  isPlatformKey?: boolean;
 }
 
 const AI_SERVICES: AIProvider[] = ["claude", "openai", "grok", "deepseek", "gemini"];
@@ -15,6 +17,15 @@ const AI_SERVICES: AIProvider[] = ["claude", "openai", "grok", "deepseek", "gemi
 const PRIORITY: Record<AIProvider, number> = {
   claude: 0, openai: 1, grok: 2, deepseek: 3, gemini: 4,
 };
+
+/** Platform-funded Haiku key for free-tier analysis (auto-analyze + correlate). */
+const PLATFORM_KEY = process.env.PLATFORM_AI_KEY ?? "";
+export const PLATFORM_MODEL = "claude-haiku-4-5-20251001";
+
+function getPlatformFallback(): AIKeyResult | null {
+  if (!PLATFORM_KEY) return null;
+  return { key: PLATFORM_KEY, provider: "claude", modelPrefs: null, isPlatformKey: true };
+}
 
 /**
  * Fetch the user's AI key + model preferences from the database.
@@ -34,7 +45,7 @@ export async function getUserAIKey(userId: string): Promise<AIKeyResult | null> 
       .limit(1),
   ]);
 
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return getPlatformFallback();
 
   const modelPrefs = (userRow?.aiModels as AIModelPreferences | null) ?? null;
   const activeProvider = modelPrefs?.activeProvider;

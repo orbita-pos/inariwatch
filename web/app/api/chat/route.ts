@@ -32,10 +32,10 @@ export async function POST(req: NextRequest) {
 
   // Get AI key
   const aiKey = await getUserAIKey(userId);
-  if (!aiKey) {
+  if (!aiKey || aiKey.isPlatformKey) {
     return Response.json({
       role: "assistant",
-      content: "You need to add an AI API key in **Settings → AI** to use the chat. Supported providers: Claude, OpenAI, Grok, DeepSeek, and Gemini.",
+      content: "Ask Inari requires your own AI API key. Add one in **Settings → AI analysis**. Supported providers: Claude, OpenAI, Grok, DeepSeek, and Gemini.",
     });
   }
 

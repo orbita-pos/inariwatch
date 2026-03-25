@@ -91,7 +91,7 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
   if (alert.postmortem) return;
 
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
-  if (!aiKey) return;
+  if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK
 
   // Get latest remediation session if any
   const [remediation] = await db
@@ -130,7 +130,7 @@ export async function generatePostmortemInternal(alertId: string): Promise<void>
   if (!alert || alert.postmortem) return;
 
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
-  if (!aiKey) return;
+  if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK
 
   const [remediation] = await db
     .select()

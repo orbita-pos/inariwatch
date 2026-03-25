@@ -170,7 +170,7 @@ export async function assessPRRisk(
 ): Promise<void> {
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(projectId);
-  if (!aiKey) return; // No AI key — silently skip
+  if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK — skip for free tier
 
   // Get PR context
   const [prInfo, prFiles, diff] = await Promise.all([

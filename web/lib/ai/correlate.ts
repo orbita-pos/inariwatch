@@ -2,7 +2,7 @@ import { db, alerts } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_CORRELATOR, buildCorrelatePrompt } from "./prompts";
-import { getProjectOwnerAIKey } from "./get-key";
+import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import type { Alert } from "@/lib/db";
 
 /**
@@ -34,7 +34,7 @@ export async function correlateProjectAlerts(
   try {
     summary = await callAI(aiKey.key, SYSTEM_CORRELATOR, [
       { role: "user", content: prompt },
-    ]);
+    ], aiKey.isPlatformKey ? { model: PLATFORM_MODEL } : {});
   } catch {
     return; // Non-blocking
   }

@@ -160,6 +160,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(session.projectId);
   if (!aiKey) { await fail(sessionId, emit, "No AI key configured. Add one in Settings."); return; }
+  if (aiKey.isPlatformKey) { await fail(sessionId, emit, "Code remediation requires your own AI key. Add one in Settings → AI analysis."); return; }
 
   // Find GitHub integration
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, session.projectId));

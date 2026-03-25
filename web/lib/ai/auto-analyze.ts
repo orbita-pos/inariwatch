@@ -2,7 +2,7 @@ import { db, alerts } from "@/lib/db";
 import { eq, and, gt, ne } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "./prompts";
-import { getProjectOwnerAIKey } from "./get-key";
+import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
 import type { Alert } from "@/lib/db";
 
@@ -16,7 +16,7 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
   if (!aiKey) return;
 
-  // Analyze this alert
+  // Analyze this alert — use Haiku for platform key (free tier), user's model otherwise
   const reasoning = await callAI(
     aiKey.key,
     SYSTEM_ANALYZER,
@@ -26,7 +26,7 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
       body: alert.body ?? "",
       sourceIntegrations: alert.sourceIntegrations,
     }) }],
-    { maxTokens: 300 }
+    { maxTokens: 300, ...(aiKey.isPlatformKey ? { model: PLATFORM_MODEL } : {}) }
   );
 
   await db
