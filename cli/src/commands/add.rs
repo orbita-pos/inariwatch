@@ -2,7 +2,7 @@ use anyhow::Result;
 use colored::Colorize;
 use dialoguer::Input;
 
-use crate::config::{self, GitConfig, GithubConfig, SentryConfig, VercelConfig};
+use crate::config::{self, CaptureConfig, GitConfig, GithubConfig, SentryConfig, UptimeConfig, VercelConfig};
 use crate::integrations::git_local;
 use crate::integrations::github::GitHubClient;
 use crate::integrations::sentry::SentryClient;
@@ -14,9 +14,11 @@ pub async fn run(integration: &str) -> Result<()> {
         "vercel" => add_vercel().await,
         "sentry" => add_sentry().await,
         "git" => add_git().await,
+        "capture" => add_capture().await,
+        "uptime" => add_uptime().await,
         other => {
             println!("{} Unknown integration: {}", "✗".red(), other);
-            println!("Available: {}", "github  vercel  sentry  git".cyan());
+            println!("Available: {}", "github  vercel  sentry  git  capture  uptime".cyan());
             Ok(())
         }
     }
@@ -217,6 +219,87 @@ async fn add_git() -> Result<()> {
     cfg.projects[idx].integrations.git = Some(git_cfg);
     config::save(&cfg)?;
     println!("\n{} Git monitoring added to {}.", "✓".green(), cfg.projects[idx].name.bold());
+    println!("Run {} to start monitoring.", "inariwatch watch".cyan());
+    Ok(())
+}
+
+// ── Capture ──────────────────────────────────────────────────────────────────
+
+async fn add_capture() -> Result<()> {
+    println!("{}", "inariwatch add capture".bold());
+    println!("Enable direct error capture (replaces Sentry)\n");
+
+    let mut cfg = config::load()?;
+    let idx = super::pick_project(&cfg)?;
+
+    let port: u16 = Input::new()
+        .with_prompt("Capture server port")
+        .default(9111u16)
+        .interact_text()?;
+
+    cfg.projects[idx].integrations.capture = Some(CaptureConfig { enabled: true, port });
+    config::save(&cfg)?;
+
+    println!("\n{} Capture enabled for {}.\n", "✓".green(), cfg.projects[idx].name.bold());
+    println!("  {} Setup your project:\n", "→".cyan());
+    println!("  1. Install:  {}", "npm install @inariwatch/capture".cyan());
+    println!("  2. Create {} in your project root:\n", "instrumentation.ts".bold());
+    println!("     {}",  "import { captureRequestError } from \"@inariwatch/capture\"".dimmed());
+    println!("     {}", "export { captureRequestError as onRequestError }".dimmed());
+    println!("     {}", "export async function register() {".dimmed());
+    println!("     {}",  "  const { init } = await import(\"@inariwatch/capture\")".dimmed());
+    println!("     {}",  format!("  init({{ dsn: \"http://localhost:{}/ingest\" }})", port).dimmed());
+    println!("     {}\n", "}".dimmed());
+    println!("  3. Run:  {}\n", "inariwatch watch".cyan());
+    println!("  Capture server will listen on port {} during watch.", port.to_string().yellow());
+    Ok(())
+}
+
+// ── Uptime ───────────────────────────────────────────────────────────────────
+
+async fn add_uptime() -> Result<()> {
+    println!("{}", "inariwatch add uptime".bold());
+    println!("Monitor your app's health endpoint\n");
+
+    let mut cfg = config::load()?;
+    let idx = super::pick_project(&cfg)?;
+
+    let url: String = Input::new()
+        .with_prompt("Health check URL (e.g. https://myapp.com/api/health)")
+        .interact_text()?;
+
+    let interval: u64 = Input::new()
+        .with_prompt("Check interval (seconds)")
+        .default(60u64)
+        .interact_text()?;
+
+    let threshold: u32 = Input::new()
+        .with_prompt("Alert after consecutive failures")
+        .default(3u32)
+        .interact_text()?;
+
+    // Quick test
+    print!("Testing endpoint... ");
+    match reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(resp) => println!("{} HTTP {}", "✓".green(), resp.status().as_u16().to_string().bold()),
+        Err(e) => println!("{} {} (will still save)", "⚠".yellow(), e),
+    }
+
+    cfg.projects[idx].integrations.uptime = Some(UptimeConfig {
+        url,
+        interval_secs: interval,
+        threshold,
+        expected_status: 200,
+        timeout_secs: 10,
+    });
+    config::save(&cfg)?;
+
+    println!("\n{} Uptime monitoring added to {}.", "✓".green(), cfg.projects[idx].name.bold());
     println!("Run {} to start monitoring.", "inariwatch watch".cyan());
     Ok(())
 }

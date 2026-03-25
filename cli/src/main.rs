@@ -1,5 +1,6 @@
 mod ai;
 mod banner;
+mod capture_server;
 mod commands;
 mod config;
 mod db;

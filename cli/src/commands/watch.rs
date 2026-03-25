@@ -214,10 +214,14 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
             .clone()
     };
 
+    let capture_enabled = project.integrations.capture.as_ref().map(|c| c.enabled).unwrap_or(false);
+
     let has_any = project.integrations.github.is_some()
         || project.integrations.vercel.is_some()
         || project.integrations.sentry.is_some()
-        || project.integrations.git.is_some();
+        || project.integrations.git.is_some()
+        || capture_enabled
+        || project.integrations.uptime.is_some();
 
     if !has_any {
         println!(
@@ -262,13 +266,23 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
     }
     println!("  Polling every {}s. {}\n", POLL_SECS, "Ctrl+C to stop.".dimmed());
 
+    // Start capture server if enabled
+    let mut capture_rx = if capture_enabled {
+        let port = project.integrations.capture.as_ref().map(|c| c.port).unwrap_or(9111);
+        let (_handle, rx) = crate::capture_server::start_capture_server(port);
+        println!("  {} Capture listening on :{}\n", "◉".cyan(), port);
+        Some(rx)
+    } else {
+        None
+    };
+
     let mut storm = StormDetector::new();
 
     loop {
         let ts = chrono::Local::now().format("%H:%M:%S").to_string();
         let conn = db::open()?;
 
-        match run_cycle(&project, &conn, &cfg.global, &mut storm).await {
+        match run_cycle(&project, &conn, &cfg.global, &mut storm, &mut capture_rx).await {
             Ok((0, _)) => println!("{}  {} all clear", ts.dimmed(), "✓".green()),
             Ok((n, new_alerts)) => {
                 if storm.active {
@@ -340,6 +354,7 @@ async fn run_cycle(
     conn: &rusqlite::Connection,
     global: &config::GlobalConfig,
     storm: &mut StormDetector,
+    capture_rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<RawEvent>>,
 ) -> Result<(usize, Vec<Alert>)> {
     // 1. Collect from every enabled integration
     let mut all_events: Vec<RawEvent> = vec![];
@@ -360,6 +375,18 @@ async fn run_cycle(
             .or(project.path.as_deref())
             .unwrap_or(".");
         all_events.extend(collect_git(git, repo_path));
+    }
+
+    // Uptime health checks
+    if let Some(up) = &project.integrations.uptime {
+        all_events.extend(collect_uptime(up).await);
+    }
+
+    // Drain events from the capture server (errors + logs + deploys)
+    if let Some(rx) = capture_rx.as_mut() {
+        while let Ok(event) = rx.try_recv() {
+            all_events.push(event);
+        }
     }
 
     // 2. Dedup
@@ -776,6 +803,66 @@ fn collect_git(cfg: &config::GitConfig, repo_path: &str) -> Vec<RawEvent> {
     }
 
     events
+}
+
+// ── Uptime health checks ─────────────────────────────────────────────────────
+
+async fn collect_uptime(cfg: &config::UptimeConfig) -> Vec<RawEvent> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(cfg.timeout_secs))
+        .build()
+        .unwrap_or_default();
+
+    match client.get(&cfg.url).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            if status != cfg.expected_status {
+                vec![RawEvent {
+                    integration: "uptime".into(),
+                    event_type: "health_check_failed".into(),
+                    fingerprint: format!("uptime_status_{}_{}", cfg.url, day_key()),
+                    occurred_at: Utc::now(),
+                    payload: serde_json::json!({
+                        "url": cfg.url,
+                        "expected": cfg.expected_status,
+                        "actual": status,
+                    }),
+                    severity: "critical".into(),
+                    title: format!("Health check failed: HTTP {}", status),
+                    detail: format!(
+                        "{} returned HTTP {} (expected {})",
+                        cfg.url, status, cfg.expected_status
+                    ),
+                    url: Some(cfg.url.clone()),
+                }]
+            } else {
+                vec![]
+            }
+        }
+        Err(e) => {
+            let reason = if e.is_timeout() {
+                "timeout".to_string()
+            } else if e.is_connect() {
+                "connection refused".to_string()
+            } else {
+                format!("{}", e)
+            };
+            vec![RawEvent {
+                integration: "uptime".into(),
+                event_type: "health_check_down".into(),
+                fingerprint: format!("uptime_down_{}_{}", cfg.url, day_key()),
+                occurred_at: Utc::now(),
+                payload: serde_json::json!({
+                    "url": cfg.url,
+                    "error": reason,
+                }),
+                severity: "critical".into(),
+                title: format!("App DOWN: {}", reason),
+                detail: format!("{} is unreachable — {}", cfg.url, reason),
+                url: Some(cfg.url.clone()),
+            }]
+        }
+    }
 }
 
 // ── Shadow mode ──────────────────────────────────────────────────────────────

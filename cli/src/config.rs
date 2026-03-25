@@ -69,6 +69,8 @@ pub struct Integrations {
     pub vercel: Option<VercelConfig>,
     pub sentry: Option<SentryConfig>,
     pub git: Option<GitConfig>,
+    pub capture: Option<CaptureConfig>,
+    pub uptime: Option<UptimeConfig>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -115,6 +117,40 @@ pub struct GitConfig {
 
 fn default_unpushed_days() -> u64 { 3 }
 fn default_stale_branch_days() -> u64 { 14 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CaptureConfig {
+    #[serde(default = "default_capture_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_capture_port")]
+    pub port: u16,
+}
+
+fn default_capture_enabled() -> bool { true }
+fn default_capture_port() -> u16 { 9111 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UptimeConfig {
+    /// URL to health-check (e.g. "https://myapp.com/api/health")
+    pub url: String,
+    /// Interval in seconds between checks (default: 60)
+    #[serde(default = "default_uptime_interval")]
+    pub interval_secs: u64,
+    /// Consecutive failures before alerting (default: 3)
+    #[serde(default = "default_uptime_threshold")]
+    pub threshold: u32,
+    /// Expected HTTP status (default: 200)
+    #[serde(default = "default_uptime_status")]
+    pub expected_status: u16,
+    /// Request timeout in seconds (default: 10)
+    #[serde(default = "default_uptime_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_uptime_interval() -> u64 { 60 }
+fn default_uptime_threshold() -> u32 { 3 }
+fn default_uptime_status() -> u16 { 200 }
+fn default_uptime_timeout() -> u64 { 10 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
