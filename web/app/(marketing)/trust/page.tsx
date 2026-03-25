@@ -27,10 +27,10 @@ const LAYERS = [
     n: "02",
     gate: "SELF-REVIEW",
     headline: "The AI reviews its own fix — and can reject it.",
-    metric: "< 60",
+    metric: "< 70",
     metricLabel: "review score = reject",
     detail:
-      "A second AI pass acts as a code reviewer. It checks for regressions, type errors, missing imports, and unnecessary changes. Score below 60? The fix is rejected before it ever touches a branch.",
+      "A second AI pass acts as a code reviewer. It checks for regressions, type errors, missing imports, and unnecessary changes. Score below 70? The fix is rejected before it ever touches a branch.",
     visual: "review",
   },
   {
@@ -50,7 +50,7 @@ const LAYERS = [
     metric: "3×",
     metricLabel: "retry with different approach",
     detail:
-      "The fix runs through your full CI pipeline. If it fails, the AI analyzes the CI error and tries a completely different approach — up to 3 times. Three failures? Escalates to your on-call. No PR is created.",
+      "The fix runs through your full CI pipeline. If it fails, the fix is opened as a draft PR with the CI error context — so you can review it before anything ships. No auto-merge on failed CI, ever.",
     visual: "ci",
   },
   {
@@ -92,7 +92,7 @@ const TRUST_LEVELS = [
     border: "border-amber-900/50",
     bg: "bg-amber-950/20",
     auto: "Auto-merge enabled",
-    gates: "Confidence \u2265 90% \u00b7 Review \u2265 80 \u00b7 \u2264 30 lines",
+    gates: "Confidence \u2265 90% \u00b7 Review \u2265 70 \u00b7 \u2264 50 lines",
   },
   {
     level: 2,
@@ -101,7 +101,7 @@ const TRUST_LEVELS = [
     border: "border-cyan-900/50",
     bg: "bg-cyan-950/20",
     auto: "Expanded autonomy",
-    gates: "Confidence \u2265 80% \u00b7 Review \u2265 70 \u00b7 \u2264 40 lines",
+    gates: "Confidence \u2265 80% \u00b7 Review \u2265 70 \u00b7 \u2264 100 lines",
   },
   {
     level: 3,
@@ -110,7 +110,7 @@ const TRUST_LEVELS = [
     border: "border-green-900/50",
     bg: "bg-green-950/20",
     auto: "Full auto-merge",
-    gates: "Confidence \u2265 70% \u00b7 Review \u2265 60 \u00b7 \u2264 50 lines",
+    gates: "Confidence \u2265 70% \u00b7 Review \u2265 60 \u00b7 \u2264 200 lines",
   },
 ];
 

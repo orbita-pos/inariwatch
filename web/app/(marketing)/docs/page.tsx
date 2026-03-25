@@ -1138,7 +1138,6 @@ Resolve the root cause — all grouped alerts will clear together.`}</CodeBlock>
               {[
                 "👁️ Acknowledge — Stops the escalation timer. Your team knows you're looking at it.",
                 "✅ Resolve — Marks the alert as resolved. No more follow-up notifications.",
-                "🔇 Snooze 30m — Silences the alert for 30 minutes, then re-alerts if still unresolved.",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2">
                   <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />

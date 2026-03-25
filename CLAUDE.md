@@ -36,7 +36,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 - **Framework:** Next.js 15 (App Router), TypeScript
 - **Database:** PostgreSQL via Neon + Drizzle ORM
 - **Auth:** NextAuth (credentials + Google)
-- **AI:** Multi-provider BYOK — Claude, OpenAI, Gemini, Mistral, Grok (5 providers)
+- **AI:** Multi-provider BYOK — Claude, OpenAI, Gemini, DeepSeek, Grok (5 providers)
 - **Deploy:** Vercel
 - **Email:** Resend
 - **Push notifications:** Web Push API

@@ -123,7 +123,7 @@ function StatsBar() {
   const stats = [
     { value: "8", label: "integrations monitored" },
     { value: "5 min", label: "cloud poll interval" },
-    { value: "3×", label: "CI retry loop" },
+    { value: "6", label: "safety gates" },
     { value: "5", label: "AI providers supported" },
   ];
 
@@ -169,7 +169,7 @@ function RemediationWalkthrough() {
       icon: <RefreshCw className="h-4 w-4" />,
       n: "04",
       title: "CI validated (with retry)",
-      desc: "Pushes to a branch, monitors CI. If it fails, reads the logs and tries a different fix — up to 3×.",
+      desc: "Pushes to a branch and monitors CI. If it fails, opens a draft PR with CI context for human review.",
     },
     {
       icon: <GitBranch className="h-4 w-4" />,
@@ -443,7 +443,10 @@ function AutoMergeSafety() {
 
             <p className="text-xs text-zinc-600 text-center">
               Auto-merge is off by default. You enable it per project, set your
-              own confidence threshold, and define the max diff size.
+              own confidence threshold, and define the max diff size.{" "}
+              <Link href="/trust" className="text-inari-accent hover:text-inari-accent/80 underline underline-offset-2">
+                Read the full Trust Architecture →
+              </Link>
             </p>
           </div>
         </div>
@@ -709,7 +712,7 @@ function AIFeatures() {
     {
       icon: <Wrench className="h-5 w-5" />,
       title: "AI Code Remediation",
-      body: "Reads your repo, writes the fix, pushes a branch, waits for CI. If CI fails, reads the logs and retries with a different approach — up to 3 times. Opens the PR only when it passes.",
+      body: "Reads your repo, writes the fix, pushes a branch, waits for CI. If CI passes, opens the PR. If CI fails, opens a draft PR with the error context for human review.",
       tag: "Unique",
       highlight: true,
     },
@@ -1210,7 +1213,7 @@ function Sponsors() {
     <section className="border-t border-b border-inari-border bg-inari-card/20 py-12">
       <div className="mx-auto max-w-6xl px-6 text-center">
         <p className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-8 font-semibold">
-          Backed by
+          Built by
         </p>
         <div className="flex flex-wrap justify-center gap-10 sm:gap-16 transition-all duration-300">
 
@@ -1288,6 +1291,7 @@ function Footer() {
         </div>
         <div className="flex items-center gap-6 text-sm text-zinc-500">
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
+          <Link href="/trust" className="hover:text-fg-base transition-colors">Trust</Link>
           <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
           <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
           <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
