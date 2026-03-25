@@ -79,7 +79,8 @@ function Hero() {
             </h1>
 
             <p className="mt-6 text-lg text-zinc-300 leading-relaxed max-w-md">
-              InariWatch monitors GitHub, Vercel, Sentry, and more.
+              InariWatch monitors GitHub, Vercel, Sentry, and your own app
+              via <span className="text-white font-medium">@inariwatch/capture</span>.
               When something breaks, AI reads your code, writes the fix,
               waits for CI, and opens a PR.{" "}
               <span className="text-white">You just approve.</span>
@@ -120,7 +121,7 @@ function Hero() {
 
 function StatsBar() {
   const stats = [
-    { value: "7", label: "integrations monitored" },
+    { value: "8", label: "integrations monitored" },
     { value: "5 min", label: "cloud poll interval" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
@@ -150,7 +151,7 @@ function RemediationWalkthrough() {
       icon: <Activity className="h-4 w-4" />,
       n: "01",
       title: "Alert fires",
-      desc: "CI fails, deploy errors, Sentry regression — caught in real time via webhook or 1-min poll.",
+      desc: "CI fails, deploy errors, Sentry regression, or your own app via @inariwatch/capture — caught in real time.",
     },
     {
       icon: <Brain className="h-4 w-4" />,
@@ -574,6 +575,7 @@ function WhyNotNative() {
             { cap: "Pushes branch + waits for CI", dd: false, us: true },
             { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
             { cap: "Anomaly detection", dd: "Paid", us: true },
+            { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
             { cap: "Fully open source (MIT)", dd: false, us: true },
             { cap: "BYOK (your AI key)", dd: false, us: true },
           ].map((row, idx) => (
@@ -637,6 +639,11 @@ function Integrations() {
       alerts: ["Log anomalies", "Infrastructure spikes", "APM Traces"],
       status: "live",
     },
+    {
+      name: "@inariwatch/capture",
+      alerts: ["Exceptions from your app", "Custom log events", "Deploy markers"],
+      status: "live",
+    },
   ];
 
   return (
@@ -649,7 +656,7 @@ function Integrations() {
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
             GitHub CI, Vercel deploys, Sentry errors, Datadog monitors, uptime,
-            database health, dependency vulnerabilities — all in one place, already correlated.
+            database health, dependency vulnerabilities, and your own app via the capture SDK — all in one place, already correlated.
           </p>
         </div>
 

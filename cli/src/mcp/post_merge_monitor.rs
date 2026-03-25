@@ -221,10 +221,13 @@ async fn report_outcome(
         None => return,
     };
 
-    let url = format!("{}/api/patterns/rate", base_url.trim_end_matches('/'));
+    let full_url = format!("{}/api/patterns/rate", base_url.trim_end_matches('/'));
+    if crate::url_validation::validate_public_url(&full_url).is_err() {
+        return;
+    }
     let client = reqwest::Client::new();
     let _ = client
-        .post(&url)
+        .post(&full_url)
         .json(&serde_json::json!({
             "fixId": fix_id,
             "worked": worked,

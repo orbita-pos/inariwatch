@@ -79,7 +79,7 @@ impl SentryClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("Sentry API {}: {} — {}", path, status, body);
         }
 
@@ -296,7 +296,7 @@ impl SentryClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("Sentry API issues: {} — {}", status, body);
         }
 

@@ -102,7 +102,7 @@ impl VercelClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("Vercel API {}: {} — {}", path, status, body);
         }
 
@@ -166,7 +166,7 @@ impl VercelClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!(
                 "Vercel API returned {} — {}\n\n\
                  Fallback: install the Vercel CLI and run:\n  \

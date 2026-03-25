@@ -8,6 +8,7 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const start = Date.now();
   const { token } = await params;
 
   const session = await getServerSession(authOptions);
@@ -27,6 +28,9 @@ export async function GET(
     .limit(1);
 
   if (!invite) {
+    // Constant-time jitter: normalize response time to prevent timing attacks
+    const elapsed = Date.now() - start;
+    if (elapsed < 200) await new Promise(r => setTimeout(r, 200 - elapsed + Math.random() * 50));
     return NextResponse.redirect(
       new URL("/dashboard?error=invite_not_found", process.env.NEXTAUTH_URL ?? "http://localhost:3000")
     );

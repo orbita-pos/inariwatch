@@ -196,7 +196,7 @@ impl GitHubClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("GitHub API {} — {}: {}", path, status, body);
         }
 
@@ -222,7 +222,7 @@ impl GitHubClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("GitHub API POST {} — {}: {}", path, status, body_text);
         }
 
@@ -248,7 +248,7 @@ impl GitHubClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("GitHub API PUT {} — {}: {}", path, status, body_text);
         }
 
@@ -270,7 +270,7 @@ impl GitHubClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
             anyhow::bail!("GitHub API PATCH {} — {}: {}", path, status, body_text);
         }
         Ok(())

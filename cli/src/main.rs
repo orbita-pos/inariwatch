@@ -1,5 +1,6 @@
 mod ai;
 mod banner;
+mod capture_server;
 mod commands;
 mod config;
 mod db;
@@ -7,6 +8,7 @@ mod integrations;
 mod mcp;
 mod notifications;
 mod orchestrator;
+pub mod url_validation;
 #[cfg(test)]
 mod training_loop_test;
 

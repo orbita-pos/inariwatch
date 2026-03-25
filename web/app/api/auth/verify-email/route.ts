@@ -3,6 +3,7 @@ import { db, emailVerifications, users } from "@/lib/db";
 import { eq, and, gt } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
+  const start = Date.now();
   const token = request.nextUrl.searchParams.get("token");
 
   if (!token) {
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest) {
     .limit(1);
 
   if (!verification) {
+    // Constant-time jitter: normalize response time to prevent timing attacks
+    const elapsed = Date.now() - start;
+    if (elapsed < 200) await new Promise(r => setTimeout(r, 200 - elapsed + Math.random() * 50));
     return NextResponse.redirect(new URL("/login?error=invalid-token", request.url));
   }
 

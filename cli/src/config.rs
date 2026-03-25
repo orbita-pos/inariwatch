@@ -69,6 +69,9 @@ pub struct Integrations {
     pub vercel: Option<VercelConfig>,
     pub sentry: Option<SentryConfig>,
     pub git: Option<GitConfig>,
+    pub capture: Option<CaptureConfig>,
+    pub uptime: Option<UptimeConfig>,
+    pub cron: Option<CronConfig>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -115,6 +118,95 @@ pub struct GitConfig {
 
 fn default_unpushed_days() -> u64 { 3 }
 fn default_stale_branch_days() -> u64 { 14 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CaptureConfig {
+    #[serde(default = "default_capture_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_capture_port")]
+    pub port: u16,
+}
+
+fn default_capture_enabled() -> bool { true }
+fn default_capture_port() -> u16 { 9111 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UptimeConfig {
+    /// URL to health-check (e.g. "https://myapp.com/api/health")
+    pub url: String,
+    /// Interval in seconds between checks (default: 60)
+    #[serde(default = "default_uptime_interval")]
+    pub interval_secs: u64,
+    /// Consecutive failures before alerting (default: 3)
+    #[serde(default = "default_uptime_threshold")]
+    pub threshold: u32,
+    /// Expected HTTP status (default: 200)
+    #[serde(default = "default_uptime_status")]
+    pub expected_status: u16,
+    /// Request timeout in seconds (default: 10)
+    #[serde(default = "default_uptime_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_uptime_interval() -> u64 { 60 }
+fn default_uptime_threshold() -> u32 { 3 }
+fn default_uptime_status() -> u16 { 200 }
+fn default_uptime_timeout() -> u64 { 10 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CronConfig {
+    /// Base URL of the InariWatch web app (e.g. "https://app.inariwatch.com")
+    pub url: String,
+    /// CRON_SECRET for authenticating requests
+    pub secret: String,
+    /// Cron tasks to run on schedule
+    #[serde(default = "default_cron_tasks")]
+    pub tasks: Vec<CronTask>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CronTask {
+    pub name: String,
+    /// API path (e.g. "/api/cron/poll")
+    pub path: String,
+    /// Interval in seconds between runs
+    #[serde(default = "default_cron_poll_interval")]
+    pub interval_secs: u64,
+    #[serde(default = "default_cron_enabled")]
+    pub enabled: bool,
+}
+
+fn default_cron_enabled() -> bool { true }
+fn default_cron_poll_interval() -> u64 { 300 }
+
+pub fn default_cron_tasks() -> Vec<CronTask> {
+    vec![
+        CronTask {
+            name: "poll".into(),
+            path: "/api/cron/poll".into(),
+            interval_secs: 300,
+            enabled: true,
+        },
+        CronTask {
+            name: "uptime".into(),
+            path: "/api/cron/uptime".into(),
+            interval_secs: 60,
+            enabled: true,
+        },
+        CronTask {
+            name: "escalate".into(),
+            path: "/api/cron/escalate".into(),
+            interval_secs: 300,
+            enabled: true,
+        },
+        CronTask {
+            name: "digest".into(),
+            path: "/api/cron/digest".into(),
+            interval_secs: 86400,
+            enabled: true,
+        },
+    ]
+}
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 

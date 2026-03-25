@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::ai;
@@ -214,10 +215,17 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
             .clone()
     };
 
+    let capture_enabled = project.integrations.capture.as_ref().map(|c| c.enabled).unwrap_or(false);
+
+    let cron_enabled = project.integrations.cron.is_some();
+
     let has_any = project.integrations.github.is_some()
         || project.integrations.vercel.is_some()
         || project.integrations.sentry.is_some()
-        || project.integrations.git.is_some();
+        || project.integrations.git.is_some()
+        || capture_enabled
+        || project.integrations.uptime.is_some()
+        || cron_enabled;
 
     if !has_any {
         println!(
@@ -262,13 +270,30 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
     }
     println!("  Polling every {}s. {}\n", POLL_SECS, "Ctrl+C to stop.".dimmed());
 
+    // Start capture server if enabled
+    let mut capture_rx = if capture_enabled {
+        let port = project.integrations.capture.as_ref().map(|c| c.port).unwrap_or(9111);
+        let (_handle, rx) = crate::capture_server::start_capture_server(port);
+        println!("  {} Capture listening on :{}\n", "◉".cyan(), port);
+        Some(rx)
+    } else {
+        None
+    };
+
+    // Cron scheduler state
+    let mut cron_last_run: HashMap<String, DateTime<Utc>> = HashMap::new();
+    if let Some(cron) = &project.integrations.cron {
+        let task_count = cron.tasks.iter().filter(|t| t.enabled).count();
+        println!("  {} Cron scheduler: {} task(s) → {}\n", "◉".cyan(), task_count, cron.url.dimmed());
+    }
+
     let mut storm = StormDetector::new();
 
     loop {
         let ts = chrono::Local::now().format("%H:%M:%S").to_string();
         let conn = db::open()?;
 
-        match run_cycle(&project, &conn, &cfg.global, &mut storm).await {
+        match run_cycle(&project, &conn, &cfg.global, &mut storm, &mut capture_rx).await {
             Ok((0, _)) => println!("{}  {} all clear", ts.dimmed(), "✓".green()),
             Ok((n, new_alerts)) => {
                 if storm.active {
@@ -328,6 +353,11 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
             Err(e) => println!("{} {} {}", ts.dimmed(), "✗".red(), e),
         }
 
+        // Fire cron tasks that are due
+        if let Some(cron) = &project.integrations.cron {
+            run_cron_tasks(cron, &mut cron_last_run).await;
+        }
+
         drop(conn);
         tokio::time::sleep(tokio::time::Duration::from_secs(POLL_SECS)).await;
     }
@@ -340,6 +370,7 @@ async fn run_cycle(
     conn: &rusqlite::Connection,
     global: &config::GlobalConfig,
     storm: &mut StormDetector,
+    capture_rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<RawEvent>>,
 ) -> Result<(usize, Vec<Alert>)> {
     // 1. Collect from every enabled integration
     let mut all_events: Vec<RawEvent> = vec![];
@@ -360,6 +391,18 @@ async fn run_cycle(
             .or(project.path.as_deref())
             .unwrap_or(".");
         all_events.extend(collect_git(git, repo_path));
+    }
+
+    // Uptime health checks
+    if let Some(up) = &project.integrations.uptime {
+        all_events.extend(collect_uptime(up).await);
+    }
+
+    // Drain events from the capture server (errors + logs + deploys)
+    if let Some(rx) = capture_rx.as_mut() {
+        while let Ok(event) = rx.try_recv() {
+            all_events.push(event);
+        }
     }
 
     // 2. Dedup
@@ -776,6 +819,153 @@ fn collect_git(cfg: &config::GitConfig, repo_path: &str) -> Vec<RawEvent> {
     }
 
     events
+}
+
+// ── Uptime health checks ─────────────────────────────────────────────────────
+
+async fn collect_uptime(cfg: &config::UptimeConfig) -> Vec<RawEvent> {
+    if let Err(e) = crate::url_validation::validate_public_url(&cfg.url) {
+        eprintln!("  Uptime: skipped — {}", e);
+        return vec![];
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(cfg.timeout_secs))
+        .build()
+        .unwrap_or_default();
+
+    match client.get(&cfg.url).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            if status != cfg.expected_status {
+                vec![RawEvent {
+                    integration: "uptime".into(),
+                    event_type: "health_check_failed".into(),
+                    fingerprint: format!("uptime_status_{}_{}", cfg.url, day_key()),
+                    occurred_at: Utc::now(),
+                    payload: serde_json::json!({
+                        "url": cfg.url,
+                        "expected": cfg.expected_status,
+                        "actual": status,
+                    }),
+                    severity: "critical".into(),
+                    title: format!("Health check failed: HTTP {}", status),
+                    detail: format!(
+                        "{} returned HTTP {} (expected {})",
+                        cfg.url, status, cfg.expected_status
+                    ),
+                    url: Some(cfg.url.clone()),
+                }]
+            } else {
+                vec![]
+            }
+        }
+        Err(e) => {
+            let reason = if e.is_timeout() {
+                "timeout".to_string()
+            } else if e.is_connect() {
+                "connection refused".to_string()
+            } else {
+                format!("{}", e)
+            };
+            vec![RawEvent {
+                integration: "uptime".into(),
+                event_type: "health_check_down".into(),
+                fingerprint: format!("uptime_down_{}_{}", cfg.url, day_key()),
+                occurred_at: Utc::now(),
+                payload: serde_json::json!({
+                    "url": cfg.url,
+                    "error": reason,
+                }),
+                severity: "critical".into(),
+                title: format!("App DOWN: {}", reason),
+                detail: format!("{} is unreachable — {}", cfg.url, reason),
+                url: Some(cfg.url.clone()),
+            }]
+        }
+    }
+}
+
+// ── Cron scheduler ───────────────────────────────────────────────────────────
+
+async fn run_cron_tasks(
+    cron: &config::CronConfig,
+    last_run: &mut HashMap<String, DateTime<Utc>>,
+) {
+    let now = Utc::now();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
+    let cron_url_valid = crate::url_validation::validate_public_url(&cron.url).is_ok();
+    if !cron_url_valid {
+        return;
+    }
+
+    for task in &cron.tasks {
+        if !task.enabled {
+            continue;
+        }
+
+        let due = match last_run.get(&task.name) {
+            Some(last) => (now - *last).num_seconds() >= task.interval_secs as i64,
+            None => true, // First run
+        };
+
+        if !due {
+            continue;
+        }
+
+        let url = format!("{}{}", cron.url, task.path);
+        let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+
+        match client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", cron.secret))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                if status == 200 {
+                    println!(
+                        "{}  {} cron/{} {}",
+                        ts.dimmed(),
+                        "↻".cyan(),
+                        task.name,
+                        "OK".green()
+                    );
+                } else {
+                    println!(
+                        "{}  {} cron/{} HTTP {}",
+                        ts.dimmed(),
+                        "✗".red(),
+                        task.name,
+                        status
+                    );
+                }
+            }
+            Err(e) => {
+                let reason = if e.is_timeout() {
+                    "timeout".to_string()
+                } else if e.is_connect() {
+                    "connection refused".to_string()
+                } else {
+                    format!("{}", e)
+                };
+                println!(
+                    "{}  {} cron/{} {}",
+                    ts.dimmed(),
+                    "✗".red(),
+                    task.name,
+                    reason.dimmed()
+                );
+            }
+        }
+
+        last_run.insert(task.name.clone(), now);
+    }
 }
 
 // ── Shadow mode ──────────────────────────────────────────────────────────────
