@@ -2,7 +2,7 @@
 
 ## Project overview
 
-InariWatch is an AI-powered monitoring SaaS for developers. It receives alerts from external services (Sentry, Vercel, GitHub, Datadog), enriches them with AI analysis, and helps teams respond faster with on-call scheduling and automated remediation suggestions.
+InariWatch is an AI-powered monitoring SaaS for developers. It receives alerts from external services (Sentry, Vercel, GitHub, Datadog) and from your own app via `@inariwatch/capture`, enriches them with AI analysis, and helps teams respond faster with on-call scheduling, automated remediation, and local dev-mode fixes.
 
 The product is live at **app.inariwatch.com**. There is also a demo account at `demo@inariwatch.com`.
 
