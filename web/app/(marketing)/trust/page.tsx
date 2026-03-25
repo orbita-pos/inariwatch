@@ -50,7 +50,7 @@ const LAYERS = [
     metric: "3×",
     metricLabel: "retry with different approach",
     detail:
-      "The fix runs through your full CI pipeline. If it fails, the fix is opened as a draft PR with the CI error context — so you can review it before anything ships. No auto-merge on failed CI, ever.",
+      "The fix runs through your full CI pipeline. If it fails, the AI analyzes the CI error and tries a completely different approach — up to 3 times. Three failures? Escalates to your on-call. No PR is created.",
     visual: "ci",
   },
   {

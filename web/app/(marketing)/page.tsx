@@ -123,7 +123,7 @@ function StatsBar() {
   const stats = [
     { value: "8", label: "integrations monitored" },
     { value: "5 min", label: "cloud poll interval" },
-    { value: "6", label: "safety gates" },
+    { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
   ];
 
@@ -169,7 +169,7 @@ function RemediationWalkthrough() {
       icon: <RefreshCw className="h-4 w-4" />,
       n: "04",
       title: "CI validated (with retry)",
-      desc: "Pushes to a branch and monitors CI. If it fails, opens a draft PR with CI context for human review.",
+      desc: "Pushes to a branch, monitors CI. If it fails, reads the logs and tries a different fix — up to 3×.",
     },
     {
       icon: <GitBranch className="h-4 w-4" />,
@@ -712,7 +712,7 @@ function AIFeatures() {
     {
       icon: <Wrench className="h-5 w-5" />,
       title: "AI Code Remediation",
-      body: "Reads your repo, writes the fix, pushes a branch, waits for CI. If CI passes, opens the PR. If CI fails, opens a draft PR with the error context for human review.",
+      body: "Reads your repo, writes the fix, pushes a branch, waits for CI. If CI fails, reads the logs and retries with a different approach — up to 3 times. Opens the PR only when it passes.",
       tag: "Unique",
       highlight: true,
     },

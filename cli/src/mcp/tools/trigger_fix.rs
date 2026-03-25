@@ -19,7 +19,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("alert_id is required"))?;
     let auto_merge = args["auto_merge"].as_bool().unwrap_or(false);
-    let max_attempts = args["max_attempts"].as_u64().unwrap_or(2).min(3).max(1) as usize;
+    let max_attempts = args["max_attempts"].as_u64().unwrap_or(3).min(3).max(1) as usize;
     let dry_run = args["dry_run"].as_bool().unwrap_or(false);
 
     let mut steps: Vec<Step> = Vec::new();
@@ -469,7 +469,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         }))?);
     }
 
-    // ── Step 7: Push ──────────────────────────────────────────────────────
+    // ── Steps 7-8: Push + CI (with retry loop) ────────────────────────────
 
     let short_id: String = alert_id.chars().take(8).collect();
     let timestamp = std::time::SystemTime::now()
@@ -477,117 +477,176 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         .map(|d| format!("{:x}", d.as_secs()))
         .unwrap_or_else(|_| "0".to_string());
     let branch_name = format!("radar/fix-{}-{}", short_id, timestamp);
-
     let title_truncated: String = alert.title.chars().take(60).collect();
-    let commit_message = format!(
-        "fix: {}\n\nAutomated by InariWatch AI (confidence: {}%)",
-        title_truncated, confidence
-    );
 
     gh.create_branch(&branch_name, &base_sha).await?;
 
-    let commit_files: Vec<(&str, &str)> = fix_files
-        .iter()
-        .map(|(p, c)| (p.as_str(), c.as_str()))
-        .collect();
+    let mut ci_attempt = 1;
+    let mut ci_status;
 
-    let commit_sha = gh
-        .commit_files(&branch_name, &commit_message, &commit_files)
-        .await?;
+    loop {
+        // ── Push current fix ────────────────────────────────────────────
+        let commit_message = format!(
+            "fix: {}{}\n\nAutomated by InariWatch AI (confidence: {}%)",
+            title_truncated,
+            if ci_attempt > 1 { format!(" (attempt {})", ci_attempt) } else { String::new() },
+            confidence
+        );
 
-    steps.push(Step::ok(
-        "push",
-        format!("Branch: {}, commit: {}", branch_name, &commit_sha[..8.min(commit_sha.len())]),
-    ));
+        let commit_files: Vec<(&str, &str)> = fix_files
+            .iter()
+            .map(|(p, c)| (p.as_str(), c.as_str()))
+            .collect();
 
-    // ── Step 8: Wait CI ───────────────────────────────────────────────────
+        let commit_sha = gh
+            .commit_files(&branch_name, &commit_message, &commit_files)
+            .await?;
 
-    // Wait for GitHub to register the push
-    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        steps.push(Step::ok(
+            "push",
+            format!(
+                "{}Branch: {}, commit: {}",
+                if ci_attempt > 1 { format!("Attempt {}: ", ci_attempt) } else { String::new() },
+                branch_name,
+                &commit_sha[..8.min(commit_sha.len())]
+            ),
+        ));
 
-    let ci_status = wait_for_ci(&gh, &commit_sha, 300).await; // 5 min max
+        // ── Wait for CI ─────────────────────────────────────────────────
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        ci_status = wait_for_ci(&gh, &commit_sha, 300).await; // 5 min max
 
-    match &ci_status {
-        CIWaitResult::Success(checks) => {
-            steps.push(Step::ok(
-                "ci_wait",
-                format!("CI passed ({} checks)", checks),
-            ));
-        }
-        CIWaitResult::NoChecks => {
-            steps.push(Step::ok(
-                "ci_wait",
-                "No CI checks configured — proceeding.",
-            ));
-        }
-        CIWaitResult::Failure => {
-            // Try to get CI logs for context
-            let ci_logs = gh
-                .get_failed_check_logs(&branch_name)
-                .await
-                .unwrap_or_else(|_| "CI failed — no logs available.".to_string());
+        match &ci_status {
+            CIWaitResult::Success(checks) => {
+                steps.push(Step::ok("ci_wait", format!("CI passed ({} checks)", checks)));
+                break;
+            }
+            CIWaitResult::NoChecks => {
+                steps.push(Step::ok("ci_wait", "No CI checks configured — proceeding."));
+                break;
+            }
+            CIWaitResult::Timeout => {
+                steps.push(Step::ok("ci_wait", "CI timed out (5 min) — proceeding with draft PR."));
+                break;
+            }
+            CIWaitResult::Failure => {
+                let ci_logs = gh
+                    .get_failed_check_logs(&branch_name)
+                    .await
+                    .unwrap_or_else(|_| "CI failed — no logs available.".to_string());
 
-            steps.push(Step::fail("ci_wait", format!("CI failed: {}", &ci_logs[..ci_logs.len().min(200)])));
+                steps.push(Step::fail(
+                    "ci_wait",
+                    format!("Attempt {}: CI failed: {}", ci_attempt, &ci_logs[..ci_logs.len().min(200)]),
+                ));
 
-            // Note: a full implementation would retry (go back to step 4 with CI error context)
-            // For v2 initial release, we create a draft PR noting the failure
-            let pr_body = format!(
-                "## InariWatch AI Fix\n\n\
-                 **Alert:** {}\n\
-                 **Diagnosis:** {}\n\
-                 **Confidence:** {}%\n\
-                 **Self-review:** {}/100\n\n\
-                 **Note:** CI failed. Manual review required.\n\n\
-                 CI output:\n```\n{}\n```\n\n\
-                 ---\n*Automated by InariWatch*",
-                alert.title,
-                diagnosis,
-                confidence,
-                review_score,
-                &ci_logs[..ci_logs.len().min(1000)]
-            );
+                if ci_attempt >= max_attempts {
+                    // All retries exhausted — escalate and create draft PR
+                    let pr_body = format!(
+                        "## InariWatch AI Fix\n\n\
+                         **Alert:** {}\n\
+                         **Diagnosis:** {}\n\
+                         **Confidence:** {}%\n\
+                         **Self-review:** {}/100\n\n\
+                         **Note:** CI failed after {} attempt(s). Manual review required.\n\n\
+                         CI output:\n```\n{}\n```\n\n\
+                         ---\n*Automated by InariWatch*",
+                        alert.title, diagnosis, confidence, review_score,
+                        ci_attempt, &ci_logs[..ci_logs.len().min(1000)]
+                    );
 
-            let (pr_url, _pr_number) = gh
-                .create_pr(
-                    &format!("fix: {}", title_truncated),
-                    &pr_body,
-                    &branch_name,
-                    &default_branch,
-                    true, // draft
-                )
-                .await?;
+                    let (pr_url, _pr_number) = gh
+                        .create_pr(
+                            &format!("fix: {}", title_truncated),
+                            &pr_body,
+                            &branch_name,
+                            &default_branch,
+                            true, // draft
+                        )
+                        .await?;
 
-            steps.push(Step::ok("create_pr", format!("Draft PR (CI failed): {}", pr_url)));
+                    steps.push(Step::ok("create_pr", format!("Draft PR (CI failed after {} attempts): {}", ci_attempt, pr_url)));
 
-            // Escalate via Telegram
-            let _ = escalation::escalate(&escalation::EscalationContext {
-                alert_title: alert.title.clone(),
-                project: project.name.clone(),
-                reason: "CI failed after fix attempt".to_string(),
-                diagnosis: Some(diagnosis.clone()),
-                confidence: Some(confidence),
-                attempts: Some(1),
-                max_attempts: Some(max_attempts),
-                ci_error: Some(ci_logs[..ci_logs.len().min(200)].to_string()),
-                pr_url: Some(pr_url.clone()),
-                branch: Some(branch_name.clone()),
-            }).await;
+                    let _ = escalation::escalate(&escalation::EscalationContext {
+                        alert_title: alert.title.clone(),
+                        project: project.name.clone(),
+                        reason: format!("CI failed after {} fix attempts", ci_attempt),
+                        diagnosis: Some(diagnosis.clone()),
+                        confidence: Some(confidence),
+                        attempts: Some(ci_attempt),
+                        max_attempts: Some(max_attempts),
+                        ci_error: Some(ci_logs[..ci_logs.len().min(200)].to_string()),
+                        pr_url: Some(pr_url.clone()),
+                        branch: Some(branch_name.clone()),
+                    }).await;
 
-            return Ok(serde_json::to_string_pretty(&json!({
-                "status": "failed",
-                "steps": steps,
-                "pr_url": pr_url,
-                "branch": branch_name,
-                "confidence": confidence,
-                "files_changed": files_changed,
-                "error": "CI checks failed. Draft PR created for manual review."
-            }))?);
-        }
-        CIWaitResult::Timeout => {
-            steps.push(Step::ok(
-                "ci_wait",
-                "CI timed out (5 min) — proceeding with draft PR.",
-            ));
+                    return Ok(serde_json::to_string_pretty(&json!({
+                        "status": "failed",
+                        "steps": steps,
+                        "pr_url": pr_url,
+                        "branch": branch_name,
+                        "confidence": confidence,
+                        "files_changed": files_changed,
+                        "attempts": ci_attempt,
+                        "error": format!("CI still failing after {} attempts. Draft PR created for manual review.", ci_attempt)
+                    }))?);
+                }
+
+                // ── Retry: generate a different fix using CI error context ──
+                steps.push(Step::ok(
+                    "retry",
+                    format!("Attempt {} failed. Analyzing CI logs to try a different approach...", ci_attempt),
+                ));
+
+                let file_refs: Vec<(&str, &str)> = file_contents
+                    .iter()
+                    .map(|(p, c)| (p.as_str(), c.as_str()))
+                    .collect();
+
+                let prev_paths: Vec<String> = fix_files.iter().map(|(p, _)| p.clone()).collect();
+                let previous = Some((prev_paths.as_slice(), ci_logs.as_str()));
+
+                let fix_result = ai::generate_fix(ai_key, model, &diagnosis, &file_refs, &error_details, previous).await?;
+
+                fix_explanation = fix_result["explanation"].as_str().unwrap_or("").to_string();
+                fix_files = fix_result["files"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|f| {
+                                let path = f["path"].as_str()?;
+                                let content = f["content"].as_str()?;
+                                Some((path.to_string(), content.to_string()))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                fix_files.retain(|(path, _)| safety::is_safe_file_path(path));
+                files_changed = fix_files.iter().map(|(p, _)| p.clone()).collect();
+
+                if fix_files.is_empty() {
+                    steps.push(Step::fail("generate_fix", format!("Attempt {}: AI generated no safe files.", ci_attempt + 1)));
+                    ci_attempt += 1;
+                    continue;
+                }
+
+                // Self-review the new fix
+                let original_refs: Vec<(&str, &str)> = file_contents.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+                let fixed_refs: Vec<(&str, &str)> = fix_files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+
+                if let Ok(review_result) = ai::self_review(ai_key, model, &diagnosis, &original_refs, &fixed_refs, &error_details).await {
+                    review_score = review_result["score"].as_u64().unwrap_or(0) as u32;
+                    review_recommendation = review_result["recommendation"].as_str().unwrap_or("flag").to_string();
+                }
+
+                steps.push(Step::ok(
+                    "generate_fix",
+                    format!("Attempt {}: {}. Files: {}", ci_attempt + 1, fix_explanation, files_changed.join(", ")),
+                ));
+
+                ci_attempt += 1;
+            }
         }
     }
 
