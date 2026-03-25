@@ -8,6 +8,7 @@ mod integrations;
 mod mcp;
 mod notifications;
 mod orchestrator;
+mod local_fs;
 pub mod url_validation;
 #[cfg(test)]
 mod training_loop_test;
@@ -39,6 +40,15 @@ enum Commands {
         /// Shadow mode: diagnose alerts without acting. Saves predictions for comparison.
         #[arg(long)]
         shadow: bool,
+    },
+
+    /// Local dev mode: catch errors, diagnose with AI, apply fixes to local files
+    Dev {
+        #[arg(short, long)]
+        project: Option<String>,
+        /// Capture server port (default: from config or 9111)
+        #[arg(long)]
+        port: Option<u16>,
     },
 
     /// Show status of all integrations
@@ -138,6 +148,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Add { integration } => commands::add::run(&integration).await,
         Commands::Connect { channel } => commands::connect::run(&channel).await,
         Commands::Watch { project, shadow } => commands::watch::run(project, shadow).await,
+        Commands::Dev { project, port } => commands::dev::run(project, port).await,
         Commands::Status { project } => commands::status::run(project).await,
         Commands::Logs { limit, project } => commands::logs::run(limit, project).await,
         Commands::Config { ai_key, model, auto_fix, auto_merge, fix_replay, fix_replay_url, show } => {
