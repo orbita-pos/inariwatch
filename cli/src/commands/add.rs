@@ -2,7 +2,7 @@ use anyhow::Result;
 use colored::Colorize;
 use dialoguer::Input;
 
-use crate::config::{self, CaptureConfig, GitConfig, GithubConfig, SentryConfig, UptimeConfig, VercelConfig};
+use crate::config::{self, CaptureConfig, CronConfig, GitConfig, GithubConfig, SentryConfig, UptimeConfig, VercelConfig};
 use crate::integrations::git_local;
 use crate::integrations::github::GitHubClient;
 use crate::integrations::sentry::SentryClient;
@@ -16,9 +16,10 @@ pub async fn run(integration: &str) -> Result<()> {
         "git" => add_git().await,
         "capture" => add_capture().await,
         "uptime" => add_uptime().await,
+        "cron" => add_cron().await,
         other => {
             println!("{} Unknown integration: {}", "✗".red(), other);
-            println!("Available: {}", "github  vercel  sentry  git  capture  uptime".cyan());
+            println!("Available: {}", "github  vercel  sentry  git  capture  uptime  cron".cyan());
             Ok(())
         }
     }
@@ -301,5 +302,83 @@ async fn add_uptime() -> Result<()> {
 
     println!("\n{} Uptime monitoring added to {}.", "✓".green(), cfg.projects[idx].name.bold());
     println!("Run {} to start monitoring.", "inariwatch watch".cyan());
+    Ok(())
+}
+
+// ── Cron ─────────────────────────────────────────────────────────────────────
+
+async fn add_cron() -> Result<()> {
+    println!("{}", "inariwatch add cron".bold());
+    println!("Schedule web app cron tasks from the CLI\n");
+
+    let mut cfg = config::load()?;
+    let idx = super::pick_project(&cfg)?;
+
+    let url: String = Input::new()
+        .with_prompt("InariWatch web app URL (e.g. https://app.inariwatch.com)")
+        .interact_text()?;
+
+    let url = url.trim_end_matches('/').to_string();
+
+    if !url.starts_with("https://") && !url.starts_with("http://localhost") && !url.starts_with("http://127.0.0.1") {
+        println!("{} URL is not HTTPS — your CRON_SECRET will be sent in cleartext!", "⚠".yellow());
+    }
+
+    let secret: String = Input::new()
+        .with_prompt("CRON_SECRET (same as your web app's env var)")
+        .interact_text()?;
+
+    // Test connection
+    print!("Testing connection... ");
+    let test_url = format!("{}/api/cron/poll", url);
+    match reqwest::Client::new()
+        .get(&test_url)
+        .header("Authorization", format!("Bearer {}", secret))
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            if status == 200 {
+                println!("{} HTTP {}", "✓".green(), status.to_string().bold());
+            } else if status == 401 {
+                println!("{} HTTP 401 — wrong CRON_SECRET", "✗".red());
+                return Ok(());
+            } else {
+                println!("{} HTTP {} (will still save)", "⚠".yellow(), status);
+            }
+        }
+        Err(e) => println!("{} {} (will still save)", "⚠".yellow(), e),
+    }
+
+    let tasks = config::default_cron_tasks();
+
+    cfg.projects[idx].integrations.cron = Some(CronConfig {
+        url: url.clone(),
+        secret,
+        tasks: tasks.clone(),
+    });
+    config::save(&cfg)?;
+
+    println!("\n{} Cron scheduler added to {}.\n", "✓".green(), cfg.projects[idx].name.bold());
+    println!("  {} Scheduled tasks:\n", "→".cyan());
+    for task in &tasks {
+        let freq = if task.interval_secs >= 86400 {
+            format!("every {}d", task.interval_secs / 86400)
+        } else if task.interval_secs >= 3600 {
+            format!("every {}h", task.interval_secs / 3600)
+        } else if task.interval_secs >= 60 {
+            format!("every {}m", task.interval_secs / 60)
+        } else {
+            format!("every {}s", task.interval_secs)
+        };
+        println!("    {} {} ({})", "•".cyan(), task.name, freq.dimmed());
+    }
+    println!("\n  Run {} to start.\n", "inariwatch watch".cyan());
+    println!(
+        "  {} You can disable the GitHub Actions workflow once verified.",
+        "💡".yellow()
+    );
     Ok(())
 }

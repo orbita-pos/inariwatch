@@ -8,6 +8,7 @@ mod integrations;
 mod mcp;
 mod notifications;
 mod orchestrator;
+pub mod url_validation;
 #[cfg(test)]
 mod training_loop_test;
 

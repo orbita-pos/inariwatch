@@ -4,7 +4,8 @@ const MAX_RETRY_BUFFER = 30
 
 export function parseDSN(dsn: string): ParsedDSN {
   // Local mode: "http://localhost:9111/ingest"
-  if (dsn.startsWith("http://localhost") || dsn.startsWith("http://127.0.0.1")) {
+  const parsedUrl = new URL(dsn)
+  if (parsedUrl.hostname === "localhost" || parsedUrl.hostname === "127.0.0.1") {
     return { endpoint: dsn, secretKey: "", isLocal: true }
   }
 
@@ -45,6 +46,7 @@ async function signPayload(body: string, secret: string): Promise<string> {
 
 export interface Transport {
   send(event: ErrorEvent): void
+  flush(): Promise<void>
 }
 
 export function createTransport(config: CaptureConfig, parsed: ParsedDSN): Transport {
@@ -89,9 +91,11 @@ export function createTransport(config: CaptureConfig, parsed: ParsedDSN): Trans
     }
   }
 
+  const pendingSends: Promise<void>[] = []
+
   return {
     send(event: ErrorEvent) {
-      sendOne(event).then((ok) => {
+      const p = sendOne(event).then((ok) => {
         if (ok) {
           flushRetries()
         } else if (retryBuffer.length < MAX_RETRY_BUFFER) {
@@ -101,6 +105,16 @@ export function createTransport(config: CaptureConfig, parsed: ParsedDSN): Trans
           }
         }
       })
+      pendingSends.push(p)
+      p.finally(() => {
+        const idx = pendingSends.indexOf(p)
+        if (idx !== -1) pendingSends.splice(idx, 1)
+      })
+    },
+
+    async flush(): Promise<void> {
+      await Promise.allSettled(pendingSends)
+      await flushRetries()
     },
   }
 }

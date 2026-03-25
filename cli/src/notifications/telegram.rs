@@ -37,8 +37,7 @@ impl TelegramClient {
             .await?;
 
         if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Telegram error: {}", body);
+            anyhow::bail!("Telegram send error: HTTP {}", resp.status());
         }
         Ok(())
     }
@@ -49,8 +48,7 @@ impl TelegramClient {
         let resp = self.client.get(&url).send().await?;
 
         if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Telegram error: {}", body);
+            anyhow::bail!("Telegram getUpdates error: HTTP {}", resp.status());
         }
 
         let data: Value = resp.json().await?;

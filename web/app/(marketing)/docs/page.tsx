@@ -45,6 +45,7 @@ const NAV = [
       { id: "cli-autofix",    label: "Auto-fix" },
       { id: "cli-mcp",        label: "MCP Server" },
       { id: "cli-rollback",   label: "Rollback" },
+      { id: "cli-cron",       label: "Cron Scheduler" },
     ],
   },
   {
@@ -57,6 +58,7 @@ const NAV = [
       { id: "int-uptime",    label: "Uptime" },
       { id: "int-postgres",  label: "PostgreSQL" },
       { id: "int-npm",       label: "npm / Cargo" },
+      { id: "int-capture",   label: "@inariwatch/capture" },
     ],
   },
   {
@@ -353,6 +355,8 @@ cargo build --release
                 ["inariwatch add vercel",              "Add Vercel integration — prompts for token + team ID"],
                 ["inariwatch add sentry",              "Add Sentry integration — prompts for auth token + org slug"],
                 ["inariwatch add git",                 "Add local git integration (no token needed)"],
+                ["inariwatch add uptime",              "Add uptime monitoring — prompts for URL + optional threshold"],
+                ["inariwatch add cron",                "Add cron scheduler — prompts for base URL + secret"],
                 ["inariwatch connect telegram",        "Link a Telegram bot for notifications"],
                 ["inariwatch watch",                   "Main loop — polls every 60s, sends alerts, runs AI correlation"],
                 ["inariwatch status",                  "Show integration health and last poll times"],
@@ -405,6 +409,14 @@ team_id    = "team_..."   # optional
 token   = "..."
 org     = "my-org"
 project = "my-project"
+
+[projects.integrations.uptime]
+url       = "https://my-app.com"
+threshold = 5000   # ms — optional, alerts if response > threshold
+
+[projects.integrations.cron]
+url    = "https://app.inariwatch.com"
+secret = "your-cron-secret"
 
 [projects.notifications.telegram]
 bot_token = "123456:ABC-..."
@@ -543,6 +555,41 @@ Rolling back…
   Live at: https://my-app.vercel.app`}</CodeBlock>
             <Callout type="info">
               The confirmation prompt defaults to <strong>No</strong> — you have to explicitly type <InlineCode>y</InlineCode> to proceed. This prevents accidental rollbacks.
+            </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                CLI CRON SCHEDULER
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="cli-cron">CLI — Cron Scheduler</SectionHeading>
+            <P>
+              The CLI includes a built-in cron scheduler that replaces external services like GitHub Actions
+              for triggering InariWatch cloud endpoints. It runs inside the <InlineCode>inariwatch watch</InlineCode> loop
+              and fires HTTP requests to your configured cron tasks at their defined intervals.
+            </P>
+            <CodeBlock label="Terminal">{`inariwatch add cron
+# Prompts for:
+#   Base URL:    https://app.inariwatch.com
+#   Cron secret: your-cron-secret`}</CodeBlock>
+            <P>
+              Once configured, the watch loop automatically fires 4 default tasks:
+            </P>
+            <Table
+              head={["Task", "Path", "Interval", "Purpose"]}
+              rows={[
+                ["poll",     "/api/cron/poll",     "5 min",  "Poll integrations for new alerts"],
+                ["uptime",   "/api/cron/uptime",   "60 sec", "Check uptime endpoints"],
+                ["escalate", "/api/cron/escalate", "5 min",  "Escalate unacknowledged alerts"],
+                ["digest",   "/api/cron/digest",   "24 hr",  "Send daily alert digest emails"],
+              ]}
+            />
+            <P>
+              Each request includes an <InlineCode>Authorization: Bearer {'<secret>'}</InlineCode> header.
+              All cron endpoints verify this secret using constant-time comparison.
+            </P>
+            <Callout type="info">
+              You can customize tasks in <InlineCode>config.toml</InlineCode> — add new paths, change intervals, or disable specific tasks.
+              SSRF protection is built in: the scheduler blocks requests to localhost, private IPs, and non-HTTP protocols.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────
@@ -793,6 +840,52 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
             <Callout type="tip">
               Datadog sends a &quot;Recovered&quot; event when a monitor goes back to OK. InariWatch automatically
               ignores these so you don&apos;t get noise from self-healing issues.
+            </Callout>
+
+            <SectionHeading id="int-capture">Integration — @inariwatch/capture</SectionHeading>
+            <P>
+              The <InlineCode>@inariwatch/capture</InlineCode> SDK lets you send errors, logs, and deploy markers
+              directly from your own application to InariWatch — no third-party error tracker needed.
+              It works alongside your existing integrations (Sentry, Datadog) or as a standalone lightweight alternative.
+            </P>
+
+            <SubHeading id="int-capture-install">Installation</SubHeading>
+            <CodeBlock label="npm">{`npm install @inariwatch/capture`}</CodeBlock>
+
+            <SubHeading id="int-capture-setup">Setup</SubHeading>
+            <CodeBlock label="app.ts">{`import { init, captureException, captureLog, captureMessage } from "@inariwatch/capture";
+
+init({
+  dsn: "https://app.inariwatch.com/api/webhooks/capture/YOUR_PROJECT_ID",
+  environment: "production",
+  release: "1.2.0",
+});`}</CodeBlock>
+            <P>
+              The DSN is your project&apos;s capture webhook URL. Find it under <strong>Integrations &rarr; Capture SDK</strong>
+              in the web dashboard, or construct it manually: <InlineCode>{'https://app.inariwatch.com/api/webhooks/capture/<project-id>'}</InlineCode>.
+            </P>
+
+            <SubHeading id="int-capture-api">API</SubHeading>
+            <Table
+              head={["Function", "Purpose", "Example"]}
+              rows={[
+                ["captureException(error)", "Capture a caught exception with full stack trace", "captureException(err)"],
+                ["captureLog(level, message, meta?)", "Send a structured log event", "captureLog(\"error\", \"DB timeout\", { query })"],
+                ["captureMessage(message, level?)", "Send a plain text event", "captureMessage(\"Deploy started\", \"info\")"],
+              ]}
+            />
+            <CodeBlock label="Example: Express error handler">{`app.use((err, req, res, next) => {
+  captureException(err);
+  res.status(500).json({ error: "Internal server error" });
+});`}</CodeBlock>
+            <CodeBlock label="Example: Deploy marker">{`captureMessage("Deploy v1.2.0 started", "info");`}</CodeBlock>
+            <Callout type="tip">
+              The SDK batches events and flushes on a short interval. In serverless environments,
+              call <InlineCode>await flush()</InlineCode> before the function returns to ensure events are sent.
+            </Callout>
+            <Callout type="info">
+              When running locally, the SDK auto-detects <InlineCode>localhost</InlineCode> DSNs and routes events
+              to the CLI capture server (<InlineCode>inariwatch watch</InlineCode>) instead of the cloud.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────

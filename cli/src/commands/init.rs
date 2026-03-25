@@ -17,6 +17,11 @@ pub async fn run() -> Result<()> {
 
     let slug = config::slugify(&name);
 
+    if slug.is_empty() || slug.len() > 100 {
+        println!("{} Invalid project name.", "✗".red());
+        return Ok(());
+    }
+
     if cfg.projects.iter().any(|p| p.slug == slug) {
         println!(
             "{} Project '{}' already exists.",
@@ -35,6 +40,12 @@ pub async fn run() -> Result<()> {
         .with_prompt("Working directory")
         .default(cwd)
         .interact_text()?;
+
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.is_dir() {
+        println!("{} Directory does not exist: {}", "✗".red(), path);
+        return Ok(());
+    }
 
     cfg.projects.push(ProjectConfig {
         name: name.clone(),

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::ai;
@@ -216,12 +217,15 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
 
     let capture_enabled = project.integrations.capture.as_ref().map(|c| c.enabled).unwrap_or(false);
 
+    let cron_enabled = project.integrations.cron.is_some();
+
     let has_any = project.integrations.github.is_some()
         || project.integrations.vercel.is_some()
         || project.integrations.sentry.is_some()
         || project.integrations.git.is_some()
         || capture_enabled
-        || project.integrations.uptime.is_some();
+        || project.integrations.uptime.is_some()
+        || cron_enabled;
 
     if !has_any {
         println!(
@@ -275,6 +279,13 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
     } else {
         None
     };
+
+    // Cron scheduler state
+    let mut cron_last_run: HashMap<String, DateTime<Utc>> = HashMap::new();
+    if let Some(cron) = &project.integrations.cron {
+        let task_count = cron.tasks.iter().filter(|t| t.enabled).count();
+        println!("  {} Cron scheduler: {} task(s) → {}\n", "◉".cyan(), task_count, cron.url.dimmed());
+    }
 
     let mut storm = StormDetector::new();
 
@@ -340,6 +351,11 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
                 }
             }
             Err(e) => println!("{} {} {}", ts.dimmed(), "✗".red(), e),
+        }
+
+        // Fire cron tasks that are due
+        if let Some(cron) = &project.integrations.cron {
+            run_cron_tasks(cron, &mut cron_last_run).await;
         }
 
         drop(conn);
@@ -808,6 +824,11 @@ fn collect_git(cfg: &config::GitConfig, repo_path: &str) -> Vec<RawEvent> {
 // ── Uptime health checks ─────────────────────────────────────────────────────
 
 async fn collect_uptime(cfg: &config::UptimeConfig) -> Vec<RawEvent> {
+    if let Err(e) = crate::url_validation::validate_public_url(&cfg.url) {
+        eprintln!("  Uptime: skipped — {}", e);
+        return vec![];
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(cfg.timeout_secs))
         .build()
@@ -862,6 +883,88 @@ async fn collect_uptime(cfg: &config::UptimeConfig) -> Vec<RawEvent> {
                 url: Some(cfg.url.clone()),
             }]
         }
+    }
+}
+
+// ── Cron scheduler ───────────────────────────────────────────────────────────
+
+async fn run_cron_tasks(
+    cron: &config::CronConfig,
+    last_run: &mut HashMap<String, DateTime<Utc>>,
+) {
+    let now = Utc::now();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
+    let cron_url_valid = crate::url_validation::validate_public_url(&cron.url).is_ok();
+    if !cron_url_valid {
+        return;
+    }
+
+    for task in &cron.tasks {
+        if !task.enabled {
+            continue;
+        }
+
+        let due = match last_run.get(&task.name) {
+            Some(last) => (now - *last).num_seconds() >= task.interval_secs as i64,
+            None => true, // First run
+        };
+
+        if !due {
+            continue;
+        }
+
+        let url = format!("{}{}", cron.url, task.path);
+        let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+
+        match client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", cron.secret))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                if status == 200 {
+                    println!(
+                        "{}  {} cron/{} {}",
+                        ts.dimmed(),
+                        "↻".cyan(),
+                        task.name,
+                        "OK".green()
+                    );
+                } else {
+                    println!(
+                        "{}  {} cron/{} HTTP {}",
+                        ts.dimmed(),
+                        "✗".red(),
+                        task.name,
+                        status
+                    );
+                }
+            }
+            Err(e) => {
+                let reason = if e.is_timeout() {
+                    "timeout".to_string()
+                } else if e.is_connect() {
+                    "connection refused".to_string()
+                } else {
+                    format!("{}", e)
+                };
+                println!(
+                    "{}  {} cron/{} {}",
+                    ts.dimmed(),
+                    "✗".red(),
+                    task.name,
+                    reason.dimmed()
+                );
+            }
+        }
+
+        last_run.insert(task.name.clone(), now);
     }
 }
 

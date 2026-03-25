@@ -6,13 +6,18 @@ use crate::orchestrator::RawEvent;
 
 const MAX_BODY_SIZE: usize = 100 * 1024; // 100 KB
 
+fn json_header() -> tiny_http::Header {
+    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+        .expect("static Content-Type header")
+}
+
 pub fn start_capture_server(
     port: u16,
 ) -> (std::thread::JoinHandle<()>, mpsc::UnboundedReceiver<RawEvent>) {
     let (tx, rx) = mpsc::unbounded_channel();
 
     let handle = std::thread::spawn(move || {
-        let addr = format!("0.0.0.0:{}", port);
+        let addr = format!("127.0.0.1:{}", port);
         let server = match tiny_http::Server::http(&addr) {
             Ok(s) => s,
             Err(e) => {
@@ -28,13 +33,7 @@ pub fn start_capture_server(
             {
                 let resp = tiny_http::Response::from_string("{\"error\":\"not found\"}")
                     .with_status_code(404)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .unwrap(),
-                    );
+                    .with_header(json_header());
                 let _ = request.respond(resp);
                 continue;
             }
@@ -44,13 +43,7 @@ pub fn start_capture_server(
             if body_len > MAX_BODY_SIZE {
                 let resp = tiny_http::Response::from_string("{\"error\":\"body too large\"}")
                     .with_status_code(413)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .unwrap(),
-                    );
+                    .with_header(json_header());
                 let _ = request.respond(resp);
                 continue;
             }
@@ -59,13 +52,7 @@ pub fn start_capture_server(
             if request.as_reader().read_to_string(&mut body).is_err() {
                 let resp = tiny_http::Response::from_string("{\"error\":\"read error\"}")
                     .with_status_code(400)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .unwrap(),
-                    );
+                    .with_header(json_header());
                 let _ = request.respond(resp);
                 continue;
             }
@@ -77,13 +64,7 @@ pub fn start_capture_server(
                     let resp =
                         tiny_http::Response::from_string("{\"error\":\"invalid json\"}")
                             .with_status_code(400)
-                            .with_header(
-                                tiny_http::Header::from_bytes(
-                                    &b"Content-Type"[..],
-                                    &b"application/json"[..],
-                                )
-                                .unwrap(),
-                            );
+                            .with_header(json_header());
                     let _ = request.respond(resp);
                     continue;
                 }

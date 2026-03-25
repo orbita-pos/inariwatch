@@ -7,6 +7,8 @@ import { eq, and, isNull, gt } from "drizzle-orm";
 export async function resetPassword(
   formData: FormData
 ): Promise<{ success: boolean; error?: string }> {
+  const start = Date.now();
+
   const token = formData.get("token") as string | null;
   const password = formData.get("password") as string | null;
   const confirmPassword = formData.get("confirmPassword") as string | null;
@@ -37,6 +39,9 @@ export async function resetPassword(
     .limit(1);
 
   if (!resetToken) {
+    // Constant-time jitter: normalize response time to prevent timing attacks
+    const elapsed = Date.now() - start;
+    if (elapsed < 200) await new Promise(r => setTimeout(r, 200 - elapsed + Math.random() * 50));
     return { success: false, error: "Invalid or expired reset link. Please request a new one." };
   }
 

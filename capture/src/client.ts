@@ -6,6 +6,11 @@ let globalTransport: Transport | null = null
 let globalConfig: CaptureConfig | null = null
 let lastReportedRelease: string | null = null
 
+/** Flush all pending events — call this before process exit or serverless return. */
+export async function flush(): Promise<void> {
+  if (globalTransport) await globalTransport.flush()
+}
+
 export function init(config: CaptureConfig): void {
   if (!config.dsn) {
     if (!config.silent) console.warn("[@inariwatch/capture] Missing DSN — events will be dropped")

@@ -33,7 +33,7 @@ mod platform {
     pub fn install() -> Result<()> {
         let bin = bin_path()?;
         let log = log_path();
-        std::fs::create_dir_all(log.parent().unwrap())?;
+        std::fs::create_dir_all(log.parent().context("invalid log path")?)?;
 
         let unit = format!(
             "[Unit]\n\
@@ -56,7 +56,7 @@ mod platform {
         );
 
         let path = unit_path();
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::create_dir_all(path.parent().context("invalid path")?)?;
         std::fs::write(&path, unit)?;
 
         std::process::Command::new("systemctl")
@@ -129,7 +129,7 @@ mod platform {
     pub fn install() -> Result<()> {
         let bin = bin_path()?;
         let log = log_path();
-        std::fs::create_dir_all(log.parent().unwrap())?;
+        std::fs::create_dir_all(log.parent().context("invalid log path")?)?;
 
         let plist = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -160,7 +160,7 @@ mod platform {
         );
 
         let path = plist_path();
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::create_dir_all(path.parent().context("invalid path")?)?;
         std::fs::write(&path, plist)?;
 
         std::process::Command::new("launchctl")
@@ -221,7 +221,7 @@ mod platform {
     pub fn install() -> Result<()> {
         let bin = bin_path()?;
         let log = log_path();
-        std::fs::create_dir_all(log.parent().unwrap())?;
+        std::fs::create_dir_all(log.parent().context("invalid log path")?)?;
 
         // Create task: run at logon, highest privileges, restart on failure
         let status = std::process::Command::new("schtasks")
