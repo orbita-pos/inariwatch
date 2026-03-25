@@ -45,6 +45,7 @@ const NAV = [
       { id: "cli-autofix",    label: "Auto-fix" },
       { id: "cli-mcp",        label: "MCP Server" },
       { id: "cli-rollback",   label: "Rollback" },
+      { id: "cli-dev",        label: "Dev Mode" },
       { id: "cli-cron",       label: "Cron Scheduler" },
     ],
   },
@@ -372,6 +373,7 @@ cargo build --release
                 ["inariwatch agent-stats",                  "Show AI agent track record, trust level, and auto-merge gates"],
                 ["inariwatch serve-mcp",                    "Start an MCP server over stdio (Claude Code, Cursor, etc.)"],
                 ["inariwatch rollback vercel",              "Interactive rollback — pick a previous deployment to restore"],
+                ["inariwatch dev",                          "Local dev mode — catch errors, diagnose with AI, apply fixes to local files"],
               ]}
             />
 
@@ -555,6 +557,62 @@ Rolling back…
   Live at: https://my-app.vercel.app`}</CodeBlock>
             <Callout type="info">
               The confirmation prompt defaults to <strong>No</strong> — you have to explicitly type <InlineCode>y</InlineCode> to proceed. This prevents accidental rollbacks.
+            </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                CLI DEV MODE
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="cli-dev">CLI — Dev Mode</SectionHeading>
+            <P>
+              <InlineCode>inariwatch dev</InlineCode> is a local development companion. It catches errors from your dev server
+              via the capture SDK, diagnoses them with AI, and applies fixes directly to your local files — no GitHub, no PR, no branch.
+            </P>
+            <CodeBlock label="Terminal">{`inariwatch dev
+
+◉ INARIWATCH DEV
+
+◉ Dev mode — my-app | Capture :9111 | Ctrl+C to stop
+→ Errors from your dev server will be diagnosed and fixed locally.
+
+  🔴 TypeError: Cannot read 'user' of undefined
+     auth/session.ts:84
+     💡 Known pattern (confidence: 92%) — add null check
+     → Scanning project files... 142 files
+     → Diagnosing... 92% confidence
+     → Read 1 file(s): auth/session.ts
+     → Generating fix... done
+     → Self-reviewing... 88/100 (approve)
+
+     Fix: session.user?.id ?? null
+
+     Apply fix? yes
+     ✓ Saved auth/session.ts
+     ✓ Fix applied. Memory saved.`}</CodeBlock>
+            <P>
+              <strong>How it works:</strong> the capture server listens on <InlineCode>localhost:9111</InlineCode> for errors from <InlineCode>@inariwatch/capture</InlineCode>.
+              When an error arrives, InariWatch reads your local source files, generates a fix with AI, runs a self-review, and shows you the diff.
+              You confirm with <InlineCode>y</InlineCode> and the fix is applied directly to disk.
+            </P>
+            <P>
+              <strong>Dev trains prod:</strong> every fix you apply locally is saved to the incident memory.
+              When the same error appears in production, InariWatch already knows the pattern — resulting in higher confidence and faster auto-fix.
+            </P>
+            <Table
+              head={["Flag", "Description"]}
+              rows={[
+                ["--project <name>", "Select which project to use (auto-detected if only one)"],
+                ["--port <port>",    "Override capture server port (default: 9111)"],
+              ]}
+            />
+            <Callout type="info">
+              Dev mode requires an AI key (<InlineCode>inariwatch config --ai-key</InlineCode>).
+              It does NOT require GitHub — everything runs locally.
+              Your code never leaves your machine.
+            </Callout>
+            <Callout type="tip">
+              Run <InlineCode>inariwatch dev</InlineCode> alongside <InlineCode>npm run dev</InlineCode> or any local dev server
+              that uses <InlineCode>@inariwatch/capture</InlineCode>. Errors are caught the instant they happen.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────
