@@ -1,0 +1,22 @@
+name: 'InariWatch Risk Assessment'
+description: 'AI-powered pre-deploy risk assessment on pull requests. Analyzes your PR diff and posts a risk score comment.'
+branding:
+  icon: 'shield'
+  color: 'purple'
+inputs:
+  ai-key:
+    description: 'AI API key (Claude, OpenAI, Grok, DeepSeek, or Gemini)'
+    required: true
+  model:
+    description: 'AI model to use (default: auto-detected from key)'
+    required: false
+  min-lines:
+    description: 'Minimum lines changed to trigger assessment (default: 5)'
+    required: false
+    default: '5'
+outputs:
+  risk-level:
+    description: 'Risk level: low, medium, or high'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
