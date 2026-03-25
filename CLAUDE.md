@@ -2,7 +2,7 @@
 
 ## Project overview
 
-InariWatch is an AI-powered monitoring SaaS for developers. It receives alerts from external services (Sentry, Vercel, GitHub, Datadog), enriches them with AI analysis, and helps teams respond faster with on-call scheduling and automated remediation suggestions.
+InariWatch is an AI-powered monitoring SaaS for developers. It receives alerts from external services (Sentry, Vercel, GitHub, Datadog) and from your own app via `@inariwatch/capture`, enriches them with AI analysis, and helps teams respond faster with on-call scheduling, automated remediation, and local dev-mode fixes.
 
 The product is live at **app.inariwatch.com**. There is also a demo account at `demo@inariwatch.com`.
 
@@ -45,19 +45,23 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 
 ## Key features
 
-- **Alerts** — ingest from Sentry, Vercel, GitHub, Datadog via webhooks; AI auto-analysis on arrival
-- **Ask Inari** — chat interface for querying alert history and getting AI recommendations
-- **On-call scheduling** — rotation schedules per project, escalation policies
-- **Auto-merge gates** — AI risk assessment before merging PRs
-- **AI remediation** — suggested fixes per alert, post-mortems
+- **Alerts** — ingest from Sentry, Vercel, GitHub, Datadog, @inariwatch/capture via webhooks; free AI auto-analysis on arrival (GPT-4o-mini, no key required)
+- **Ask Inari** — chat interface for querying alert history and getting AI recommendations (BYOK)
+- **On-call scheduling** — rotation schedules per project, escalation policies, schedule overrides
+- **Auto-merge gates** — 6 safety layers: confidence gate, self-review, file blocklist, CI pass, trust levels, post-merge monitor
+- **AI remediation** — full pipeline: diagnose → read code → generate fix → self-review → push → CI (3x retry) → PR → optional auto-merge
+- **Dev mode** — `inariwatch dev` catches local errors, diagnoses with AI, applies fixes directly to disk
+- **Capture SDK** — `@inariwatch/capture` on npm (9.8KB, zero deps) replaces Sentry's client
+- **GitHub Action** — AI risk assessment posted on every PR as a comment
 - **Analytics** — alert trends, MTTR, severity breakdowns
 - **Blog** — markdown-based, admin editor, newsletter subscriptions
 - **Workspaces** — multi-tenant, invite system, role-based access
 - **Admin panel** — internal user/workspace management
+- **Community patterns** — shared fix database with network effects (Fix Replay)
 
 ## Database migrations
 
-Migrations live in `web/lib/db/migrations/`. Run them with Drizzle Kit. Current: `0009_rate_limits.sql`.
+Migrations live in `web/lib/db/migrations/`. Run them with Drizzle Kit. Current: `0015_semantic_search.sql`.
 
 ## Environment variables
 
