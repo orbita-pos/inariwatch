@@ -64,7 +64,7 @@ const NAV = [
   {
     group: "AI setup",
     items: [
-      { id: "ai-overview",   label: "Overview (BYOK)" },
+      { id: "ai-overview",   label: "Overview (Free + BYOK)" },
       { id: "ai-claude",     label: "Claude (Anthropic)" },
       { id: "ai-openai",     label: "OpenAI" },
       { id: "ai-grok",       label: "Grok (xAI)" },
@@ -295,8 +295,8 @@ export default function DocsPage() {
                 body: <>Go to <strong>Integrations</strong> and connect GitHub, Vercel, or Sentry. See the <a href="#int-github" className="text-inari-accent underline underline-offset-2">integration guides</a> below for exactly which token to use.</>,
               },
               {
-                title: "(Optional) Add your AI key",
-                body: <>Go to <strong>Settings → AI analysis</strong> and paste your API key. See <a href="#ai-overview" className="text-inari-accent underline underline-offset-2">AI setup</a> for all supported providers.</>,
+                title: "(Optional) Add your own AI key for auto-fix",
+                body: <>AI analysis works out of the box. To unlock code remediation, chat, and post-mortems, go to <strong>Settings → AI analysis</strong> and add your key. See <a href="#ai-overview" className="text-inari-accent underline underline-offset-2">AI setup</a> for supported providers.</>,
               },
             ]} />
             <Callout type="info">
@@ -892,22 +892,19 @@ init({
                 AI SETUP
             ──────────────────────────────────────────────────────────────── */}
 
-            <SectionHeading id="ai-overview">AI setup — Overview (BYOK)</SectionHeading>
+            <SectionHeading id="ai-overview">AI setup — Overview</SectionHeading>
             <P>
-              InariWatch uses a <strong>Bring Your Own Key</strong> model. Your API key goes directly
-              from your browser to your AI provider — InariWatch never stores or proxies it (except
-              for saving the key reference in your account so you don&apos;t have to re-enter it).
+              <strong>Alert analysis and correlation work out of the box — no AI key required.</strong>{" "}
+              InariWatch provides built-in AI for basic alert analysis so you get value from day one.
             </P>
             <P>
-              Adding an AI key unlocks:
+              Adding your own AI key (Bring Your Own Key) unlocks advanced features:
             </P>
             <ul className="mb-4 space-y-1.5 text-sm text-fg-base">
               {[
-                "AI root cause analysis on any alert",
                 "AI code remediation — writes the fix, pushes a branch, waits for CI, opens a PR",
                 "Pre-deploy PR risk scoring (GitHub integration required)",
                 "Auto post-mortems when an incident is resolved",
-                "Alert correlation — groups related alerts into one incident",
                 "Ask Inari — chat with your live monitoring data",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2">

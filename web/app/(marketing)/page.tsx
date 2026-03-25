@@ -99,11 +99,11 @@ function Hero() {
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/50">
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                BYOK — your AI key, your costs
+                AI analysis included — no key needed
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                Claude, OpenAI, Grok, DeepSeek, Gemini
+                BYOK for auto-fix (Claude, OpenAI, Grok, DeepSeek, Gemini)
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
@@ -776,8 +776,8 @@ function AIFeatures() {
             A complete automated monitoring platform
           </h2>
           <p className="mt-4 text-fg-base max-w-md">
-            Bring your own AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini).
-            InariWatch uses it to turn raw events into decisions — and decisions into PRs.
+            Alert analysis and correlation are included free. Bring your own AI key
+            (Claude, OpenAI, Grok, DeepSeek, or Gemini) to unlock auto-fix and remediation.
           </p>
         </div>
 
@@ -1040,8 +1040,8 @@ function HowItWorks() {
               {
                 step: "03",
                 icon: <Shield className="h-5 w-5" />,
-                title: "Add your AI key (optional)",
-                body: "Connect Claude, OpenAI, Grok, DeepSeek, or Gemini. Your key goes directly to the provider — we never proxy it.",
+                title: "AI analysis works instantly",
+                body: "Alert analysis and correlation are included free — no key needed. Add your own key to unlock auto-fix, chat, and post-mortems.",
               },
               {
                 step: "04",
@@ -1114,9 +1114,9 @@ function OpenSourceModel() {
       <div className="mx-auto max-w-5xl px-6">
         <div className="text-center mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Model</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-5xl">100% Free. Bring your own key.</h2>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-5xl">100% Free. AI included.</h2>
           <p className="mt-5 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
-            There are no restrictive tiers, no credit cards, and no paywalls. InariWatch is built on a hybrid model to keep the community moving fast.
+            Alert analysis and correlation work out of the box — no AI key required. Add your own key to unlock auto-fix, chat, and post-mortems. No credit cards, no paywalls.
           </p>
         </div>
 
@@ -1169,11 +1169,11 @@ function OpenSourceModel() {
               </div>
             </div>
             <p className="text-sm text-fg-base mb-6 leading-relaxed">
-              Full autonomous incident response. We host the dashboard, the 24/7 cron jobs, and the webhooks for free. You just provide your AI API key.
+              Full autonomous incident response. AI alert analysis and correlation included free. Add your own key to unlock auto-fix and remediation.
             </p>
             <ul className="mt-auto space-y-3">
               {[
-                "AI writes & pushes code fixes",
+                "AI analysis included — no key needed",
                 "Team Workspaces included",
                 "1-min cloud polling, 24/7",
               ].map((f) => (
