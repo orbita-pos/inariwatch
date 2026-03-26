@@ -1072,7 +1072,7 @@ fn parse_fix_replay_response(body: &Value) -> Vec<MemoryHint> {
 
 /// Contribute a successful fix pattern to the web Fix Replay API.
 /// Returns the community fix_id if the contribution succeeds.
-async fn contribute_fix_replay(
+pub(crate) async fn contribute_fix_replay(
     fingerprint: &str,
     alert_title: &str,
     category: &str,

@@ -43,6 +43,7 @@ export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
           <Link href="/#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Integrations</Link>
           <Link href="/#features"     className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Features</Link>
           <Link href="/trust"         className={`transition-colors ${scrolled ? "hover:text-inari-accent" : "hover:!text-white"}`}>Trust</Link>
+          <Link href="/network"      className={`transition-colors ${scrolled ? "hover:text-inari-accent" : "hover:!text-white"}`}>Network</Link>
           <Link href="/docs"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Docs</Link>
           <Link href="/blog"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Blog</Link>
         </div>

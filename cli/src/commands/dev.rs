@@ -396,7 +396,27 @@ async fn handle_capture_event(
     let _ = db::save_incident_memory(conn, &mem);
 
     // Track for dedup
-    recent_fixes.insert(fp, Instant::now());
+    recent_fixes.insert(fp.clone(), Instant::now());
+
+    // Contribute to network if enabled
+    let cfg_reload = config::load().unwrap_or_default();
+    if cfg_reload.global.fix_replay {
+        if let Some(ref base_url) = cfg_reload.global.fix_replay_url {
+            let changed_paths: Vec<String> = fix_files.iter().map(|(p, _)| p.clone()).collect();
+            let _ = crate::mcp::tools::trigger_fix::contribute_fix_replay(
+                &fp,
+                title,
+                "runtime_error",
+                &fix_explanation,
+                &diagnosis,
+                &changed_paths,
+                confidence,
+                base_url,
+            )
+            .await;
+            println!("     {} Contributed to network.", "↑".cyan());
+        }
+    }
 
     println!(
         "     {} Fix applied. Memory saved.\n",

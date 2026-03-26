@@ -76,6 +76,7 @@ export function middleware(req: NextRequest) {
       pathname.startsWith("/blog") ||
       pathname.startsWith("/docs") ||
       pathname.startsWith("/trust") ||
+      pathname.startsWith("/network") ||
       pathname.startsWith("/pricing") ||
       pathname.startsWith("/privacy") ||
       pathname.startsWith("/terms") ||

@@ -10,7 +10,7 @@
  */
 
 import { db, remediationSessions, alerts, projectIntegrations, projects, errorPatterns, communityFixes } from "@/lib/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, type MemoryHint } from "./prompts";
 import { computeErrorFingerprint } from "./fingerprint";
@@ -306,9 +306,45 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         };
       });
 
+    // Query network patterns (cross-project community fixes)
+    const [networkPattern] = await db
+      .select()
+      .from(errorPatterns)
+      .where(eq(errorPatterns.fingerprint, alertFingerprint))
+      .limit(1);
+
+    if (networkPattern) {
+      const networkFixes = await db
+        .select()
+        .from(communityFixes)
+        .where(eq(communityFixes.patternId, networkPattern.id))
+        .orderBy(desc(communityFixes.successCount))
+        .limit(1);
+
+      if (networkFixes.length > 0) {
+        const nf = networkFixes[0];
+        const successRate = nf.totalApplications > 0
+          ? Math.round((nf.successCount / nf.totalApplications) * 100) : 0;
+
+        pastHints.push({
+          alertTitle: `[Network: ${networkPattern.occurrenceCount} projects] ${networkPattern.patternText}`,
+          rootCause: nf.fixDescription,
+          fixSummary: nf.fixApproach,
+          filesFixed: nf.filesChangedSummary?.split(", ") ?? [],
+          confidence: successRate,
+        });
+      }
+    }
+
     if (pastHints.length > 0) {
+      const networkCount = pastHints.filter((h) => h.alertTitle.startsWith("[Network")).length;
+      const localCount = pastHints.length - networkCount;
+      const parts = [
+        localCount > 0 ? `${localCount} local` : null,
+        networkCount > 0 ? `${networkCount} network` : null,
+      ].filter(Boolean).join(" + ");
       steps = await pushStep(sessionId, steps,
-        makeStep("memory", `Found ${pastHints.length} past fix(es) with matching fingerprint — injecting into diagnosis`, "completed"), emit);
+        makeStep("memory", `Found ${pastHints.length} past fix(es) (${parts}) — injecting into diagnosis`, "completed"), emit);
     }
 
     steps = await pushStep(sessionId, steps,
