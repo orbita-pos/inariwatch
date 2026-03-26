@@ -869,6 +869,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             created_at: Utc::now(),
             answered: false,
             answer: None,
+            community_fix_id: None,
         };
         let _ = db::save_pending_feedback(&mem_conn, &fb);
     }

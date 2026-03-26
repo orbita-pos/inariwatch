@@ -418,6 +418,8 @@ export const remediationSessions = pgTable("remediation_sessions", {
   monitoringStatus: text("monitoring_status"),     // 'watching' | 'passed' | 'reverted'
   revertPrUrl: text("revert_pr_url"),
   fingerprint: text("fingerprint"),
+  /** Full diagnosis context (Sentry stack traces, Vercel logs, GitHub CI, Datadog) — preserved for replay/training. */
+  context: jsonb("context"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -556,6 +558,8 @@ export const errorPatterns = pgTable("error_patterns", {
   framework: text("framework"),
   language: text("language"),
   occurrenceCount: integer("occurrence_count").notNull().default(1),
+  /** Truncated context from the original diagnosis (stack trace + CI error) for pattern replay. */
+  contextSummary: text("context_summary"),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

@@ -154,13 +154,15 @@ fn import_from_production(
 
         // Check if we have a successful fix for this alert
         let memories = db::get_relevant_memories(prod_conn, &alert.project, &alert.title, Some(&fp), 1)?;
-        let (fix_approach, success_rate) = if let Some(mem) = memories.first() {
+        let (fix_approach, diagnosis, confidence, success_rate) = if let Some(mem) = memories.first() {
             (
                 Some(mem.fix_summary.clone()),
+                Some(mem.root_cause.clone()),
+                Some(mem.confidence),
                 if mem.fix_worked { 0.80 } else { 0.35 },
             )
         } else {
-            (None, 0.50)
+            (None, None, None, 0.50)
         };
 
         let scenario = BankScenario {
@@ -172,6 +174,8 @@ fn import_from_production(
             source: "real".to_string(),
             files: memories.first().map(|m| m.files_fixed.clone()).unwrap_or_default(),
             fix_approach,
+            diagnosis,
+            confidence,
             base_success_rate: success_rate,
         };
 
@@ -331,6 +335,7 @@ async fn run_simulation(
             created_at: Utc::now(),
             answered: false,
             answer: None,
+            community_fix_id: None,
         };
         db::save_pending_feedback(conn, &fb)?;
 

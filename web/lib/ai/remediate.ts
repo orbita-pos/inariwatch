@@ -273,6 +273,9 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         : "No additional context found — proceeding with alert details",
       emit);
 
+    // Persist gathered context for future replay/training
+    await updateSession(sessionId, { context: remediationContext });
+
     // Query past sessions by fingerprint for fix replay hints
     const pastMatches = await db
       .select()
@@ -602,6 +605,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             : alert.sourceIntegrations.includes("github") ? "ci_error"
             : alert.sourceIntegrations.includes("datadog") ? "infrastructure"
             : "unknown";
+          const ctxSummary = [
+            remediationContext.sentryStackTrace?.slice(0, 500),
+            remediationContext.githubCILogs?.slice(0, 500),
+            remediationContext.vercelBuildLogs?.slice(0, 500),
+          ].filter(Boolean).join("\n---\n") || undefined;
+
           await autoContributePattern({
             fingerprint: alertFingerprint,
             alertTitle: alert.title,
@@ -610,6 +619,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             fixDescription: diagnosis.diagnosis,
             filesChanged: fix.files.map((f) => f.path),
             confidence: diagnosis.confidence,
+            contextSummary: ctxSummary,
           });
         } catch { /* non-blocking */ }
 
@@ -840,6 +850,7 @@ async function autoContributePattern(params: {
   fixDescription: string;
   filesChanged: string[];
   confidence: number;
+  contextSummary?: string;
 }) {
   // Upsert error pattern
   let [pattern] = await db
@@ -860,6 +871,7 @@ async function autoContributePattern(params: {
         fingerprint: params.fingerprint,
         patternText: params.alertTitle.slice(0, 500),
         category: params.category,
+        contextSummary: params.contextSummary?.slice(0, 2000),
       })
       .returning();
   }

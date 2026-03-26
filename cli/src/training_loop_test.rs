@@ -73,7 +73,7 @@ mod tests {
                 id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, project TEXT NOT NULL,
                 alert_title TEXT NOT NULL, pr_url TEXT, fix_summary TEXT NOT NULL,
                 created_at TEXT NOT NULL, answered INTEGER NOT NULL DEFAULT 0,
-                answer INTEGER
+                answer INTEGER, community_fix_id TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_feedback_pending
                 ON pending_feedback(answered, created_at DESC);
@@ -305,6 +305,7 @@ mod tests {
             created_at: Utc::now(),
             answered: false,
             answer: None,
+            community_fix_id: None,
         };
         db::save_pending_feedback(&conn, &fb).unwrap();
         assert_eq!(db::count_pending_feedback(&conn), 1);
@@ -351,6 +352,7 @@ mod tests {
             created_at: Utc::now(),
             answered: false,
             answer: None,
+            community_fix_id: None,
         };
         db::save_pending_feedback(&conn, &fb).unwrap();
 
@@ -400,6 +402,7 @@ mod tests {
                 created_at: Utc::now(),
                 answered: false,
                 answer: None,
+                community_fix_id: None,
             };
             db::save_pending_feedback(&conn, &fb).unwrap();
         }

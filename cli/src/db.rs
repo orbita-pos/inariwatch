@@ -93,6 +93,8 @@ fn migrate_sim(conn: &Connection) -> Result<()> {
             source            TEXT NOT NULL DEFAULT 'synthetic',
             files             TEXT,
             fix_approach      TEXT,
+            diagnosis         TEXT,
+            confidence        INTEGER,
             base_success_rate REAL NOT NULL DEFAULT 0.5,
             created_at        TEXT NOT NULL
         );
@@ -128,6 +130,8 @@ pub struct BankScenario {
     pub source: String,
     pub files: Vec<String>,
     pub fix_approach: Option<String>,
+    pub diagnosis: Option<String>,
+    pub confidence: Option<i64>,
     pub base_success_rate: f64,
 }
 
@@ -135,17 +139,17 @@ pub fn save_scenario(conn: &Connection, s: &BankScenario) -> Result<()> {
     let files = serde_json::to_string(&s.files)?;
     conn.execute(
         "INSERT OR IGNORE INTO scenario_bank
-             (id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate, created_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+             (id, title, body, category, fingerprint, source, files, fix_approach, diagnosis, confidence, base_success_rate, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         params![s.id, s.title, s.body, s.category, s.fingerprint, s.source,
-                files, s.fix_approach, s.base_success_rate, Utc::now().to_rfc3339()],
+                files, s.fix_approach, s.diagnosis, s.confidence, s.base_success_rate, Utc::now().to_rfc3339()],
     )?;
     Ok(())
 }
 
 pub fn get_all_scenarios(conn: &Connection) -> Result<Vec<BankScenario>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate
+        "SELECT id, title, body, category, fingerprint, source, files, fix_approach, base_success_rate, diagnosis, confidence
          FROM scenario_bank ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -163,6 +167,8 @@ pub fn get_all_scenarios(conn: &Connection) -> Result<Vec<BankScenario>> {
             files,
             fix_approach: row.get(7)?,
             base_success_rate: row.get(8)?,
+            diagnosis: row.get(9)?,
+            confidence: row.get(10)?,
         })
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
@@ -356,6 +362,15 @@ fn migrate(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_feedback_pending
             ON pending_feedback(answered, created_at DESC);",
     )?;
+
+    // v4 migration: add community_fix_id to pending_feedback
+    let has_pf_cfi: bool = conn
+        .prepare("PRAGMA table_info(pending_feedback)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|col| col.as_deref() == Ok("community_fix_id"));
+    if !has_pf_cfi {
+        let _ = conn.execute_batch("ALTER TABLE pending_feedback ADD COLUMN community_fix_id TEXT;");
+    }
 
     // v3 migration: shadow_predictions table
     conn.execute_batch(
@@ -827,18 +842,19 @@ pub struct PendingFeedback {
     pub created_at: DateTime<Utc>,
     pub answered: bool,
     pub answer: Option<bool>, // true = worked, false = failed, None = unanswered
+    pub community_fix_id: Option<String>,
 }
 
 pub fn save_pending_feedback(conn: &Connection, fb: &PendingFeedback) -> Result<()> {
     let answer_val: Option<i64> = fb.answer.map(|a| a as i64);
     conn.execute(
         "INSERT OR REPLACE INTO pending_feedback
-             (id, memory_id, project, alert_title, pr_url, fix_summary, created_at, answered, answer)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+             (id, memory_id, project, alert_title, pr_url, fix_summary, created_at, answered, answer, community_fix_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         params![
             fb.id, fb.memory_id, fb.project, fb.alert_title, fb.pr_url,
             fb.fix_summary, fb.created_at.to_rfc3339(),
-            fb.answered as i64, answer_val,
+            fb.answered as i64, answer_val, fb.community_fix_id,
         ],
     )?;
     Ok(())
@@ -847,7 +863,7 @@ pub fn save_pending_feedback(conn: &Connection, fb: &PendingFeedback) -> Result<
 pub fn get_pending_feedback(conn: &Connection, limit: usize) -> Result<Vec<PendingFeedback>> {
     let mut stmt = conn.prepare(
         "SELECT id, memory_id, project, alert_title, pr_url, fix_summary,
-                created_at, answered, answer
+                created_at, answered, answer, community_fix_id
          FROM pending_feedback
          WHERE answered = 0
          ORDER BY created_at DESC
@@ -869,6 +885,7 @@ pub fn get_pending_feedback(conn: &Connection, limit: usize) -> Result<Vec<Pendi
                     .unwrap_or_else(|_| Utc::now()),
                 answered: row.get::<_, i64>(7)? != 0,
                 answer: answer_val.map(|v| v != 0),
+                community_fix_id: row.get(9)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
