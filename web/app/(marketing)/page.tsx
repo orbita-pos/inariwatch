@@ -136,7 +136,7 @@ function DemoVideo() {
             className="w-full"
           >
             <source
-              src="https://github.com/orbita-pos/inariwatch/releases/download/v1/demo.mp4"
+              src="/demo.mp4"
               type="video/mp4"
             />
           </video>
