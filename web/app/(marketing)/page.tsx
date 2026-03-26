@@ -134,6 +134,7 @@ function DemoVideo() {
             muted
             playsInline
             className="w-full"
+            poster="/demo-poster.png"
           >
             <source
               src="/demo.mp4"
