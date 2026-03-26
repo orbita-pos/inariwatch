@@ -1,13 +1,26 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { db, communityFixes, fixRatings } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
+import crypto from "crypto";
+
+const CRON_SECRET = process.env.CRON_SECRET;
 
 /**
  * POST /api/patterns/rate
  *
- * Rate a community fix. Updates success/failure counts on the fix.
+ * Rate a community fix. Requires session auth (web) or Bearer CRON_SECRET (CLI).
  */
 export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  const auth = req.headers.get("authorization");
+  const validBearer = CRON_SECRET && auth
+    && Buffer.from(`Bearer ${CRON_SECRET}`).length === Buffer.from(auth).length
+    && crypto.timingSafeEqual(Buffer.from(`Bearer ${CRON_SECRET}`), Buffer.from(auth));
+  if (!session?.user && !validBearer) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   let body: {
     fixId: string;
     userId?: string;

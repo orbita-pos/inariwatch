@@ -1,14 +1,30 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { db, errorPatterns, communityFixes } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import crypto from "crypto";
+
+const CRON_SECRET = process.env.CRON_SECRET;
+
+function verifyBearer(auth: string | null): boolean {
+  if (!CRON_SECRET || !auth) return false;
+  const expected = Buffer.from(`Bearer ${CRON_SECRET}`);
+  const actual = Buffer.from(auth);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
 
 /**
  * POST /api/patterns/contribute
  *
  * Submit an anonymized fix pattern after successful remediation.
- * Creates or updates the error pattern and adds a community fix.
+ * Requires session auth (web) or Bearer CRON_SECRET (CLI).
  */
 export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user && !verifyBearer(req.headers.get("authorization"))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   let body: {
     fingerprint: string;
     patternText: string;

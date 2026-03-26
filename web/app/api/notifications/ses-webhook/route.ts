@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { suppressEmail } from "@/lib/notifications/rate-limit";
 import { checkWebhookRateLimit } from "@/lib/webhooks/rate-limit";
+import crypto from "crypto";
 
 const SES_WEBHOOK_SECRET = process.env.SES_WEBHOOK_SECRET;
 
@@ -27,7 +28,9 @@ export async function POST(req: Request) {
   // Require secret — fail closed
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
-  if (!SES_WEBHOOK_SECRET || secret !== SES_WEBHOOK_SECRET) {
+  if (!SES_WEBHOOK_SECRET || !secret
+    || secret.length !== SES_WEBHOOK_SECRET.length
+    || !crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(SES_WEBHOOK_SECRET))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

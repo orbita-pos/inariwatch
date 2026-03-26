@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { db, projects, uptimeMonitors } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { validatePublicUrl } from "@/lib/url-validation";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ export async function addMonitor(
     if (!trimmedUrl || (!trimmedUrl.startsWith("https://") && !trimmedUrl.startsWith("http://"))) {
       return { error: "URL must start with http:// or https://" };
     }
+    const urlCheck = validatePublicUrl(trimmedUrl);
+    if (!urlCheck.valid) return { error: urlCheck.error ?? "Invalid URL" };
 
     const trimmedName = (name || "").trim() || new URL(trimmedUrl).hostname;
 

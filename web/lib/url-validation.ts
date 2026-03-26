@@ -29,6 +29,15 @@ export function validatePublicUrl(urlString: string): {
     return { valid: false, error: "Local addresses are not allowed." };
   }
 
+  // Block internal/local TLDs (DNS rebinding protection)
+  if (
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname === "metadata.google.internal"
+  ) {
+    return { valid: false, error: "Internal hostnames are not allowed." };
+  }
+
   // Block private IP ranges
   const ipMatch = hostname.match(
     /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/

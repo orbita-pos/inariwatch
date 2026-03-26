@@ -64,6 +64,10 @@ export async function POST(req: Request) {
   }
 }
 
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function renderConfirmHtml(id: string, sig: string) {
   return `
 <!DOCTYPE html>
@@ -88,8 +92,8 @@ function renderConfirmHtml(id: string, sig: string) {
     <h1>Resolve Alert</h1>
     <p>Click below to resolve this alert and mark it as handled.</p>
     <form method="POST" action="/api/actions/resolve">
-      <input type="hidden" name="id" value="${id}" />
-      <input type="hidden" name="sig" value="${sig}" />
+      <input type="hidden" name="id" value="${esc(id)}" />
+      <input type="hidden" name="sig" value="${esc(sig)}" />
       <button type="submit">Confirm Resolve</button>
     </form>
   </div>

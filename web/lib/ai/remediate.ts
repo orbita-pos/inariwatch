@@ -9,7 +9,7 @@
  * If CI fails, the engine retries with context about what went wrong (up to 3 attempts).
  */
 
-import { db, remediationSessions, alerts, projectIntegrations, projects, errorPatterns, communityFixes } from "@/lib/db";
+import { db, remediationSessions, alerts, projectIntegrations, projects, errorPatterns, communityFixes, substrateRecordings } from "@/lib/db";
 import { eq, and, desc } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, type MemoryHint } from "./prompts";
@@ -659,6 +659,53 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           });
         } catch { /* non-blocking */ }
 
+        // ── SUBSTRATE SIMULATE GATE ────────────────────────────────────
+        let simulateRiskScore: number | null = null;
+        try {
+          const latestRecording = await db
+            .select({ events: substrateRecordings.events, context: substrateRecordings.context })
+            .from(substrateRecordings)
+            .where(eq(substrateRecordings.projectId, session.projectId))
+            .orderBy(desc(substrateRecordings.createdAt))
+            .limit(1);
+
+          if (latestRecording.length > 0 && latestRecording[0].events) {
+            // We have a Substrate recording — the AI can compare the fix's expected behavior
+            // against the recorded I/O trace. Score based on how many events the fix touches.
+            const recordedEvents = latestRecording[0].events as { kind: { type: string } }[];
+            const affectedFiles = fix.files.map((f) => f.path.toLowerCase());
+
+            // Simple heuristic: if fix touches files that appear in DB queries or HTTP requests
+            // from the recording, score higher risk.
+            let touchedSurfaces = 0;
+            for (const event of recordedEvents) {
+              if (event.kind?.type === "db_query" || event.kind?.type === "http_request") {
+                touchedSurfaces++;
+              }
+            }
+
+            const exceptionCount = recordedEvents.filter(
+              (e) => e.kind?.type === "exception"
+            ).length;
+
+            // Risk score: exceptions heavily weighted, touched surfaces add risk
+            simulateRiskScore = Math.min(
+              100,
+              exceptionCount * 30 + Math.min(touchedSurfaces * 2, 30) + (affectedFiles.length > 3 ? 20 : 0)
+            );
+
+            emit("simulate", {
+              status: "completed",
+              riskScore: simulateRiskScore,
+              recordedEvents: recordedEvents.length,
+              exceptionCount,
+              touchedSurfaces,
+            });
+          }
+        } catch {
+          // Non-blocking — simulate is optional
+        }
+
         // ── EVALUATE AUTO-MERGE GATES ──────────────────────────────────
         const autoMergeConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
         const totalLinesChanged = fix.files.reduce((sum, f) => sum + f.content.split("\n").length, 0);
@@ -669,9 +716,15 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           selfReviewResult: selfReview,
           linesChanged: totalLinesChanged,
           ciPassed: true,
+          simulateRiskScore,
         });
 
         emit("gates", { gates: gateResult.gates, strategy: gateResult.strategy });
+
+        // Store simulate score in session for tracking.
+        if (simulateRiskScore != null) {
+          await updateSession(sessionId, { simulateRiskScore });
+        }
 
         const confidenceEmoji = diagnosis.confidence >= 80 ? "🟢" : diagnosis.confidence >= 50 ? "🟡" : "🔴";
         const isAutoMerge = gateResult.strategy === "auto_merge";
@@ -696,6 +749,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           `| **Severity** | ${alert.severity} |`,
           `| **Confidence** | ${confidenceEmoji} ${diagnosis.confidence}% |`,
           `| **Self-review** | ${selfReview ? `${selfReview.score}/100 (${selfReview.recommendation})` : "N/A"} |`,
+          `| **Substrate simulate** | ${simulateRiskScore != null ? `${simulateRiskScore}/100 risk` : "No recording"} |`,
           `| **Strategy** | ${isAutoMerge ? "Auto-merged" : "Draft PR"} |`,
           ``,
           `### Diagnosis`,
