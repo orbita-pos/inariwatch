@@ -13,6 +13,7 @@ const securityHeaders = [
       `script-src 'self' 'unsafe-inline' https://plausible.io${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
       "style-src 'self' 'unsafe-inline'",                   // Tailwind injects inline styles
       "img-src 'self' data: https:",
+      "media-src 'self'",
       "font-src 'self'",
       "connect-src 'self' https:",
       "frame-ancestors 'none'",
