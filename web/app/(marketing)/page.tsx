@@ -121,6 +121,35 @@ function Hero() {
   );
 }
 
+// ── Demo video ───────────────────────────────────────────────────────────────
+
+function DemoVideo() {
+  return (
+    <section className="bg-inari-bg">
+      <div className="mx-auto max-w-4xl px-6 -mt-8 pb-12">
+        <div className="rounded-2xl border border-inari-accent/20 overflow-hidden shadow-2xl shadow-purple-500/10">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full"
+            poster=""
+          >
+            <source
+              src="https://github.com/orbita-pos/inariwatch/releases/download/v1/demo.mp4"
+              type="video/mp4"
+            />
+          </video>
+        </div>
+        <p className="text-center text-xs text-zinc-600 mt-3">
+          From error to merged PR in 2 minutes. Fully automated.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 // ── Stats bar ─────────────────────────────────────────────────────────────────
 
 function StatsBar() {
@@ -978,6 +1007,7 @@ export default function LandingPage() {
       <Nav />
       <main>
         <Hero />
+        <DemoVideo />
         <StatsBar />
         <RemediationWalkthrough />
         <AutoMergeSafety />
