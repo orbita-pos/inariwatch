@@ -119,7 +119,7 @@ const TRUST_LEVELS = [
 export default function TrustPage() {
   return (
     <div className="min-h-screen bg-page text-fg-base">
-      <MarketingNav />
+      <MarketingNav opaque />
 
       {/* ── Hero ──────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden pt-32 pb-24 sm:pt-40 sm:pb-32">
