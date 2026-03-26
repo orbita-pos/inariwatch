@@ -10,7 +10,6 @@ import {
   MessageSquare,
   TrendingUp,
   GitPullRequest,
-  FileText,
   Wrench,
   ArrowRight,
   XCircle,
@@ -18,18 +17,14 @@ import {
   GitBranch,
   Shield,
   RotateCcw,
-  Heart,
-  Plus,
   Bell,
   Code2,
   Plug,
   Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CopyButton } from "./copy-button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
-import { SubscribeForm } from "./blog/subscribe-form";
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -97,17 +92,26 @@ function Hero() {
             </div>
 
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/50">
+              <a
+                href="https://github.com/orbita-pos/inariwatch"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 hover:text-white transition-colors"
+              >
+                <Github className="h-3.5 w-3.5" />
+                <img
+                  src="https://img.shields.io/github/stars/orbita-pos/inariwatch?style=flat&color=7c3aed&labelColor=18181b"
+                  alt="GitHub stars"
+                  className="h-5"
+                />
+              </a>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
                 AI analysis included — no key needed
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                BYOK for auto-fix (Claude, OpenAI, Grok, DeepSeek, Gemini)
-              </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                Start free, no credit card required
+                Open source (MIT)
               </span>
             </div>
           </div>
@@ -943,169 +947,6 @@ function McpSection() {
   );
 }
 
-// ── Correlation demo ──────────────────────────────────────────────────────────
-
-function CorrelationDemo() {
-  return (
-    <section className="py-24 border-t border-inari-border">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Smart alerts</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-            One alert instead of six
-          </h2>
-          <p className="mt-4 text-fg-base max-w-md">
-            Each tool does its job — GitHub watches CI, Vercel watches deploys,
-            Sentry watches errors. InariWatch connects them.
-          </p>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
-            <p className="text-sm font-semibold text-zinc-500 mb-5 font-mono uppercase tracking-widest">
-              Without InariWatch — 3 separate notifications
-            </p>
-            <div className="space-y-3">
-              {[
-                { icon: "🔴", source: "Sentry", text: "TypeError in auth.ts:47 — 23 users" },
-                { icon: "🔴", source: "Vercel", text: "Deploy failed — my-app production" },
-                { icon: "⚠️", source: "GitHub", text: "PR #47 merged 2h ago" },
-              ].map((item) => (
-                <div key={item.source} className="flex items-start gap-3 rounded-lg border border-inari-border bg-inari-card p-3">
-                  <span className="text-base">{item.icon}</span>
-                  <div>
-                    <span className="text-xs text-zinc-500 uppercase tracking-wider">{item.source}</span>
-                    <p className="text-sm text-fg-base mt-0.5">{item.text}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-sm text-zinc-500 italic">You: "Are these related? Let me check each tool..."</p>
-          </div>
-
-          <div className="rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6 shadow-[0_0_40px_rgba(124,58,237,0.06)]">
-            <p className="text-sm font-semibold text-inari-accent mb-5 font-mono uppercase tracking-widest">
-              With InariWatch — 1 correlated alert
-            </p>
-            <div className="rounded-lg border border-inari-border bg-zinc-950 p-4 font-mono text-sm">
-              <p className="text-inari-accent">🔴 <span className="font-semibold text-white">Deploy failure caused new error</span></p>
-              <p className="text-zinc-500 mt-2 leading-relaxed">
-                PR #47 merged 2h ago modified auth.ts.<br />
-                Deploy failed and introduced TypeError at line 47.<br />
-                23 users affected.
-              </p>
-              <div className="mt-3 pt-3 border-t border-inari-border">
-                <p className="text-zinc-400">
-                  <span className="text-inari-accent">Root cause:</span> OAuth middleware broke session handling
-                </p>
-                <p className="text-zinc-400 mt-1">
-                  <span className="text-inari-accent">Fix:</span> PR #48 opened — CI passing ✓
-                </p>
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-zinc-500 italic">One message, full context, PR already ready.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── How it works ──────────────────────────────────────────────────────────────
-
-function HowItWorks() {
-  return (
-    <section className="py-24 border-t border-inari-border">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Get started</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">Up in 2 minutes</h2>
-        </div>
-
-        <div className="grid gap-12 lg:grid-cols-2 items-center">
-          <div className="space-y-10">
-            {[
-              {
-                step: "01",
-                icon: <Terminal className="h-5 w-5" />,
-                title: "Install the CLI or open the dashboard",
-                body: "One curl command for the local CLI. Or sign up for the web dashboard — no install, no card.",
-              },
-              {
-                step: "02",
-                icon: <Zap className="h-5 w-5" />,
-                title: "Connect your stack",
-                body: "Paste a GitHub token, Vercel token, or Sentry key. InariWatch auto-detects your repos, projects, and orgs.",
-              },
-              {
-                step: "03",
-                icon: <Shield className="h-5 w-5" />,
-                title: "AI analysis works instantly",
-                body: "Alert analysis and correlation are included free — no key needed. Add your own key to unlock auto-fix, chat, and post-mortems.",
-              },
-              {
-                step: "04",
-                icon: <Activity className="h-5 w-5" />,
-                title: "Incidents handled automatically",
-                body: "InariWatch monitors 24/7, correlates events, and when something breaks — diagnoses, fixes, and opens a PR.",
-              },
-            ].map((item) => (
-              <div key={item.step} className="flex gap-5">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-inari-border bg-inari-card text-inari-accent">
-                  {item.icon}
-                </div>
-                <div>
-                  <p className="text-xs font-mono text-zinc-500 mb-1">{item.step}</p>
-                  <h3 className="font-semibold text-fg-strong">{item.title}</h3>
-                  <p className="mt-1.5 text-sm text-fg-base leading-relaxed">{item.body}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="rounded-xl border border-inari-border bg-zinc-950 shadow-2xl overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
-              <div className="flex gap-1.5">
-                <div className="h-3 w-3 rounded-full bg-red-500/80" />
-                <div className="h-3 w-3 rounded-full bg-yellow-500/70" />
-                <div className="h-3 w-3 rounded-full bg-green-500/70" />
-              </div>
-              <span className="ml-2 font-mono text-xs text-zinc-500">inariwatch watch</span>
-            </div>
-            <div className="p-5 font-mono text-sm leading-7 space-y-0.5">
-              <p>
-                <span className="text-inari-accent">◉</span>
-                <span className="text-zinc-300"> Watching </span>
-                <span className="text-white font-semibold">my-app</span>
-                <span className="text-zinc-500"> — AI </span>
-                <span className="text-inari-accent">ON</span>
-              </p>
-              <p className="text-zinc-600">  Polling every 60s. Ctrl+C to stop.</p>
-              <br />
-              <p><span className="text-zinc-600">03:11  </span><span className="text-green-500">✓</span><span className="text-zinc-600"> all clear</span></p>
-              <p><span className="text-zinc-600">03:12  </span><span className="text-zinc-100">📨</span><span className="text-zinc-300"> 1 alert — remediating</span></p>
-              <br />
-              <p>
-                <span className="text-inari-accent">🔴 </span>
-                <span className="text-white font-semibold">CI failing on main</span>
-              </p>
-              <p className="text-zinc-500">  Root: session.user null after PR #61</p>
-              <p className="text-zinc-500">  Fix: null check added · CI ✓</p>
-              <p className="text-inari-accent">  PR #62 opened — waiting for approval</p>
-              <br />
-              <p className="flex items-center gap-1">
-                <span className="text-zinc-600">03:13  </span>
-                <span className="text-green-500">✓</span>
-                <span className="text-zinc-600"> all clear</span>
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // ── Open Source & Free Model ──────────────────────────────────────────────────
 
 function OpenSourceModel() {
@@ -1114,9 +955,9 @@ function OpenSourceModel() {
       <div className="mx-auto max-w-5xl px-6">
         <div className="text-center mb-14">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Model</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-5xl">100% Free. AI included.</h2>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-5xl">Free during beta.</h2>
           <p className="mt-5 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
-            Alert analysis and correlation work out of the box — no AI key required. Add your own key to unlock auto-fix, chat, and post-mortems. No credit cards, no paywalls.
+            AI alert analysis works out of the box — no key needed. Add your own key to unlock auto-fix and remediation. Pro tier coming soon for teams.
           </p>
         </div>
 
@@ -1165,15 +1006,15 @@ function OpenSourceModel() {
               </div>
               <div>
                 <h3 className="font-semibold text-fg-strong text-lg">Cloud Dashboard</h3>
-                <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mt-0.5">Free · Open Source</p>
+                <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mt-0.5">Free beta · Open Source</p>
               </div>
             </div>
             <p className="text-sm text-fg-base mb-6 leading-relaxed">
-              Full autonomous incident response. AI alert analysis and correlation included free. Add your own key to unlock auto-fix and remediation.
+              Full autonomous incident response. AI alert analysis included free. Add your own key to unlock auto-fix and code remediation.
             </p>
             <ul className="mt-auto space-y-3">
               {[
-                "AI analysis included — no key needed",
+                "AI analysis included free",
                 "Team Workspaces included",
                 "1-min cloud polling, 24/7",
               ].map((f) => (
@@ -1189,90 +1030,16 @@ function OpenSourceModel() {
           </div>
         </div>
 
-        <div className="mt-14 rounded-2xl border border-inari-border bg-inari-card p-8 text-center max-w-2xl mx-auto">
-           <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-zinc-900 border border-zinc-800 mb-4 shadow-[0_0_15px_rgba(255,255,255,0.05)]">
-             <Heart className="h-5 w-5 text-red-500 fill-red-500/20" />
-           </div>
-           <h3 className="text-lg font-bold text-fg-strong mb-2">How do we make money?</h3>
+        <div className="mt-14 rounded-2xl border border-inari-accent/20 bg-inari-accent-dim p-8 text-center max-w-2xl mx-auto">
+           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Coming soon</p>
+           <h3 className="text-lg font-bold text-fg-strong mb-2">Pro tier for teams</h3>
            <p className="text-sm text-fg-base leading-relaxed mb-6">
-             We rely on community sponsorships. Our cloud infrastructure is hyper-optimized so we can offer it for free. If InariWatch saves your engineering team hours every week, consider sponsoring the project so we can keep it free for solo developers everywhere.
+             Priority fix queue, custom file policies, advanced analytics, and team-wide dashboards.
+             Everything you see today stays free. Pro adds the extras teams need at scale.
            </p>
-           <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noopener noreferrer">
-             <Button variant="outline">Sponsor InariWatch</Button>
-           </a>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Sponsors ──────────────────────────────────────────────────────────────────
-
-function Sponsors() {
-  return (
-    <section className="border-t border-b border-inari-border bg-inari-card/20 py-12">
-      <div className="mx-auto max-w-6xl px-6 text-center">
-        <p className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-8 font-semibold">
-          Built by
-        </p>
-        <div className="flex flex-wrap justify-center gap-10 sm:gap-16 transition-all duration-300">
-
-          <a
-            href="https://orbitapos.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2.5 group opacity-80 hover:opacity-100 transition-opacity duration-300"
-          >
-            <Image
-              src="/logo-trans.png"
-              alt="OrbitaPOS"
-              width={300}
-              height={100}
-              className="h-20 w-auto object-contain"
-            />
-          </a>
-
-          <a
-            href="https://github.com/sponsors/orbita-pos"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2.5 group opacity-50 hover:opacity-100"
-          >
-            <div className="h-8 w-8 rounded-md border border-dashed border-zinc-600 flex items-center justify-center text-zinc-500 group-hover:border-inari-accent group-hover:text-inari-accent transition-colors">
-              <Plus className="h-4 w-4" />
-            </div>
-            <span className="font-medium text-lg tracking-tight text-zinc-500 group-hover:text-inari-accent transition-colors">
-              Sponsor InariWatch
-            </span>
-          </a>
-
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Newsletter ────────────────────────────────────────────────────────────────
-
-function Newsletter() {
-  return (
-    <section className="py-20 border-t border-inari-border">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mx-auto max-w-xl text-center">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Blog</p>
-          <h2 className="text-2xl font-bold text-fg-strong sm:text-3xl">
-            Stay in the loop
-          </h2>
-          <p className="mt-3 text-fg-base text-sm leading-relaxed">
-            New features, engineering deep-dives, and DevOps insights — straight to your inbox.
-            No spam, unsubscribe any time.
-          </p>
-          <div className="mt-6 mx-auto max-w-sm">
-            <SubscribeForm />
-          </div>
-          <p className="mt-3 text-xs text-zinc-600">
-            Or read the <Link href="/blog" className="text-zinc-500 hover:text-fg-strong dark:hover:text-zinc-300 underline underline-offset-2 transition-colors">blog</Link> first.
-          </p>
+           <Link href="/register">
+             <Button variant="primary">Start free today</Button>
+           </Link>
         </div>
       </div>
     </section>
@@ -1293,7 +1060,6 @@ function Footer() {
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
           <Link href="/trust" className="hover:text-fg-base transition-colors">Trust</Link>
           <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
-          <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
           <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           <Link href="/privacy" className="hover:text-fg-base transition-colors">Privacy</Link>
           <Link href="/terms" className="hover:text-fg-base transition-colors">Terms</Link>
@@ -1311,7 +1077,6 @@ export default function LandingPage() {
       <Nav />
       <main>
         <Hero />
-        <Sponsors />
         <StatsBar />
         <RemediationWalkthrough />
         <AutoMergeSafety />
@@ -1319,10 +1084,7 @@ export default function LandingPage() {
         <Integrations />
         <AIFeatures />
         <McpSection />
-        <CorrelationDemo />
-        <HowItWorks />
         <OpenSourceModel />
-        <Newsletter />
       </main>
       <Footer />
     </div>
