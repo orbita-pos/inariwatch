@@ -34,17 +34,17 @@ export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
             height={36}
             className="shrink-0"
           />
-          <span className={`font-mono font-bold uppercase tracking-widest text-sm transition-colors ${scrolled ? "text-fg-strong" : "text-white"}`}>
+          <span className={`font-mono font-bold uppercase tracking-widest text-sm transition-colors ${scrolled ? "text-fg-strong" : "!text-white"}`}>
             INARIWATCH
           </span>
         </Link>
 
-        <div className={`hidden items-center gap-6 text-sm md:flex transition-colors ${scrolled ? "text-fg-base" : "text-white/80"}`}>
-          <Link href="/#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Integrations</Link>
-          <Link href="/#features"     className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Features</Link>
-          <Link href="/trust"         className={`transition-colors ${scrolled ? "hover:text-inari-accent" : "hover:text-white"}`}>Trust</Link>
-          <Link href="/docs"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Docs</Link>
-          <Link href="/blog"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:text-white"}`}>Blog</Link>
+        <div className={`hidden items-center gap-6 text-sm md:flex transition-colors ${scrolled ? "text-fg-base" : "!text-white/80"}`}>
+          <Link href="/#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Integrations</Link>
+          <Link href="/#features"     className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Features</Link>
+          <Link href="/trust"         className={`transition-colors ${scrolled ? "hover:text-inari-accent" : "hover:!text-white"}`}>Trust</Link>
+          <Link href="/docs"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Docs</Link>
+          <Link href="/blog"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Blog</Link>
         </div>
 
         <div className="flex items-center gap-3">
@@ -53,7 +53,7 @@ export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
             <Button
               variant="outline"
               size="sm"
-              className={scrolled ? "" : "border-white/30 text-white hover:bg-white/10 hover:border-white/50 bg-white/5"}
+              className={scrolled ? "" : "!border-white/30 !text-white hover:!bg-white/10 hover:!border-white/50 !bg-white/5"}
             >
               Sign in
             </Button>
