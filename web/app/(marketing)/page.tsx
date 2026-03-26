@@ -947,105 +947,6 @@ function McpSection() {
   );
 }
 
-// ── Open Source & Free Model ──────────────────────────────────────────────────
-
-function OpenSourceModel() {
-  return (
-    <section id="model" className="py-24 border-t border-inari-border">
-      <div className="mx-auto max-w-5xl px-6">
-        <div className="text-center mb-14">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Model</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-5xl">Free during beta.</h2>
-          <p className="mt-5 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
-            AI alert analysis works out of the box — no key needed. Add your own key to unlock auto-fix and remediation. Pro tier coming soon for teams.
-          </p>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* CLI */}
-          <div className="rounded-2xl border border-inari-border bg-inari-card p-8 flex flex-col">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-inari-border bg-inari-bg text-fg-strong">
-                <Terminal className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-fg-strong text-lg">Local CLI</h3>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mt-0.5">Open Source</p>
-              </div>
-            </div>
-            <p className="text-sm text-fg-base mb-6 leading-relaxed">
-              Written in Rust. Runs locally on your machine. Parses errors and sends you Telegram notifications without your data ever hitting our servers.
-            </p>
-            <ul className="mt-auto space-y-3">
-              {[
-                "100% Open Source (MIT)",
-                "No cloud dependencies",
-                "Unlimited local projects",
-              ].map((f) => (
-                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noreferrer" className="mt-8 block">
-              <Button variant="outline" className="w-full">View on GitHub</Button>
-            </a>
-          </div>
-
-          {/* Web */}
-          <div className="relative rounded-2xl border border-inari-accent/40 bg-inari-accent-dim p-8 flex flex-col shadow-[0_0_50px_rgba(124,58,237,0.10)]">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <span className="rounded-full bg-inari-accent px-3 py-1 text-xs font-semibold text-white shadow-[0_0_12px_rgba(124,58,237,0.4)]">
-                Most popular
-              </span>
-            </div>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-inari-accent/30 bg-inari-accent/10 text-inari-accent">
-                <Zap className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-fg-strong text-lg">Cloud Dashboard</h3>
-                <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mt-0.5">Free beta · Open Source</p>
-              </div>
-            </div>
-            <p className="text-sm text-fg-base mb-6 leading-relaxed">
-              Full autonomous incident response. AI alert analysis included free. Add your own key to unlock auto-fix and code remediation.
-            </p>
-            <ul className="mt-auto space-y-3">
-              {[
-                "AI analysis included free",
-                "Team Workspaces included",
-                "1-min cloud polling, 24/7",
-              ].map((f) => (
-                <li key={f} className="flex items-start gap-2.5 text-sm text-fg-base">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-inari-accent" />
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <Link href="/register" className="mt-8 block">
-              <Button variant="primary" className="w-full">Start using for free</Button>
-            </Link>
-          </div>
-        </div>
-
-        <div className="mt-14 rounded-2xl border border-inari-accent/20 bg-inari-accent-dim p-8 text-center max-w-2xl mx-auto">
-           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Coming soon</p>
-           <h3 className="text-lg font-bold text-fg-strong mb-2">Pro tier for teams</h3>
-           <p className="text-sm text-fg-base leading-relaxed mb-6">
-             Priority fix queue, custom file policies, advanced analytics, and team-wide dashboards.
-             Everything you see today stays free. Pro adds the extras teams need at scale.
-           </p>
-           <Link href="/register">
-             <Button variant="primary">Start free today</Button>
-           </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 function Footer() {
@@ -1084,7 +985,6 @@ export default function LandingPage() {
         <Integrations />
         <AIFeatures />
         <McpSection />
-        <OpenSourceModel />
       </main>
       <Footer />
     </div>
