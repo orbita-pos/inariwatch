@@ -145,6 +145,7 @@ function DemoVideo() {
           From error to merged PR in 2 minutes. Fully automated.
         </p>
       </div>
+    </section>
   );
 }
 
