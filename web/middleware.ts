@@ -74,7 +74,14 @@ export function middleware(req: NextRequest) {
     if (
       pathname === "/" ||
       pathname.startsWith("/blog") ||
-      pathname.startsWith("/docs")
+      pathname.startsWith("/docs") ||
+      pathname.startsWith("/trust") ||
+      pathname.startsWith("/pricing") ||
+      pathname.startsWith("/privacy") ||
+      pathname.startsWith("/terms") ||
+      pathname.startsWith("/status") ||
+      pathname.endsWith(".mp4") ||
+      pathname.endsWith(".webm")
     ) {
       return NextResponse.next();
     }
