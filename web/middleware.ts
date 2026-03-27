@@ -11,6 +11,7 @@ const PROTECTED_PATHS = [
   "/integrations",
   "/settings",
   "/admin",
+  "/recordings",
 ];
 
 const ALWAYS_ALLOWED = [

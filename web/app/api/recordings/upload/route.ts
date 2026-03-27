@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { substrateRecordings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { substrateRecordings, projects } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
 
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -48,6 +48,17 @@ export async function POST(req: NextRequest) {
         { error: "recordingId is required" },
         { status: 400 }
       );
+    }
+
+    // Validate project ownership (session users only — CLI uses bearer token which is trusted)
+    if (session?.user && projectId) {
+      const userId = (session.user as { id?: string }).id;
+      const [proj] = await db.select({ id: projects.id }).from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.userId, userId!)))
+        .limit(1);
+      if (!proj) {
+        return NextResponse.json({ error: "Project not found or not owned by you" }, { status: 403 });
+      }
     }
 
     // Upsert — allow re-uploading the same recording.
