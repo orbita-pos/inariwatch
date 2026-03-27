@@ -6,8 +6,8 @@
  * Datadog monitor data. The more context the AI has, the more accurate the fix.
  */
 
-import { db, projectIntegrations } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { db, projectIntegrations, substrateRecordings } from "@/lib/db";
+import { eq, and, desc } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import type { RemediationContext } from "./prompts";
 import * as gh from "@/lib/services/github-api";
@@ -193,6 +193,8 @@ export async function gatherRemediationContext(
     vercelBuildLogs: null,
     githubCILogs: null,
     datadogMetrics: null,
+    substrateContext: null,
+    eapReceipt: null,
   };
 
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, projectId));
@@ -261,6 +263,90 @@ export async function gatherRemediationContext(
       if (apiKey && appKey) {
         result.datadogMetrics = await fetchDatadogContext(apiKey, appKey, alert);
         emit("context", { source: "datadog", status: result.datadogMetrics ? "found" : "empty" });
+      }
+    })());
+  }
+
+  // Substrate recording (check if there's a recording linked to this project)
+  tasks.push((async () => {
+    emit("context", { source: "substrate", status: "fetching" });
+    try {
+      const recordings = await db
+        .select({ context: substrateRecordings.context })
+        .from(substrateRecordings)
+        .where(eq(substrateRecordings.projectId, projectId))
+        .orderBy(desc(substrateRecordings.createdAt))
+        .limit(1);
+
+      if (recordings.length > 0 && recordings[0].context) {
+        result.substrateContext = recordings[0].context;
+        emit("context", { source: "substrate", status: "found" });
+      } else {
+        emit("context", { source: "substrate", status: "empty" });
+      }
+    } catch {
+      emit("context", { source: "substrate", status: "empty" });
+    }
+  })());
+
+  // EAP receipt (fetch from EAP server if configured)
+  const eapServerUrl = process.env.EAP_SERVER_URL;
+  if (eapServerUrl) {
+    tasks.push((async () => {
+      emit("context", { source: "eap", status: "fetching" });
+      try {
+        // Find the latest receipt linked to this project's recordings.
+        const recordings = await db
+          .select({ recordingId: substrateRecordings.recordingId })
+          .from(substrateRecordings)
+          .where(eq(substrateRecordings.projectId, projectId))
+          .orderBy(desc(substrateRecordings.createdAt))
+          .limit(1);
+
+        if (recordings.length > 0 && recordings[0].recordingId) {
+          // Query EAP server for receipt chain.
+          const chainRes = await fetch(
+            `${eapServerUrl}/chain/${recordings[0].recordingId}`,
+            { signal: AbortSignal.timeout(5000) }
+          );
+          if (chainRes.ok) {
+            const data = await chainRes.json();
+            const receipt = data.chain?.[0];
+            const verification = data.verification;
+            if (receipt) {
+              result.eapReceipt = {
+                receiptId: receipt.meta?.receipt_id ?? "",
+                eventCount: receipt.meta?.event_count ?? 0,
+                surfaces: {
+                  httpEndpoints: receipt.surfaces?.http_endpoints ?? [],
+                  dbTables: receipt.surfaces?.db_tables ?? [],
+                  llmCalls: (receipt.surfaces?.llm_calls ?? []).map((c: Record<string, unknown>) => ({
+                    provider: c.provider as string,
+                    model: c.model as string,
+                    inputTokens: c.input_tokens as number | undefined,
+                    outputTokens: c.output_tokens as number | undefined,
+                  })),
+                  toolUses: (receipt.surfaces?.tool_uses ?? []).map((t: Record<string, unknown>) => ({
+                    toolName: t.tool_name as string,
+                    provider: t.provider as string,
+                  })),
+                },
+                chainDepth: verification?.depth ?? 0,
+                signed: !!receipt.signature,
+                verified: verification?.all_signatures_valid ?? false,
+              };
+              emit("context", { source: "eap", status: "found" });
+            } else {
+              emit("context", { source: "eap", status: "empty" });
+            }
+          } else {
+            emit("context", { source: "eap", status: "empty" });
+          }
+        } else {
+          emit("context", { source: "eap", status: "empty" });
+        }
+      } catch {
+        emit("context", { source: "eap", status: "empty" });
       }
     })());
   }

@@ -29,8 +29,10 @@ export function evaluateAutoMergeGates(params: {
   selfReviewResult: SelfReviewResult | null;
   linesChanged: number;
   ciPassed: boolean;
+  simulateRiskScore?: number | null;
+  eapChainVerified?: boolean | null;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified } = params;
   const gates: GateResult["gates"] = [];
 
   // Gate 0: Auto-merge must be enabled
@@ -78,6 +80,29 @@ export function evaluateAutoMergeGates(params: {
       reason: selfReviewResult
         ? `Self-review: ${selfReviewResult.score}/100, recommendation: ${selfReviewResult.recommendation}${selfReviewResult.concerns.length > 0 ? ` (${selfReviewResult.concerns.length} concern${selfReviewResult.concerns.length > 1 ? "s" : ""})` : ""}`
         : "Self-review not completed",
+    });
+  }
+
+  // Gate 5: Substrate simulate risk (if recording data available)
+  if (simulateRiskScore != null) {
+    const simulatePassed = simulateRiskScore <= 40; // Block if HIGH or CRITICAL (>40)
+    gates.push({
+      name: "substrate_simulate",
+      passed: simulatePassed,
+      reason: simulatePassed
+        ? `Substrate simulate risk score ${simulateRiskScore}/100 (safe)`
+        : `Substrate simulate risk score ${simulateRiskScore}/100 exceeds threshold (>40)`,
+    });
+  }
+
+  // Gate 6: EAP chain verification (if receipt data available)
+  if (eapChainVerified != null) {
+    gates.push({
+      name: "eap_chain_verified",
+      passed: eapChainVerified,
+      reason: eapChainVerified
+        ? "EAP execution receipt chain verified — all signatures valid"
+        : "EAP execution receipt chain verification failed",
     });
   }
 

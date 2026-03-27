@@ -80,6 +80,22 @@ export type RemediationContext = {
   vercelBuildLogs: string | null;
   githubCILogs: string | null;
   datadogMetrics: string | null;
+  substrateContext: string | null;
+  eapReceipt: EapReceiptContext | null;
+};
+
+export type EapReceiptContext = {
+  receiptId: string;
+  eventCount: number;
+  surfaces: {
+    httpEndpoints: string[];
+    dbTables: string[];
+    llmCalls: { provider: string; model: string; inputTokens?: number; outputTokens?: number }[];
+    toolUses: { toolName: string; provider: string }[];
+  };
+  chainDepth: number;
+  signed: boolean;
+  verified: boolean;
 };
 
 export type MemoryHint = {
@@ -113,6 +129,7 @@ export function buildDiagnosePrompt(
   if (context?.vercelBuildLogs) contextSections.push(`VERCEL BUILD LOGS:\n${context.vercelBuildLogs.slice(0, 2500)}`);
   if (context?.githubCILogs) contextSections.push(`GITHUB CI LOGS:\n${context.githubCILogs.slice(0, 2500)}`);
   if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1500)}`);
+  if (context?.substrateContext) contextSections.push(`SUBSTRATE RECORDING (full I/O trace):\n${context.substrateContext.slice(0, 4000)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";
