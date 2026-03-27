@@ -632,10 +632,11 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         if (ciResult.status === "success" || ciResult.status === "failure") break;
 
         if (Date.now() - startTime > maxWait) {
-          // No CI detected or CI taking too long
           if (ciResult.details.length === 0) {
-            // No CI configured — treat as success
-            ciResult = { status: "success", details: [] };
+            // No CI configured — create draft PR instead of auto-merging untested code
+            steps = await resolveStep(sessionId, steps, "completed",
+              "No CI checks detected after 5 min — creating draft PR for manual review", emit);
+            ciResult = { status: "failure", details: [] };
           }
           break;
         }
