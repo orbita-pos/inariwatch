@@ -1,10 +1,11 @@
-import type { CaptureConfig, ErrorEvent } from "./types.js"
+import type { CaptureConfig, ErrorEvent, SubstrateConfig } from "./types.js"
 import { computeErrorFingerprint } from "./fingerprint.js"
 import { parseDSN, createTransport, type Transport } from "./transport.js"
 
 let globalTransport: Transport | null = null
 let globalConfig: CaptureConfig | null = null
 let lastReportedRelease: string | null = null
+let substrateFlush: ((dsn?: string) => Promise<unknown>) | null = null
 
 /** Flush all pending events — call this before process exit or serverless return. */
 export async function flush(): Promise<void> {
@@ -25,6 +26,33 @@ export function init(config: CaptureConfig): void {
   if (config.release && config.release !== lastReportedRelease) {
     lastReportedRelease = config.release
     reportDeploy(config.release, config.environment)
+  }
+
+  // Activate Substrate I/O recording if enabled
+  if (config.substrate) {
+    const subConfig: SubstrateConfig = typeof config.substrate === "object" ? config.substrate : {}
+    initSubstrate(subConfig, config)
+  }
+}
+
+async function initSubstrate(subConfig: SubstrateConfig, config: CaptureConfig): Promise<void> {
+  try {
+    // Dynamic import — optional dependency, may not be installed
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const agent: any = await (Function('return import("@inariwatch/substrate-agent")')())
+    agent.init({
+      bufferSeconds: subConfig.bufferSeconds ?? 60,
+      ...(subConfig.redact ? { redact: subConfig.redact } : {}),
+    })
+    substrateFlush = agent.flush
+    if (!config.silent) {
+      const debug = config.debug ? console.warn : () => {}
+      debug("[@inariwatch/capture] Substrate recording active (ring buffer)")
+    }
+  } catch {
+    if (!config.silent) {
+      console.warn("[@inariwatch/capture] substrate: true but @inariwatch/substrate-agent not installed. Run: npm install @inariwatch/substrate-agent")
+    }
   }
 }
 
@@ -83,6 +111,11 @@ export function captureException(
       transport.send(filtered)
     } else {
       transport.send(fullEvent)
+    }
+
+    // Auto-flush Substrate recording on exception — uploads full I/O trace
+    if (substrateFlush) {
+      substrateFlush().catch(() => {}) // non-blocking, uploads via its own config
     }
   })
 }

@@ -11,6 +11,15 @@ export interface CaptureConfig {
   silent?: boolean
   /** Transform or filter events before sending — return null to drop */
   beforeSend?: (event: ErrorEvent) => ErrorEvent | null
+  /** Enable Substrate I/O recording — requires @inariwatch/substrate-agent installed. */
+  substrate?: boolean | SubstrateConfig
+}
+
+export interface SubstrateConfig {
+  /** Ring buffer duration in seconds (default: 60) */
+  bufferSeconds?: number
+  /** Redaction config for sensitive data */
+  redact?: Record<string, unknown>
 }
 
 export interface ErrorEvent {
