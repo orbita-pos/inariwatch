@@ -420,6 +420,8 @@ export const remediationSessions = pgTable("remediation_sessions", {
   fingerprint: text("fingerprint"),
   /** Full diagnosis context (Sentry stack traces, Vercel logs, GitHub CI, Datadog) — preserved for replay/training. */
   context: jsonb("context"),
+  /** Substrate simulate risk score (0-100). NULL if no recording available. */
+  simulateRiskScore: integer("simulate_risk_score"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -547,6 +549,26 @@ export const blogPosts = pgTable("blog_posts", {
 });
 
 export type BlogPost = typeof blogPosts.$inferSelect;
+
+// ── Substrate Recordings ─────────────────────────────────────────────────────
+
+export const substrateRecordings = pgTable("substrate_recordings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  recordingId: text("recording_id").notNull().unique(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  command: text("command"),
+  runtime: text("runtime").default("node"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  eventCount: integer("event_count").default(0),
+  durationMs: integer("duration_ms"),
+  categories: jsonb("categories"),
+  context: text("context"),
+  events: jsonb("events"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 // ── Fix Replay: Error patterns + Community fixes ────────────────────────────
 
