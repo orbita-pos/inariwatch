@@ -347,8 +347,32 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         makeStep("memory", `Found ${pastHints.length} past fix(es) (${parts}) — injecting into diagnosis`, "completed"), emit);
     }
 
+    // Query hot files — which files appear most frequently in past fixes for this project
+    const allCompletedSessions = await db.select({ fileChanges: remediationSessions.fileChanges })
+      .from(remediationSessions)
+      .where(and(eq(remediationSessions.projectId, session.projectId), eq(remediationSessions.status, "completed")))
+      .limit(100);
+
+    const hotFiles = new Map<string, number>();
+    for (const s of allCompletedSessions) {
+      const files = (s.fileChanges as { path: string }[] | null) ?? [];
+      for (const f of files) {
+        if (f.path) hotFiles.set(f.path, (hotFiles.get(f.path) ?? 0) + 1);
+      }
+    }
+
+    // Extract deployed files from deploy context
+    const deployedFiles: string[] = [];
+    if (remediationContext.deployContext) {
+      const lines = remediationContext.deployContext.split("\n");
+      for (const line of lines) {
+        const match = line.trim().match(/^(\S+)\s+\(/);
+        if (match) deployedFiles.push(match[1]);
+      }
+    }
+
     steps = await pushStep(sessionId, steps,
-      makeStep("diagnose", "AI is diagnosing the root cause and identifying affected files..."), emit);
+      makeStep("diagnose", `AI is diagnosing with ${hotFiles.size > 0 ? `${hotFiles.size} hot files` : "no history"} + ${deployedFiles.length > 0 ? `${deployedFiles.length} deployed files` : "no deploy context"}...`), emit);
 
     const remModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
     const diagRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
@@ -357,7 +381,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         body: alert.body,
         sourceIntegrations: alert.sourceIntegrations,
         aiReasoning: alert.aiReasoning,
-      }, repoFiles, remediationContext, pastHints) },
+      }, repoFiles, remediationContext, pastHints, hotFiles, deployedFiles) },
     ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: number };

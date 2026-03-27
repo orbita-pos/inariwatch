@@ -82,6 +82,8 @@ export type RemediationContext = {
   datadogMetrics: string | null;
   substrateContext: string | null;
   eapReceipt: EapReceiptContext | null;
+  /** Files changed in the most recent deploy — likely cause of the error. */
+  deployContext: string | null;
 };
 
 export type EapReceiptContext = {
@@ -115,12 +117,23 @@ export function buildDiagnosePrompt(
   },
   repoFiles: string[],
   context?: RemediationContext | null,
-  pastIncidents?: MemoryHint[]
+  pastIncidents?: MemoryHint[],
+  hotFiles?: Map<string, number>,
+  deployedFiles?: string[],
 ): string {
-  // Show a subset of the file tree to avoid token explosion
+  const deployedSet = new Set(deployedFiles ?? []);
+
+  // Build annotated file tree — mark hot files and recently deployed files
   const fileTree = repoFiles
     .filter((f) => !f.includes("node_modules/") && !f.includes(".lock") && !f.startsWith(".git/"))
     .slice(0, 500)
+    .map((f) => {
+      const tags: string[] = [];
+      const hotCount = hotFiles?.get(f);
+      if (hotCount && hotCount >= 2) tags.push(`HOT:${hotCount} fixes`);
+      if (deployedSet.has(f)) tags.push("DEPLOYED");
+      return tags.length > 0 ? `${f}  [${tags.join("] [")}]` : f;
+    })
     .join("\n");
 
   const contextSections: string[] = [];
@@ -130,6 +143,7 @@ export function buildDiagnosePrompt(
   if (context?.githubCILogs) contextSections.push(`GITHUB CI LOGS:\n${context.githubCILogs.slice(0, 2500)}`);
   if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1500)}`);
   if (context?.substrateContext) contextSections.push(`SUBSTRATE RECORDING (full I/O trace):\n${context.substrateContext.slice(0, 4000)}`);
+  if (context?.deployContext) contextSections.push(`RECENT DEPLOY (likely cause of the error):\n${context.deployContext.slice(0, 1500)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";
@@ -170,6 +184,7 @@ Confidence scoring guide:
 
 Only request files that exist in the tree above. Request 1-5 files maximum.
 Focus on source files (.ts, .tsx, .js, .jsx, .py, .go, .rs, etc.), not config files, unless the error is clearly config-related.
+PRIORITIZE files marked [DEPLOYED] (changed in the deploy that caused this error) and [HOT] (frequently fixed in this project).
 
 CRITICAL RULES:
 - If build/runtime logs are provided above, base your diagnosis ONLY on what the logs say. Do not guess.

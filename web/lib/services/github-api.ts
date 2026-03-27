@@ -432,3 +432,45 @@ export async function listOwnerRepos(token: string, owner: string): Promise<stri
   const data = await res.json();
   return (data as { name: string }[]).map((r) => r.name);
 }
+
+// ── Deploy context ───────────────────────────────────────────────────────────
+
+export type CommitFile = { filename: string; status: string; additions: number; deletions: number };
+
+/** Get files changed in the most recent commit on a branch. */
+export async function getRecentCommitFiles(
+  token: string, owner: string, repo: string, branch: string
+): Promise<{ sha: string; message: string; files: CommitFile[] } | null> {
+  try {
+    // Get latest commit on branch
+    const commitsRes = await fetch(
+      `${API}/repos/${owner}/${repo}/commits?sha=${branch}&per_page=1`,
+      { headers: headers(token) }
+    );
+    if (!commitsRes.ok) return null;
+    const commits = await commitsRes.json();
+    if (!commits.length) return null;
+
+    const sha = commits[0].sha as string;
+    const message = (commits[0].commit?.message ?? "") as string;
+
+    // Get files changed in that commit
+    const detailRes = await fetch(
+      `${API}/repos/${owner}/${repo}/commits/${sha}`,
+      { headers: headers(token) }
+    );
+    if (!detailRes.ok) return null;
+    const detail = await detailRes.json();
+
+    const files: CommitFile[] = (detail.files ?? []).map((f: Record<string, unknown>) => ({
+      filename: f.filename as string,
+      status: (f.status ?? "modified") as string,
+      additions: (f.additions ?? 0) as number,
+      deletions: (f.deletions ?? 0) as number,
+    }));
+
+    return { sha, message, files };
+  } catch {
+    return null;
+  }
+}

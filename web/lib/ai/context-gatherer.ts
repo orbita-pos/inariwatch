@@ -195,6 +195,7 @@ export async function gatherRemediationContext(
     datadogMetrics: null,
     substrateContext: null,
     eapReceipt: null,
+    deployContext: null,
   };
 
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, projectId));
@@ -249,6 +250,27 @@ export async function gatherRemediationContext(
         result.githubCILogs = await fetchGitHubCIContext(token, owner, repo, branch);
         emit("context", { source: "github", status: result.githubCILogs ? "found" : "empty" });
       }
+    })());
+  }
+
+  // Deploy context — files changed in last commit (likely cause of the error)
+  if (ghInteg) {
+    tasks.push((async () => {
+      try {
+        const config = decryptConfig(ghInteg.configEncrypted);
+        const token = config.token as string;
+        const owner = config.owner as string;
+        const repo = (config.repo ?? (config.repos as string[] | undefined)?.[0] ?? "") as string;
+        if (token && owner && repo) {
+          const commit = await gh.getRecentCommitFiles(token, owner, repo, "main");
+          if (commit && commit.files.length > 0) {
+            const fileList = commit.files
+              .map((f) => `  ${f.filename} (${f.status} +${f.additions} -${f.deletions})`)
+              .join("\n");
+            result.deployContext = `Last deploy: ${commit.sha.slice(0, 8)} "${commit.message.split("\n")[0]}"\nFiles changed:\n${fileList}`;
+          }
+        }
+      } catch { /* non-blocking */ }
     })());
   }
 
