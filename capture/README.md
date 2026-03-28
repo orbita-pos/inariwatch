@@ -4,23 +4,58 @@ Lightweight error capture SDK for [InariWatch](https://inariwatch.com) — zero 
 
 Drop-in alternative to Sentry's SDK. Captures exceptions, structured logs, and deploy markers from your app and sends them to InariWatch for AI-powered analysis and remediation.
 
-## Install
+## Quick start (zero config)
+
+One command. No signup. No DSN.
+
+```bash
+npx @inariwatch/capture
+```
+
+That's it. Auto-detects your framework (Next.js, Express, Node.js), installs, and starts capturing errors to your terminal.
+
+When you're ready for the cloud dashboard:
+
+```bash
+npx @inariwatch/capture link
+```
+
+## Manual install
 
 ```bash
 npm install @inariwatch/capture
 ```
 
-## Quick start
-
 ```typescript
-import { init, captureException, captureLog, captureMessage } from "@inariwatch/capture";
+import { init, captureException } from "@inariwatch/capture";
 
+// Local mode — no DSN needed, errors print to terminal
+init({});
+
+// Cloud mode — errors go to your InariWatch dashboard
 init({
   dsn: "https://app.inariwatch.com/api/webhooks/capture/YOUR_PROJECT_ID",
   environment: "production",
   release: "1.2.0",
 });
 ```
+
+## Substrate (full I/O recording)
+
+Capture every HTTP call, DB query, and file operation alongside your errors:
+
+```bash
+npm install @inariwatch/capture @inariwatch/substrate-agent
+```
+
+```typescript
+init({
+  dsn: "...",
+  substrate: true, // activates ring buffer recording
+});
+```
+
+When `captureException()` fires, the last 60 seconds of I/O are automatically uploaded with the error. The AI sees exactly what your code did — not just the stack trace.
 
 ## API
 
@@ -30,9 +65,10 @@ Initialize the SDK. Call once at app startup.
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `dsn` | `string` | **Required.** Your project's capture endpoint |
+| `dsn` | `string` | Capture endpoint. Omit for local mode (terminal output) |
 | `environment` | `string` | Environment tag (e.g. `"production"`, `"preview"`) |
 | `release` | `string` | Release version — also triggers a deploy marker event |
+| `substrate` | `boolean \| object` | Enable Substrate I/O recording (requires `@inariwatch/substrate-agent`) |
 | `debug` | `boolean` | Log transport errors to console |
 | `silent` | `boolean` | Suppress all console output |
 | `beforeSend` | `(event) => event \| null` | Transform or drop events before sending |
@@ -54,7 +90,10 @@ try {
 Send a structured log event.
 
 ```typescript
-captureLog("Database connection timeout", "error", { host: "db.example.com", latency: 5200 });
+captureLog("Database connection timeout", "error", {
+  host: "db.example.com",
+  latency: 5200,
+});
 ```
 
 Levels: `"debug"` | `"info"` | `"warn"` | `"error"` | `"fatal"`
@@ -69,7 +108,7 @@ captureMessage("Deploy v1.2.0 started", "info");
 
 ### `flush()`
 
-Wait for all pending events to be sent. Call this before process exit or serverless function return.
+Wait for all pending events to be sent. Call before process exit or serverless return.
 
 ```typescript
 await flush();
@@ -81,25 +120,33 @@ Next.js `instrumentation.ts` helper — captures server-side errors with route a
 
 ```typescript
 // instrumentation.ts
-import { captureRequestError } from "@inariwatch/capture";
+import { init, captureRequestError } from "@inariwatch/capture";
 
-export function onRequestError(error, request, context) {
-  captureRequestError(error, request, context);
-}
+init({});
+
+export const onRequestError = captureRequestError;
 ```
 
-## Express example
+## Next.js
+
+```bash
+npx @inariwatch/capture
+```
+
+Auto-creates `instrumentation.ts` with error capture. Works with App Router and Pages Router.
+
+## Express
 
 ```typescript
 import express from "express";
 import { init, captureException, flush } from "@inariwatch/capture";
 
-init({ dsn: "https://app.inariwatch.com/api/webhooks/capture/YOUR_PROJECT_ID" });
+init({});
 
 const app = express();
 
 app.use((err, req, res, next) => {
-  captureException(err);
+  captureException(err, { request: { method: req.method, url: req.url } });
   res.status(500).json({ error: "Internal server error" });
 });
 
@@ -109,24 +156,23 @@ process.on("SIGTERM", async () => {
 });
 ```
 
-## Local development
+## CLI commands
 
-When the DSN points to `localhost`, events are routed to the CLI capture server automatically:
-
-```typescript
-init({ dsn: "http://localhost:9111/ingest" });
-```
-
-Run `inariwatch watch` to receive events locally.
+| Command | Description |
+|---------|-------------|
+| `npx @inariwatch/capture` | Auto-setup in your project (zero config) |
+| `npx @inariwatch/capture link` | Connect to InariWatch cloud (add DSN) |
 
 ## Features
 
+- **Zero config** — `npx @inariwatch/capture` and you're done
 - **Zero dependencies** — just `fetch` (built into Node 18+)
-- **9.8 kB** package size
+- **Local mode** — works without signup, errors print to terminal
+- **Substrate integration** — full I/O recording with `substrate: true`
+- **Auto framework detection** — Next.js, Express, Node.js
 - **Auto deploy detection** — setting `release` sends a deploy marker
 - **Retry buffer** — failed events are retried automatically (up to 30)
 - **Fingerprinting** — deduplicates identical events
-- **`beforeSend` hook** — filter or transform events before they leave your app
 - **HMAC signing** — events are signed for webhook verification
 - **ESM-only** — modern `import`/`export`
 
