@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import crypto from "crypto"
-import { db, alerts, projects, apiKeys } from "@/lib/db"
+import { db, alerts } from "@/lib/db"
 import { eq, and, inArray } from "drizzle-orm"
-import { decrypt } from "@/lib/crypto"
+import { authenticateExtensionToken, unauthorized, forbidden, badRequest, isValidUUID } from "@/lib/auth-extension"
+import { rateLimit } from "@/lib/auth-rate-limit"
 
 export async function POST(
   req: NextRequest,
@@ -10,30 +10,22 @@ export async function POST(
 ) {
   const { id } = await params
 
-  // Auth
-  const auth = req.headers.get("authorization") ?? ""
-  if (!auth.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const auth = await authenticateExtensionToken(req)
+  if (!auth) return unauthorized()
+
+  // Rate limit: 30 req/min per user
+  const rl = await rateLimit("ext-resolve", auth.userId, { windowMs: 60_000, max: 30 })
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Rate limited" }, { status: 429 })
   }
-  const token = auth.slice(7).trim()
 
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.service, "desktop"))
-  const keyRow = keys.find((k) => {
-    const stored = Buffer.from(decrypt(k.keyEncrypted ?? ""))
-    const provided = Buffer.from(token)
-    if (stored.length !== provided.length) return false
-    return crypto.timingSafeEqual(stored, provided)
-  })
-  if (!keyRow) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  // Verify alert belongs to user's projects
-  const userProjects = await db.select().from(projects).where(eq(projects.userId, keyRow.userId))
-  const projectIds = userProjects.map((p) => p.id)
+  if (!isValidUUID(id)) return badRequest("Invalid alert ID")
+  if (auth.projectIds.length === 0) return forbidden("No projects")
 
   await db
     .update(alerts)
     .set({ isRead: true, isResolved: true })
-    .where(and(eq(alerts.id, id), inArray(alerts.projectId, projectIds)))
+    .where(and(eq(alerts.id, id), inArray(alerts.projectId, auth.projectIds)))
 
   return NextResponse.json({ ok: true })
 }

@@ -1,40 +1,38 @@
-import crypto from "crypto"
-import { db, alerts, projects, apiKeys } from "@/lib/db"
-import { desc, inArray, eq } from "drizzle-orm"
-import { decrypt } from "@/lib/crypto"
+import { db, alerts } from "@/lib/db"
+import { desc, inArray } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { authenticateExtensionToken } from "@/lib/auth-extension"
+import { rateLimit } from "@/lib/auth-rate-limit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+const MAX_CONNECTION_MS = 30 * 60 * 1000 // 30 minutes max
+const POLL_INTERVAL_MS = 10_000
+
+// Per-user connection tracking (in-memory, resets on deploy)
+const activeConnections = new Map<string, number>()
+const MAX_CONNECTIONS_PER_USER = 5
+
 export async function GET(req: NextRequest) {
-  // Bearer token auth
-  const auth = req.headers.get("authorization") ?? ""
-  if (!auth.startsWith("Bearer ")) {
-    return new Response("Unauthorized", { status: 401 })
+  const auth = await authenticateExtensionToken(req)
+  if (!auth) return new Response("Unauthorized", { status: 401 })
+
+  // Rate limit: 5 stream connections per minute
+  const rl = await rateLimit("ext-stream", auth.userId, { windowMs: 60_000, max: 5 })
+  if (!rl.allowed) return new Response("Rate limited", { status: 429 })
+
+  // Check concurrent connections
+  const current = activeConnections.get(auth.userId) ?? 0
+  if (current >= MAX_CONNECTIONS_PER_USER) {
+    return new Response("Too many connections", { status: 429 })
   }
-  const token = auth.slice(7).trim()
+  activeConnections.set(auth.userId, current + 1)
 
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.service, "desktop"))
-  const keyRow = keys.find((k) => {
-    const stored = Buffer.from(decrypt(k.keyEncrypted ?? ""))
-    const provided = Buffer.from(token)
-    if (stored.length !== provided.length) return false
-    return crypto.timingSafeEqual(stored, provided)
-  })
-  if (!keyRow) return new Response("Unauthorized", { status: 401 })
-
-  // Get user's projects
-  const userProjects = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.userId, keyRow.userId))
-
-  const projectIds = userProjects.map((p) => p.id)
-  const projectNameMap = new Map(userProjects.map((p) => [p.id, p.name]))
-
+  const projectIds = auth.projectIds
   const encoder = new TextEncoder()
   let closed = false
+  const startTime = Date.now()
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -43,6 +41,14 @@ export async function GET(req: NextRequest) {
       let lastCheckTime = new Date()
 
       const interval = setInterval(async () => {
+        // Max connection duration
+        if (Date.now() - startTime > MAX_CONNECTION_MS) {
+          closed = true
+          clearInterval(interval)
+          try { controller.close() } catch {}
+          return
+        }
+
         if (closed) {
           clearInterval(interval)
           return
@@ -67,12 +73,10 @@ export async function GET(req: NextRequest) {
               body: a.body,
               severity: a.severity,
               aiReasoning: a.aiReasoning,
-              postmortem: a.postmortem,
               fingerprint: a.fingerprint,
               isRead: a.isRead,
               isResolved: a.isResolved,
               sourceIntegrations: a.sourceIntegrations,
-              projectName: projectNameMap.get(a.projectId) ?? "Unknown",
               createdAt: a.createdAt?.toISOString(),
             })
             controller.enqueue(encoder.encode(`data: ${data}\n\n`))
@@ -84,7 +88,7 @@ export async function GET(req: NextRequest) {
         } catch {
           // Ignore polling errors
         }
-      }, 10000)
+      }, POLL_INTERVAL_MS)
 
       const checkClosed = setInterval(() => {
         if (closed) {
@@ -96,6 +100,9 @@ export async function GET(req: NextRequest) {
     },
     cancel() {
       closed = true
+      // Decrement connection count
+      const count = activeConnections.get(auth.userId) ?? 1
+      activeConnections.set(auth.userId, Math.max(0, count - 1))
     },
   })
 

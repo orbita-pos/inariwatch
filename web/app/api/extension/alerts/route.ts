@@ -1,49 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
-import crypto from "crypto"
-import { db, alerts, projects, apiKeys } from "@/lib/db"
-import { eq, desc, inArray, and } from "drizzle-orm"
-import { decrypt } from "@/lib/crypto"
-
-async function authenticateToken(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? ""
-  if (!auth.startsWith("Bearer ")) return null
-  const token = auth.slice(7).trim()
-  if (!token) return null
-
-  const keys = await db
-    .select()
-    .from(apiKeys)
-    .where(eq(apiKeys.service, "desktop"))
-
-  const keyRow = keys.find((k) => {
-    const stored = Buffer.from(decrypt(k.keyEncrypted ?? ""))
-    const provided = Buffer.from(token)
-    if (stored.length !== provided.length) return false
-    return crypto.timingSafeEqual(stored, provided)
-  })
-
-  return keyRow ?? null
-}
+import { db, alerts } from "@/lib/db"
+import { desc, inArray, eq, and } from "drizzle-orm"
+import { authenticateExtensionToken, unauthorized } from "@/lib/auth-extension"
+import { rateLimit } from "@/lib/auth-rate-limit"
 
 export async function GET(req: NextRequest) {
-  const keyRow = await authenticateToken(req)
-  if (!keyRow) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const auth = await authenticateExtensionToken(req)
+  if (!auth) return unauthorized()
 
-  const userProjects = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.userId, keyRow.userId))
+  // Rate limit: 60 req/min per user
+  const rl = await rateLimit("ext-alerts", auth.userId, { windowMs: 60_000, max: 60 })
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Rate limited" }, { status: 429 })
+  }
 
-  if (userProjects.length === 0) return NextResponse.json([])
-
-  const projectIds = userProjects.map((p) => p.id)
-  const projectNameMap = new Map(userProjects.map((p) => [p.id, p.name]))
+  if (auth.projectIds.length === 0) return NextResponse.json([])
 
   const rows = await db
     .select()
     .from(alerts)
     .where(and(
-      inArray(alerts.projectId, projectIds),
+      inArray(alerts.projectId, auth.projectIds),
       eq(alerts.isResolved, false),
     ))
     .orderBy(desc(alerts.createdAt))
@@ -60,7 +37,7 @@ export async function GET(req: NextRequest) {
     isRead: a.isRead,
     isResolved: a.isResolved,
     sourceIntegrations: a.sourceIntegrations,
-    projectName: projectNameMap.get(a.projectId) ?? "Unknown",
+    projectName: "project",
     createdAt: a.createdAt?.toISOString(),
   }))
 

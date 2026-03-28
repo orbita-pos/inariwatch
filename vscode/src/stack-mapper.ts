@@ -84,11 +84,16 @@ async function resolveToWorkspace(
     const fuzzyPattern = `**/${parts.slice(-2).join("/")}`
     const matches = await vscode.workspace.findFiles(fuzzyPattern, "**/node_modules/**", 1)
     if (matches.length > 0) {
-      return {
-        filePath: matches[0].fsPath,
-        line: frame.line,
-        column: frame.column,
-        frame: frame.raw,
+      // Verify resolved path is inside a workspace folder
+      const resolved = matches[0].fsPath
+      const inWorkspace = folders.some((f) => resolved.startsWith(f.uri.fsPath))
+      if (inWorkspace) {
+        return {
+          filePath: resolved,
+          line: frame.line,
+          column: frame.column,
+          frame: frame.raw,
+        }
       }
     }
   }
