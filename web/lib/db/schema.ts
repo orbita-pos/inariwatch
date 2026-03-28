@@ -622,3 +622,60 @@ export const rateLimits = pgTable("rate_limits", {
   count: integer("count").notNull().default(1),
   windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Slack Bot ────────────────────────────────────────────────────────────────
+
+export const slackInstallations = pgTable("slack_installations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  teamId: text("team_id").notNull().unique(),
+  teamName: text("team_name").notNull(),
+  botToken: text("bot_token").notNull(), // encrypted
+  botUserId: text("bot_user_id").notNull(),
+  scopes: text("scopes").array().notNull().default(sql`'{}'`),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const slackChannelMappings = pgTable("slack_channel_mappings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  channelName: text("channel_name").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const slackMessageThreads = pgTable("slack_message_threads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  threadTs: text("thread_ts").notNull(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }),
+  stormId: uuid("storm_id").references(() => incidentStorms.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("alert"), // 'alert' | 'incident' | 'deploy'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const slackUserLinks = pgTable("slack_user_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  slackUserId: text("slack_user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const deployMonitors = pgTable("deploy_monitors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  threadTs: text("thread_ts").notNull(),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  deploySource: text("deploy_source").notNull(), // 'vercel' | 'github'
+  deployId: text("deploy_id"),
+  checkAt: timestamp("check_at").notNull(),
+  status: text("status").default("pending").notNull(), // 'pending' | 'checked'
+  createdAt: timestamp("created_at").defaultNow(),
+});
