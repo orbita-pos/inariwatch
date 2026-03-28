@@ -117,6 +117,7 @@ export function buildRemediationCompleteBlocks(
   confidence: number,
   autoMerged: boolean,
   sessionId?: string,
+  eapReceipt?: { verified: boolean; chainDepth: number; surfaces: { httpEndpoints: string[]; dbTables: string[]; llmCalls: { provider: string; model: string }[] } } | null,
 ): KnownBlock[] {
   const confBadge = confidence >= 80 ? ":green_circle:" : confidence >= 50 ? ":large_orange_circle:" : ":red_circle:";
 
@@ -131,6 +132,25 @@ export function buildRemediationCompleteBlocks(
       },
     },
   ];
+
+  // EAP verification chain
+  if (eapReceipt) {
+    const verifiedEmoji = eapReceipt.verified ? ":lock:" : ":warning:";
+    const verifiedText = eapReceipt.verified ? "Chain verified" : "Chain NOT verified";
+    const surfaceParts: string[] = [];
+    if (eapReceipt.surfaces.httpEndpoints.length > 0) surfaceParts.push(`${eapReceipt.surfaces.httpEndpoints.length} HTTP endpoints`);
+    if (eapReceipt.surfaces.dbTables.length > 0) surfaceParts.push(`${eapReceipt.surfaces.dbTables.length} DB tables`);
+    if (eapReceipt.surfaces.llmCalls.length > 0) surfaceParts.push(`${eapReceipt.surfaces.llmCalls.length} LLM calls`);
+    const surfaceLine = surfaceParts.length > 0 ? surfaceParts.join(" · ") : "No surfaces recorded";
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${verifiedEmoji} *EAP Verification* — ${verifiedText}\nChain depth: ${eapReceipt.chainDepth} | ${surfaceLine}`,
+      },
+    });
+  }
 
   if (prUrl) {
     blocks.push({

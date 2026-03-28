@@ -735,6 +735,9 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         const autoMergeConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
         const totalLinesChanged = fix.files.reduce((sum, f) => sum + f.content.split("\n").length, 0);
 
+        // Extract EAP verification from gathered context
+        const eapChainVerified = remediationContext.eapReceipt?.verified ?? null;
+
         const gateResult = evaluateAutoMergeGates({
           config: autoMergeConfig,
           confidenceScore: diagnosis.confidence,
@@ -742,6 +745,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           linesChanged: totalLinesChanged,
           ciPassed: true,
           simulateRiskScore,
+          eapChainVerified,
         });
 
         emit("gates", { gates: gateResult.gates, strategy: gateResult.strategy });

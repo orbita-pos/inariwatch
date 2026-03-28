@@ -167,12 +167,13 @@ export async function sendRemediationComplete(
   confidence: number,
   autoMerged: boolean,
   sessionId: string,
+  eapReceipt?: { verified: boolean; chainDepth: number; surfaces: { httpEndpoints: string[]; dbTables: string[]; llmCalls: { provider: string; model: string }[] } } | null,
 ): Promise<void> {
   const thread = await getThread(alertId);
   if (!thread) return;
 
   const client = await getSlackClient(thread.installationId);
-  const blocks = buildRemediationCompleteBlocks(prUrl, confidence, autoMerged, sessionId);
+  const blocks = buildRemediationCompleteBlocks(prUrl, confidence, autoMerged, sessionId, eapReceipt);
 
   await client.chat.postMessage({
     channel: thread.channelId,

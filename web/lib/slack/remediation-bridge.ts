@@ -125,17 +125,28 @@ function createSlackEmit(alertId: string, sessionId: string) {
 
         if (status === "completed" || status === "proposing") {
           // Load confidence from session
-          db.select({ confidenceScore: remediationSessions.confidenceScore })
+          db.select({
+              confidenceScore: remediationSessions.confidenceScore,
+              context: remediationSessions.context,
+            })
             .from(remediationSessions)
             .where(eq(remediationSessions.id, sessionId))
             .limit(1)
             .then(([s]) => {
+              // Extract EAP receipt from stored context
+              const ctx = s?.context as Record<string, unknown> | null;
+              const eapReceipt = ctx?.eapReceipt as {
+                verified: boolean; chainDepth: number;
+                surfaces: { httpEndpoints: string[]; dbTables: string[]; llmCalls: { provider: string; model: string }[] };
+              } | undefined;
+
               sendRemediationComplete(
                 alertId,
                 prUrl ?? null,
                 s?.confidenceScore ?? 0,
                 !!autoMerged,
                 sessionId,
+                eapReceipt ?? null,
               ).catch(() => {});
             })
             .catch(() => {});
