@@ -22,13 +22,24 @@ export async function POST(req: NextRequest) {
   const payloadStr = params.get("payload");
   if (!payloadStr) return new Response("Missing payload", { status: 400 });
 
-  const payload = JSON.parse(payloadStr);
-  const actionId = payload.actions?.[0]?.action_id;
-  const actionValue = payload.actions?.[0]?.value;
-  const slackUserId = payload.user?.id;
-  const installationTeamId = payload.team?.id;
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(payloadStr);
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
 
-  if (!actionId || !slackUserId) {
+  // Validate payload structure
+  const actions = Array.isArray(payload.actions) ? payload.actions : null;
+  const user = payload.user && typeof payload.user === "object" ? payload.user as Record<string, unknown> : null;
+  const team = payload.team && typeof payload.team === "object" ? payload.team as Record<string, unknown> : null;
+
+  const actionId = actions?.[0]?.action_id as string | undefined;
+  const actionValue = actions?.[0]?.value as string | undefined;
+  const slackUserId = user?.id as string | undefined;
+  const installationTeamId = team?.id as string | undefined;
+
+  if (!actionId || !slackUserId || !installationTeamId) {
     return NextResponse.json({ ok: true }); // ack silently
   }
 
@@ -59,37 +70,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ response_type: "ephemeral", text: "Rate limited. Try again shortly." });
   }
 
-  // Route actions
+  // Route actions — actionValue is guaranteed string at this point
+  const value = actionValue || "";
+  const responseUrl = (payload.response_url as string) || "";
+  const message = (payload.message ?? {}) as Record<string, unknown>;
+
   switch (actionId) {
     case "ack_alert": {
-      const result = await acknowledgeAlertCore(actionValue, userId);
+      const result = await acknowledgeAlertCore(value, userId);
       if (result.error) return NextResponse.json({ response_type: "ephemeral", text: result.error });
       return NextResponse.json({ response_type: "ephemeral", text: ":eyes: Alert acknowledged." });
     }
 
     case "resolve_alert": {
-      const result = await resolveAlertCore(actionValue, userId);
+      const result = await resolveAlertCore(value, userId);
       if (result.error) return NextResponse.json({ response_type: "ephemeral", text: result.error });
       return NextResponse.json({ response_type: "ephemeral", text: ":white_check_mark: Alert resolved." });
     }
 
     case "fix_alert": {
-      // Ack immediately, run remediation in background
-      const responseUrl = payload.response_url;
-      waitUntil(runSlackRemediation(actionValue, userId, responseUrl));
+      waitUntil(runSlackRemediation(value, userId, responseUrl));
       return NextResponse.json({ response_type: "ephemeral", text: ":gear: Starting remediation..." });
     }
 
     case "approve_remediation": {
-      const sessionId = payload.actions?.[0]?.value;
-      const result = await approveRemediationCore(sessionId, userId);
+      const result = await approveRemediationCore(value, userId);
       if (result.error) return NextResponse.json({ response_type: "ephemeral", text: result.error });
       return NextResponse.json({ response_type: "ephemeral", text: ":white_check_mark: Remediation approved." });
     }
 
     case "cancel_remediation": {
-      const sessionId = payload.actions?.[0]?.value;
-      const result = await cancelRemediationCore(sessionId, userId);
+      const result = await cancelRemediationCore(value, userId);
       if (result.error) return NextResponse.json({ response_type: "ephemeral", text: result.error });
       return NextResponse.json({ response_type: "ephemeral", text: ":x: Remediation cancelled." });
     }
@@ -97,9 +108,8 @@ export async function POST(req: NextRequest) {
     case "generate_postmortem": {
       waitUntil((async () => {
         try {
-          // Find the alert from the thread context
           const { slackMessageThreads, alerts: alertsTable } = await import("@/lib/db");
-          const threadTs = payload.message?.thread_ts || payload.message?.ts;
+          const threadTs = (message.thread_ts as string) || (message.ts as string);
           if (!threadTs) return;
 
           const [thread] = await db

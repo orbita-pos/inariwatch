@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { db, deployMonitors, alerts } from "@/lib/db";
-import { eq, and, lte, gte, inArray } from "drizzle-orm";
+import { eq, and, lte, gte } from "drizzle-orm";
 import { getSlackClient } from "@/lib/slack/client";
 import { buildDeployFollowUpBlocks } from "@/lib/slack/blocks";
 
@@ -13,10 +14,19 @@ export const dynamic = "force-dynamic";
  * and posts a health update to the Slack thread.
  */
 export async function GET(req: NextRequest) {
-  // Simple auth: cron secret or skip in dev
-  const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
+
+  const authHeader = req.headers.get("authorization") ?? "";
+  const expected = `Bearer ${cronSecret}`;
+  const maxLen = Math.max(expected.length, authHeader.length);
+  const aBuf = Buffer.alloc(maxLen);
+  const bBuf = Buffer.alloc(maxLen);
+  Buffer.from(expected).copy(aBuf);
+  Buffer.from(authHeader).copy(bBuf);
+  if (!crypto.timingSafeEqual(aBuf, bBuf)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

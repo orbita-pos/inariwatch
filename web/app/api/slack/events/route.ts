@@ -13,7 +13,12 @@ export async function POST(req: NextRequest) {
   const { valid, body } = await verifySlackRequest(req);
   if (!valid) return new Response("Invalid signature", { status: 401 });
 
-  const event = JSON.parse(body);
+  let event: Record<string, unknown>;
+  try {
+    event = JSON.parse(body);
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
 
   // URL verification challenge (Slack app setup)
   if (event.type === "url_verification") {
@@ -22,16 +27,16 @@ export async function POST(req: NextRequest) {
 
   // Event callback
   if (event.type === "event_callback") {
-    const ev = event.event;
-    const teamId = event.team_id;
+    const ev = event.event as Record<string, unknown> | undefined;
+    const teamId = event.team_id as string;
 
-    if (ev.type === "app_mention" || (ev.type === "message" && ev.channel_type === "im")) {
+    if (ev && (ev.type === "app_mention" || (ev.type === "message" && ev.channel_type === "im"))) {
       // Don't respond to bot's own messages
       if (ev.bot_id || ev.subtype === "bot_message") {
         return NextResponse.json({ ok: true });
       }
 
-      waitUntil(handleAIChat(teamId, ev));
+      waitUntil(handleAIChat(teamId, ev as { user: string; text: string; channel: string; thread_ts?: string; ts: string }));
     }
   }
 

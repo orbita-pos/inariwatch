@@ -11,9 +11,7 @@ export async function verifySlackRequest(
   req: Request,
 ): Promise<{ valid: boolean; body: string }> {
   if (!SIGNING_SECRET) {
-    console.warn("[slack] SLACK_SIGNING_SECRET not set — skipping verification");
-    const body = await req.text();
-    return { valid: true, body };
+    return { valid: false, body: "" };
   }
 
   const timestamp = req.headers.get("x-slack-request-timestamp");

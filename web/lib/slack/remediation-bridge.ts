@@ -162,7 +162,7 @@ function createSlackEmit(alertId: string, sessionId: string) {
 
 /** Post a message to Slack's response_url (ephemeral update) */
 async function postToResponseUrl(url: string, text: string): Promise<void> {
-  if (!url) return;
+  if (!url || !url.startsWith("https://hooks.slack.com/")) return;
   try {
     await fetch(url, {
       method: "POST",

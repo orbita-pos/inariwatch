@@ -22,17 +22,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${appUrl}/settings?slack=error&reason=missing_params`);
   }
 
-  // Verify state contains a valid signed userId
-  // State format from signValue: "userId:timestamp:signature"
+  // Verify state signature FIRST, then extract userId
   const parts = state.split(":");
-  if (parts.length < 2) {
+  if (parts.length < 3) {
     return NextResponse.redirect(`${appUrl}/settings?slack=error&reason=invalid_state`);
   }
-  const userId = parts[0];
-  const isValid = verifySignedValue(userId, state, 600); // 10 min TTL
+  // Verify before trusting any data from the state
+  const candidateUserId = parts[0];
+  const isValid = verifySignedValue(candidateUserId, state, 600); // 10 min TTL
   if (!isValid) {
     return NextResponse.redirect(`${appUrl}/settings?slack=error&reason=expired_state`);
   }
+  // Only use userId AFTER verification succeeds
+  const userId = candidateUserId;
 
   // Exchange code for bot token
   const redirectUri = `${appUrl}/api/slack/oauth/callback`;

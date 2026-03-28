@@ -217,9 +217,28 @@ async function handleOnCallSwap(userId: string, slackMention: string, projectIds
       .limit(1);
 
     if (schedule) {
-      // Create a 24-hour override for the target user
       const now = new Date();
       const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      // Check for existing active override to prevent duplicates
+      const { onCallOverrides: overridesTable } = await import("@/lib/db");
+      const { gte: gteOp } = await import("drizzle-orm");
+      const [existingOverride] = await db
+        .select()
+        .from(overridesTable)
+        .where(and(
+          eq(overridesTable.scheduleId, schedule.id),
+          eq(overridesTable.userId, targetLink.userId),
+          gteOp(overridesTable.endsAt, now),
+        ))
+        .limit(1);
+
+      if (existingOverride) {
+        return NextResponse.json({
+          response_type: "ephemeral",
+          text: `<@${targetSlackUserId}> already has an active on-call override.`,
+        });
+      }
 
       await db.insert(onCallOverrides).values({
         scheduleId: schedule.id,
@@ -245,6 +264,12 @@ async function handleLink(slackUserId: string, installationId: string, email: st
       response_type: "ephemeral",
       text: "Usage: `/inariwatch link your@email.com`\nUse the email you registered with on InariWatch.",
     });
+  }
+
+  // Validate email format and length
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (email.length > 254 || !EMAIL_RE.test(email)) {
+    return NextResponse.json({ response_type: "ephemeral", text: "Invalid email format." });
   }
 
   const { users, slackUserLinks } = await import("@/lib/db");
