@@ -36,12 +36,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ response_type: "ephemeral", text: "Workspace not connected to InariWatch." });
   }
 
+  // Parse subcommand early — link command works before user resolution
+  const [subcommand, ...args] = commandText.split(/\s+/);
+
+  // Handle link command (works for unlinked users)
+  if (subcommand?.toLowerCase() === "link") {
+    return handleLink(slackUserId, install.id, args[0]);
+  }
+
   // Resolve user
   const userId = await resolveSlackUser(slackUserId, install.id);
   if (!userId) {
+    const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "https://app.inariwatch.com";
     return NextResponse.json({
       response_type: "ephemeral",
-      text: "Your Slack account is not linked to InariWatch.",
+      text: `Your Slack account is not linked. Run \`/inariwatch link <your-email>\` to connect, or visit ${appUrl}/settings.`,
     });
   }
 
@@ -50,9 +59,6 @@ export async function POST(req: NextRequest) {
   if (!rl.allowed) {
     return NextResponse.json({ response_type: "ephemeral", text: "Rate limited. Try again shortly." });
   }
-
-  // Parse subcommand
-  const [subcommand, ...args] = commandText.split(/\s+/);
 
   switch (subcommand?.toLowerCase() || "help") {
     case "status":
@@ -158,6 +164,11 @@ async function handleOnCall(userId: string, args: string[]) {
     return NextResponse.json({ response_type: "ephemeral", text: "No projects found." });
   }
 
+  // Handle swap: /inariwatch oncall swap @user
+  if (args[0] === "swap" && args[1]) {
+    return handleOnCallSwap(userId, args[1], projectIds);
+  }
+
   const { users, projects } = await import("@/lib/db");
   const rotations: { projectName: string; userName: string | null; level: number }[] = [];
 
@@ -174,6 +185,109 @@ async function handleOnCall(userId: string, args: string[]) {
 
   const blocks = buildOnCallBlocks(rotations);
   return NextResponse.json({ response_type: "in_channel", blocks });
+}
+
+async function handleOnCallSwap(userId: string, slackMention: string, projectIds: string[]) {
+  // Parse Slack mention: <@U12345> → U12345
+  const match = slackMention.match(/<@([A-Z0-9]+)>/);
+  if (!match) {
+    return NextResponse.json({ response_type: "ephemeral", text: "Usage: `/inariwatch oncall swap @user`" });
+  }
+
+  const targetSlackUserId = match[1];
+
+  // Resolve target Slack user to InariWatch user
+  const { slackUserLinks, slackInstallations, onCallOverrides, onCallSchedules } = await import("@/lib/db");
+  const [targetLink] = await db
+    .select()
+    .from(slackUserLinks)
+    .where(eq(slackUserLinks.slackUserId, targetSlackUserId))
+    .limit(1);
+
+  if (!targetLink) {
+    return NextResponse.json({ response_type: "ephemeral", text: "That user is not linked to InariWatch." });
+  }
+
+  // Find first project with an on-call schedule
+  for (const pid of projectIds) {
+    const [schedule] = await db
+      .select()
+      .from(onCallSchedules)
+      .where(eq(onCallSchedules.projectId, pid))
+      .limit(1);
+
+    if (schedule) {
+      // Create a 24-hour override for the target user
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      await db.insert(onCallOverrides).values({
+        scheduleId: schedule.id,
+        userId: targetLink.userId,
+        level: 1,
+        startsAt: now,
+        endsAt: tomorrow,
+      });
+
+      return NextResponse.json({
+        response_type: "in_channel",
+        text: `:arrows_counterclockwise: On-call swap: <@${targetSlackUserId}> is now on-call for the next 24 hours.`,
+      });
+    }
+  }
+
+  return NextResponse.json({ response_type: "ephemeral", text: "No on-call schedules found for your projects." });
+}
+
+async function handleLink(slackUserId: string, installationId: string, email: string | undefined) {
+  if (!email) {
+    return NextResponse.json({
+      response_type: "ephemeral",
+      text: "Usage: `/inariwatch link your@email.com`\nUse the email you registered with on InariWatch.",
+    });
+  }
+
+  const { users, slackUserLinks } = await import("@/lib/db");
+
+  // Find InariWatch user by email
+  const [user] = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
+
+  if (!user) {
+    return NextResponse.json({
+      response_type: "ephemeral",
+      text: `No InariWatch account found for \`${email}\`. Check the email or sign up first.`,
+    });
+  }
+
+  // Check if already linked
+  const existing = await db
+    .select()
+    .from(slackUserLinks)
+    .where(and(
+      eq(slackUserLinks.slackUserId, slackUserId),
+      eq(slackUserLinks.installationId, installationId),
+    ))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return NextResponse.json({ response_type: "ephemeral", text: ":white_check_mark: Already linked!" });
+  }
+
+  // Create link
+  await db.insert(slackUserLinks).values({
+    userId: user.id,
+    installationId,
+    slackUserId,
+  });
+
+  return NextResponse.json({
+    response_type: "ephemeral",
+    text: `:link: Linked! Your Slack account is now connected to *${user.name || email}* on InariWatch.`,
+  });
 }
 
 function timeAgo(date: Date | null): string {

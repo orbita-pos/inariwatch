@@ -116,6 +116,7 @@ export function buildRemediationCompleteBlocks(
   prUrl: string | null,
   confidence: number,
   autoMerged: boolean,
+  sessionId?: string,
 ): KnownBlock[] {
   const confBadge = confidence >= 80 ? ":green_circle:" : confidence >= 50 ? ":large_orange_circle:" : ":red_circle:";
 
@@ -147,13 +148,13 @@ export function buildRemediationCompleteBlocks(
           text: { type: "plain_text", text: "Approve & Merge" },
           style: "primary",
           action_id: "approve_remediation",
-          value: prUrl, // session ID passed via metadata
+          value: sessionId || "",
         },
         {
           type: "button",
           text: { type: "plain_text", text: "Cancel" },
           action_id: "cancel_remediation",
-          value: prUrl,
+          value: sessionId || "",
         },
       ],
     });
@@ -309,6 +310,7 @@ export function buildHelpBlocks(): KnownBlock[] {
         "`/inariwatch fix <alert-id>` — Trigger AI remediation",
         "`/inariwatch oncall` — Show on-call rotation",
         "`/inariwatch oncall swap @user` — Swap on-call shift",
+        "`/inariwatch link <email>` — Link your Slack to InariWatch",
         "`/inariwatch help` — This message",
         "",
         "_Or mention @InariWatch in any channel to ask a question._",

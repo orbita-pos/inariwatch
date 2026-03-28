@@ -34,6 +34,14 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     .set({ aiReasoning: reasoning })
     .where(eq(alerts.id, alert.id));
 
+  // Post AI diagnosis to Slack thread (if alert has one)
+  try {
+    const { sendThreadReply } = await import("@/lib/slack/send");
+    sendThreadReply(alert.id, `*AI Diagnosis:*\n${reasoning}`).catch(() => {});
+  } catch {
+    // Non-blocking
+  }
+
   // Correlation: look for other recent alerts from the same project (last 30 min)
   const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
   const recentSiblings = await db

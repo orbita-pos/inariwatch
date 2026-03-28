@@ -107,7 +107,7 @@ export async function sendRemediationComplete(
   if (!thread) return;
 
   const client = await getSlackClient(thread.installationId);
-  const blocks = buildRemediationCompleteBlocks(prUrl, confidence, autoMerged);
+  const blocks = buildRemediationCompleteBlocks(prUrl, confidence, autoMerged, sessionId);
 
   await client.chat.postMessage({
     channel: thread.channelId,

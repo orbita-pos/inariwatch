@@ -177,6 +177,20 @@ export async function createAlertIfNew(
     // Non-blocking — status page automation should never block alert creation
   }
 
+  // Slack bot: send alert or incident thread
+  try {
+    if (isTriggeringStorm && stormId) {
+      const { sendIncidentThread } = await import("@/lib/slack/send");
+      const recentTitles = recentAlerts.map((a: { title: string }) => a.title);
+      sendIncidentThread(stormId, projectId, recentAlerts.length, recentTitles).catch(() => {});
+    } else if (!stormId) {
+      const { sendAlertToSlack } = await import("@/lib/slack/send");
+      sendAlertToSlack(inserted as Alert).catch(() => {});
+    }
+  } catch {
+    // Non-blocking — Slack delivery should never block alert creation
+  }
+
   return inserted as Alert;
 }
 

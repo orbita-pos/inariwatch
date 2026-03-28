@@ -94,6 +94,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ response_type: "ephemeral", text: ":x: Remediation cancelled." });
     }
 
+    case "generate_postmortem": {
+      waitUntil((async () => {
+        try {
+          // Find the alert from the thread context
+          const { slackMessageThreads } = await import("@/lib/db");
+          const threadTs = payload.message?.thread_ts || payload.message?.ts;
+          if (!threadTs) return;
+
+          const [thread] = await db
+            .select()
+            .from(slackMessageThreads)
+            .where(eq(slackMessageThreads.threadTs, threadTs))
+            .limit(1);
+
+          if (!thread?.alertId) return;
+
+          const { generatePostmortemInternal } = await import("@/lib/ai/postmortem");
+          await generatePostmortemInternal(thread.alertId);
+
+          const { sendPostmortem } = await import("@/lib/slack/send");
+          const [alert] = await db.select().from(alerts).where(eq(alerts.id, thread.alertId)).limit(1);
+          if (alert?.postmortem) {
+            await sendPostmortem(thread.alertId, alert.postmortem, alert.title);
+          }
+        } catch (err) {
+          console.error("[slack/interactions] postmortem error:", err);
+        }
+      })());
+      return NextResponse.json({ response_type: "ephemeral", text: ":page_facing_up: Generating postmortem..." });
+    }
+
     default:
       return NextResponse.json({ ok: true });
   }
