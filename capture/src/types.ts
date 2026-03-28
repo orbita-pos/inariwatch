@@ -1,6 +1,6 @@
 export interface CaptureConfig {
-  /** DSN — "https://secret@app.inariwatch.com/capture/integration-id" or "http://localhost:9111/ingest" */
-  dsn: string
+  /** DSN — reads from INARIWATCH_DSN env var if not provided. Omit for local mode. */
+  dsn?: string
   /** Environment tag (e.g. "production", "preview", "development") */
   environment?: string
   /** Release tag (e.g. "v1.2.3") */

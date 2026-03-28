@@ -2,8 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { execSync } from "child_process"
-import { join, resolve } from "path"
-import { createInterface } from "readline"
+import { join } from "path"
 
 const BOLD = "\x1b[1m"
 const GREEN = "\x1b[32m"
@@ -16,21 +15,10 @@ const cwd = process.cwd()
 const args = process.argv.slice(2)
 const command = args[0] || "init"
 
-function log(msg: string) {
-  console.log(msg)
-}
-
-function success(msg: string) {
-  log(`${GREEN}+${RESET} ${msg}`)
-}
-
-function warn(msg: string) {
-  log(`${YELLOW}!${RESET} ${msg}`)
-}
-
-function info(msg: string) {
-  log(`${DIM}  ${msg}${RESET}`)
-}
+function log(msg: string) { console.log(msg) }
+function success(msg: string) { log(`${GREEN}+${RESET} ${msg}`) }
+function warn(msg: string) { log(`${YELLOW}!${RESET} ${msg}`) }
+function info(msg: string) { log(`${DIM}  ${msg}${RESET}`) }
 
 // --- Framework detection ---
 
@@ -38,9 +26,9 @@ type Framework = "nextjs" | "express" | "node"
 
 interface DetectedProject {
   framework: Framework
-  packageJson: Record<string, unknown>
   usesTypescript: boolean
   hasSrcDir: boolean
+  packageManager: string
 }
 
 function detectProject(): DetectedProject {
@@ -59,275 +47,170 @@ function detectProject(): DetectedProject {
   if (allDeps["next"]) framework = "nextjs"
   else if (allDeps["express"]) framework = "express"
 
-  return { framework, packageJson: pkg, usesTypescript, hasSrcDir }
-}
+  let packageManager = "npm"
+  if (existsSync(join(cwd, "pnpm-lock.yaml"))) packageManager = "pnpm"
+  else if (existsSync(join(cwd, "yarn.lock"))) packageManager = "yarn"
+  else if (existsSync(join(cwd, "bun.lockb")) || existsSync(join(cwd, "bun.lock"))) packageManager = "bun"
 
-// --- Code generation ---
-
-function nextjsInstrumentation(ts: boolean): string {
-  const ext = ts ? "ts" : "js"
-  return `import { init, captureRequestError } from "@inariwatch/capture"
-
-init({})
-
-export const onRequestError = captureRequestError
-`
-}
-
-function expressSetup(ts: boolean): string {
-  return `import { init, captureException } from "@inariwatch/capture"
-
-// Initialize InariWatch — works locally with no DSN
-init({})
-
-// Add this as your LAST middleware:
-// app.use((err${ts ? ": Error" : ""}, req${ts ? ": any" : ""}, res${ts ? ": any" : ""}, next${ts ? ": any" : ""}) => {
-//   captureException(err, { request: { method: req.method, url: req.url } })
-//   next(err)
-// })
-`
-}
-
-function nodeSetup(): string {
-  return `import { init, captureException } from "@inariwatch/capture"
-
-// Initialize InariWatch — works locally with no DSN
-init({})
-
-// Catch unhandled errors globally
-process.on("uncaughtException", (err) => {
-  captureException(err)
-  console.error(err)
-  process.exit(1)
-})
-
-process.on("unhandledRejection", (reason) => {
-  if (reason instanceof Error) captureException(reason)
-  console.error("Unhandled rejection:", reason)
-})
-`
-}
-
-// --- File injection ---
-
-function injectNextjs(project: DetectedProject) {
-  const ext = project.usesTypescript ? "ts" : "js"
-
-  // Check for app dir
-  const appDir = project.hasSrcDir ? join(cwd, "src") : cwd
-  const instrPath = join(appDir, `instrumentation.${ext}`)
-
-  if (existsSync(instrPath)) {
-    const content = readFileSync(instrPath, "utf-8")
-    if (content.includes("@inariwatch/capture")) {
-      warn("Already installed — instrumentation file has @inariwatch/capture")
-      return
-    }
-    // Prepend init to existing instrumentation
-    const newContent = `import { init } from "@inariwatch/capture"\ninit({})\n\n${content}`
-    writeFileSync(instrPath, newContent)
-    success(`Updated ${instrPath}`)
-  } else {
-    writeFileSync(instrPath, nextjsInstrumentation(project.usesTypescript))
-    success(`Created ${instrPath}`)
-  }
-
-  // Check next.config for instrumentationHook
-  const configFiles = ["next.config.ts", "next.config.mjs", "next.config.js"]
-  for (const cfg of configFiles) {
-    const cfgPath = join(cwd, cfg)
-    if (existsSync(cfgPath)) {
-      const content = readFileSync(cfgPath, "utf-8")
-      if (!content.includes("instrumentationHook")) {
-        warn(`Add ${BOLD}experimental: { instrumentationHook: true }${RESET} to ${cfg} if on Next.js < 15`)
-      }
-      break
-    }
-  }
-}
-
-function injectExpress(project: DetectedProject) {
-  const ext = project.usesTypescript ? "ts" : "js"
-  const setupPath = join(cwd, project.hasSrcDir ? "src" : "", `inariwatch.${ext}`)
-
-  if (existsSync(setupPath)) {
-    warn("Already installed — inariwatch setup file exists")
-    return
-  }
-
-  writeFileSync(setupPath, expressSetup(project.usesTypescript))
-  success(`Created ${setupPath}`)
-  info(`Import it at the top of your entry file:`)
-  info(`  import "./inariwatch${project.hasSrcDir ? "" : ""}"`)
-}
-
-function injectNode(project: DetectedProject) {
-  const ext = project.usesTypescript ? "ts" : "js"
-  const setupPath = join(cwd, project.hasSrcDir ? "src" : "", `inariwatch.${ext}`)
-
-  if (existsSync(setupPath)) {
-    warn("Already installed — inariwatch setup file exists")
-    return
-  }
-
-  writeFileSync(setupPath, nodeSetup())
-  success(`Created ${setupPath}`)
-  info(`Import it at the top of your entry file:`)
-  info(`  import "./inariwatch"`)
+  return { framework, usesTypescript, hasSrcDir, packageManager }
 }
 
 // --- Install dependency ---
 
-function installDependency() {
+function installDep(project: DetectedProject) {
   const pkgPath = join(cwd, "package.json")
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
-  const deps = pkg.dependencies || {}
-
-  if (deps["@inariwatch/capture"]) {
+  if (pkg.dependencies?.["@inariwatch/capture"]) {
     info("@inariwatch/capture already in dependencies")
     return
   }
 
-  // Detect package manager
-  let pm = "npm"
-  if (existsSync(join(cwd, "pnpm-lock.yaml"))) pm = "pnpm"
-  else if (existsSync(join(cwd, "yarn.lock"))) pm = "yarn"
-  else if (existsSync(join(cwd, "bun.lockb")) || existsSync(join(cwd, "bun.lock"))) pm = "bun"
-
-  const installCmd = pm === "yarn"
+  const cmd = project.packageManager === "yarn"
     ? "yarn add @inariwatch/capture"
-    : `${pm} install @inariwatch/capture`
+    : `${project.packageManager} install @inariwatch/capture`
 
-  log(`\n${DIM}$ ${installCmd}${RESET}`)
+  log(`\n${DIM}$ ${cmd}${RESET}`)
   try {
-    execSync(installCmd, { cwd, stdio: "inherit" })
+    execSync(cmd, { cwd, stdio: "inherit" })
     success("Installed @inariwatch/capture")
   } catch {
-    warn("Could not auto-install. Run manually:")
-    info(`  ${installCmd}`)
+    warn(`Could not auto-install. Run: ${cmd}`)
   }
 }
 
-// --- Link command ---
+// --- Next.js setup ---
 
-function ask(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close()
-      resolve(answer.trim())
-    })
-  })
-}
+function setupNextjs(project: DetectedProject) {
+  // 1. Add withInariWatch to next.config
+  const configFiles = ["next.config.ts", "next.config.mjs", "next.config.js"]
+  let configPath: string | null = null
+  let configContent: string | null = null
 
-async function linkToCloud() {
-  log(`\n${BOLD}Link to InariWatch Cloud${RESET}\n`)
-  log(`Get your DSN from ${CYAN}https://app.inariwatch.com${RESET}`)
-  log(`Project Settings > Integrations > Capture SDK\n`)
-
-  const dsn = await ask(`${BOLD}Paste your DSN:${RESET} `)
-
-  if (!dsn) {
-    warn("No DSN provided. You can add it later.")
-    return
-  }
-
-  // Validate DSN format
-  try {
-    new URL(dsn)
-  } catch {
-    warn("Invalid DSN URL. Check the format and try again.")
-    return
-  }
-
-  // Find and update init() calls
-  const patterns = [
-    "instrumentation.ts", "instrumentation.js",
-    "src/instrumentation.ts", "src/instrumentation.js",
-    "inariwatch.ts", "inariwatch.js",
-    "src/inariwatch.ts", "src/inariwatch.js",
-  ]
-
-  let updated = false
-  for (const pattern of patterns) {
-    const filePath = join(cwd, pattern)
-    if (!existsSync(filePath)) continue
-
-    let content = readFileSync(filePath, "utf-8")
-    if (content.includes("init({})") || content.includes("init({ })")) {
-      content = content.replace(/init\(\{\s*\}\)/, `init({ dsn: "${dsn}" })`)
-      writeFileSync(filePath, content)
-      success(`Updated DSN in ${pattern}`)
-      updated = true
-      break
-    } else if (content.includes("@inariwatch/capture") && !content.includes("dsn:")) {
-      // Has capture but no DSN — add it
-      content = content.replace(/init\(\{/, `init({ dsn: "${dsn}",`)
-      writeFileSync(filePath, content)
-      success(`Added DSN to ${pattern}`)
-      updated = true
+  for (const f of configFiles) {
+    const p = join(cwd, f)
+    if (existsSync(p)) {
+      configPath = p
+      configContent = readFileSync(p, "utf-8")
       break
     }
   }
 
-  if (!updated) {
-    warn("Could not find init() call to update. Add the DSN manually:")
-    info(`  init({ dsn: "${dsn}" })`)
+  if (!configPath || !configContent) {
+    warn("No next.config found. Create one first.")
+    return
   }
 
-  log(`\n${GREEN}Linked!${RESET} Errors now go to your InariWatch dashboard.`)
+  if (configContent.includes("@inariwatch/capture")) {
+    info("next.config already has @inariwatch/capture")
+  } else {
+    // Add import at top
+    const importLine = `import { withInariWatch } from "@inariwatch/capture/next"\n`
+    let newContent = importLine + configContent
+
+    // Wrap the default export
+    // Match: export default { ... }
+    newContent = newContent.replace(
+      /export default (\w+)/,
+      "export default withInariWatch($1)"
+    )
+
+    writeFileSync(configPath, newContent)
+    success(`Updated ${configPath.replace(cwd, ".")} — added withInariWatch()`)
+  }
+
+  // 2. Create or update instrumentation file
+  const ext = project.usesTypescript ? "ts" : "js"
+  const instrDir = project.hasSrcDir ? join(cwd, "src") : cwd
+  const instrPath = join(instrDir, `instrumentation.${ext}`)
+
+  if (existsSync(instrPath)) {
+    const content = readFileSync(instrPath, "utf-8")
+    if (content.includes("@inariwatch/capture")) {
+      info("instrumentation file already has @inariwatch/capture")
+      return
+    }
+    // Prepend auto import
+    writeFileSync(instrPath, `import "@inariwatch/capture/auto"\n\n${content}`)
+    success(`Updated instrumentation.${ext} — added auto import`)
+  } else {
+    writeFileSync(instrPath, [
+      `import "@inariwatch/capture/auto"`,
+      `import { captureRequestError } from "@inariwatch/capture"`,
+      ``,
+      `export const onRequestError = captureRequestError`,
+      ``,
+    ].join("\n"))
+    success(`Created instrumentation.${ext}`)
+  }
 }
 
-// --- Local mode info ---
+// --- Express / Node setup ---
 
-function printLocalModeInfo() {
-  log(`\n${BOLD}Local mode active${RESET} ${DIM}(no DSN)${RESET}`)
-  log(`Errors will print to your terminal with full stack traces.`)
-  log(`\nWhen you're ready for the cloud dashboard:`)
-  log(`  ${CYAN}npx @inariwatch/capture link${RESET}`)
+function setupNode(project: DetectedProject) {
+  // Find entry file
+  const pkgPath = join(cwd, "package.json")
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
+  const mainFile = pkg.main || "index.js"
+
+  const entryPath = join(cwd, mainFile)
+  if (existsSync(entryPath)) {
+    const content = readFileSync(entryPath, "utf-8")
+    if (content.includes("@inariwatch/capture")) {
+      info(`${mainFile} already has @inariwatch/capture`)
+      return
+    }
+    // Prepend auto import
+    writeFileSync(entryPath, `import "@inariwatch/capture/auto"\n\n${content}`)
+    success(`Updated ${mainFile} — added auto import`)
+    return
+  }
+
+  // Fallback: suggest --import flag
+  log(`\n${BOLD}Add to your start script:${RESET}`)
+  log(`  node --import @inariwatch/capture/auto ${mainFile}`)
+  log(`\n${DIM}Or add to package.json scripts:${RESET}`)
+  log(`  "start": "node --import @inariwatch/capture/auto ${mainFile}"`)
+}
+
+// --- Print results ---
+
+function printDone() {
+  log(`\n${GREEN}${BOLD}Done.${RESET} InariWatch is active.\n`)
+  log(`${DIM}Local mode:${RESET} Errors print to your terminal. No account needed.`)
+  log(`${DIM}Cloud mode:${RESET} Set ${CYAN}INARIWATCH_DSN${RESET} env var to send to dashboard.`)
+  log(``)
+  log(`${DIM}  # .env${RESET}`)
+  log(`${DIM}  INARIWATCH_DSN=https://app.inariwatch.com/api/webhooks/capture/YOUR_ID${RESET}`)
+  log(``)
 }
 
 // --- Main ---
 
-async function main() {
+function main() {
   log(`\n${BOLD}@inariwatch/capture${RESET}\n`)
 
-  if (command === "link") {
-    await linkToCloud()
+  if (command !== "init") {
+    log(`${BOLD}Usage:${RESET}`)
+    log(`  npx @inariwatch/capture   ${DIM}# Auto-setup in your project${RESET}`)
+    log(``)
     return
   }
 
-  if (command === "init" || command === undefined) {
-    const project = detectProject()
+  const project = detectProject()
+  log(`${DIM}Detected:${RESET} ${BOLD}${project.framework}${RESET} ${project.usesTypescript ? "(TypeScript)" : "(JavaScript)"} ${DIM}via ${project.packageManager}${RESET}\n`)
 
-    log(`${DIM}Detected:${RESET} ${BOLD}${project.framework}${RESET} ${project.usesTypescript ? "(TypeScript)" : "(JavaScript)"}\n`)
-
-    // Install dependency
-    installDependency()
-
-    // Inject code
-    log("")
-    switch (project.framework) {
-      case "nextjs":
-        injectNextjs(project)
-        break
-      case "express":
-        injectExpress(project)
-        break
-      default:
-        injectNode(project)
-    }
-
-    printLocalModeInfo()
-    log("")
-    return
-  }
-
-  // Unknown command
-  log(`${BOLD}Usage:${RESET}`)
-  log(`  npx @inariwatch/capture          ${DIM}# Auto-setup in your project${RESET}`)
-  log(`  npx @inariwatch/capture link      ${DIM}# Connect to InariWatch cloud${RESET}`)
+  installDep(project)
   log("")
+
+  switch (project.framework) {
+    case "nextjs":
+      setupNextjs(project)
+      break
+    default:
+      setupNode(project)
+  }
+
+  printDone()
 }
 
-main().catch(console.error)
+main()

@@ -12,18 +12,21 @@ export async function flush(): Promise<void> {
   if (globalTransport) await globalTransport.flush()
 }
 
-export function init(config: CaptureConfig): void {
-  globalConfig = config
+export function init(config: CaptureConfig = {}): void {
+  // Resolve DSN: explicit > env var > local mode
+  const dsn = config.dsn || process.env.INARIWATCH_DSN
+  const environment = config.environment || process.env.INARIWATCH_ENVIRONMENT || process.env.NODE_ENV
+  globalConfig = { ...config, dsn, environment }
 
-  if (!config.dsn) {
+  if (!dsn) {
     // Local mode — no DSN, print errors to terminal
-    globalTransport = createLocalTransport(config)
+    globalTransport = createLocalTransport(globalConfig)
     if (!config.silent) {
-      console.log("\x1b[2m[@inariwatch/capture] Local mode — errors print to terminal. Run `npx @inariwatch/capture link` to connect cloud.\x1b[0m")
+      console.log("\x1b[2m[@inariwatch/capture] Local mode — errors print to terminal. Set INARIWATCH_DSN to send to cloud.\x1b[0m")
     }
   } else {
-    const parsed = parseDSN(config.dsn)
-    globalTransport = createTransport(config, parsed)
+    const parsed = parseDSN(dsn)
+    globalTransport = createTransport(globalConfig, parsed)
   }
 
   // Report deploy if release is set (deploy detection)
