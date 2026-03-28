@@ -142,7 +142,8 @@ Rules:
     if (aiKey?.keyEncrypted) {
       const { decrypt } = await import("@/lib/crypto");
       const key = decrypt(aiKey.keyEncrypted);
-      const provider = (aiKey.metadata as Record<string, string>)?.provider || "openai";
+      const { detectProvider } = await import("@/lib/ai/client");
+      const provider = ((aiKey.metadata as Record<string, string>)?.provider as import("@/lib/ai/client").AIProvider) || detectProvider(key);
       response = await callAI(key, systemPrompt, [{ role: "user", content: question }], {
         maxTokens: 500,
         timeout: 30000,
