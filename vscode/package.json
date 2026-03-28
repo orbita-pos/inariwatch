@@ -1,0 +1,139 @@
+{
+  "name": "inariwatch",
+  "displayName": "InariWatch",
+  "description": "AI-powered error monitoring — inline diagnostics, alerts, and diagnosis without leaving VS Code",
+  "version": "0.1.0",
+  "publisher": "inariwatch",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orbita-pos/inariwatch.git",
+    "directory": "vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "inariwatch",
+          "title": "InariWatch",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "inariwatch": [
+        {
+          "id": "inariwatch.alerts",
+          "name": "Alerts"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "inariwatch.authenticate",
+        "title": "InariWatch: Sign In"
+      },
+      {
+        "command": "inariwatch.signOut",
+        "title": "InariWatch: Sign Out"
+      },
+      {
+        "command": "inariwatch.refresh",
+        "title": "InariWatch: Refresh Alerts",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "inariwatch.markRead",
+        "title": "InariWatch: Mark as Read",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "inariwatch.resolve",
+        "title": "InariWatch: Resolve Alert",
+        "icon": "$(check)"
+      },
+      {
+        "command": "inariwatch.openInDashboard",
+        "title": "InariWatch: Open in Dashboard",
+        "icon": "$(link-external)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "inariwatch.refresh",
+          "when": "view == inariwatch.alerts",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "inariwatch.markRead",
+          "when": "view == inariwatch.alerts && viewItem == alert",
+          "group": "inline"
+        },
+        {
+          "command": "inariwatch.resolve",
+          "when": "view == inariwatch.alerts && viewItem == alert",
+          "group": "inline"
+        },
+        {
+          "command": "inariwatch.openInDashboard",
+          "when": "view == inariwatch.alerts && viewItem == alert"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "InariWatch",
+      "properties": {
+        "inariwatch.apiUrl": {
+          "type": "string",
+          "default": "https://app.inariwatch.com",
+          "description": "InariWatch API base URL"
+        },
+        "inariwatch.mode": {
+          "type": "string",
+          "enum": ["cloud", "local", "both"],
+          "default": "cloud",
+          "description": "Alert source: cloud (API), local (capture SDK), or both"
+        },
+        "inariwatch.pollInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 300,
+          "description": "Poll interval in seconds"
+        },
+        "inariwatch.localPort": {
+          "type": "number",
+          "default": 9222,
+          "description": "Local capture server port (for local/both mode)"
+        },
+        "inariwatch.severityFilter": {
+          "type": "string",
+          "enum": ["all", "critical", "warning"],
+          "default": "all",
+          "description": "Minimum severity to show inline diagnostics"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.5.0"
+  }
+}
