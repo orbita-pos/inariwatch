@@ -1,5 +1,5 @@
-import { db, slackMessageThreads, slackUserLinks, projects, alerts } from "@/lib/db";
-import { eq, and } from "drizzle-orm";
+import { db, slackMessageThreads, slackUserLinks, projects, alerts, substrateRecordings } from "@/lib/db";
+import { eq, and, desc, gte } from "drizzle-orm";
 import { getSlackClientForProject, getSlackClient } from "./client";
 import {
   buildAlertBlocks,
@@ -8,6 +8,7 @@ import {
   buildRemediationStepText,
   buildRemediationCompleteBlocks,
   buildPostmortemBlocks,
+  buildRecordingBlocks,
 } from "./blocks";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
 
@@ -66,6 +67,70 @@ export async function sendAlertToSlack(
       }
     }
   }
+
+  // Attach Substrate recording if one exists for this alert
+  if (result.ts) {
+    attachSubstrateRecording(alert.id, alert.projectId, slack, result.ts).catch(() => {});
+  }
+}
+
+/** Check for a Substrate recording and post it to the alert thread */
+async function attachSubstrateRecording(
+  alertId: string,
+  projectId: string,
+  slack: { client: import("@slack/web-api").WebClient; channelId: string },
+  threadTs: string,
+): Promise<void> {
+  // Wait a few seconds for the recording upload to complete (it's async from capture SDK)
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+
+  const [recording] = await db
+    .select()
+    .from(substrateRecordings)
+    .where(eq(substrateRecordings.alertId, alertId))
+    .orderBy(desc(substrateRecordings.createdAt))
+    .limit(1);
+
+  // Fallback: check latest recording for the project (within last 2 minutes)
+  if (!recording) {
+    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+    const [projectRecording] = await db
+      .select()
+      .from(substrateRecordings)
+      .where(and(
+        eq(substrateRecordings.projectId, projectId),
+        gte(substrateRecordings.createdAt, twoMinAgo),
+      ))
+      .orderBy(desc(substrateRecordings.createdAt))
+      .limit(1);
+
+    if (!projectRecording) return;
+
+    const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "https://app.inariwatch.com";
+    const blocks = buildRecordingBlocks({
+      ...projectRecording,
+      categories: projectRecording.categories as Record<string, number> | null,
+    }, appUrl);
+    await slack.client.chat.postMessage({
+      channel: slack.channelId,
+      thread_ts: threadTs,
+      text: "Substrate recording attached",
+      blocks,
+    });
+    return;
+  }
+
+  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "https://app.inariwatch.com";
+  const blocks = buildRecordingBlocks({
+    ...recording,
+    categories: recording.categories as Record<string, number> | null,
+  }, appUrl);
+  await slack.client.chat.postMessage({
+    channel: slack.channelId,
+    thread_ts: threadTs,
+    text: "Substrate recording attached",
+    blocks,
+  });
 }
 
 // ── Thread replies ───────────────────────────────────────────────────────────

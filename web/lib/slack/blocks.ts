@@ -295,6 +295,72 @@ export function buildPostmortemBlocks(
   ];
 }
 
+// ── Substrate recording ──────────────────────────────────────────────────────
+
+export function buildRecordingBlocks(
+  recording: {
+    recordingId: string;
+    durationMs: number | null;
+    eventCount: number | null;
+    categories: Record<string, number> | null;
+    context: string | null;
+  },
+  appUrl: string,
+): KnownBlock[] {
+  const categories = recording.categories || {};
+  const duration = recording.durationMs ? `${(recording.durationMs / 1000).toFixed(1)}s` : "unknown";
+
+  // Build I/O summary line
+  const parts: string[] = [];
+  if (categories.http_requests) parts.push(`${categories.http_requests} HTTP calls`);
+  if (categories.db_queries) parts.push(`${categories.db_queries} DB queries`);
+  if (categories.file_reads || categories.file_writes) {
+    const fileOps = (categories.file_reads || 0) + (categories.file_writes || 0);
+    parts.push(`${fileOps} file ops`);
+  }
+  if (categories.dns_resolves) parts.push(`${categories.dns_resolves} DNS lookups`);
+  if (categories.exceptions) parts.push(`:warning: ${categories.exceptions} exception${categories.exceptions > 1 ? "s" : ""}`);
+
+  const summaryLine = parts.length > 0 ? parts.join(" · ") : `${recording.eventCount || 0} events`;
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:film_frames: *Substrate Recording* (${duration})\n${summaryLine}`,
+      },
+    },
+  ];
+
+  // Show key I/O events from context (truncated)
+  if (recording.context) {
+    const contextLines = recording.context.split("\n").slice(0, 8).join("\n");
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "```" + escapeSlack(contextLines) + "```",
+      },
+    });
+  }
+
+  // Link to full recording viewer
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        text: { type: "plain_text", text: "View Full Recording" },
+        url: `${appUrl}/recordings/${recording.recordingId}`,
+        action_id: "view_recording",
+      },
+    ],
+  });
+
+  return blocks;
+}
+
 // ── Help ─────────────────────────────────────────────────────────────────────
 
 export function buildHelpBlocks(): KnownBlock[] {
