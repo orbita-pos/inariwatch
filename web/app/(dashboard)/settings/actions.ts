@@ -136,6 +136,75 @@ export async function connectSlackChannel(
   return {};
 }
 
+// ── Slack Bot (OAuth-based) ──────────────────────────────────────────────────
+
+export async function saveSlackChannelMapping(
+  projectId: string,
+  installationId: string,
+  channelName: string,
+): Promise<{ error?: string }> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return { error: "Not authenticated." };
+
+  const { slackChannelMappings } = await import("@/lib/db");
+
+  // Upsert: replace existing mapping for this project
+  const [existing] = await db
+    .select()
+    .from(slackChannelMappings)
+    .where(eq(slackChannelMappings.projectId, projectId))
+    .limit(1);
+
+  // Channel ID = channel name (users provide name, Slack API could resolve the ID)
+  // For simplicity, store the name as both ID and name
+  const channelId = channelName.replace(/^#/, "").toLowerCase();
+
+  if (existing) {
+    await db
+      .update(slackChannelMappings)
+      .set({ channelId, channelName: channelId, isActive: true })
+      .where(eq(slackChannelMappings.id, existing.id));
+  } else {
+    await db.insert(slackChannelMappings).values({
+      installationId,
+      projectId,
+      channelId,
+      channelName: channelId,
+      isActive: true,
+    });
+  }
+
+  revalidatePath("/settings");
+  return {};
+}
+
+export async function removeSlackChannelMapping(
+  projectId: string,
+): Promise<{ error?: string }> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return { error: "Not authenticated." };
+
+  const { slackChannelMappings } = await import("@/lib/db");
+  await db.delete(slackChannelMappings).where(eq(slackChannelMappings.projectId, projectId));
+
+  revalidatePath("/settings");
+  return {};
+}
+
+export async function disconnectSlack(): Promise<{ error?: string }> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return { error: "Not authenticated." };
+
+  const { slackInstallations } = await import("@/lib/db");
+  await db.delete(slackInstallations).where(eq(slackInstallations.userId, userId));
+
+  revalidatePath("/settings");
+  return {};
+}
+
 export async function toggleChannel(
   channelId: string,
   isActive: boolean

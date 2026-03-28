@@ -156,7 +156,7 @@ export async function POST(
     }
   }
 
-  // ── deployment.succeeded → auto-resolve related alerts ────────────────
+  // ── deployment.succeeded → auto-resolve related alerts + notify Slack ──
   if (type === "deployment.succeeded" || type === "deployment.ready") {
     // Auto-resolve any open "deploy failed/canceled" alerts for this project
     // where the source is Vercel.
@@ -171,6 +171,49 @@ export async function POST(
           sql`'vercel' = ANY(${alerts.sourceIntegrations})`
         )
       );
+
+    // Slack: notify deploy success + schedule health check
+    try {
+      const innerPayload = payload.payload as Record<string, unknown> | undefined;
+      const dep = (innerPayload?.deployment ?? innerPayload ?? {}) as Record<string, unknown>;
+      const gitSource = dep.gitSource as Record<string, unknown> | undefined;
+      const branch = (gitSource?.ref ?? (dep.meta as Record<string, unknown>)?.branch ?? "main") as string;
+
+      const { sendDeployNotification } = await import("@/lib/slack/send");
+      const { getSlackClientForProject } = await import("@/lib/slack/client");
+      sendDeployNotification(integ.projectId, branch, "success").catch(() => {});
+
+      // Schedule 15-minute health check
+      const slack = await getSlackClientForProject(integ.projectId);
+      if (slack) {
+        const { deployMonitors } = await import("@/lib/db");
+        // Get the latest thread for this deploy (just created by sendDeployNotification)
+        const { slackMessageThreads } = await import("@/lib/db");
+        const [thread] = await db
+          .select()
+          .from(slackMessageThreads)
+          .where(and(
+            eq(slackMessageThreads.type, "deploy"),
+            eq(slackMessageThreads.installationId, slack.installationId),
+          ))
+          .orderBy(sql`created_at DESC`)
+          .limit(1);
+
+        if (thread) {
+          await db.insert(deployMonitors).values({
+            projectId: integ.projectId,
+            channelId: slack.channelId,
+            threadTs: thread.threadTs,
+            installationId: slack.installationId,
+            deploySource: "vercel",
+            deployId: (dep.uid ?? dep.id ?? "") as string,
+            checkAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min from now
+          });
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
   }
 
   await markIntegrationSuccess(integrationId);
