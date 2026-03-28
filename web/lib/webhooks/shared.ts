@@ -181,8 +181,14 @@ export async function createAlertIfNew(
   try {
     if (isTriggeringStorm && stormId) {
       const { sendIncidentThread } = await import("@/lib/slack/send");
-      const recentTitles = recentAlerts.map((a: { title: string }) => a.title);
-      sendIncidentThread(stormId, projectId, recentAlerts.length, recentTitles).catch(() => {});
+      const stormWindow = new Date(Date.now() - 5 * 60 * 1000);
+      const stormAlerts = await db
+        .select({ title: alerts.title })
+        .from(alerts)
+        .where(and(eq(alerts.projectId, projectId), gt(alerts.createdAt, stormWindow)))
+        .limit(10);
+      const titles = stormAlerts.map((a) => a.title);
+      sendIncidentThread(stormId, projectId, titles.length, titles).catch(() => {});
     } else if (!stormId) {
       const { sendAlertToSlack } = await import("@/lib/slack/send");
       sendAlertToSlack(inserted as Alert).catch(() => {});

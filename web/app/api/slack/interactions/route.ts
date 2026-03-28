@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       waitUntil((async () => {
         try {
           // Find the alert from the thread context
-          const { slackMessageThreads } = await import("@/lib/db");
+          const { slackMessageThreads, alerts: alertsTable } = await import("@/lib/db");
           const threadTs = payload.message?.thread_ts || payload.message?.ts;
           if (!threadTs) return;
 
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
           await generatePostmortemInternal(thread.alertId);
 
           const { sendPostmortem } = await import("@/lib/slack/send");
-          const [alert] = await db.select().from(alerts).where(eq(alerts.id, thread.alertId)).limit(1);
+          const [alert] = await db.select().from(alertsTable).where(eq(alertsTable.id, thread.alertId)).limit(1);
           if (alert?.postmortem) {
             await sendPostmortem(thread.alertId, alert.postmortem, alert.title);
           }
