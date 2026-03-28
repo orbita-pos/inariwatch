@@ -1,6 +1,6 @@
 import type { CaptureConfig, ErrorEvent, SubstrateConfig } from "./types.js"
 import { computeErrorFingerprint } from "./fingerprint.js"
-import { parseDSN, createTransport, type Transport } from "./transport.js"
+import { parseDSN, createTransport, createLocalTransport, type Transport } from "./transport.js"
 
 let globalTransport: Transport | null = null
 let globalConfig: CaptureConfig | null = null
@@ -13,14 +13,18 @@ export async function flush(): Promise<void> {
 }
 
 export function init(config: CaptureConfig): void {
-  if (!config.dsn) {
-    if (!config.silent) console.warn("[@inariwatch/capture] Missing DSN — events will be dropped")
-    return
-  }
-
-  const parsed = parseDSN(config.dsn)
   globalConfig = config
-  globalTransport = createTransport(config, parsed)
+
+  if (!config.dsn) {
+    // Local mode — no DSN, print errors to terminal
+    globalTransport = createLocalTransport(config)
+    if (!config.silent) {
+      console.log("\x1b[2m[@inariwatch/capture] Local mode — errors print to terminal. Run `npx @inariwatch/capture link` to connect cloud.\x1b[0m")
+    }
+  } else {
+    const parsed = parseDSN(config.dsn)
+    globalTransport = createTransport(config, parsed)
+  }
 
   // Report deploy if release is set (deploy detection)
   if (config.release && config.release !== lastReportedRelease) {

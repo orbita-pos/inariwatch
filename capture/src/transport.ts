@@ -49,6 +49,42 @@ export interface Transport {
   flush(): Promise<void>
 }
 
+const SEVERITY_COLORS: Record<string, string> = {
+  critical: "\x1b[31m",  // red
+  warning: "\x1b[33m",   // yellow
+  info: "\x1b[36m",      // cyan
+}
+
+export function createLocalTransport(_config: CaptureConfig): Transport {
+  return {
+    send(event: ErrorEvent) {
+      const color = SEVERITY_COLORS[event.severity] || "\x1b[0m"
+      const reset = "\x1b[0m"
+      const dim = "\x1b[2m"
+      const bold = "\x1b[1m"
+      const time = new Date(event.timestamp).toLocaleTimeString()
+
+      console.log(`\n${dim}${time}${reset} ${color}${bold}[${event.severity.toUpperCase()}]${reset} ${bold}${event.title}${reset}`)
+
+      if (event.body && event.body !== event.title) {
+        // Print stack trace, dimmed
+        const lines = event.body.split("\n").slice(1, 6) // first 5 lines of stack
+        for (const line of lines) {
+          console.log(`${dim}  ${line.trim()}${reset}`)
+        }
+        if (event.body.split("\n").length > 6) {
+          console.log(`${dim}  ... (${event.body.split("\n").length - 6} more lines)${reset}`)
+        }
+      }
+
+      if (event.context) {
+        console.log(`${dim}  context: ${JSON.stringify(event.context)}${reset}`)
+      }
+    },
+    async flush() {},
+  }
+}
+
 export function createTransport(config: CaptureConfig, parsed: ParsedDSN): Transport {
   const retryBuffer: ErrorEvent[] = []
 
