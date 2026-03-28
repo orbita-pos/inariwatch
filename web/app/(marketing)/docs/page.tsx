@@ -74,11 +74,30 @@ const NAV = [
     ],
   },
   {
+    group: "Slack Bot",
+    items: [
+      { id: "slack-setup",     label: "Setup" },
+      { id: "slack-commands",  label: "Commands" },
+      { id: "slack-fix",       label: "Fix from Slack" },
+      { id: "slack-ai",        label: "Ask Inari" },
+      { id: "slack-oncall",    label: "On-Call in Slack" },
+      { id: "slack-deploys",   label: "Deploy Monitoring" },
+    ],
+  },
+  {
+    group: "VS Code Extension",
+    items: [
+      { id: "vscode-setup",    label: "Setup" },
+      { id: "vscode-features", label: "Features" },
+      { id: "vscode-local",    label: "Local Mode" },
+    ],
+  },
+  {
     group: "Notifications",
     items: [
       { id: "notif-telegram", label: "Telegram" },
       { id: "notif-email",    label: "Email" },
-      { id: "notif-slack",    label: "Slack" },
+      { id: "notif-slack",    label: "Slack (webhook)" },
       { id: "notif-push",     label: "Push (browser)" },
       { id: "notif-oncall",   label: "On-Call Schedules" },
       { id: "notif-overrides", label: "Schedule Overrides" },
@@ -1064,6 +1083,120 @@ init({
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Gemini." },
             ]} />
             <CodeBlock label="CLI">{`inariwatch config --ai-key AIza... --model gemini-2.0-flash`}</CodeBlock>
+
+            {/* ────────────────────────────────────────────────────────────────
+                SLACK BOT
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="slack-setup">Slack Bot — Setup</SectionHeading>
+            <P>
+              The InariWatch Slack bot brings error monitoring, AI diagnosis, and auto-remediation directly into Slack.
+              No more switching tabs — see errors, read the diagnosis, trigger fixes, and merge PRs without leaving your chat.
+            </P>
+            <StepList steps={[
+              { title: "Install to Slack", body: "Go to Settings → Slack → click Install Slack Bot. Authorize InariWatch in your Slack workspace." },
+              { title: "Map channels", body: "After installing, map each project to a Slack channel (e.g. api-service → #alerts-api). Alerts for that project will appear in the mapped channel." },
+              { title: "Link your account", body: <>In Slack, run <InlineCode>/inariwatch link your@email.com</InlineCode> to connect your Slack user to your InariWatch account. This enables interactive actions.</> },
+            ]} />
+            <Callout type="info">
+              The bot requires 3 environment variables on Vercel: SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, and SLACK_SIGNING_SECRET.
+            </Callout>
+
+            <SectionHeading id="slack-commands">Slack Bot — Commands</SectionHeading>
+            <Table
+              head={["Command", "Description"]}
+              rows={[
+                ["/inariwatch status", "Overview: open alert count, critical alerts, who is on-call"],
+                ["/inariwatch alerts", "List the 10 most recent unresolved alerts with severity badges"],
+                ["/inariwatch fix <id>", "Trigger AI remediation for an alert (diagnose, fix, PR)"],
+                ["/inariwatch oncall", "Show current on-call rotation for all your projects"],
+                ["/inariwatch oncall swap @user", "Create a 24-hour on-call override for another user"],
+                ["/inariwatch link <email>", "Link your Slack account to your InariWatch account"],
+                ["/inariwatch help", "Show all available commands"],
+              ]}
+            />
+
+            <SectionHeading id="slack-fix">Slack Bot — Fix from Slack</SectionHeading>
+            <P>
+              When an alert appears in Slack, click <strong>Fix It</strong> to trigger the full AI remediation pipeline.
+              Progress updates appear as thread replies in real-time:
+            </P>
+            <StepList steps={[
+              { title: "Analyzing repository", body: "The AI connects to your GitHub repo and reads the codebase." },
+              { title: "Diagnosing root cause", body: "AI analyzes the error with context from Sentry, Vercel, Substrate recordings, and past fixes." },
+              { title: "Generating fix", body: "Code changes are generated, self-reviewed, and pushed to a new branch." },
+              { title: "Waiting for CI", body: "The bot waits for GitHub Actions to pass (retries up to 3 times on failure)." },
+              { title: "PR created", body: <>A PR appears in the thread with confidence score and EAP verification. Click <strong>Approve &amp; Merge</strong> to merge from Slack.</> },
+            ]} />
+            <P>
+              If Substrate is enabled, the recording (HTTP calls, DB queries, file operations) is automatically attached to the thread.
+            </P>
+
+            <SectionHeading id="slack-ai">Slack Bot — Ask Inari</SectionHeading>
+            <P>
+              Mention <InlineCode>@InariWatch</InlineCode> in any channel or send a DM to ask questions about your errors:
+            </P>
+            <CodeBlock label="Examples">{`@InariWatch what broke today?
+@InariWatch why does the payment endpoint fail on Fridays?
+@InariWatch summarize this week's incidents`}</CodeBlock>
+            <P>
+              If you ask in an alert thread, the AI automatically includes that alert{"'"}s full context (stack trace, AI diagnosis, remediation history).
+              Responses use your BYOK AI key from Settings.
+            </P>
+
+            <SectionHeading id="slack-oncall">Slack Bot — On-Call in Slack</SectionHeading>
+            <P>
+              When a critical alert arrives, the bot automatically tags the on-call engineer in the thread.
+              Use <InlineCode>/inariwatch oncall</InlineCode> to see rotations and <InlineCode>/inariwatch oncall swap @user</InlineCode> to hand off.
+            </P>
+
+            <SectionHeading id="slack-deploys">Slack Bot — Deploy Monitoring</SectionHeading>
+            <P>
+              When a Vercel deploy succeeds, the bot posts a notification and monitors error rates for 15 minutes.
+              After the monitoring window, it posts a follow-up: healthy or unhealthy with error count.
+            </P>
+
+            {/* ────────────────────────────────────────────────────────────────
+                VS CODE EXTENSION
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="vscode-setup">VS Code Extension — Setup</SectionHeading>
+            <P>
+              The InariWatch VS Code extension shows errors inline in your editor with AI diagnosis on hover.
+              No need to open a dashboard — errors appear as squiggly lines right where the code is.
+            </P>
+            <StepList steps={[
+              { title: "Install the extension", body: <>Search for <strong>InariWatch</strong> in the VS Code marketplace, or install from the command line: <InlineCode>code --install-extension inariwatch.inariwatch</InlineCode></> },
+              { title: "Sign in", body: <>Open the command palette and run <InlineCode>InariWatch: Sign In</InlineCode>. Paste your API token from Settings → API Keys.</> },
+              { title: "Alerts appear", body: "Unresolved alerts from your projects appear as inline diagnostics, in the sidebar, and in the status bar." },
+            ]} />
+
+            <SectionHeading id="vscode-features">VS Code Extension — Features</SectionHeading>
+            <Table
+              head={["Feature", "Description"]}
+              rows={[
+                ["Inline diagnostics", "Error locations from stack traces appear as squiggly lines in your editor"],
+                ["Sidebar panel", "TreeView showing all alerts grouped by file with severity icons"],
+                ["Hover diagnosis", "Hover over an error line to see the AI diagnosis in a tooltip"],
+                ["Status bar", "Unread alert count in the bottom status bar, click to open sidebar"],
+                ["Mark read / Resolve", "Right-click an alert in the sidebar to mark as read or resolve"],
+                ["Open in dashboard", "Jump to the full alert detail in your browser"],
+              ]}
+            />
+            <P>
+              The extension polls the InariWatch API every 30 seconds (configurable) and supports real-time updates via SSE.
+            </P>
+
+            <SectionHeading id="vscode-local">VS Code Extension — Local Mode</SectionHeading>
+            <P>
+              The extension can work without a cloud account. Set <InlineCode>inariwatch.mode</InlineCode> to <InlineCode>local</InlineCode> in VS Code settings.
+              It runs a local server on port 9222 that receives errors directly from the capture SDK.
+            </P>
+            <CodeBlock label="Capture SDK → VS Code (local)">{`# Set your app's DSN to the local extension server
+INARIWATCH_DSN=http://localhost:9222/ingest`}</CodeBlock>
+            <P>
+              Errors appear instantly in your editor. No account, no cloud, no signup.
+            </P>
 
             {/* ────────────────────────────────────────────────────────────────
                 NOTIFICATIONS

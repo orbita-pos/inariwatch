@@ -21,6 +21,9 @@ import {
   Code2,
   Plug,
   Wand2,
+  Hash,
+  Monitor,
+  Film,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
@@ -797,6 +800,25 @@ function AIFeatures() {
       title: "Uptime Monitoring",
       body: "Constant 1-minute global pings to your endpoints. If your site goes down, InariWatch catches it instantly, creates an alert, and updates your Status Page.",
       tag: "1-min pings",
+    },
+    {
+      icon: <Hash className="h-5 w-5" />,
+      title: "Slack Bot",
+      body: "Errors arrive in Slack with AI diagnosis. Click Fix It to trigger remediation — progress, PR link, and Approve & Merge all in-thread. Ask @InariWatch questions, manage on-call, monitor deploys.",
+      tag: "Control surface",
+      highlight: true,
+    },
+    {
+      icon: <Monitor className="h-5 w-5" />,
+      title: "VS Code Extension",
+      body: "Errors appear as inline squiggly lines in your editor. Hover for AI diagnosis. Sidebar shows all alerts grouped by file. Status bar shows unread count. Works in local mode too.",
+      tag: "In your editor",
+    },
+    {
+      icon: <Film className="h-5 w-5" />,
+      title: "Substrate I/O Recording",
+      body: "Capture every HTTP call, DB query, and file operation. When an error occurs, the last 60 seconds of I/O are attached to the alert. The AI sees exactly what your code did.",
+      tag: "Full trace",
     },
   ];
 
