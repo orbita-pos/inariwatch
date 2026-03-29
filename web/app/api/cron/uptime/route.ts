@@ -92,95 +92,114 @@ export async function GET(req: Request) {
         error: errorMsg,
       });
 
-      // Update monitor state
+      // Track consecutive failures
       const wasDown = monitor.isDown;
+      const failures = isUp ? 0 : (monitor.consecutiveFailures ?? 0) + 1;
+      const HEAL_COOLDOWN_MS = 10 * 60 * 1000; // 10 min cooldown between heals
+      const FAILURES_BEFORE_DOWN = 3; // require 3 consecutive failures before declaring down
+
       await db
         .update(uptimeMonitors)
-        .set({ isDown: !isUp, lastCheckedAt: now })
+        .set({
+          isDown: failures >= FAILURES_BEFORE_DOWN,
+          consecutiveFailures: failures,
+          lastCheckedAt: now,
+        })
         .where(eq(uptimeMonitors.id, monitor.id));
 
-      // State transitions: create or resolve alerts
-      if (!isUp && !wasDown) {
-        // 🔴 Just went DOWN → create alert
+      // State transitions: only trigger on confirmed downtime (3+ consecutive failures)
+      if (failures >= FAILURES_BEFORE_DOWN && !wasDown) {
+        // 🔴 Confirmed DOWN (3 consecutive failures) → create alert
         const monitorName = monitor.name ?? monitor.url;
         const [downAlert] = await db.insert(alerts).values({
           projectId: monitor.projectId,
           severity: "critical",
           title: `🔴 ${monitorName} is down`,
-          body: `Uptime check failed for ${monitor.url}.\n\n${errorMsg ?? "No response"}`,
+          body: `Uptime check failed ${failures} consecutive times for ${monitor.url}.\n\n${errorMsg ?? "No response"}`,
           sourceIntegrations: ["uptime"],
         }).returning();
         newAlerts++;
 
-        // Auto-heal: rollback + remediate if enabled
-        try {
-          const { projectIntegrations, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
-          const [proj] = await db
-            .select({ autoMergeConfig: projects.autoMergeConfig, userId: projects.userId })
-            .from(projects)
-            .where(eq(projects.id, monitor.projectId))
-            .limit(1);
+        // Auto-heal: rollback + remediate if enabled (with cooldown)
+        const healOnCooldown = monitor.healTriggeredAt &&
+          (now.getTime() - monitor.healTriggeredAt.getTime()) < HEAL_COOLDOWN_MS;
 
-          const config = (proj?.autoMergeConfig as typeof DEFAULT_AUTO_MERGE_CONFIG | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
-
-          if (config.autoHeal && proj) {
-            // Step 1: Rollback to last good deploy
-            const [vercelInteg] = await db
-              .select()
-              .from(projectIntegrations)
-              .where(and(
-                eq(projectIntegrations.projectId, monitor.projectId),
-                eq(projectIntegrations.service, "vercel"),
-                eq(projectIntegrations.isActive, true),
-              ))
+        if (!healOnCooldown) {
+          try {
+            const { projectIntegrations, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
+            const [proj] = await db
+              .select({ autoMergeConfig: projects.autoMergeConfig, userId: projects.userId })
+              .from(projects)
+              .where(eq(projects.id, monitor.projectId))
               .limit(1);
 
-            if (vercelInteg) {
-              const { decryptConfig } = await import("@/lib/crypto");
-              const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
-              const { triggerAutoRollback } = await import("@/lib/services/auto-rollback");
-              triggerAutoRollback({
-                alertId: downAlert.id,
-                token: vercelConfig.token as string,
-                teamId: vercelConfig.teamId as string | undefined,
-                vercelProjectId: (vercelConfig.projectId as string) || monitorName,
-                projectName: monitorName,
-              }).catch(() => {});
-            }
+            const config = (proj?.autoMergeConfig as typeof DEFAULT_AUTO_MERGE_CONFIG | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
 
-            // Step 2: Start AI remediation in background
-            if (config.autoRemediate) {
-              const { remediationSessions } = await import("@/lib/db");
-              const [session] = await db
-                .insert(remediationSessions)
-                .values({
+            if (config.autoHeal && proj) {
+              // Mark heal as triggered (cooldown starts)
+              await db
+                .update(uptimeMonitors)
+                .set({ healTriggeredAt: now })
+                .where(eq(uptimeMonitors.id, monitor.id));
+
+              // Step 1: Rollback to last good deploy (Vercel)
+              const [vercelInteg] = await db
+                .select()
+                .from(projectIntegrations)
+                .where(and(
+                  eq(projectIntegrations.projectId, monitor.projectId),
+                  eq(projectIntegrations.service, "vercel"),
+                  eq(projectIntegrations.isActive, true),
+                ))
+                .limit(1);
+
+              if (vercelInteg) {
+                const { decryptConfig } = await import("@/lib/crypto");
+                const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
+                const { triggerAutoRollback } = await import("@/lib/services/auto-rollback");
+                triggerAutoRollback({
                   alertId: downAlert.id,
-                  projectId: monitor.projectId,
-                  userId: proj.userId,
-                  status: "analyzing",
-                  attempt: 1,
-                  maxAttempts: 3,
-                  steps: [],
-                })
-                .returning();
+                  token: vercelConfig.token as string,
+                  teamId: vercelConfig.teamId as string | undefined,
+                  vercelProjectId: (vercelConfig.projectId as string) || monitorName,
+                  projectName: monitorName,
+                }).catch(() => {});
+              }
 
-              import("@/lib/ai/remediate").then(({ runRemediation }) => {
-                runRemediation(session.id, () => {}).catch(() => {});
+              // Step 2: Start AI remediation in background
+              if (config.autoRemediate) {
+                const { remediationSessions } = await import("@/lib/db");
+                const [session] = await db
+                  .insert(remediationSessions)
+                  .values({
+                    alertId: downAlert.id,
+                    projectId: monitor.projectId,
+                    userId: proj.userId,
+                    status: "analyzing",
+                    attempt: 1,
+                    maxAttempts: 3,
+                    steps: [],
+                  })
+                  .returning();
+
+                import("@/lib/ai/remediate").then(({ runRemediation }) => {
+                  runRemediation(session.id, () => {}).catch(() => {});
+                }).catch(() => {});
+              }
+
+              // Notify Slack
+              import("@/lib/slack/send").then(({ sendThreadReply }) => {
+                sendThreadReply(downAlert.id,
+                  `:shield: *Auto-heal activated* (${failures} consecutive failures)\n` +
+                  (vercelInteg ? `1. Rolling back to last successful deploy...\n` : `1. No Vercel integration — skipping rollback\n`) +
+                  (config.autoRemediate ? `2. AI remediation starting in background...\n` : `2. Auto-remediate not enabled — create a fix manually\n`) +
+                  (vercelInteg ? `Your site will be back online in ~30 seconds.` : `Connect Vercel for automatic rollback.`)
+                ).catch(() => {});
               }).catch(() => {});
             }
-
-            // Notify Slack
-            import("@/lib/slack/send").then(({ sendThreadReply }) => {
-              sendThreadReply(downAlert.id,
-                `:shield: *Auto-heal activated*\n` +
-                `1. Rolling back to last successful deploy...\n` +
-                `2. AI remediation starting in background...\n` +
-                `Your site will be back online in ~30 seconds.`
-              ).catch(() => {});
-            }).catch(() => {});
+          } catch {
+            // Non-blocking
           }
-        } catch {
-          // Non-blocking — auto-heal failure should never block alert creation
         }
 
         // Send immediate notification to all project-owner channels

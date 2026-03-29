@@ -474,6 +474,10 @@ export const uptimeMonitors = pgTable("uptime_monitors", {
   timeoutMs: integer("timeout_ms").default(10000).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   isDown: boolean("is_down").default(false).notNull(),
+  /** Consecutive failed checks (reset to 0 on success) */
+  consecutiveFailures: integer("consecutive_failures").default(0).notNull(),
+  /** When auto-heal was last triggered (cooldown: 10 min) */
+  healTriggeredAt: timestamp("heal_triggered_at"),
   lastCheckedAt: timestamp("last_checked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
