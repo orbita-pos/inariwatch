@@ -921,48 +921,82 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
 
             <SectionHeading id="int-capture">Integration — @inariwatch/capture</SectionHeading>
             <P>
-              The <InlineCode>@inariwatch/capture</InlineCode> SDK lets you send errors, logs, and deploy markers
-              directly from your own application to InariWatch — no third-party error tracker needed.
-              It works alongside your existing integrations (Sentry, Datadog) or as a standalone lightweight alternative.
+              The <InlineCode>@inariwatch/capture</InlineCode> SDK captures errors, logs, and deploy markers
+              from your app and sends them to InariWatch. Zero dependencies, zero config. Works as a standalone
+              Sentry replacement or alongside your existing integrations.
             </P>
 
-            <SubHeading id="int-capture-install">Installation</SubHeading>
-            <CodeBlock label="npm">{`npm install @inariwatch/capture`}</CodeBlock>
-
-            <SubHeading id="int-capture-setup">Setup</SubHeading>
-            <CodeBlock label="app.ts">{`import { init, captureException, captureLog, captureMessage } from "@inariwatch/capture";
-
-init({
-  dsn: "https://app.inariwatch.com/api/webhooks/capture/YOUR_PROJECT_ID",
-  environment: "production",
-  release: "1.2.0",
-});`}</CodeBlock>
+            <SubHeading id="int-capture-install">Quick start (zero config)</SubHeading>
+            <CodeBlock label="One command">{`npx @inariwatch/capture`}</CodeBlock>
             <P>
-              The DSN is your project&apos;s capture webhook URL. Find it under <strong>Integrations &rarr; Capture SDK</strong>
-              in the web dashboard, or construct it manually: <InlineCode>{'https://app.inariwatch.com/api/webhooks/capture/<project-id>'}</InlineCode>.
+              Auto-detects your framework (Next.js, Express, Node.js), installs the SDK, and sets up
+              instrumentation. No signup needed — errors print to your terminal in local mode.
             </P>
+
+            <SubHeading id="int-capture-setup">Next.js setup</SubHeading>
+            <P>One line in your existing config file:</P>
+            <CodeBlock label="next.config.ts">{`import { withInariWatch } from "@inariwatch/capture/next"
+export default withInariWatch(nextConfig)`}</CodeBlock>
+            <P>And create <InlineCode>instrumentation.ts</InlineCode>:</P>
+            <CodeBlock label="instrumentation.ts">{`import "@inariwatch/capture/auto"
+import { captureRequestError } from "@inariwatch/capture"
+
+export const onRequestError = captureRequestError`}</CodeBlock>
+
+            <SubHeading id="int-capture-node">Any Node.js app</SubHeading>
+            <CodeBlock label="CLI flag">{`node --import @inariwatch/capture/auto app.js`}</CodeBlock>
+            <P>Or in your package.json:</P>
+            <CodeBlock label="package.json">{`{ "scripts": { "start": "node --import @inariwatch/capture/auto src/index.js" } }`}</CodeBlock>
+
+            <SubHeading id="int-capture-env">Environment variables</SubHeading>
+            <P>
+              Config is driven by environment variables — no DSN in source code.
+              Omit <InlineCode>INARIWATCH_DSN</InlineCode> for local mode (terminal output).
+            </P>
+            <Table
+              head={["Variable", "Description"]}
+              rows={[
+                ["INARIWATCH_DSN", "Capture endpoint. Omit for local mode."],
+                ["INARIWATCH_ENVIRONMENT", "Environment tag (fallback: NODE_ENV)"],
+                ["INARIWATCH_RELEASE", "Release version — triggers deploy marker"],
+                ["INARIWATCH_SUBSTRATE", "Set to \"true\" to enable I/O recording"],
+              ]}
+            />
+
+            <SubHeading id="int-capture-substrate">Substrate I/O recording</SubHeading>
+            <P>
+              Capture every HTTP call, DB query, and file operation alongside your errors.
+              When <InlineCode>captureException()</InlineCode> fires, the last 60 seconds of I/O are uploaded automatically.
+            </P>
+            <CodeBlock label="Install">{`npm install @inariwatch/substrate-agent`}</CodeBlock>
+            <CodeBlock label="Enable via env var">{`INARIWATCH_SUBSTRATE=true`}</CodeBlock>
+            <P>Or programmatically:</P>
+            <CodeBlock label="init()">{`init({ substrate: true })`}</CodeBlock>
 
             <SubHeading id="int-capture-api">API</SubHeading>
             <Table
               head={["Function", "Purpose", "Example"]}
               rows={[
-                ["captureException(error)", "Capture a caught exception with full stack trace", "captureException(err)"],
-                ["captureLog(level, message, meta?)", "Send a structured log event", "captureLog(\"error\", \"DB timeout\", { query })"],
-                ["captureMessage(message, level?)", "Send a plain text event", "captureMessage(\"Deploy started\", \"info\")"],
+                ["init(config?)", "Initialize SDK (reads from env vars)", "init() or init({ substrate: true })"],
+                ["captureException(error)", "Capture exception with full stack trace", "captureException(err)"],
+                ["captureLog(message, level?, meta?)", "Send structured log event", "captureLog(\"DB timeout\", \"error\", { query })"],
+                ["captureMessage(message, level?)", "Send plain text event", "captureMessage(\"Deploy started\", \"info\")"],
+                ["flush()", "Wait for pending events (call before exit)", "await flush()"],
               ]}
             />
-            <CodeBlock label="Example: Express error handler">{`app.use((err, req, res, next) => {
-  captureException(err);
-  res.status(500).json({ error: "Internal server error" });
-});`}</CodeBlock>
-            <CodeBlock label="Example: Deploy marker">{`captureMessage("Deploy v1.2.0 started", "info");`}</CodeBlock>
+
+            <SubHeading id="int-capture-exports">Import paths</SubHeading>
+            <Table
+              head={["Import", "Description"]}
+              rows={[
+                ["@inariwatch/capture", "SDK — init, captureException, captureLog, flush"],
+                ["@inariwatch/capture/auto", "Auto-init on import — config from env vars"],
+                ["@inariwatch/capture/next", "Next.js plugin — withInariWatch()"],
+              ]}
+            />
             <Callout type="tip">
-              The SDK batches events and flushes on a short interval. In serverless environments,
-              call <InlineCode>await flush()</InlineCode> before the function returns to ensure events are sent.
-            </Callout>
-            <Callout type="info">
-              When running locally, the SDK auto-detects <InlineCode>localhost</InlineCode> DSNs and routes events
-              to the CLI capture server (<InlineCode>inariwatch watch</InlineCode>) instead of the cloud.
+              In serverless environments, call <InlineCode>await flush()</InlineCode> before the function returns
+              to ensure events are sent.
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────
