@@ -298,7 +298,34 @@ export async function assessPRRisk(
     // Non-blocking — pattern matching is optional enhancement
   }
 
-  // Call AI
+  // Layer 2: AI prediction with full context
+  let aiPredictionSection = "";
+  try {
+    const { runPrediction } = await import("./prediction");
+    const prediction = await runPrediction({ projectId, token, owner, repo, prNumber });
+
+    if (prediction && prediction.result.predictions.length > 0) {
+      aiPredictionSection = `\n\n---\n\n## 🔮 AI Error Prediction\n\n`;
+      aiPredictionSection += `**Overall Risk:** ${prediction.result.overallRisk.toUpperCase()}\n\n`;
+      aiPredictionSection += `${prediction.result.summary}\n\n`;
+
+      for (const p of prediction.result.predictions.slice(0, 3)) {
+        const confEmoji = p.confidence >= 80 ? "🔴" : p.confidence >= 50 ? "🟡" : "⚪";
+        aiPredictionSection += `### ${confEmoji} ${p.error}\n`;
+        aiPredictionSection += `- **File:** \`${p.file}:${p.line}\`\n`;
+        aiPredictionSection += `- **Confidence:** ${p.confidence}%\n`;
+        aiPredictionSection += `- **Reason:** ${p.reason}\n`;
+        if (p.communityFixAvailable) {
+          aiPredictionSection += `- **Fix available:** ${p.suggestedFix}\n`;
+        }
+        aiPredictionSection += "\n";
+      }
+    }
+  } catch {
+    // Non-blocking — AI prediction is optional enhancement
+  }
+
+  // Call AI for general risk assessment
   const assessment = await callAI(
     aiKey.key,
     SYSTEM_RISK,
@@ -309,7 +336,7 @@ export async function assessPRRisk(
   if (!assessment.trim()) return;
 
   const MARKER = "<!-- radar-risk-assessment -->";
-  const commentBody = `${MARKER}\n${assessment}${predictionSection}`;
+  const commentBody = `${MARKER}\n${assessment}${predictionSection}${aiPredictionSection}`;
 
   // Update existing comment or create new one (avoids spam on re-pushes)
   const existing = await gh.findBotComment(token, owner, repo, prNumber, MARKER);

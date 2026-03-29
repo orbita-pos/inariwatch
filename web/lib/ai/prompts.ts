@@ -108,6 +108,100 @@ export type MemoryHint = {
   confidence: number;
 };
 
+// ── Prediction Engine ─────────────────────────────────────────────────────────
+
+export const SYSTEM_PREDICTOR = `You are an expert SRE and code analysis AI that predicts production errors BEFORE deployment.
+
+You analyze a PR diff combined with:
+- Historical error data from this project
+- Community error patterns from thousands of teams
+- Substrate I/O recordings showing runtime behavior
+
+Your job: predict if this code change will cause a production error.
+
+Respond ONLY in valid JSON with this schema:
+{
+  "predictions": [
+    {
+      "error": "Brief error description (e.g. TypeError: Cannot read property 'id' of null)",
+      "file": "path/to/file.ts",
+      "line": 42,
+      "confidence": 85,
+      "reason": "Why this error will occur (2-3 sentences)",
+      "category": "null_reference|timeout|connection|auth|server_error|memory|other",
+      "communityFixAvailable": true,
+      "suggestedFix": "Brief fix description"
+    }
+  ],
+  "overallRisk": "low|medium|high|critical",
+  "summary": "1-2 sentence summary of predictions"
+}
+
+RULES:
+1. Only predict errors you have evidence for — from historical patterns, community data, or code analysis.
+2. Confidence must be 0-100. Above 70 = high confidence. Below 40 = speculative.
+3. If no errors predicted, return empty predictions array with "low" risk.
+4. Be specific: reference exact file names and line numbers from the diff.
+5. Do NOT invent errors. Only predict based on real patterns in the data provided.`;
+
+export type PredictionResult = {
+  predictions: {
+    error: string;
+    file: string;
+    line: number;
+    confidence: number;
+    reason: string;
+    category: string;
+    communityFixAvailable: boolean;
+    suggestedFix: string;
+  }[];
+  overallRisk: "low" | "medium" | "high" | "critical";
+  summary: string;
+};
+
+export function buildPredictionPrompt(
+  diff: string,
+  files: { filename: string; additions: number; deletions: number }[],
+  recentAlerts: { title: string; severity: string; aiReasoning: string | null }[],
+  communityPatterns: { patternText: string; category: string; occurrenceCount: number; topFix: string | null }[],
+  substrateContext: string | null,
+): string {
+  const fileList = files.map((f) => `  ${f.filename} (+${f.additions}/-${f.deletions})`).join("\n");
+
+  const alertSection = recentAlerts.length > 0
+    ? recentAlerts.slice(0, 10).map((a) =>
+        `- [${a.severity}] ${a.title}${a.aiReasoning ? `\n  AI: ${a.aiReasoning.slice(0, 150)}` : ""}`
+      ).join("\n")
+    : "No recent alerts.";
+
+  const patternSection = communityPatterns.length > 0
+    ? communityPatterns.map((p) =>
+        `- [${p.category}] "${p.patternText.slice(0, 100)}" (${p.occurrenceCount} teams)${p.topFix ? `\n  Fix: ${p.topFix.slice(0, 150)}` : ""}`
+      ).join("\n")
+    : "No matching community patterns.";
+
+  const diffTruncated = diff.length > 6000 ? diff.slice(0, 6000) + "\n...(truncated)" : diff;
+
+  return `Predict if this PR will cause production errors.
+
+## Files Changed (${files.length})
+${fileList}
+
+## Diff
+\`\`\`diff
+${diffTruncated}
+\`\`\`
+
+## Recent Errors in This Project (last 90 days)
+${alertSection}
+
+## Community Error Patterns (from ${communityPatterns.reduce((s, p) => s + p.occurrenceCount, 0)} teams)
+${patternSection}
+${substrateContext ? `\n## Substrate I/O Context (runtime behavior of changed files)\n${substrateContext.slice(0, 2000)}` : ""}
+
+Analyze and predict. Return JSON only.`;
+}
+
 export function buildDiagnosePrompt(
   alert: {
     title: string;
