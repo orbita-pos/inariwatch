@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db, alerts, incidentStorms, projectIntegrations, projects, users, maintenanceWindows } from "@/lib/db";
-import { eq, and, gt, lte, gte } from "drizzle-orm";
+import { eq, and, gt, lte, gte, sql } from "drizzle-orm";
 import { enqueueAlert } from "@/lib/notifications/send";
 import { dispatchOutgoingWebhooks } from "@/lib/webhooks/outgoing";
 import { autoCreateIncident } from "@/lib/ai/status-page-automation";
@@ -144,10 +144,47 @@ export async function createAlertIfNew(
     }
   }
 
+  // Compute fingerprint for pattern matching
+  let fingerprint: string | null = null;
+  try {
+    const { computeErrorFingerprint } = await import("@/lib/ai/fingerprint");
+    fingerprint = computeErrorFingerprint(alert.title ?? "", alert.body ?? "");
+  } catch {
+    // Non-blocking
+  }
+
   const [inserted] = await db
     .insert(alerts)
-    .values({ ...alert, projectId, stormId })
+    .values({ ...alert, projectId, stormId, fingerprint })
     .returning();
+
+  // Auto-register error pattern for prediction engine
+  if (fingerprint) {
+    try {
+      const { errorPatterns } = await import("@/lib/db");
+      const [existing] = await db
+        .select()
+        .from(errorPatterns)
+        .where(eq(errorPatterns.fingerprint, fingerprint))
+        .limit(1);
+
+      if (existing) {
+        await db
+          .update(errorPatterns)
+          .set({ occurrenceCount: sql`${errorPatterns.occurrenceCount} + 1`, lastSeenAt: new Date() })
+          .where(eq(errorPatterns.id, existing.id));
+      } else {
+        await db.insert(errorPatterns).values({
+          fingerprint,
+          patternText: (alert.title ?? "").slice(0, 500),
+          category: categorizeError(alert.title ?? ""),
+          contextSummary: (alert.body ?? "").slice(0, 2000),
+        });
+      }
+    } catch {
+      // Non-blocking — pattern creation failure should never block alert
+    }
+  }
 
   // Only enqueue notification if this is a standard alert
   // OR if this specific alert is the one triggering the storm
@@ -255,6 +292,21 @@ export async function createAlertIfNew(
 /**
  * Mark integration as successfully checked.
  */
+/** Categorize an error title into a pattern category */
+function categorizeError(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes("typeerror") || t.includes("cannot read propert")) return "null_reference";
+  if (t.includes("timeout") || t.includes("timed out")) return "timeout";
+  if (t.includes("econnrefused") || t.includes("connection")) return "connection";
+  if (t.includes("deploy") || t.includes("build")) return "deploy_failure";
+  if (t.includes("rate limit") || t.includes("429")) return "rate_limit";
+  if (t.includes("permission") || t.includes("403") || t.includes("401")) return "auth";
+  if (t.includes("500") || t.includes("internal server")) return "server_error";
+  if (t.includes("memory") || t.includes("heap")) return "memory";
+  if (t.includes("is down") || t.includes("uptime")) return "downtime";
+  return "unknown";
+}
+
 export async function markIntegrationSuccess(integrationId: string) {
   await db
     .update(projectIntegrations)

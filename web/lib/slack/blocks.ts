@@ -315,6 +315,44 @@ export function buildPostmortemBlocks(
   ];
 }
 
+// ── PR prediction ────────────────────────────────────────────────────────────
+
+export function buildPRPredictionBlocks(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  prTitle: string,
+  predictionMarkdown: string,
+): KnownBlock[] {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:warning: *Prediction: PR #${prNumber} may cause an error*\n<https://github.com/${escapeSlack(owner)}/${escapeSlack(repo)}/pull/${prNumber}|${escapeSlack(prTitle)}>`,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: escapeSlack(predictionMarkdown.replace(/^[-\n#>*]+/gm, "").trim().slice(0, 600)),
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "View PR" },
+          url: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          action_id: "view_pr",
+        },
+      ],
+    },
+  ];
+}
+
 // ── Community fix ────────────────────────────────────────────────────────────
 
 export function buildCommunityFixBlocks(

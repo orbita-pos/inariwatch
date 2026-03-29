@@ -265,6 +265,39 @@ export async function assessPRRisk(
     diff,
   };
 
+  // Pattern matching: check if PR changes match known error patterns
+  let predictionSection = "";
+  try {
+    const { computeErrorFingerprint } = await import("./fingerprint");
+    const { lookupCommunityFix } = await import("./community-fix-lookup");
+
+    // Check each changed file's past errors for pattern matches
+    for (const alert of recentAlerts) {
+      if (!alert.body) continue;
+      const fp = computeErrorFingerprint(alert.title, alert.body);
+      const match = await lookupCommunityFix(fp);
+      if (!match) continue;
+
+      // Check if PR modifies files related to this error
+      const alertFiles = alert.body.match(/[\w/.-]+\.\w{1,5}/g) ?? [];
+      const overlap = prFileNames.filter((f) => alertFiles.some((af) => f.includes(af) || af.includes(f)));
+      if (overlap.length === 0) continue;
+
+      predictionSection += `\n\n---\n\n## ⚠️ Prediction: Possible Error Regression\n\n`;
+      predictionSection += `This PR modifies files related to a **known error pattern**:\n\n`;
+      predictionSection += `> **${alert.title}**\n\n`;
+      predictionSection += `- **${match.occurrenceCount} teams** have hit this error\n`;
+      predictionSection += `- Community fix success rate: **${match.successRate}%** (${match.successCount}/${match.totalApplications})\n`;
+      predictionSection += `- Files at risk: ${overlap.map((f) => `\`${f}\``).join(", ")}\n`;
+      if (match.fixApproach) {
+        predictionSection += `- Known fix: ${match.fixApproach.slice(0, 200)}\n`;
+      }
+      break; // Only show the first match
+    }
+  } catch {
+    // Non-blocking — pattern matching is optional enhancement
+  }
+
   // Call AI
   const assessment = await callAI(
     aiKey.key,
@@ -276,7 +309,7 @@ export async function assessPRRisk(
   if (!assessment.trim()) return;
 
   const MARKER = "<!-- radar-risk-assessment -->";
-  const commentBody = `${MARKER}\n${assessment}`;
+  const commentBody = `${MARKER}\n${assessment}${predictionSection}`;
 
   // Update existing comment or create new one (avoids spam on re-pushes)
   const existing = await gh.findBotComment(token, owner, repo, prNumber, MARKER);
@@ -284,5 +317,24 @@ export async function assessPRRisk(
     await gh.updatePRComment(token, owner, repo, existing.id, commentBody);
   } else {
     await gh.commentOnPR(token, owner, repo, prNumber, commentBody);
+  }
+
+  // Slack: notify if prediction found
+  if (predictionSection) {
+    try {
+      const { getSlackClientForProject } = await import("@/lib/slack/client");
+      const { buildPRPredictionBlocks } = await import("@/lib/slack/blocks");
+      const slack = await getSlackClientForProject(projectId);
+      if (slack) {
+        const blocks = buildPRPredictionBlocks(owner, repo, prNumber, prContext.prTitle, predictionSection);
+        await slack.client.chat.postMessage({
+          channel: slack.channelId,
+          text: `⚠️ PR #${prNumber} predicted to cause a known error`,
+          blocks,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
   }
 }
