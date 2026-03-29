@@ -103,6 +103,8 @@ export type AutoMergeConfig = {
   requireSelfReview: boolean;
   postMergeMonitor: boolean;
   autoRevert: boolean;
+  /** Autonomous mode: auto-trigger remediation on critical alerts (no human click needed) */
+  autoRemediate: boolean;
 };
 
 export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
@@ -112,6 +114,7 @@ export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
   requireSelfReview: true,
   postMergeMonitor: true,
   autoRevert: true,
+  autoRemediate: false,
 };
 
 export const projectIntegrations = pgTable("project_integrations", {

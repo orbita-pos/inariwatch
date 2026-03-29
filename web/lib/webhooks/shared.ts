@@ -197,6 +197,58 @@ export async function createAlertIfNew(
     // Non-blocking — Slack delivery should never block alert creation
   }
 
+  // Autonomous mode: auto-trigger remediation on critical alerts
+  if (inserted.severity === "critical" && !stormId) {
+    try {
+      const { projects: projectsTable, remediationSessions, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
+      const [proj] = await db
+        .select({ autoMergeConfig: projectsTable.autoMergeConfig, userId: projectsTable.userId })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1);
+
+      const config = (proj?.autoMergeConfig as typeof DEFAULT_AUTO_MERGE_CONFIG | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+
+      if (config.autoRemediate && proj?.userId) {
+        // Check no active session already exists for this alert
+        const activeSessions = await db
+          .select({ id: remediationSessions.id })
+          .from(remediationSessions)
+          .where(eq(remediationSessions.alertId, inserted.id))
+          .limit(1);
+
+        if (activeSessions.length === 0) {
+          const [session] = await db
+            .insert(remediationSessions)
+            .values({
+              alertId: inserted.id,
+              projectId,
+              userId: proj.userId,
+              status: "analyzing",
+              attempt: 1,
+              maxAttempts: 3,
+              steps: [],
+            })
+            .returning();
+
+          // Fire and forget — remediation runs in background
+          import("@/lib/ai/remediate").then(({ runRemediation }) => {
+            runRemediation(session.id, () => {}).catch((err) => {
+              console.error("[auto-remediate] failed:", err);
+            });
+          }).catch(() => {});
+
+          // Notify Slack that auto-remediation started
+          import("@/lib/slack/send").then(({ sendThreadReply }) => {
+            sendThreadReply(inserted.id, ":robot_face: *Autonomous mode* — auto-remediation triggered.").catch(() => {});
+          }).catch(() => {});
+        }
+      }
+    } catch {
+      // Non-blocking — auto-remediation failure should never block alert creation
+    }
+  }
+
   return inserted as Alert;
 }
 

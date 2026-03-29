@@ -11,6 +11,7 @@ type Config = {
   requireSelfReview: boolean;
   postMergeMonitor: boolean;
   autoRevert: boolean;
+  autoRemediate: boolean;
 };
 
 export function AutoMergeSection({
@@ -47,7 +48,8 @@ export function AutoMergeSection({
     form.maxLinesChanged !== config.maxLinesChanged ||
     form.requireSelfReview !== config.requireSelfReview ||
     form.postMergeMonitor !== config.postMergeMonitor ||
-    form.autoRevert !== config.autoRevert;
+    form.autoRevert !== config.autoRevert ||
+    form.autoRemediate !== config.autoRemediate;
 
   return (
     <section className="rounded-xl border border-[#222] bg-[#111] overflow-hidden">
@@ -185,7 +187,30 @@ export function AutoMergeSection({
                   }`} />
                 </button>
               </label>
+
             )}
+
+            {/* Autonomous remediation toggle */}
+            <label className="flex items-center justify-between gap-3 cursor-pointer pl-4 mt-3 pt-3 border-t border-[#222]">
+              <div>
+                <p className="text-sm text-zinc-300">Autonomous mode</p>
+                <p className="text-xs text-zinc-600">Auto-trigger AI remediation on critical alerts — no human click needed</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.autoRemediate}
+                disabled={!isAdmin}
+                onClick={() => setForm((f) => ({ ...f, autoRemediate: !f.autoRemediate }))}
+                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                  form.autoRemediate ? "bg-amber-600" : "bg-zinc-700"
+                } ${!isAdmin ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform mt-0.5 ${
+                  form.autoRemediate ? "translate-x-[18px]" : "translate-x-0.5"
+                }`} />
+              </button>
+            </label>
           </div>
         )}
 
