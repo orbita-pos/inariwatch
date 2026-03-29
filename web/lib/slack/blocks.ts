@@ -315,6 +315,27 @@ export function buildPostmortemBlocks(
   ];
 }
 
+// ── Shadow replay ────────────────────────────────────────────────────────────
+
+export function buildShadowReplayBlocks(
+  replay: { totalRecordings: number; passed: number; failed: number; riskScore: number; riskLevel: string },
+): KnownBlock[] {
+  const emoji = replay.failed === 0 ? ":white_check_mark:" : ":x:";
+  const riskEmoji = replay.riskScore >= 71 ? ":red_circle:" : replay.riskScore >= 41 ? ":large_orange_circle:" : ":green_circle:";
+
+  return [{
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: [
+        `${emoji} *Shadow Execution* — Replayed ${replay.totalRecordings} production recordings`,
+        `Passed: ${replay.passed} | Failed: ${replay.failed}`,
+        `${riskEmoji} Risk score: ${replay.riskScore}/100 (${replay.riskLevel})`,
+      ].join("\n"),
+    },
+  }];
+}
+
 // ── PR prediction ────────────────────────────────────────────────────────────
 
 export function buildPRPredictionBlocks(

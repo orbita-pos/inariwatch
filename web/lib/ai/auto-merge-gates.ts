@@ -31,8 +31,9 @@ export function evaluateAutoMergeGates(params: {
   ciPassed: boolean;
   simulateRiskScore?: number | null;
   eapChainVerified?: boolean | null;
+  predictionRiskScore?: number | null;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore } = params;
   const gates: GateResult["gates"] = [];
 
   // Gate 0: Auto-merge must be enabled
@@ -103,6 +104,18 @@ export function evaluateAutoMergeGates(params: {
       reason: eapChainVerified
         ? "EAP execution receipt chain verified — all signatures valid"
         : "EAP execution receipt chain verification failed",
+    });
+  }
+
+  // Gate 7: Prediction engine risk score (if shadow replay ran)
+  if (predictionRiskScore != null) {
+    const predictionSafe = predictionRiskScore <= 40;
+    gates.push({
+      name: "prediction_safe",
+      passed: predictionSafe,
+      reason: predictionSafe
+        ? `Prediction risk score ${predictionRiskScore}/100 — within safe threshold`
+        : `Prediction risk score ${predictionRiskScore}/100 — exceeds safe threshold (max 40)`,
     });
   }
 

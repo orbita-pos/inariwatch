@@ -28,6 +28,7 @@ export interface PredictionOutput {
     occurrenceCount: number;
     successRate: number;
   }[];
+  shadowReplay: import("./shadow-replay").ShadowReplayResult | null;
 }
 
 /**
@@ -105,7 +106,30 @@ export async function runPrediction(input: PredictionInput): Promise<PredictionO
     result = { predictions: [], overallRisk: "low", summary: "Could not parse prediction." };
   }
 
-  return { result, patternMatches };
+  // Layer 3: Shadow execution with Substrate replay
+  let shadowReplay: import("./shadow-replay").ShadowReplayResult | null = null;
+  try {
+    // Get the PR branch name
+    const prInfo = await gh.getPRInfo(token, owner, repo, prNumber) as Record<string, unknown>;
+    const head = prInfo.head as Record<string, unknown> | undefined;
+    const branch = head?.ref as string | undefined;
+
+    if (branch) {
+      const { runShadowReplay } = await import("./shadow-replay");
+      shadowReplay = await runShadowReplay({
+        projectId,
+        owner,
+        repo,
+        branch,
+        prFiles: prFileNames,
+        token,
+      });
+    }
+  } catch {
+    // Non-blocking — shadow replay is optional
+  }
+
+  return { result, patternMatches, shadowReplay };
 }
 
 /** Search community patterns related to PR files */

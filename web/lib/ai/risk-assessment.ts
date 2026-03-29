@@ -321,6 +321,24 @@ export async function assessPRRisk(
         aiPredictionSection += "\n";
       }
     }
+
+    // Add shadow replay results if available
+    if (prediction?.shadowReplay && prediction.shadowReplay.totalRecordings > 0) {
+      const sr = prediction.shadowReplay;
+      const replayEmoji = sr.failed === 0 ? "✅" : "❌";
+      aiPredictionSection += `\n### ${replayEmoji} Shadow Execution (Substrate Replay)\n\n`;
+      aiPredictionSection += `Replayed **${sr.totalRecordings}** production recordings against this PR:\n\n`;
+      aiPredictionSection += `| Recording | Status | Divergences |\n`;
+      aiPredictionSection += `|-----------|--------|-------------|\n`;
+      for (const rec of sr.recordings) {
+        const status = rec.passed ? "✅ Pass" : "❌ Fail";
+        const divs = rec.divergences.length > 0
+          ? rec.divergences.map((d) => `${d.detail}`).join("; ")
+          : "None";
+        aiPredictionSection += `| \`${rec.recordingId.slice(0, 8)}\` | ${status} | ${divs.slice(0, 80)} |\n`;
+      }
+      aiPredictionSection += `\n**Risk Score:** ${sr.riskScore}/100 (${sr.riskLevel})\n`;
+    }
   } catch {
     // Non-blocking — AI prediction is optional enhancement
   }
