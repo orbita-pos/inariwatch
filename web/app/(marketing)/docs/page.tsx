@@ -156,21 +156,21 @@ function P({ children }: { children: React.ReactNode }) {
 
 function CodeBlock({ children, label }: { children: string; label?: string }) {
   return (
-    <div className="my-4 overflow-hidden rounded-lg border border-line bg-zinc-950">
+    <div className="my-4 overflow-hidden rounded-lg border border-line bg-zinc-100 dark:bg-zinc-950">
       {label && (
         <div className="border-b border-line px-4 py-2 flex items-center justify-between">
           <span className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider">{label}</span>
           <CopyButton text={children.trim()} />
         </div>
       )}
-      <pre className="overflow-x-auto p-4 font-mono text-sm text-zinc-300 leading-6 whitespace-pre">{children.trim()}</pre>
+      <pre className="overflow-x-auto p-4 font-mono text-sm text-zinc-700 dark:text-zinc-300 leading-6 whitespace-pre">{children.trim()}</pre>
     </div>
   );
 }
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-200">
+    <code className="rounded bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:text-zinc-200">
       {children}
     </code>
   );
@@ -178,8 +178,8 @@ function InlineCode({ children }: { children: React.ReactNode }) {
 
 function Callout({ type = "info", children }: { type?: "info" | "warn" | "tip"; children: React.ReactNode }) {
   const styles = {
-    info: "border-blue-900/40 bg-blue-950/20 text-blue-300",
-    warn: "border-amber-900/40 bg-amber-950/20 text-amber-300",
+    info: "border-blue-300 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300",
+    warn: "border-amber-300 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300",
     tip:  "border-inari-accent/30 bg-inari-accent/5 text-inari-accent",
   };
   const labels = { info: "Note", warn: "Warning", tip: "Pro tip" };
@@ -219,7 +219,7 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
         <thead>
           <tr className="border-b border-line bg-surface-inner">
             {head.map((h) => (
-              <th key={h} className="px-4 py-2.5 text-left font-medium text-zinc-400 text-xs uppercase tracking-wider">
+              <th key={h} className="px-4 py-2.5 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">
                 {h}
               </th>
             ))}
@@ -229,7 +229,7 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
           {rows.map((row, i) => (
             <tr key={i} className={i % 2 === 0 ? "bg-surface" : "bg-surface-inner/40"}>
               {row.map((cell, j) => (
-                <td key={j} className="px-4 py-2.5 text-zinc-400 font-mono text-xs">
+                <td key={j} className="px-4 py-2.5 text-zinc-600 dark:text-zinc-400 font-mono text-xs">
                   {cell}
                 </td>
               ))}
@@ -275,7 +275,7 @@ export default function DocsPage() {
                       <li key={item.id}>
                         <a
                           href={`#${item.id}`}
-                          className="flex items-center gap-1.5 rounded px-2 py-1 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-fg-base"
+                          className="flex items-center gap-1.5 rounded px-2 py-1 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-fg-base"
                         >
                           <ChevronRight className="h-3 w-3 shrink-0 opacity-40" />
                           {item.label}
