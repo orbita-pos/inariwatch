@@ -372,20 +372,42 @@ export function RemediationPanel({
             </div>
           )}
 
-          {/* Steps timeline */}
+          {/* Live terminal */}
           {state.steps.length > 0 && (
-            <div className="space-y-2">
-              {state.steps.map((step) => (
-                <div key={step.id} className="flex items-start gap-2.5">
-                  <div className="mt-0.5 shrink-0">{STEP_ICON[step.status]}</div>
-                  <p className={`text-sm leading-relaxed ${
-                    step.status === "failed" ? "text-red-400" : "text-fg-base"
-                  }`}>
-                    {step.message}
-                  </p>
-                </div>
-              ))}
-              <div ref={stepsEndRef} />
+            <div className="rounded-lg border border-zinc-800 bg-[#0a0a0a] overflow-hidden">
+              {/* Terminal header */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-800">
+                <div className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
+                <div className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
+                <div className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
+                <span className="ml-2 text-[10px] font-mono text-zinc-600">inariwatch — remediation</span>
+              </div>
+
+              {/* Terminal body */}
+              <div className="px-4 py-3 font-mono text-xs space-y-1.5 max-h-80 overflow-y-auto">
+                {state.steps.map((step, i) => {
+                  const isLast = i === state.steps.length - 1;
+                  const prefix = step.status === "completed" ? "✓"
+                    : step.status === "failed" ? "✗"
+                    : "›";
+                  const color = step.status === "completed" ? "text-emerald-400"
+                    : step.status === "failed" ? "text-red-400"
+                    : "text-blue-400";
+
+                  return (
+                    <div key={step.id} className="flex items-start gap-2">
+                      <span className={`shrink-0 ${color}`}>{prefix}</span>
+                      <span className={`${step.status === "failed" ? "text-red-400" : "text-zinc-300"} leading-relaxed`}>
+                        {step.message}
+                        {isLast && step.status === "running" && (
+                          <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse" />
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div ref={stepsEndRef} />
+              </div>
             </div>
           )}
 
@@ -396,16 +418,21 @@ export function RemediationPanel({
             </div>
           )}
 
-          {/* Diff preview */}
+          {/* Diff preview — terminal style */}
           {state.diffFiles.length > 0 && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2.5 space-y-1">
-              <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Files to be changed</p>
-              {state.diffFiles.map((f) => (
-                <div key={f.path} className="flex items-center justify-between gap-2">
-                  <code className="text-xs text-zinc-300 font-mono">{f.path}</code>
-                  <span className="text-xs text-zinc-600 shrink-0">{f.lines} lines</span>
-                </div>
-              ))}
+            <div className="rounded-lg border border-zinc-800 bg-[#0a0a0a] overflow-hidden">
+              <div className="px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-800">
+                <p className="text-[10px] font-mono text-zinc-500">FILES CHANGED</p>
+              </div>
+              <div className="px-4 py-2.5 font-mono text-xs space-y-1">
+                {state.diffFiles.map((f) => (
+                  <div key={f.path} className="flex items-center gap-2">
+                    <span className="text-amber-400">M</span>
+                    <span className="text-zinc-300">{f.path}</span>
+                    <span className="text-zinc-600 ml-auto">+{f.lines}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -432,25 +459,27 @@ export function RemediationPanel({
             </div>
           )}
 
-          {/* Gate results */}
+          {/* Gate results — terminal style */}
           {state.gates && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2.5 space-y-1.5">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className="h-3.5 w-3.5 text-zinc-400" />
-                <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">
-                  Safety gates — {state.mergeStrategy === "auto_merge" ? "Auto-merge" : "Draft PR"}
+            <div className="rounded-lg border border-zinc-800 bg-[#0a0a0a] overflow-hidden">
+              <div className="px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-800 flex items-center gap-2">
+                <Shield className="h-3 w-3 text-zinc-500" />
+                <p className="text-[10px] font-mono text-zinc-500">
+                  SAFETY GATES — {state.mergeStrategy === "auto_merge" ? "AUTO-MERGE" : "DRAFT PR"}
                 </p>
               </div>
-              {state.gates.map((gate) => (
-                <div key={gate.name} className="flex items-center gap-2 text-xs">
-                  {gate.passed
-                    ? <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />
-                    : <XCircle className="h-3 w-3 text-red-400 shrink-0" />}
-                  <span className={gate.passed ? "text-zinc-400" : "text-red-400"}>
-                    {gate.reason}
-                  </span>
-                </div>
-              ))}
+              <div className="px-4 py-2.5 font-mono text-xs space-y-1">
+                {state.gates.map((gate) => (
+                  <div key={gate.name} className="flex items-start gap-2">
+                    <span className={gate.passed ? "text-emerald-400" : "text-red-400"}>
+                      {gate.passed ? "✓" : "✗"}
+                    </span>
+                    <span className={gate.passed ? "text-zinc-400" : "text-red-400"}>
+                      {gate.reason}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
