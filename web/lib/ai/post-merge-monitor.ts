@@ -238,6 +238,21 @@ export async function startPostMergeMonitoring(params: {
     updatedAt: new Date(),
   }).where(eq(remediationSessions.id, sessionId));
 
+  // Verify pending predictions for this project
+  try {
+    const { verifyPendingPredictions } = await import("./prediction-feedback");
+    const predResults = await verifyPendingPredictions(projectId, mergeTime);
+    if (predResults.verified > 0) {
+      emit("prediction_verified", {
+        verified: predResults.verified,
+        correct: predResults.correct,
+        falsePositive: predResults.falsePositive,
+      });
+    }
+  } catch {
+    // Non-blocking
+  }
+
   // Report success to community patterns (boost the fix's success count)
   if (fingerprint) {
     try {

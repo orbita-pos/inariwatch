@@ -13,6 +13,7 @@ type Config = {
   autoRevert: boolean;
   autoRemediate: boolean;
   autoHeal: boolean;
+  predictionThreshold: number;
 };
 
 export function AutoMergeSection({
@@ -51,7 +52,8 @@ export function AutoMergeSection({
     form.postMergeMonitor !== config.postMergeMonitor ||
     form.autoRevert !== config.autoRevert ||
     form.autoRemediate !== config.autoRemediate ||
-    form.autoHeal !== config.autoHeal;
+    form.autoHeal !== config.autoHeal ||
+    form.predictionThreshold !== config.predictionThreshold;
 
   return (
     <section className="rounded-xl border border-[#222] bg-[#111] overflow-hidden">

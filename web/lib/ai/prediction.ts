@@ -129,6 +129,26 @@ export async function runPrediction(input: PredictionInput): Promise<PredictionO
     // Non-blocking — shadow replay is optional
   }
 
+  // Store predictions for accuracy tracking
+  try {
+    const { storePrediction } = await import("./prediction-feedback");
+    for (const pred of result.predictions) {
+      await storePrediction({
+        projectId,
+        prNumber,
+        repo: `${owner}/${repo}`,
+        predictedError: pred.error,
+        predictedFile: pred.file,
+        predictedLine: pred.line,
+        confidence: pred.confidence,
+        riskLevel: result.overallRisk,
+        replayRiskScore: shadowReplay?.riskScore ?? null,
+      });
+    }
+  } catch {
+    // Non-blocking — storage failure shouldn't break prediction
+  }
+
   return { result, patternMatches, shadowReplay };
 }
 

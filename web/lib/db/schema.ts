@@ -107,6 +107,8 @@ export type AutoMergeConfig = {
   autoRemediate: boolean;
   /** Auto-heal: rollback + remediate when uptime detects site is down */
   autoHeal: boolean;
+  /** Prediction confidence threshold — block deploy if prediction confidence >= this (default: 80) */
+  predictionThreshold: number;
 };
 
 export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
@@ -118,6 +120,7 @@ export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
   autoRevert: true,
   autoRemediate: false,
   autoHeal: false,
+  predictionThreshold: 80,
 };
 
 export const projectIntegrations = pgTable("project_integrations", {
@@ -624,6 +627,34 @@ export const fixRatings = pgTable("fix_ratings", {
 export type ErrorPattern = typeof errorPatterns.$inferSelect;
 export type CommunityFix = typeof communityFixes.$inferSelect;
 export type FixRating = typeof fixRatings.$inferSelect;
+
+// ── Prediction tracking ──────────────────────────────────────────────────────
+
+export const predictions = pgTable("predictions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  prNumber: integer("pr_number").notNull(),
+  repo: text("repo").notNull(), // "owner/repo"
+  /** Predicted error title */
+  predictedError: text("predicted_error").notNull(),
+  /** File and line predicted */
+  predictedFile: text("predicted_file"),
+  predictedLine: integer("predicted_line"),
+  /** AI confidence 0-100 */
+  confidence: integer("confidence").notNull(),
+  /** Risk level from prediction engine */
+  riskLevel: text("risk_level").notNull(), // 'low' | 'medium' | 'high' | 'critical'
+  /** Shadow replay risk score 0-100 (null if replay didn't run) */
+  replayRiskScore: integer("replay_risk_score"),
+  /** Outcome after deploy: 'pending' | 'correct' | 'false_positive' | 'false_negative' */
+  outcome: text("outcome").default("pending").notNull(),
+  /** Alert ID if the predicted error actually occurred */
+  matchedAlertId: uuid("matched_alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+
+export type Prediction = typeof predictions.$inferSelect;
 
 // ── Rate Limiting ────────────────────────────────────────────────────────────
 

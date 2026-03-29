@@ -62,6 +62,7 @@ export async function updateAutoMergeConfig(
       autoRevert: !!config.autoRevert,
       autoRemediate: !!config.autoRemediate,
       autoHeal: !!config.autoHeal,
+      predictionThreshold: Math.round(Math.max(50, Math.min(100, config.predictionThreshold ?? 80))),
     };
 
     await db
