@@ -8,6 +8,7 @@ import { LocalServer } from "./local.js"
 import { initAuth, getToken } from "./auth.js"
 import { registerCommands, refreshAlerts } from "./commands.js"
 import { createSSEStream } from "./api.js"
+import { registerPredictionProvider } from "./prediction.js"
 import type { ApiConfig } from "./types.js"
 
 let pollInterval: ReturnType<typeof setInterval> | undefined
@@ -50,6 +51,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register commands
   registerCommands(context, store, treeProvider, diagnostics, getApiConfig)
+
+  // Register prediction provider (warns on file save)
+  registerPredictionProvider(context, getApiConfig)
 
   // Read settings
   const config = vscode.workspace.getConfiguration("inariwatch")

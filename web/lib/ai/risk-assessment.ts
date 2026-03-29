@@ -364,17 +364,19 @@ export async function assessPRRisk(
     await gh.commentOnPR(token, owner, repo, prNumber, commentBody);
   }
 
-  // Slack: notify if prediction found
-  if (predictionSection) {
+  // Slack: notify if any prediction found (pattern match, AI prediction, or shadow replay)
+  if (predictionSection || aiPredictionSection) {
     try {
       const { getSlackClientForProject } = await import("@/lib/slack/client");
-      const { buildPRPredictionBlocks } = await import("@/lib/slack/blocks");
+      const { buildPRPredictionBlocks, buildShadowReplayBlocks } = await import("@/lib/slack/blocks");
       const slack = await getSlackClientForProject(projectId);
       if (slack) {
-        const blocks = buildPRPredictionBlocks(owner, repo, prNumber, prContext.prTitle, predictionSection);
+        // Main prediction message
+        const fullPrediction = (predictionSection + aiPredictionSection).trim();
+        const blocks = buildPRPredictionBlocks(owner, repo, prNumber, prContext.prTitle, fullPrediction);
         await slack.client.chat.postMessage({
           channel: slack.channelId,
-          text: `⚠️ PR #${prNumber} predicted to cause a known error`,
+          text: `⚠️ PR #${prNumber} — prediction engine flagged potential issues`,
           blocks,
         });
       }
