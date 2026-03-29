@@ -12,6 +12,7 @@ type Config = {
   postMergeMonitor: boolean;
   autoRevert: boolean;
   autoRemediate: boolean;
+  autoHeal: boolean;
 };
 
 export function AutoMergeSection({
@@ -49,7 +50,8 @@ export function AutoMergeSection({
     form.requireSelfReview !== config.requireSelfReview ||
     form.postMergeMonitor !== config.postMergeMonitor ||
     form.autoRevert !== config.autoRevert ||
-    form.autoRemediate !== config.autoRemediate;
+    form.autoRemediate !== config.autoRemediate ||
+    form.autoHeal !== config.autoHeal;
 
   return (
     <section className="rounded-xl border border-[#222] bg-[#111] overflow-hidden">
@@ -208,6 +210,28 @@ export function AutoMergeSection({
               >
                 <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform mt-0.5 ${
                   form.autoRemediate ? "translate-x-[18px]" : "translate-x-0.5"
+                }`} />
+              </button>
+            </label>
+
+            {/* Auto-heal toggle */}
+            <label className="flex items-center justify-between gap-3 cursor-pointer pl-4 mt-3 pt-3 border-t border-[#222]">
+              <div>
+                <p className="text-sm text-zinc-300">Auto-heal</p>
+                <p className="text-xs text-zinc-600">When uptime detects your site is down: rollback to last good deploy + start AI fix</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.autoHeal}
+                disabled={!isAdmin}
+                onClick={() => setForm((f) => ({ ...f, autoHeal: !f.autoHeal }))}
+                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                  form.autoHeal ? "bg-red-600" : "bg-zinc-700"
+                } ${!isAdmin ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform mt-0.5 ${
+                  form.autoHeal ? "translate-x-[18px]" : "translate-x-0.5"
                 }`} />
               </button>
             </label>

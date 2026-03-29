@@ -61,6 +61,7 @@ export async function updateAutoMergeConfig(
       postMergeMonitor: !!config.postMergeMonitor,
       autoRevert: !!config.autoRevert,
       autoRemediate: !!config.autoRemediate,
+      autoHeal: !!config.autoHeal,
     };
 
     await db

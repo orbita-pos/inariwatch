@@ -105,6 +105,8 @@ export type AutoMergeConfig = {
   autoRevert: boolean;
   /** Autonomous mode: auto-trigger remediation on critical alerts (no human click needed) */
   autoRemediate: boolean;
+  /** Auto-heal: rollback + remediate when uptime detects site is down */
+  autoHeal: boolean;
 };
 
 export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
@@ -115,6 +117,7 @@ export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
   postMergeMonitor: true,
   autoRevert: true,
   autoRemediate: false,
+  autoHeal: false,
 };
 
 export const projectIntegrations = pgTable("project_integrations", {

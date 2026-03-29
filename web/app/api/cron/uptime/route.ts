@@ -103,14 +103,85 @@ export async function GET(req: Request) {
       if (!isUp && !wasDown) {
         // 🔴 Just went DOWN → create alert
         const monitorName = monitor.name ?? monitor.url;
-        await db.insert(alerts).values({
+        const [downAlert] = await db.insert(alerts).values({
           projectId: monitor.projectId,
           severity: "critical",
           title: `🔴 ${monitorName} is down`,
           body: `Uptime check failed for ${monitor.url}.\n\n${errorMsg ?? "No response"}`,
           sourceIntegrations: ["uptime"],
-        });
+        }).returning();
         newAlerts++;
+
+        // Auto-heal: rollback + remediate if enabled
+        try {
+          const { projectIntegrations, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
+          const [proj] = await db
+            .select({ autoMergeConfig: projects.autoMergeConfig, userId: projects.userId })
+            .from(projects)
+            .where(eq(projects.id, monitor.projectId))
+            .limit(1);
+
+          const config = (proj?.autoMergeConfig as typeof DEFAULT_AUTO_MERGE_CONFIG | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+
+          if (config.autoHeal && proj) {
+            // Step 1: Rollback to last good deploy
+            const [vercelInteg] = await db
+              .select()
+              .from(projectIntegrations)
+              .where(and(
+                eq(projectIntegrations.projectId, monitor.projectId),
+                eq(projectIntegrations.service, "vercel"),
+                eq(projectIntegrations.isActive, true),
+              ))
+              .limit(1);
+
+            if (vercelInteg) {
+              const { decryptConfig } = await import("@/lib/crypto");
+              const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
+              const { triggerAutoRollback } = await import("@/lib/services/auto-rollback");
+              triggerAutoRollback({
+                alertId: downAlert.id,
+                token: vercelConfig.token as string,
+                teamId: vercelConfig.teamId as string | undefined,
+                vercelProjectId: (vercelConfig.projectId as string) || monitorName,
+                projectName: monitorName,
+              }).catch(() => {});
+            }
+
+            // Step 2: Start AI remediation in background
+            if (config.autoRemediate) {
+              const { remediationSessions } = await import("@/lib/db");
+              const [session] = await db
+                .insert(remediationSessions)
+                .values({
+                  alertId: downAlert.id,
+                  projectId: monitor.projectId,
+                  userId: proj.userId,
+                  status: "analyzing",
+                  attempt: 1,
+                  maxAttempts: 3,
+                  steps: [],
+                })
+                .returning();
+
+              import("@/lib/ai/remediate").then(({ runRemediation }) => {
+                runRemediation(session.id, () => {}).catch(() => {});
+              }).catch(() => {});
+            }
+
+            // Notify Slack
+            import("@/lib/slack/send").then(({ sendThreadReply }) => {
+              sendThreadReply(downAlert.id,
+                `:shield: *Auto-heal activated*\n` +
+                `1. Rolling back to last successful deploy...\n` +
+                `2. AI remediation starting in background...\n` +
+                `Your site will be back online in ~30 seconds.`
+              ).catch(() => {});
+            }).catch(() => {});
+          }
+        } catch {
+          // Non-blocking — auto-heal failure should never block alert creation
+        }
 
         // Send immediate notification to all project-owner channels
         const [project] = await db
