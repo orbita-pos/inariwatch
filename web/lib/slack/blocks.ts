@@ -315,6 +315,54 @@ export function buildPostmortemBlocks(
   ];
 }
 
+// ── Community fix ────────────────────────────────────────────────────────────
+
+export function buildCommunityFixBlocks(
+  match: {
+    occurrenceCount: number;
+    successRate: number;
+    successCount: number;
+    totalApplications: number;
+    fixApproach: string;
+    filesChanged: string[];
+  },
+  alertId: string,
+): KnownBlock[] {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: [
+          `:bulb: *Community Fix Available*`,
+          `${match.occurrenceCount} team${match.occurrenceCount > 1 ? "s" : ""} hit this error. Fix success rate: *${match.successRate}%* (${match.successCount}/${match.totalApplications})`,
+          ``,
+          `*Approach:* ${escapeSlack(match.fixApproach.slice(0, 300))}`,
+          match.filesChanged.length > 0 ? `*Files:* ${match.filesChanged.map((f) => "`" + f + "`").join(", ")}` : "",
+        ].filter(Boolean).join("\n"),
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Apply Community Fix" },
+          style: "primary",
+          action_id: "apply_community_fix",
+          value: alertId,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Custom Fix Instead" },
+          action_id: "fix_alert",
+          value: alertId,
+        },
+      ],
+    },
+  ];
+}
+
 // ── Substrate recording ──────────────────────────────────────────────────────
 
 export function buildRecordingBlocks(

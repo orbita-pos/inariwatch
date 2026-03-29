@@ -93,6 +93,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ response_type: "ephemeral", text: ":gear: Starting remediation..." });
     }
 
+    case "apply_community_fix": {
+      // Community fix = run remediation but the pipeline will use the community fix hint
+      waitUntil(runSlackRemediation(value, userId, responseUrl));
+      return NextResponse.json({ response_type: "ephemeral", text: ":bulb: Applying community fix..." });
+    }
+
     case "approve_remediation": {
       const result = await approveRemediationCore(value, userId);
       if (result.error) return NextResponse.json({ response_type: "ephemeral", text: result.error });

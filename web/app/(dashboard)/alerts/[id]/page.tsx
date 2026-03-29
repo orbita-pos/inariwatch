@@ -15,6 +15,7 @@ import { markAlertResolved, reopenAlert } from "./actions";
 import { CommentsSection } from "./comments";
 import { AIAnalyzePanel } from "./ai-analyze";
 import { RemediationPanel } from "./remediation-panel";
+import { CommunityFixBanner } from "./community-fix-banner";
 import { PostmortemPanel } from "./postmortem-panel";
 import { VercelRollbackPanel } from "./vercel-rollback";
 import type { Metadata } from "next";
@@ -259,6 +260,11 @@ export default async function AlertDetailPage({
       {/* ── Vercel rollback ────────────────────────────────────────────── */}
       {isPro && alert.sourceIntegrations.includes("vercel") && !alert.isResolved && (
         <VercelRollbackPanel alertId={alert.id} isResolved={alert.isResolved} />
+      )}
+
+      {/* ── Community Fix ──────────────────────────────────────────────── */}
+      {alert.fingerprint && !alert.isResolved && (
+        <CommunityFixBanner alertId={alert.id} fingerprint={alert.fingerprint} />
       )}
 
       {/* ── AI Remediation ─────────────────────────────────────────────── */}

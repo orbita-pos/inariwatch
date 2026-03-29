@@ -9,6 +9,7 @@ import {
   buildRemediationCompleteBlocks,
   buildPostmortemBlocks,
   buildRecordingBlocks,
+  buildCommunityFixBlocks,
 } from "./blocks";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
 
@@ -16,7 +17,7 @@ import { getCurrentOnCallUserId } from "@/lib/on-call";
 
 /** Send a rich alert message to the mapped Slack channel. Non-blocking. */
 export async function sendAlertToSlack(
-  alert: { id: string; title: string; body: string; severity: string; aiReasoning: string | null; sourceIntegrations: string[] | null; projectId: string; createdAt: Date | null },
+  alert: { id: string; title: string; body: string; severity: string; aiReasoning: string | null; sourceIntegrations: string[] | null; projectId: string; createdAt: Date | null; fingerprint?: string | null },
 ): Promise<void> {
   const slack = await getSlackClientForProject(alert.projectId);
   if (!slack) return; // no mapping — silently skip
@@ -71,6 +72,11 @@ export async function sendAlertToSlack(
   // Attach Substrate recording if one exists for this alert
   if (result.ts) {
     attachSubstrateRecording(alert.id, alert.projectId, slack, result.ts).catch(() => {});
+  }
+
+  // Check for community fix and post if available
+  if (result.ts && alert.fingerprint) {
+    attachCommunityFix(alert.id, alert.fingerprint, slack, result.ts).catch(() => {});
   }
 }
 
@@ -129,6 +135,26 @@ async function attachSubstrateRecording(
     channel: slack.channelId,
     thread_ts: threadTs,
     text: "Substrate recording attached",
+    blocks,
+  });
+}
+
+/** Check for a community fix and post it to the alert thread */
+async function attachCommunityFix(
+  alertId: string,
+  fingerprint: string,
+  slack: { client: import("@slack/web-api").WebClient; channelId: string },
+  threadTs: string,
+): Promise<void> {
+  const { lookupCommunityFix } = await import("@/lib/ai/community-fix-lookup");
+  const match = await lookupCommunityFix(fingerprint);
+  if (!match) return;
+
+  const blocks = buildCommunityFixBlocks(match, alertId);
+  await slack.client.chat.postMessage({
+    channel: slack.channelId,
+    thread_ts: threadTs,
+    text: `Community fix available (${match.successRate}% success rate)`,
     blocks,
   });
 }
