@@ -74,6 +74,14 @@ const NAV = [
     ],
   },
   {
+    group: "Autonomous Mode",
+    items: [
+      { id: "auto-remediate", label: "Auto-Remediate" },
+      { id: "auto-heal",      label: "Auto-Heal" },
+      { id: "community-fixes", label: "Community Fixes" },
+    ],
+  },
+  {
     group: "Slack Bot",
     items: [
       { id: "slack-setup",     label: "Setup" },
@@ -481,8 +489,8 @@ inariwatch daemon uninstall # remove the service`}</CodeBlock>
 inariwatch config --auto-merge true  # also merge PRs when all safety gates pass`}</CodeBlock>
             <P>
               <InlineCode>auto_merge</InlineCode> requires <InlineCode>auto_fix</InlineCode> to be enabled.
-              Even then, a PR is only merged when <strong>all 5 safety gates pass</strong>: CI green, confidence ≥ 90%,
-              self-review score ≥ 70, lines changed ≤ 50, and trust level ≥ Apprentice.
+              Even then, a PR is only merged when <strong>all 8 safety gates pass</strong>: auto-merge enabled, CI green, confidence ≥ 90%,
+              self-review score ≥ 70, lines changed ≤ 50, Substrate risk ≤ 40, EAP chain verified, and post-merge monitoring.
             </P>
             <Callout type="info">
               Use <InlineCode>inariwatch agent-stats</InlineCode> to see the AI&apos;s track record, current trust level,
@@ -1117,6 +1125,50 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Gemini." },
             ]} />
             <CodeBlock label="CLI">{`inariwatch config --ai-key AIza... --model gemini-2.0-flash`}</CodeBlock>
+
+            {/* ────────────────────────────────────────────────────────────────
+                AUTONOMOUS MODE
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="auto-remediate">Autonomous Mode — Auto-Remediate</SectionHeading>
+            <P>
+              When enabled, InariWatch automatically triggers the full AI remediation pipeline on critical alerts — no human click needed.
+              The developer wakes up to: {'"'}We had an incident at 3 AM. It{"'"}s already fixed.{'"'}
+            </P>
+            <StepList steps={[
+              { title: "Enable", body: "Project Settings → Auto-Merge → toggle Autonomous mode (amber)." },
+              { title: "Critical alert arrives", body: "AI diagnosis runs automatically, then the full pipeline: read code → generate fix → self-review → push → CI → PR." },
+              { title: "Safety gates apply", body: "All 8 gates must pass for auto-merge. If any gate fails, a draft PR is created for manual review instead." },
+            ]} />
+            <Callout type="warn">
+              Autonomous mode requires auto-merge to be enabled. All existing safety gates (confidence, self-review, CI, lines changed, Substrate risk, EAP verification) still apply.
+            </Callout>
+
+            <SectionHeading id="auto-heal">Autonomous Mode — Auto-Heal</SectionHeading>
+            <P>
+              When your site goes down, InariWatch automatically rolls back to the last successful deploy and starts an AI fix in the background.
+              Total downtime: ~90 seconds.
+            </P>
+            <StepList steps={[
+              { title: "Enable", body: "Project Settings → Auto-Merge → toggle Auto-heal (red). Requires a Vercel integration for rollback." },
+              { title: "Uptime detects failure", body: "3 consecutive ping failures (not just 1) confirm the site is down. Prevents false positives." },
+              { title: "Rollback", body: "Automatically rolls back to the last successful Vercel deploy. Site is back online in ~30 seconds." },
+              { title: "AI fix", body: "Remediation starts in background. When the fix is ready, a new deploy replaces the rollback with everything + the fix." },
+              { title: "Cooldown", body: "10-minute cooldown between auto-heal triggers prevents loops if the issue is not code-related (DB down, DNS, etc.)." },
+            ]} />
+
+            <SectionHeading id="community-fixes">Autonomous Mode — Community Fixes</SectionHeading>
+            <P>
+              Every fix that InariWatch generates is stored with its error fingerprint and CI result.
+              When a new error matches a known pattern, the community fix appears instantly with its success rate.
+            </P>
+            <P>
+              Example: {'"'}47 teams hit this error. Fix success rate: 96% (44/46 deployments).{'"'}
+            </P>
+            <P>
+              Click <strong>Apply Community Fix</strong> to use the proven fix instead of generating a new one.
+              The more teams use InariWatch, the faster everyone{"'"}s errors get fixed. This is the network effect.
+            </P>
 
             {/* ────────────────────────────────────────────────────────────────
                 SLACK BOT

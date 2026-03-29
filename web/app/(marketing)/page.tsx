@@ -820,6 +820,20 @@ function AIFeatures() {
       body: "Capture every HTTP call, DB query, and file operation. When an error occurs, the last 60 seconds of I/O are attached to the alert. The AI sees exactly what your code did.",
       tag: "Full trace",
     },
+    {
+      icon: <Zap className="h-5 w-5" />,
+      title: "Community Fix Network",
+      body: "Your error was already fixed by 47 other teams. Success rate: 96%. One click to apply. The more teams use InariWatch, the faster everyone's errors get fixed.",
+      tag: "Network effect",
+      highlight: true,
+    },
+    {
+      icon: <Shield className="h-5 w-5" />,
+      title: "Auto-Heal",
+      body: "Site goes down? InariWatch rolls back to the last working deploy in 30 seconds, then fixes the bug in the background. Total downtime: ~90 seconds. No human needed.",
+      tag: "Self-healing",
+      highlight: true,
+    },
   ];
 
   return (
