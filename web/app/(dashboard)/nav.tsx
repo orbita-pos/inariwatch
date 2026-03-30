@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity } from "lucide-react";
 
-type NavItem = { href: string; label: string; icon: React.ElementType };
+type NavItem = { href: string; label: string; icon: React.ElementType; exact?: boolean };
 type NavGroup = { label?: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
@@ -37,7 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Learn",
     items: [
-      { href: "/community",       label: "Community",  icon: Users },
+      { href: "/community",       label: "Community",  icon: Users, exact: true },
       { href: "/community/fleet", label: "Fleet Stats", icon: Activity },
     ],
   },
@@ -48,9 +48,9 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items).concat([
   { href: "/settings", label: "Settings", icon: Settings },
 ]);
 
-function NavLink({ href, label, icon: Icon }: NavItem) {
+function NavLink({ href, label, icon: Icon, exact }: NavItem) {
   const pathname = usePathname();
-  const active = pathname === href || pathname.startsWith(href + "/");
+  const active = pathname === href || (!exact && pathname.startsWith(href + "/"));
 
   return (
     <Link
