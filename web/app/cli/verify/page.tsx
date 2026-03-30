@@ -98,7 +98,7 @@ export default async function CliVerifyPage({
             Authorize
           </button>
           <p className="text-center text-[11px] text-zinc-700">
-            Logged in as <span className="text-zinc-500">{(session.user as { email?: string })?.email}</span>
+            Logged in as <span className="text-zinc-500">{(session?.user as { email?: string })?.email}</span>
           </p>
         </form>
       </div>
