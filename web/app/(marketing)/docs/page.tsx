@@ -1163,7 +1163,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               Autonomous mode requires auto-merge to be enabled. All existing safety gates (confidence, self-review, CI, lines changed, Substrate risk, EAP verification) still apply.
             </Callout>
 
-            <SubHeading>Autonomous mode suggestion</SubHeading>
+            <SubHeading id="auto-remediate-suggestion">Autonomous mode suggestion</SubHeading>
             <P>
               You don{"'"}t need to enable autonomous mode manually. InariWatch watches your approval history and suggests it automatically
               when the data justifies the trust.
@@ -1181,7 +1181,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               Dismissing hides it permanently for that project. The suggestion never reappears once dismissed.
             </P>
 
-            <SubHeading>Auto-tune confidence threshold</SubHeading>
+            <SubHeading id="auto-remediate-tune">Auto-tune confidence threshold</SubHeading>
             <P>
               The minimum confidence threshold (<InlineCode>minConfidence</InlineCode>) controls which AI fixes are eligible for auto-merge.
               InariWatch adjusts this threshold automatically based on your project{"'"}s actual approval history — no manual tuning needed.
@@ -1225,7 +1225,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               Click <strong>Apply Community Fix</strong> to use the proven fix instead of generating a new one.
               The more teams use InariWatch, the faster everyone{"'"}s errors get fixed. This is the network effect.
             </P>
-            <SubHeading>How auto-contribute works</SubHeading>
+            <SubHeading id="community-fixes-contribute">How auto-contribute works</SubHeading>
             <StepList steps={[
               { title: "Fix approved", body: "When you approve an AI-generated fix, it is automatically contributed to the network. No action required." },
               { title: "Anonymization", body: "All PII, secrets, API keys, IPs, URLs, and file contents are stripped before contribution. Only file paths, the fix approach, and confidence score are shared." },

@@ -174,7 +174,7 @@ function setupNode(project: DetectedProject) {
 
 // --- DSN setup (device flow) ---
 
-const API_BASE = "https://app.inariwatch.com"
+const API_BASE = process.env.INARIWATCH_API_URL ?? "https://app.inariwatch.com"
 
 function openBrowser(url: string) {
   const cmd = process.platform === "darwin" ? `open "${url}"`
