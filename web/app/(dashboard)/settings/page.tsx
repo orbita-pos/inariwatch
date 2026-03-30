@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs } from "@/lib/db";
+import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs, slackInstallations, slackChannelMappings, projects } from "@/lib/db";
 import { eq, desc } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { MessageSquare, Mail, Bell, Key, Monitor, Hash } from "lucide-react";
@@ -37,18 +37,32 @@ export default async function SettingsPage() {
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
 
-  const [userRows, channels, keys, webhooks, auditEntries] = userId
+  const [userRows, channels, keys, webhooks, auditEntries, slackRows, userProjects] = userId
     ? await Promise.all([
         db.select().from(users).where(eq(users.id, userId)).limit(1),
         db.select().from(notificationChannels).where(eq(notificationChannels.userId, userId)),
         db.select().from(apiKeys).where(eq(apiKeys.userId, userId)),
         db.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.userId, userId)),
         db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(desc(auditLogs.createdAt)).limit(30),
+        db.select().from(slackInstallations).where(eq(slackInstallations.userId, userId)).limit(1),
+        db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.userId, userId)),
       ])
-    : [[], [], [], [], []];
+    : [[], [], [], [], [], [], []];
 
   const user       = userRows[0];
   const isPro      = user?.plan === "pro";
+  const slackInstall = slackRows[0] ?? null;
+  const slackMappings = slackInstall
+    ? await db.select({
+        projectId: slackChannelMappings.projectId,
+        projectName: projects.name,
+        channelId: slackChannelMappings.channelId,
+        channelName: slackChannelMappings.channelName,
+      })
+        .from(slackChannelMappings)
+        .innerJoin(projects, eq(slackChannelMappings.projectId, projects.id))
+        .where(eq(slackChannelMappings.installationId, slackInstall.id))
+    : [];
   const desktopKey = keys.find((k) => k.service === "desktop");
   const AI_PRIORITY: Record<string, number> = { claude: 0, openai: 1, grok: 2, deepseek: 3, gemini: 4 };
   const AI_SERVICES = Object.keys(AI_PRIORITY);
@@ -105,7 +119,7 @@ export default async function SettingsPage() {
             <div className="flex flex-wrap gap-2">
               <ConnectTelegramButton />
               <ConnectEmailButton />
-              <ConnectSlackButton />
+              <ConnectSlackButton installation={slackInstall ? { id: slackInstall.id, teamName: slackInstall.teamName, createdAt: slackInstall.createdAt?.toISOString() ?? "" } : null} channelMappings={slackMappings} projects={userProjects} />
             </div>
             <PushNotificationsButton />
           </div>
@@ -149,7 +163,8 @@ export default async function SettingsPage() {
             <div className="flex flex-wrap items-center gap-2">
               {!channels.some((ch) => ch.type === "telegram")          && <ConnectTelegramButton />}
               {!channels.some((ch) => ch.type === "email")             && <ConnectEmailButton />}
-              {!channels.some((ch) => ch.type === "slack")             && <ConnectSlackButton />}
+              {!slackInstall && <ConnectSlackButton installation={null} channelMappings={[]} projects={userProjects} />}
+              {slackInstall && <ConnectSlackButton installation={{ id: slackInstall.id, teamName: slackInstall.teamName, createdAt: slackInstall.createdAt?.toISOString() ?? "" }} channelMappings={slackMappings} projects={userProjects} />}
               {!channels.some((ch) => (ch.type as string) === "push")  && <PushNotificationsButton />}
             </div>
           </div>
