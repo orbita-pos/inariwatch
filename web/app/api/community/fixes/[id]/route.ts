@@ -20,9 +20,9 @@ export async function OPTIONS() {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = params;
+  const { id } = await params;
 
   const [fix] = await db
     .select()

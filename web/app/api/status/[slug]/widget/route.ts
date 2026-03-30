@@ -34,9 +34,9 @@ export async function OPTIONS() {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { slug: string } },
+  { params }: { params: Promise<{ slug: string }> },
 ) {
-  const { slug } = params;
+  const { slug } = await params;
 
   const [page] = await db
     .select()
