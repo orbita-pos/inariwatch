@@ -5,11 +5,11 @@ import type { Metadata } from "next";
 export const metadata: Metadata = { title: "Community Fixes" };
 
 const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
-  runtime_error:   { label: "Runtime",        color: "bg-red-900/50 text-red-400" },
-  build_error:     { label: "Build",          color: "bg-amber-900/50 text-amber-400" },
-  ci_error:        { label: "CI",             color: "bg-blue-900/50 text-blue-400" },
-  infrastructure:  { label: "Infrastructure", color: "bg-purple-900/50 text-purple-400" },
-  unknown:         { label: "Other",          color: "bg-zinc-800 text-zinc-400" },
+  runtime_error:   { label: "Runtime",        color: "bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-400" },
+  build_error:     { label: "Build",          color: "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400" },
+  ci_error:        { label: "CI",             color: "bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400" },
+  infrastructure:  { label: "Infrastructure", color: "bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-400" },
+  unknown:         { label: "Other",          color: "bg-surface-dim text-fg-base" },
 };
 
 export default async function CommunityPage({
@@ -87,12 +87,12 @@ export default async function CommunityPage({
           type="text"
           placeholder="Search patterns..."
           defaultValue={q ?? ""}
-          className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-600 focus:outline-none"
+          className="flex-1 rounded-lg border border-line bg-surface-inner px-3 py-2 text-sm text-fg-base placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:border-line-medium focus:outline-none"
         />
         <select
           name="category"
           defaultValue={category ?? ""}
-          className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300"
+          className="rounded-lg border border-line bg-surface-inner px-3 py-2 text-sm text-fg-base"
         >
           <option value="">All categories</option>
           {categories.map((c) => (
@@ -101,7 +101,7 @@ export default async function CommunityPage({
         </select>
         <button
           type="submit"
-          className="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700 transition-colors"
+          className="rounded-lg border border-line bg-surface-dim px-4 py-2 text-sm text-fg-base hover:bg-surface-inner transition-colors"
         >
           Search
         </button>
@@ -109,7 +109,7 @@ export default async function CommunityPage({
 
       {/* Results */}
       {enriched.length === 0 ? (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
+        <div className="rounded-lg border border-line bg-surface p-8 text-center">
           <p className="text-sm text-zinc-500">
             {q ? "No patterns match your search." : "No patterns yet. Patterns are added automatically when AI remediation succeeds."}
           </p>
@@ -125,11 +125,11 @@ export default async function CommunityPage({
             return (
               <div
                 key={row.id}
-                className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
+                className="rounded-lg border border-line bg-surface p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-200 break-words">
+                    <p className="text-sm font-medium text-fg-base break-words">
                       {row.pattern_text.slice(0, 200)}
                     </p>
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -137,7 +137,7 @@ export default async function CommunityPage({
                         {cat.label}
                       </span>
                       {row.language && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-surface-dim text-fg-base">
                           {row.language}
                         </span>
                       )}
@@ -159,9 +159,9 @@ export default async function CommunityPage({
                   )}
                 </div>
                 {row.topFix && (
-                  <div className="mt-3 border-t border-zinc-800 pt-3">
+                  <div className="mt-3 border-t border-line pt-3">
                     <p className="text-xs text-zinc-500 mb-1">Top fix:</p>
-                    <p className="text-xs text-zinc-400">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
                       {row.topFix.fixApproach.slice(0, 200)}
                     </p>
                   </div>

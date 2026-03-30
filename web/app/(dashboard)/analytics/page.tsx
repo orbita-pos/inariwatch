@@ -268,7 +268,7 @@ export default async function AnalyticsPage() {
                     {warnH > 0 && <div className="w-full bg-amber-400/70" style={{ height: `${warnH}px` }} />}
                     {critH > 0 && <div className="w-full bg-inari-accent/70" style={{ height: `${critH}px` }} />}
                   </div>
-                  {barH === 0 && <div className="w-full rounded-t bg-white/[0.03]" style={{ height: "2px" }} />}
+                  {barH === 0 && <div className="w-full rounded-t bg-black/[0.04] dark:bg-white/[0.03]" style={{ height: "2px" }} />}
                 </div>
                 <span className="text-[10px] whitespace-nowrap text-zinc-700">{formatShortDate(day)}</span>
               </div>
@@ -295,7 +295,7 @@ export default async function AnalyticsPage() {
                       <span className="text-sm capitalize text-fg-base">{src.source}</span>
                       <span className="font-mono text-xs tabular-nums text-zinc-500">{src.count}</span>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.06]">
                       <div className="h-1.5 rounded-full bg-inari-accent/50" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
@@ -328,7 +328,7 @@ export default async function AnalyticsPage() {
                         <span className="font-mono text-[10px] tabular-nums text-zinc-700">{pct.toFixed(0)}%</span>
                       </div>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.06]">
                       <div
                         className={`h-1.5 rounded-full ${SEV_BAR_COLOR[sev]}`}
                         style={{ width: `${(sevCount / maxSevCount) * 100}%` }}
@@ -378,7 +378,7 @@ export default async function AnalyticsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg border border-line bg-white/[0.02] p-4 space-y-1.5">
+            <div className="rounded-lg border border-line bg-surface-dim p-4 space-y-1.5">
               <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">Human</span>
               <div className="font-mono text-3xl font-semibold tabular-nums text-fg-strong">
                 {humanMttrSec > 0 ? formatDuration(humanMttrSec) : "—"}
@@ -389,9 +389,9 @@ export default async function AnalyticsPage() {
               )}
             </div>
 
-            <div className="rounded-lg border border-violet-500/20 bg-violet-950/10 p-4 space-y-1.5">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-violet-500">AI</span>
-              <div className="font-mono text-3xl font-semibold tabular-nums text-violet-300">
+            <div className="rounded-lg border border-violet-300 bg-violet-50/70 dark:border-violet-500/20 dark:bg-violet-950/10 p-4 space-y-1.5">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-violet-600 dark:text-violet-500">AI</span>
+              <div className="font-mono text-3xl font-semibold tabular-nums text-violet-700 dark:text-violet-300">
                 {aiMttrSec > 0 ? formatDuration(aiMttrSec) : "—"}
               </div>
               <div className="text-xs text-zinc-500">avg with AI remediation</div>
@@ -402,9 +402,9 @@ export default async function AnalyticsPage() {
           </div>
 
           {speedupFactor !== null && speedupFactor >= 2 && (
-            <div className="flex items-center gap-2.5 rounded-lg border border-violet-500/10 bg-violet-950/20 px-4 py-2.5">
-              <Zap className="h-3.5 w-3.5 shrink-0 text-violet-400" />
-              <span className="text-sm text-violet-300">
+            <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 dark:border-violet-500/10 dark:bg-violet-950/20 px-4 py-2.5">
+              <Zap className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" />
+              <span className="text-sm text-violet-700 dark:text-violet-300">
                 AI resolves incidents{" "}
                 <span className="font-semibold">{speedupFactor}× faster</span>{" "}
                 than manual review
@@ -413,15 +413,15 @@ export default async function AnalyticsPage() {
           )}
 
           {costSaved > 0 && (
-            <div className="flex items-center justify-between rounded-lg border border-green-500/10 bg-green-950/20 px-4 py-2.5">
+            <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 dark:border-green-500/10 dark:bg-green-950/20 px-4 py-2.5">
               <div className="flex items-center gap-2.5">
-                <DollarSign className="h-3.5 w-3.5 shrink-0 text-green-400" />
-                <span className="text-sm text-green-300">
+                <DollarSign className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                <span className="text-sm text-green-700 dark:text-green-300">
                   Estimated engineering cost saved{" "}
                   <span className="text-[11px] text-zinc-600">· @${ENGINEER_RATE_PER_HOUR}/hr · last 30 days</span>
                 </span>
               </div>
-              <span className="font-mono text-sm font-semibold tabular-nums text-green-400">
+              <span className="font-mono text-sm font-semibold tabular-nums text-green-600 dark:text-green-400">
                 ${costSaved.toLocaleString()}
               </span>
             </div>
@@ -460,7 +460,7 @@ function formatDuration(seconds: number): string {
 }
 
 function MiniStat({ label, value, sub, accent }: { label: string; value: string; sub: string; accent?: "good" | "warn" }) {
-  const valColor = accent === "good" ? "text-green-400" : accent === "warn" ? "text-amber-400" : "text-fg-strong";
+  const valColor = accent === "good" ? "text-green-600 dark:text-green-400" : accent === "warn" ? "text-amber-600 dark:text-amber-400" : "text-fg-strong";
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">{label}</span>
@@ -488,13 +488,13 @@ function StatCard({
     "text-fg-strong";
   const borderColor =
     accent === "critical" ? "border-inari-accent/20" :
-    accent === "warning"  ? "border-amber-900/40" :
-    accent === "good"     ? "border-green-900/40" :
+    accent === "warning"  ? "border-amber-200 dark:border-amber-900/40" :
+    accent === "good"     ? "border-green-200 dark:border-green-900/40" :
     "border-line";
   const bg =
     accent === "critical" ? "bg-inari-accent-dim" :
-    accent === "warning"  ? "bg-amber-950/20" :
-    accent === "good"     ? "bg-green-950/20" :
+    accent === "warning"  ? "bg-amber-50 dark:bg-amber-950/20" :
+    accent === "good"     ? "bg-green-50 dark:bg-green-950/20" :
     "bg-surface";
 
   return (
