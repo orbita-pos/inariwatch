@@ -7,7 +7,7 @@ import { MessageSquare, Mail, Bell, Key, Monitor, Hash } from "lucide-react";
 import { GenerateDesktopTokenButton } from "./generate-token-button";
 import { ConnectTelegramButton } from "./connect-telegram";
 import { ConnectEmailButton } from "./connect-email";
-import { ConnectSlackButton } from "./connect-slack";
+import { ConnectSlackButton, SlackChannelRow } from "./connect-slack";
 import { ChannelToggle, ChannelDeleteButton, SeverityFilter } from "./channel-actions";
 import { PushNotificationsButton } from "./push-notifications";
 import { VerifyEmailBanner } from "./verify-email-banner";
@@ -119,13 +119,20 @@ export default async function SettingsPage() {
             <div className="flex flex-wrap gap-2">
               <ConnectTelegramButton />
               <ConnectEmailButton />
-              <ConnectSlackButton installation={slackInstall ? { id: slackInstall.id, teamName: slackInstall.teamName, createdAt: slackInstall.createdAt?.toISOString() ?? "" } : null} channelMappings={slackMappings} projects={userProjects} />
+              {!slackInstall && <ConnectSlackButton projects={userProjects} />}
             </div>
             <PushNotificationsButton />
           </div>
         ) : (
           <div className="space-y-3 py-1">
             <div className="divide-y divide-line-subtle">
+              {slackInstall && (
+                <SlackChannelRow
+                  installation={{ id: slackInstall.id, teamName: slackInstall.teamName, createdAt: slackInstall.createdAt?.toISOString() ?? "" }}
+                  channelMappings={slackMappings}
+                  projects={userProjects}
+                />
+              )}
               {channels.map((ch) => {
                 const chType = ch.type as string;
                 const Icon   = CHANNEL_ICON[chType] ?? Bell;
@@ -163,8 +170,7 @@ export default async function SettingsPage() {
             <div className="flex flex-wrap items-center gap-2">
               {!channels.some((ch) => ch.type === "telegram")          && <ConnectTelegramButton />}
               {!channels.some((ch) => ch.type === "email")             && <ConnectEmailButton />}
-              {!slackInstall && <ConnectSlackButton installation={null} channelMappings={[]} projects={userProjects} />}
-              {slackInstall && <ConnectSlackButton installation={{ id: slackInstall.id, teamName: slackInstall.teamName, createdAt: slackInstall.createdAt?.toISOString() ?? "" }} channelMappings={slackMappings} projects={userProjects} />}
+              {!slackInstall && <ConnectSlackButton projects={userProjects} />}
               {!channels.some((ch) => (ch.type as string) === "push")  && <PushNotificationsButton />}
             </div>
           </div>
