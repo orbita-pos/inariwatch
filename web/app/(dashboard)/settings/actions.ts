@@ -138,6 +138,24 @@ export async function connectSlackChannel(
 
 // ── Slack Bot (OAuth-based) ──────────────────────────────────────────────────
 
+async function verifyProjectAccess(userId: string, projectId: string): Promise<boolean> {
+  const { projects, organizationMembers } = await import("@/lib/db");
+  const [project] = await db
+    .select({ userId: projects.userId, organizationId: projects.organizationId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!project) return false;
+  if (project.userId === userId) return true;
+  if (!project.organizationId) return false;
+  const [orgMember] = await db
+    .select({ role: organizationMembers.role })
+    .from(organizationMembers)
+    .where(and(eq(organizationMembers.organizationId, project.organizationId), eq(organizationMembers.userId, userId)))
+    .limit(1);
+  return !!orgMember && (orgMember.role === "owner" || orgMember.role === "admin");
+}
+
 export async function saveSlackChannelMapping(
   projectId: string,
   installationId: string,
@@ -147,30 +165,32 @@ export async function saveSlackChannelMapping(
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) return { error: "Not authenticated." };
 
+  const cleanChannel = channelName.trim().replace(/^#/, "").toLowerCase();
+  if (!/^[a-z0-9_-]{1,80}$/.test(cleanChannel)) {
+    return { error: "Invalid channel name. Use only letters, numbers, hyphens, and underscores." };
+  }
+
+  if (!(await verifyProjectAccess(userId, projectId))) return { error: "Unauthorized." };
+
   const { slackChannelMappings } = await import("@/lib/db");
 
-  // Upsert: replace existing mapping for this project
   const [existing] = await db
     .select()
     .from(slackChannelMappings)
     .where(eq(slackChannelMappings.projectId, projectId))
     .limit(1);
 
-  // Channel ID = channel name (users provide name, Slack API could resolve the ID)
-  // For simplicity, store the name as both ID and name
-  const channelId = channelName.replace(/^#/, "").toLowerCase();
-
   if (existing) {
     await db
       .update(slackChannelMappings)
-      .set({ channelId, channelName: channelId, isActive: true })
+      .set({ channelId: cleanChannel, channelName: cleanChannel, isActive: true })
       .where(eq(slackChannelMappings.id, existing.id));
   } else {
     await db.insert(slackChannelMappings).values({
       installationId,
       projectId,
-      channelId,
-      channelName: channelId,
+      channelId: cleanChannel,
+      channelName: cleanChannel,
       isActive: true,
     });
   }
@@ -185,6 +205,8 @@ export async function removeSlackChannelMapping(
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) return { error: "Not authenticated." };
+
+  if (!(await verifyProjectAccess(userId, projectId))) return { error: "Unauthorized." };
 
   const { slackChannelMappings } = await import("@/lib/db");
   await db.delete(slackChannelMappings).where(eq(slackChannelMappings.projectId, projectId));

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync, existsSync } from "fs"
-import { execSync } from "child_process"
-import { join } from "path"
+import { execSync, exec } from "child_process"
+import { join, basename } from "path"
 
 const BOLD = "\x1b[1m"
 const GREEN = "\x1b[32m"
@@ -172,21 +172,117 @@ function setupNode(project: DetectedProject) {
   log(`  "start": "node --import @inariwatch/capture/auto ${mainFile}"`)
 }
 
+// --- DSN setup (device flow) ---
+
+const API_BASE = "https://app.inariwatch.com"
+
+function openBrowser(url: string) {
+  const cmd = process.platform === "darwin" ? `open "${url}"`
+    : process.platform === "win32" ? `start "" "${url}"`
+    : `xdg-open "${url}"`
+  exec(cmd, () => {})
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function pollForToken(code: string): Promise<string | null> {
+  for (let i = 0; i < 60; i++) { // 60 × 2s = 2 min
+    await sleep(2000)
+    try {
+      const res = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}`)
+      const data = await res.json() as { status: string; apiToken?: string }
+      if (data.status === "approved" && data.apiToken) return data.apiToken
+      if (data.status === "expired") { warn("Authorization expired. Run again."); return null }
+    } catch { /* network blip, keep trying */ }
+  }
+  warn("Authorization timed out. Run again.")
+  return null
+}
+
+async function fetchDsn(apiToken: string, projectName: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/cli/link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiToken}` },
+      body: JSON.stringify({ projectName }),
+    })
+    if (!res.ok) return null
+    const data = await res.json() as { dsn?: string }
+    return data.dsn ?? null
+  } catch { return null }
+}
+
+function writeDsnToEnv(dsn: string) {
+  for (const envFile of [".env.local", ".env"]) {
+    const envPath = join(cwd, envFile)
+    if (existsSync(envPath)) {
+      const content = readFileSync(envPath, "utf-8")
+      if (content.includes("INARIWATCH_DSN")) {
+        info(`INARIWATCH_DSN already in ${envFile} — skipping`)
+        return
+      }
+      const base = content.endsWith("\n") ? content : content + "\n"
+      writeFileSync(envPath, `${base}INARIWATCH_DSN=${dsn}\n`)
+      success(`Written INARIWATCH_DSN to ${envFile}`)
+      return
+    }
+  }
+  writeFileSync(join(cwd, ".env"), `INARIWATCH_DSN=${dsn}\n`)
+  success("Created .env with INARIWATCH_DSN")
+}
+
+async function setupDsn(projectName: string) {
+  // Skip if DSN already configured
+  for (const envFile of [".env.local", ".env"]) {
+    const envPath = join(cwd, envFile)
+    if (existsSync(envPath) && readFileSync(envPath, "utf-8").includes("INARIWATCH_DSN")) {
+      info("INARIWATCH_DSN already configured")
+      return
+    }
+  }
+
+  log(`\n${DIM}Connecting to InariWatch...${RESET}`)
+
+  let startData: { code: string; verifyUrl: string }
+  try {
+    const res = await fetch(`${API_BASE}/api/cli/auth/start`, { method: "POST" })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    startData = await res.json() as { code: string; verifyUrl: string }
+  } catch {
+    warn(`Could not reach InariWatch. Set ${CYAN}INARIWATCH_DSN${RESET} manually.`)
+    return
+  }
+
+  log(`\n${BOLD}Open this URL to authorize:${RESET}`)
+  log(`  ${CYAN}${startData.verifyUrl}${RESET}\n`)
+  openBrowser(startData.verifyUrl)
+
+  log(`${DIM}Waiting for authorization in browser...${RESET}`)
+  const apiToken = await pollForToken(startData.code)
+  if (!apiToken) return
+
+  const dsn = await fetchDsn(apiToken, projectName)
+  if (!dsn) { warn("Could not create project. Set INARIWATCH_DSN manually."); return }
+
+  writeDsnToEnv(dsn)
+  success(`Connected to InariWatch (project: ${projectName})`)
+}
+
 // --- Print results ---
 
-function printDone() {
+function printDone(dsnConfigured: boolean) {
   log(`\n${GREEN}${BOLD}Done.${RESET} InariWatch is active.\n`)
-  log(`${DIM}Local mode:${RESET} Errors print to your terminal. No account needed.`)
-  log(`${DIM}Cloud mode:${RESET} Set ${CYAN}INARIWATCH_DSN${RESET} env var to send to dashboard.`)
-  log(``)
-  log(`${DIM}  # .env${RESET}`)
-  log(`${DIM}  INARIWATCH_DSN=https://app.inariwatch.com/api/webhooks/capture/YOUR_ID${RESET}`)
-  log(``)
+  if (!dsnConfigured) {
+    log(`${DIM}Cloud mode:${RESET} Set ${CYAN}INARIWATCH_DSN${RESET} env var to send errors to your dashboard.`)
+    log(``)
+  }
 }
 
 // --- Main ---
 
-function main() {
+async function main() {
   log(`\n${BOLD}@inariwatch/capture${RESET}\n`)
 
   if (command !== "init") {
@@ -203,14 +299,18 @@ function main() {
   log("")
 
   switch (project.framework) {
-    case "nextjs":
-      setupNextjs(project)
-      break
-    default:
-      setupNode(project)
+    case "nextjs": setupNextjs(project); break
+    default:       setupNode(project)
   }
 
-  printDone()
+  const projectName = basename(cwd)
+  await setupDsn(projectName)
+
+  const hasDsn = [".env.local", ".env"].some(f => {
+    const p = join(cwd, f)
+    return existsSync(p) && readFileSync(p, "utf-8").includes("INARIWATCH_DSN")
+  })
+  printDone(hasDsn)
 }
 
-main()
+main().catch(console.error)

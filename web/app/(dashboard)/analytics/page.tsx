@@ -2,10 +2,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, alerts, remediationSessions, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { inArray, and, gte, eq, sql } from "drizzle-orm";
-import { BarChart3, ArrowUpRight, Lock } from "lucide-react";
+import { inArray, and, gte, eq, sql, isNotNull } from "drizzle-orm";
+import { BarChart3, ArrowUpRight, Zap, DollarSign } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Analytics" };
@@ -54,7 +53,7 @@ export default async function AnalyticsPage() {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   // Parallel fetch all analytics queries — eliminates 5-query waterfall
-  const [perDayRaw, totalRow, criticalRow, resolvedRow, sourceRaw, severityDist, remStats] = hasProjects
+  const [perDayRaw, totalRow, criticalRow, resolvedRow, sourceRaw, severityDist, remStats, humanMttrRaw, aiMttrRaw] = hasProjects
     ? await Promise.all([
         db.select({
           day:      sql<string>`date_trunc('day', ${alerts.createdAt})::date`.as("day"),
@@ -106,8 +105,36 @@ export default async function AnalyticsPage() {
             inArray(remediationSessions.projectId, projectIds),
             gte(remediationSessions.createdAt, thirtyDaysAgo),
           )),
+
+        // Human MTTR — alerts resolved manually (no completed AI session)
+        db.select({
+          avgSec: sql<number>`round(avg(extract(epoch from (resolved_at - created_at))))`.as("avg_sec"),
+          count:  sql<number>`count(*)`.as("count"),
+        })
+          .from(alerts)
+          .where(and(
+            inArray(alerts.projectId, projectIds),
+            eq(alerts.isResolved, true),
+            isNotNull(alerts.resolvedAt),
+            gte(alerts.createdAt, thirtyDaysAgo),
+            sql`alerts.id not in (select distinct alert_id from remediation_sessions where status = 'completed')`,
+          )),
+
+        // AI MTTR — alerts resolved via a completed AI remediation session
+        db.select({
+          avgSec: sql<number>`round(avg(extract(epoch from (resolved_at - created_at))))`.as("avg_sec"),
+          count:  sql<number>`count(*)`.as("count"),
+        })
+          .from(alerts)
+          .where(and(
+            inArray(alerts.projectId, projectIds),
+            eq(alerts.isResolved, true),
+            isNotNull(alerts.resolvedAt),
+            gte(alerts.createdAt, thirtyDaysAgo),
+            sql`alerts.id in (select distinct alert_id from remediation_sessions where status = 'completed')`,
+          )),
       ])
-    : [[], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [], [], []];
+    : [[], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [], [], [], [{ avgSec: 0, count: 0 }], [{ avgSec: 0, count: 0 }]];
 
   const rem            = remStats[0];
   const remTotal       = Number(rem?.total ?? 0);
@@ -121,6 +148,18 @@ export default async function AnalyticsPage() {
   const approvalRate   = remTotal > 0 ? Math.round((remApproved / remTotal) * 100) : 0;
   const successRate    = (remPassed + remReverted) > 0 ? Math.round((remPassed / (remPassed + remReverted)) * 100) : null;
   const avgDecideMin   = remAvgDecSec > 0 ? (remAvgDecSec / 60).toFixed(1) : null;
+
+  const humanMttrSec   = Number(humanMttrRaw[0]?.avgSec ?? 0);
+  const humanMttrCount = Number(humanMttrRaw[0]?.count ?? 0);
+  const aiMttrSec      = Number(aiMttrRaw[0]?.avgSec ?? 0);
+  const aiMttrCount    = Number(aiMttrRaw[0]?.count ?? 0);
+  const speedupFactor  = humanMttrSec > 0 && aiMttrSec > 0 ? Math.round(humanMttrSec / aiMttrSec) : null;
+
+  const ENGINEER_RATE_PER_HOUR = 150;
+  const hoursSaved  = humanMttrSec > 0 && aiMttrSec > 0 && humanMttrSec > aiMttrSec
+    ? aiMttrCount * (humanMttrSec - aiMttrSec) / 3600
+    : 0;
+  const costSaved   = Math.round(hoursSaved * ENGINEER_RATE_PER_HOUR);
 
   const totalAlerts    = Number(totalRow[0]?.count ?? 0);
   const criticalCount  = Number(criticalRow[0]?.count ?? 0);
@@ -329,6 +368,66 @@ export default async function AnalyticsPage() {
           </div>
         </section>
       )}
+
+      {/* MTTR Comparison */}
+      {(humanMttrSec > 0 || aiMttrSec > 0) && (
+        <section className="overflow-hidden rounded-xl border border-line bg-surface p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-fg-base">Response time comparison</h2>
+            <span className="text-xs text-zinc-500">last 30 days · resolved alerts</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-line bg-white/[0.02] p-4 space-y-1.5">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">Human</span>
+              <div className="font-mono text-3xl font-semibold tabular-nums text-fg-strong">
+                {humanMttrSec > 0 ? formatDuration(humanMttrSec) : "—"}
+              </div>
+              <div className="text-xs text-zinc-500">avg to resolve manually</div>
+              {humanMttrCount > 0 && (
+                <div className="text-[11px] text-zinc-700">{humanMttrCount} alert{humanMttrCount !== 1 ? "s" : ""}</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-violet-500/20 bg-violet-950/10 p-4 space-y-1.5">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-violet-500">AI</span>
+              <div className="font-mono text-3xl font-semibold tabular-nums text-violet-300">
+                {aiMttrSec > 0 ? formatDuration(aiMttrSec) : "—"}
+              </div>
+              <div className="text-xs text-zinc-500">avg with AI remediation</div>
+              {aiMttrCount > 0 && (
+                <div className="text-[11px] text-zinc-700">{aiMttrCount} alert{aiMttrCount !== 1 ? "s" : ""}</div>
+              )}
+            </div>
+          </div>
+
+          {speedupFactor !== null && speedupFactor >= 2 && (
+            <div className="flex items-center gap-2.5 rounded-lg border border-violet-500/10 bg-violet-950/20 px-4 py-2.5">
+              <Zap className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+              <span className="text-sm text-violet-300">
+                AI resolves incidents{" "}
+                <span className="font-semibold">{speedupFactor}× faster</span>{" "}
+                than manual review
+              </span>
+            </div>
+          )}
+
+          {costSaved > 0 && (
+            <div className="flex items-center justify-between rounded-lg border border-green-500/10 bg-green-950/20 px-4 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <DollarSign className="h-3.5 w-3.5 shrink-0 text-green-400" />
+                <span className="text-sm text-green-300">
+                  Estimated engineering cost saved{" "}
+                  <span className="text-[11px] text-zinc-600">· @${ENGINEER_RATE_PER_HOUR}/hr · last 30 days</span>
+                </span>
+              </div>
+              <span className="font-mono text-sm font-semibold tabular-nums text-green-400">
+                ${costSaved.toLocaleString()}
+              </span>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -350,6 +449,14 @@ function PageHeader() {
       </Link>
     </div>
   );
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 function MiniStat({ label, value, sub, accent }: { label: string; value: string; sub: string; accent?: "good" | "warn" }) {

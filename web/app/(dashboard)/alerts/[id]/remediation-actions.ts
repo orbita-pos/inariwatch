@@ -3,13 +3,14 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, remediationSessions, alerts, projects, projectIntegrations } from "@/lib/db";
-import { eq, and, inArray, gte, sql } from "drizzle-orm";
+import { eq, and, inArray, gte, sql, isNotNull } from "drizzle-orm";
 import type { AutoMergeConfig } from "@/lib/db/schema";
 import { DEFAULT_AUTO_MERGE_CONFIG } from "@/lib/db/schema";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import { logAudit } from "@/lib/audit";
 import { generatePostmortem } from "@/lib/ai/postmortem";
+import { contributeApprovedFix } from "@/lib/ai/contribute-fix";
 
 /**
  * Start a new remediation session for an alert.
@@ -123,7 +124,7 @@ export async function approveRemediation(
     // Auto-resolve the alert
     await db
       .update(alerts)
-      .set({ isResolved: true })
+      .set({ isResolved: true, resolvedAt: new Date() })
       .where(eq(alerts.id, remSession.alertId));
 
     // Fire-and-forget: generate post-mortem
@@ -139,6 +140,10 @@ export async function approveRemediation(
 
     // Check if this project qualifies for autonomous mode suggestion
     checkAndSuggestAutonomous(remSession.projectId).catch(() => {});
+    // Auto-tune confidence threshold based on approval history
+    checkAndTuneConfidence(remSession.projectId).catch(() => {});
+    // Contribute anonymized fix to community network
+    contributeApprovedFix(sessionId, remSession.alertId).catch(() => {});
 
     return {};
   } catch (err) {
@@ -161,10 +166,11 @@ export async function cancelRemediation(
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) return { error: "Not authenticated" };
 
-  await db
+  const [cancelled] = await db
     .update(remediationSessions)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(and(eq(remediationSessions.id, sessionId), eq(remediationSessions.userId, userId)));
+    .where(and(eq(remediationSessions.id, sessionId), eq(remediationSessions.userId, userId)))
+    .returning({ projectId: remediationSessions.projectId });
 
   logAudit({
     userId,
@@ -172,6 +178,10 @@ export async function cancelRemediation(
     resource: "remediation_session",
     resourceId: sessionId,
   });
+
+  if (cancelled) {
+    checkAndTuneConfidence(cancelled.projectId).catch(() => {});
+  }
 
   return {};
 }
@@ -220,5 +230,83 @@ async function checkAndSuggestAutonomous(projectId: string) {
   await db
     .update(projects)
     .set({ autoMergeConfig: { ...config, suggestAutonomous: true } as AutoMergeConfig })
+    .where(eq(projects.id, projectId));
+}
+
+// ── Auto-confidence tuning ────────────────────────────────────────────────────
+
+const TUNE_MIN_SESSIONS   = 8;
+const TUNE_MIN_DELTA      = 5;   // only adjust if change >= 5 points
+const TUNE_CONF_FLOOR     = 55;
+const TUNE_CONF_CAP       = 95;
+const TUNE_WINDOW_DAYS    = 30;
+
+async function checkAndTuneConfidence(projectId: string) {
+  const [project] = await db
+    .select({ autoMergeConfig: projects.autoMergeConfig })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!project) return;
+
+  const config = { ...DEFAULT_AUTO_MERGE_CONFIG, ...(project.autoMergeConfig as AutoMergeConfig ?? {}) };
+  if (!config.enabled) return;
+
+  const since = new Date();
+  since.setDate(since.getDate() - TUNE_WINDOW_DAYS);
+
+  const sessions = await db
+    .select({
+      status:     remediationSessions.status,
+      confidence: remediationSessions.confidenceScore,
+    })
+    .from(remediationSessions)
+    .where(and(
+      eq(remediationSessions.projectId, projectId),
+      gte(remediationSessions.createdAt, since),
+      inArray(remediationSessions.status, ["completed", "cancelled"]),
+      isNotNull(remediationSessions.confidenceScore),
+    ));
+
+  if (sessions.length < TUNE_MIN_SESSIONS) return;
+
+  const approved  = sessions.filter(s => s.status === "completed").map(s => Number(s.confidence));
+  const cancelled = sessions.filter(s => s.status === "cancelled").map(s => Number(s.confidence));
+
+  if (approved.length < 3) return;
+
+  const approvalRate    = approved.length / sessions.length;
+  const currentThreshold = config.minConfidence;
+  let newThreshold       = currentThreshold;
+
+  if (approvalRate >= 0.8) {
+    // High approval rate: can safely lower the threshold
+    const minApproved = Math.min(...approved);
+    const candidate   = Math.max(TUNE_CONF_FLOOR, Math.round(minApproved) - 3);
+    if (candidate <= currentThreshold - TUNE_MIN_DELTA) {
+      newThreshold = candidate;
+    }
+  } else if (approvalRate < 0.5 && cancelled.length >= 3) {
+    // Low approval rate: raise the threshold
+    const sorted   = [...cancelled].sort((a, b) => a - b);
+    const median   = sorted[Math.floor(sorted.length / 2)];
+    const candidate = Math.min(TUNE_CONF_CAP, Math.round(median) + 5);
+    if (candidate >= currentThreshold + TUNE_MIN_DELTA) {
+      newThreshold = candidate;
+    }
+  }
+
+  if (newThreshold === currentThreshold) return;
+
+  await db
+    .update(projects)
+    .set({
+      autoMergeConfig: {
+        ...config,
+        minConfidence:     newThreshold,
+        confidenceTunedAt:   new Date().toISOString(),
+        confidenceTunedFrom: currentThreshold,
+      } as AutoMergeConfig,
+    })
     .where(eq(projects.id, projectId));
 }

@@ -111,6 +111,10 @@ export type AutoMergeConfig = {
   predictionThreshold: number;
   /** Set by the system when approval rate qualifies for autonomous mode. Shown as a suggestion banner. */
   suggestAutonomous?: boolean;
+  /** ISO timestamp of last auto-confidence tune */
+  confidenceTunedAt?: string;
+  /** Previous minConfidence value before the last auto-tune */
+  confidenceTunedFrom?: number;
 };
 
 export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
@@ -196,6 +200,7 @@ export const alerts = pgTable("alerts", {
   /** Error fingerprint for outcome tracking (SHA-256 of normalized error) */
   fingerprint: text("fingerprint"),
   sentAt: timestamp("sent_at"),
+  resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -659,6 +664,17 @@ export const predictions = pgTable("predictions", {
 });
 
 export type Prediction = typeof predictions.$inferSelect;
+
+// ── CLI Auth (device flow) ────────────────────────────────────────────────────
+
+export const cliPendingCodes = pgTable("cli_pending_codes", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  code:      text("code").notNull().unique(),
+  userId:    uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  approved:  boolean("approved").notNull().default(false),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 // ── Rate Limiting ────────────────────────────────────────────────────────────
 

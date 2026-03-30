@@ -76,9 +76,10 @@ const NAV = [
   {
     group: "Autonomous Mode",
     items: [
-      { id: "auto-remediate", label: "Auto-Remediate" },
-      { id: "auto-heal",      label: "Auto-Heal" },
+      { id: "auto-remediate",  label: "Auto-Remediate" },
+      { id: "auto-heal",       label: "Auto-Heal" },
       { id: "community-fixes", label: "Community Fixes" },
+      { id: "analytics-mttr",  label: "MTTR comparison" },
     ],
   },
   {
@@ -118,6 +119,15 @@ const NAV = [
     items: [
       { id: "desktop-setup",  label: "Setup & token" },
       { id: "desktop-config", label: "desktop.toml" },
+    ],
+  },
+  {
+    group: "Analytics",
+    items: [
+      { id: "analytics-overview", label: "Overview" },
+      { id: "analytics-mttr",     label: "MTTR comparison" },
+      { id: "analytics-roi",      label: "Cost savings" },
+      { id: "analytics-ai",       label: "AI Remediation stats" },
     ],
   },
   {
@@ -938,8 +948,17 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
             <CodeBlock label="One command">{`npx @inariwatch/capture`}</CodeBlock>
             <P>
               Auto-detects your framework (Next.js, Express, Node.js), installs the SDK, and sets up
-              instrumentation. No signup needed — errors print to your terminal in local mode.
+              instrumentation. If you have an InariWatch account, the CLI opens a browser to authorize
+              and automatically writes <InlineCode>INARIWATCH_DSN</InlineCode> to your <InlineCode>.env</InlineCode> — no manual copy-paste.
             </P>
+            <StepList steps={[
+              { title: "Framework setup", body: "Detects Next.js, Express, or plain Node.js. Installs the package, modifies next.config.ts, and creates instrumentation.ts automatically." },
+              { title: "Browser authorization", body: "Opens app.inariwatch.com/cli/verify in your browser. Click Authorize — takes 5 seconds." },
+              { title: "DSN written automatically", body: "INARIWATCH_DSN is written to .env.local (or .env). No signup or dashboard visit required." },
+            ]} />
+            <Callout type="info">
+              No account? No problem. Skip the browser step and errors print to your terminal in local mode. You can connect to your dashboard later by running <InlineCode>npx @inariwatch/capture</InlineCode> again.
+            </Callout>
 
             <SubHeading id="int-capture-setup">Next.js setup</SubHeading>
             <P>One line in your existing config file:</P>
@@ -1144,6 +1163,42 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               Autonomous mode requires auto-merge to be enabled. All existing safety gates (confidence, self-review, CI, lines changed, Substrate risk, EAP verification) still apply.
             </Callout>
 
+            <SubHeading>Autonomous mode suggestion</SubHeading>
+            <P>
+              You don{"'"}t need to enable autonomous mode manually. InariWatch watches your approval history and suggests it automatically
+              when the data justifies the trust.
+            </P>
+            <P>
+              After each approved fix, InariWatch checks the last 30 days of remediation sessions for that project.
+              If <strong>5 or more</strong> sessions exist and the approval rate is <strong>≥ 90%</strong>, a banner appears
+              at the top of the project page:
+            </P>
+            <Callout type="info">
+              {'"'}Your last N fixes were approved X% of the time. Enable autonomous mode?{'"'} — Click Enable or dismiss permanently.
+            </Callout>
+            <P>
+              Clicking Enable sets <InlineCode>autoRemediate: true</InlineCode> and clears the banner.
+              Dismissing hides it permanently for that project. The suggestion never reappears once dismissed.
+            </P>
+
+            <SubHeading>Auto-tune confidence threshold</SubHeading>
+            <P>
+              The minimum confidence threshold (<InlineCode>minConfidence</InlineCode>) controls which AI fixes are eligible for auto-merge.
+              InariWatch adjusts this threshold automatically based on your project{"'"}s actual approval history — no manual tuning needed.
+            </P>
+            <Table
+              head={["Condition", "Action"]}
+              rows={[
+                ["Approval rate ≥ 80% (last 30 days, ≥ 8 sessions)", "Lowers threshold to min_approved_confidence − 3 (floor: 55)"],
+                ["Approval rate < 50% (last 30 days, ≥ 3 cancellations)", "Raises threshold to median_cancelled_confidence + 5 (cap: 95)"],
+                ["Change < 5 points", "No adjustment — avoids noise from small fluctuations"],
+              ]}
+            />
+            <P>
+              When auto-tune adjusts the threshold, the new value is shown in Project Settings → Auto-Merge next to the
+              confidence input: <em>Auto-tuned 70 → 65 · 3 days ago</em> with a trend arrow.
+            </P>
+
             <SectionHeading id="auto-heal">Autonomous Mode — Auto-Heal</SectionHeading>
             <P>
               When your site goes down, InariWatch automatically rolls back to the last successful deploy and starts an AI fix in the background.
@@ -1159,8 +1214,9 @@ export const onRequestError = captureRequestError`}</CodeBlock>
 
             <SectionHeading id="community-fixes">Autonomous Mode — Community Fixes</SectionHeading>
             <P>
-              Every fix that InariWatch generates is stored with its error fingerprint and CI result.
-              When a new error matches a known pattern, the community fix appears instantly with its success rate.
+              Every fix that gets approved is automatically and anonymously contributed to the community network.
+              When a new error matches a known pattern, the fix appears instantly on the alert with its success rate —
+              no AI generation needed.
             </P>
             <P>
               Example: {'"'}47 teams hit this error. Fix success rate: 96% (44/46 deployments).{'"'}
@@ -1169,6 +1225,13 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               Click <strong>Apply Community Fix</strong> to use the proven fix instead of generating a new one.
               The more teams use InariWatch, the faster everyone{"'"}s errors get fixed. This is the network effect.
             </P>
+            <SubHeading>How auto-contribute works</SubHeading>
+            <StepList steps={[
+              { title: "Fix approved", body: "When you approve an AI-generated fix, it is automatically contributed to the network. No action required." },
+              { title: "Anonymization", body: "All PII, secrets, API keys, IPs, URLs, and file contents are stripped before contribution. Only file paths, the fix approach, and confidence score are shared." },
+              { title: "Deduplication", body: "If another team already contributed a fix for the same error fingerprint with the same approach, the success count is incremented instead of creating a duplicate." },
+              { title: "Network effect", body: "As more teams use InariWatch, common framework errors accumulate high-confidence fixes. New errors skip AI generation entirely and resolve in seconds." },
+            ]} />
 
             {/* ────────────────────────────────────────────────────────────────
                 SLACK BOT
@@ -1459,6 +1522,72 @@ api_token = "rdr_your_token_here"`}</CodeBlock>
               The app polls <InlineCode>/api/desktop/alerts</InlineCode> every 60 seconds using this token.
               Alerts are shown as OS notifications and marked as read in the dashboard.
             </P>
+
+            {/* ────────────────────────────────────────────────────────────────
+                ANALYTICS
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="analytics-overview">Analytics</SectionHeading>
+            <P>
+              The Analytics page (<InlineCode>/analytics</InlineCode>) gives you a 14-day view of alert trends and a 30-day
+              view of AI remediation performance. All metrics update in real time as alerts arrive and fixes are approved.
+            </P>
+            <Table
+              head={["Section", "Window", "What it shows"]}
+              rows={[
+                ["Alert trends", "14 days", "Alerts per day (stacked by severity), by source, by severity distribution"],
+                ["AI Remediation", "30 days", "Approval rate, avg confidence, avg decide time, auto-merge count, post-deploy success"],
+                ["Response time comparison", "30 days", "Human MTTR vs AI MTTR side by side"],
+                ["Cost savings", "30 days", "Estimated engineering cost recovered based on time saved"],
+              ]}
+            />
+
+            <SubHeading id="analytics-mttr">MTTR comparison</SubHeading>
+            <P>
+              InariWatch tracks two resolution times separately:
+            </P>
+            <Table
+              head={["Metric", "Definition"]}
+              rows={[
+                ["Human MTTR", "Average time from alert created to resolved for alerts fixed manually (no AI remediation session)"],
+                ["AI MTTR", "Average time from alert created to resolved for alerts fixed via an approved AI remediation session"],
+              ]}
+            />
+            <P>
+              When AI MTTR is at least 2× faster than human MTTR, a speedup banner appears:
+              {' '}<em>{"\""}AI resolves incidents 15× faster than manual review.{"\"" }</em>
+            </P>
+            <Callout type="info">
+              MTTR data starts populating as soon as alerts are resolved. Alerts resolved before upgrading to this version
+              do not have a <InlineCode>resolved_at</InlineCode> timestamp and are not included in the calculation.
+            </Callout>
+
+            <SubHeading id="analytics-roi">Cost savings</SubHeading>
+            <P>
+              InariWatch estimates the engineering cost recovered by AI remediation using a simple formula:
+            </P>
+            <CodeBlock label="Formula">{`hours_saved  = ai_resolved_alerts × (human_mttr − ai_mttr) / 3600
+cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
+            <P>
+              The <InlineCode>$150/hr</InlineCode> rate is a conservative industry average for senior engineering time.
+              The card appears in the Response time comparison section and only renders when there is enough data
+              to show a meaningful difference.
+            </P>
+
+            <SubHeading id="analytics-ai">AI Remediation stats</SubHeading>
+            <Table
+              head={["Metric", "Definition"]}
+              rows={[
+                ["Remediations", "Total AI fix sessions started in the last 30 days"],
+                ["Approval rate", "% of sessions approved (status = completed)"],
+                ["Avg confidence", "Mean AI confidence score (0–100) across all sessions"],
+                ["Avg decide time", "Mean time from fix proposed to human approval"],
+                ["Auto-merged", "Sessions merged without a human click (autonomous mode)"],
+                ["Post-deploy", "% of merged fixes that passed the 10-min monitoring window"],
+                ["Reverted", "Fixes auto-reverted after a regression was detected post-merge"],
+                ["Cancelled", "Sessions rejected by the developer"],
+              ]}
+            />
 
             {/* ────────────────────────────────────────────────────────────────
                 REFERENCE

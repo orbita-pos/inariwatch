@@ -85,11 +85,10 @@ export async function updateAutoMergeConfig(
 }
 
 async function updateConfigField(projectId: string, patch: Partial<AutoMergeConfig>) {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string })?.id;
-  if (!userId) return;
+  const result = await requireAdmin(projectId);
+  if ("error" in result) return;
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
-  if (!project || (project.userId !== userId)) return;
+  if (!project) return;
   const current = { ...DEFAULT_AUTO_MERGE_CONFIG, ...(project.autoMergeConfig as AutoMergeConfig ?? {}) };
   await db.update(projects).set({ autoMergeConfig: { ...current, ...patch } }).where(eq(projects.id, projectId));
   revalidatePath(`/projects/${project.slug}`);

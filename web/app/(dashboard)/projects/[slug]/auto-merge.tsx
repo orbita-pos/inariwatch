@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Shield, Loader2 } from "lucide-react";
+import { Shield, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { updateAutoMergeConfig } from "./auto-merge-actions";
 
 type Config = {
@@ -14,7 +14,16 @@ type Config = {
   autoRemediate: boolean;
   autoHeal: boolean;
   predictionThreshold: number;
+  confidenceTunedAt?: string;
+  confidenceTunedFrom?: number;
 };
+
+function formatTuneAge(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
 
 export function AutoMergeSection({
   projectId,
@@ -97,16 +106,33 @@ export function AutoMergeSection({
             <div className="pl-4">
               <label className="text-sm text-zinc-300">Minimum confidence</label>
               <p className="text-xs text-zinc-600 mb-1.5">AI fix must score at least this to auto-merge (0-100)</p>
-              <input
-                type="number"
-                min={50}
-                max={100}
-                value={form.minConfidence}
-                disabled={!isAdmin}
-                onChange={(e) => setForm((f) => ({ ...f, minConfidence: Math.min(100, Math.max(50, Number(e.target.value) || 50)) }))}
-                className="w-24 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-cyan-600 focus:outline-none disabled:opacity-50"
-              />
-              <span className="text-xs text-zinc-600 ml-2">%</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={50}
+                  max={100}
+                  value={form.minConfidence}
+                  disabled={!isAdmin}
+                  onChange={(e) => setForm((f) => ({ ...f, minConfidence: Math.min(100, Math.max(50, Number(e.target.value) || 50)) }))}
+                  className="w-24 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-cyan-600 focus:outline-none disabled:opacity-50"
+                />
+                <span className="text-xs text-zinc-600">%</span>
+              </div>
+              {config.confidenceTunedAt && config.confidenceTunedFrom !== undefined && (
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  {config.confidenceTunedFrom > config.minConfidence
+                    ? <TrendingDown className="h-3 w-3 text-cyan-500" />
+                    : <TrendingUp className="h-3 w-3 text-amber-400" />
+                  }
+                  <span className="text-[11px] text-zinc-500">
+                    Auto-tuned{" "}
+                    <span className="text-zinc-400 font-medium">
+                      {config.confidenceTunedFrom} → {config.minConfidence}
+                    </span>
+                    {" "}· {formatTuneAge(config.confidenceTunedAt)}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Max lines changed */}
