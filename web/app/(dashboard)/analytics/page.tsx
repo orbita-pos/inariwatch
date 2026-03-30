@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, users, getWorkspaceProjectIds } from "@/lib/db";
+import { db, alerts, remediationSessions, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
 import { inArray, and, gte, eq, sql } from "drizzle-orm";
 import { BarChart3, ArrowUpRight, Lock } from "lucide-react";
@@ -50,8 +50,11 @@ export default async function AnalyticsPage() {
     ? and(inArray(alerts.projectId, projectIds), gte(alerts.createdAt, fourteenDaysAgo))
     : undefined;
 
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
   // Parallel fetch all analytics queries — eliminates 5-query waterfall
-  const [perDayRaw, totalRow, criticalRow, resolvedRow, sourceRaw, severityDist] = hasProjects
+  const [perDayRaw, totalRow, criticalRow, resolvedRow, sourceRaw, severityDist, remStats] = hasProjects
     ? await Promise.all([
         db.select({
           day:      sql<string>`date_trunc('day', ${alerts.createdAt})::date`.as("day"),
@@ -87,8 +90,37 @@ export default async function AnalyticsPage() {
           .where(baseWhere)
           .groupBy(alerts.severity)
           .orderBy(sql`count(*) desc`),
+
+        db.select({
+          total:          sql<number>`count(*)`.as("total"),
+          approved:       sql<number>`count(*) filter (where status = 'completed')`.as("approved"),
+          autoMerged:     sql<number>`count(*) filter (where merge_strategy = 'auto_merged' and status = 'completed')`.as("auto_merged"),
+          cancelled:      sql<number>`count(*) filter (where status = 'cancelled')`.as("cancelled"),
+          passed:         sql<number>`count(*) filter (where monitoring_status = 'passed')`.as("passed"),
+          reverted:       sql<number>`count(*) filter (where monitoring_status = 'reverted')`.as("reverted"),
+          avgConfidence:  sql<number>`round(avg(confidence_score) filter (where confidence_score is not null))`.as("avg_confidence"),
+          avgDecideSec:   sql<number>`round(avg(extract(epoch from (updated_at - proposed_at))) filter (where proposed_at is not null and status in ('completed','cancelled')))`.as("avg_decide_sec"),
+        })
+          .from(remediationSessions)
+          .where(and(
+            inArray(remediationSessions.projectId, projectIds),
+            gte(remediationSessions.createdAt, thirtyDaysAgo),
+          )),
       ])
-    : [[], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [], []];
+    : [[], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [], [], []];
+
+  const rem            = remStats[0];
+  const remTotal       = Number(rem?.total ?? 0);
+  const remApproved    = Number(rem?.approved ?? 0);
+  const remCancelled   = Number(rem?.cancelled ?? 0);
+  const remAutoMerged  = Number(rem?.autoMerged ?? 0);
+  const remPassed      = Number(rem?.passed ?? 0);
+  const remReverted    = Number(rem?.reverted ?? 0);
+  const remAvgConf     = Number(rem?.avgConfidence ?? 0);
+  const remAvgDecSec   = Number(rem?.avgDecideSec ?? 0);
+  const approvalRate   = remTotal > 0 ? Math.round((remApproved / remTotal) * 100) : 0;
+  const successRate    = (remPassed + remReverted) > 0 ? Math.round((remPassed / (remPassed + remReverted)) * 100) : null;
+  const avgDecideMin   = remAvgDecSec > 0 ? (remAvgDecSec / 60).toFixed(1) : null;
 
   const totalAlerts    = Number(totalRow[0]?.count ?? 0);
   const criticalCount  = Number(criticalRow[0]?.count ?? 0);
@@ -270,6 +302,33 @@ export default async function AnalyticsPage() {
           )}
         </section>
       </div>
+      {/* AI Remediation */}
+      {remTotal > 0 && (
+        <section className="overflow-hidden rounded-xl border border-line bg-surface p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-fg-base">AI Remediation</h2>
+            <span className="text-xs text-zinc-500">last 30 days</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <MiniStat label="Remediations"  value={String(remTotal)}        sub="started" />
+            <MiniStat label="Approval rate" value={`${approvalRate}%`}      sub={`${remApproved} approved`}
+              accent={approvalRate >= 70 ? "good" : approvalRate >= 40 ? "warn" : undefined} />
+            <MiniStat label="Avg confidence" value={remAvgConf > 0 ? `${remAvgConf}` : "—"} sub="AI score 0–100"
+              accent={remAvgConf >= 80 ? "good" : remAvgConf >= 50 ? "warn" : undefined} />
+            <MiniStat label="Avg decide time" value={avgDecideMin ? `${avgDecideMin}m` : "—"} sub="proposing → approved" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 pt-1 border-t border-line-subtle">
+            <MiniStat label="Auto-merged"  value={String(remAutoMerged)}  sub="no human click needed" />
+            <MiniStat label="Post-deploy"  value={successRate !== null ? `${successRate}%` : "—"} sub="passed monitoring"
+              accent={successRate !== null && successRate >= 80 ? "good" : successRate !== null && successRate < 50 ? "warn" : undefined} />
+            <MiniStat label="Reverted"     value={String(remReverted)}    sub="auto-reverted after merge"
+              accent={remReverted > 0 ? "warn" : undefined} />
+            <MiniStat label="Cancelled"    value={String(remCancelled)}   sub="rejected by human" />
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -289,6 +348,17 @@ function PageHeader() {
       >
         View alerts <ArrowUpRight className="h-3.5 w-3.5" />
       </Link>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, sub, accent }: { label: string; value: string; sub: string; accent?: "good" | "warn" }) {
+  const valColor = accent === "good" ? "text-green-400" : accent === "warn" ? "text-amber-400" : "text-fg-strong";
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">{label}</span>
+      <span className={`font-mono text-2xl font-semibold tabular-nums ${valColor}`}>{value}</span>
+      <span className="text-[11px] text-zinc-600">{sub}</span>
     </div>
   );
 }

@@ -759,7 +759,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         const isAutoMerge = gateResult.strategy === "auto_merge";
 
         // ── CREATE PR ────────────────────────────────────────────────────
-        await updateSession(sessionId, { status: "proposing", mergeStrategy: gateResult.strategy });
+        await updateSession(sessionId, { status: "proposing", mergeStrategy: gateResult.strategy, proposedAt: new Date() });
         emit("status", { status: "proposing" });
 
         steps = await pushStep(sessionId, steps,

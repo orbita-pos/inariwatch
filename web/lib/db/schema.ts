@@ -431,6 +431,8 @@ export const remediationSessions = pgTable("remediation_sessions", {
   context: jsonb("context"),
   /** Substrate simulate risk score (0-100). NULL if no recording available. */
   simulateRiskScore: integer("simulate_risk_score"),
+  /** When the fix was proposed to the human (status → proposing). Used to compute time-to-decide. */
+  proposedAt: timestamp("proposed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
