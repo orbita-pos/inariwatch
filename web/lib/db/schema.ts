@@ -109,6 +109,8 @@ export type AutoMergeConfig = {
   autoHeal: boolean;
   /** Prediction confidence threshold — block deploy if prediction confidence >= this (default: 80) */
   predictionThreshold: number;
+  /** Set by the system when approval rate qualifies for autonomous mode. Shown as a suggestion banner. */
+  suggestAutonomous?: boolean;
 };
 
 export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {

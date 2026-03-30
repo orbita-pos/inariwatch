@@ -16,8 +16,9 @@ import {
   onCallSlots,
   onCallOverrides,
   alerts,
+  remediationSessions,
 } from "@/lib/db";
-import { eq, and, desc, gte, sql, isNotNull } from "drizzle-orm";
+import { eq, and, desc, gte, sql, isNotNull, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -29,6 +30,7 @@ import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
 import { PostmortemsSection } from "./postmortems";
+import { AutonomousSuggestionBanner } from "./autonomous-suggestion";
 import { ProGate } from "@/components/pro-gate";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
@@ -315,6 +317,33 @@ export default async function ProjectDetailPage({
     resolvedAt: null,
   }));
 
+  const autoMergeConfig = (project.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+  const showAutonomousBanner = autoMergeConfig.suggestAutonomous === true && !autoMergeConfig.autoRemediate;
+
+  // Fetch stats for banner text only when needed
+  let autonomousStats = { approvalRate: 0, count: 0 };
+  if (showAutonomousBanner) {
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const [stats] = await db
+      .select({
+        total:    sql<number>`count(*)`,
+        approved: sql<number>`count(*) filter (where status = 'completed')`,
+      })
+      .from(remediationSessions)
+      .where(and(
+        eq(remediationSessions.projectId, project.id),
+        gte(remediationSessions.createdAt, since),
+        inArray(remediationSessions.status, ["completed", "cancelled", "failed"]),
+      ));
+    const total = Number(stats?.total ?? 0);
+    const approved = Number(stats?.approved ?? 0);
+    autonomousStats = {
+      approvalRate: total > 0 ? Math.round((approved / total) * 100) : 0,
+      count: total,
+    };
+  }
+
   return (
     <div className="mx-auto max-w-[680px] space-y-8">
       <div className="flex items-center gap-3">
@@ -364,10 +393,18 @@ export default async function ProjectDetailPage({
         }))}
       />
 
+      {showAutonomousBanner && (
+        <AutonomousSuggestionBanner
+          projectId={project.id}
+          approvalRate={autonomousStats.approvalRate}
+          remediationCount={autonomousStats.count}
+        />
+      )}
+
       <AutoMergeSection
         projectId={project.id}
         isAdmin={isAdmin}
-        config={(project.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG}
+        config={autoMergeConfig}
       />
 
       <OnCallSection

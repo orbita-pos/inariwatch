@@ -3,7 +3,9 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, remediationSessions, alerts, projects, projectIntegrations } from "@/lib/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, gte, sql } from "drizzle-orm";
+import type { AutoMergeConfig } from "@/lib/db/schema";
+import { DEFAULT_AUTO_MERGE_CONFIG } from "@/lib/db/schema";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import { logAudit } from "@/lib/audit";
@@ -135,6 +137,9 @@ export async function approveRemediation(
       metadata: { prUrl: remSession.prUrl, prNumber: remSession.prNumber },
     });
 
+    // Check if this project qualifies for autonomous mode suggestion
+    checkAndSuggestAutonomous(remSession.projectId).catch(() => {});
+
     return {};
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Merge failed";
@@ -169,4 +174,51 @@ export async function cancelRemediation(
   });
 
   return {};
+}
+
+// ── Autonomous mode suggestion ────────────────────────────────────────────────
+
+const SUGGEST_MIN_REMEDIATIONS = 5;
+const SUGGEST_MIN_APPROVAL_RATE = 90; // %
+const SUGGEST_WINDOW_DAYS = 30;
+
+async function checkAndSuggestAutonomous(projectId: string) {
+  const [project] = await db
+    .select({ autoMergeConfig: projects.autoMergeConfig })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!project) return;
+
+  const config = { ...DEFAULT_AUTO_MERGE_CONFIG, ...(project.autoMergeConfig as AutoMergeConfig ?? {}) };
+
+  // Skip if autonomous mode already on or already suggested
+  if (config.autoRemediate || config.suggestAutonomous) return;
+
+  const since = new Date();
+  since.setDate(since.getDate() - SUGGEST_WINDOW_DAYS);
+
+  const [stats] = await db
+    .select({
+      total:    sql<number>`count(*)`,
+      approved: sql<number>`count(*) filter (where status = 'completed')`,
+    })
+    .from(remediationSessions)
+    .where(and(
+      eq(remediationSessions.projectId, projectId),
+      gte(remediationSessions.createdAt, since),
+      inArray(remediationSessions.status, ["completed", "cancelled", "failed"]),
+    ));
+
+  const total = Number(stats?.total ?? 0);
+  const approved = Number(stats?.approved ?? 0);
+  if (total < SUGGEST_MIN_REMEDIATIONS) return;
+
+  const approvalRate = Math.round((approved / total) * 100);
+  if (approvalRate < SUGGEST_MIN_APPROVAL_RATE) return;
+
+  await db
+    .update(projects)
+    .set({ autoMergeConfig: { ...config, suggestAutonomous: true } as AutoMergeConfig })
+    .where(eq(projects.id, projectId));
 }

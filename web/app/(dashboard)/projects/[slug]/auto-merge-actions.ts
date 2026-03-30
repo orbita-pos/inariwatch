@@ -6,6 +6,7 @@ import { db, projects, projectMembers } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import type { AutoMergeConfig } from "@/lib/db/schema";
+import { DEFAULT_AUTO_MERGE_CONFIG } from "@/lib/db/schema";
 
 async function requireAdmin(
   projectId: string
@@ -81,4 +82,23 @@ export async function updateAutoMergeConfig(
   } catch {
     return { error: "Failed to update auto-merge settings. Please try again." };
   }
+}
+
+async function updateConfigField(projectId: string, patch: Partial<AutoMergeConfig>) {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return;
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+  if (!project || (project.userId !== userId)) return;
+  const current = { ...DEFAULT_AUTO_MERGE_CONFIG, ...(project.autoMergeConfig as AutoMergeConfig ?? {}) };
+  await db.update(projects).set({ autoMergeConfig: { ...current, ...patch } }).where(eq(projects.id, projectId));
+  revalidatePath(`/projects/${project.slug}`);
+}
+
+export async function enableAutoRemediate(projectId: string) {
+  await updateConfigField(projectId, { autoRemediate: true, suggestAutonomous: false });
+}
+
+export async function dismissAutonomousSuggestion(projectId: string) {
+  await updateConfigField(projectId, { suggestAutonomous: false });
 }
