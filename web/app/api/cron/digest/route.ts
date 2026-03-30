@@ -5,6 +5,8 @@ import {
   alerts,
   notificationChannels,
   projects,
+  slackInstallations,
+  slackChannelMappings,
 } from "@/lib/db";
 import { eq, and, gt, desc } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications/email";
@@ -12,6 +14,8 @@ import { formatWeeklyDigestEmail } from "@/lib/notifications/digest-email";
 import { signValue } from "@/lib/webhooks/shared";
 import { getUserAIKey } from "@/lib/ai/get-key";
 import { callAI } from "@/lib/ai/client";
+import { getSlackClient } from "@/lib/slack/client";
+import { buildWeeklyDigestBlocks } from "@/lib/slack/blocks";
 import crypto from "crypto";
 import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
@@ -179,6 +183,91 @@ export async function GET(req: Request) {
     } catch {
       // Continue to the next user if one fails
     }
+  }
+
+  // ── Slack digests ────────────────────────────────────────────────────────
+  // Find all users who have active Slack channel mappings for any project
+  const slackRows = await db
+    .select({
+      userId: slackInstallations.userId,
+      installationId: slackChannelMappings.installationId,
+      channelId: slackChannelMappings.channelId,
+      projectId: slackChannelMappings.projectId,
+    })
+    .from(slackChannelMappings)
+    .innerJoin(slackInstallations, eq(slackChannelMappings.installationId, slackInstallations.id))
+    .where(eq(slackChannelMappings.isActive, true));
+
+  // Group by userId → unique channels + projectIds
+  const slackByUser = new Map<string, {
+    projectIds: Set<string>;
+    channels: { installationId: string; channelId: string }[];
+  }>();
+  for (const row of slackRows) {
+    if (!slackByUser.has(row.userId)) slackByUser.set(row.userId, { projectIds: new Set(), channels: [] });
+    const entry = slackByUser.get(row.userId)!;
+    entry.projectIds.add(row.projectId);
+    const key = `${row.installationId}:${row.channelId}`;
+    if (!entry.channels.some((c) => `${c.installationId}:${c.channelId}` === key)) {
+      entry.channels.push({ installationId: row.installationId, channelId: row.channelId });
+    }
+  }
+
+  for (const [userId, { projectIds, channels }] of slackByUser) {
+    try {
+      // Gather recent alerts for all of this user's mapped projects
+      const recentAlerts = [];
+      for (const pid of projectIds) {
+        const pa = await db.select().from(alerts).where(and(eq(alerts.projectId, pid), gt(alerts.createdAt, sevenDaysAgo)));
+        recentAlerts.push(...pa);
+      }
+      if (recentAlerts.length === 0) continue;
+
+      const stats = {
+        total:      recentAlerts.length,
+        critical:   recentAlerts.filter((a) => a.severity === "critical").length,
+        resolved:   recentAlerts.filter((a) => a.isResolved).length,
+        unresolved: recentAlerts.filter((a) => !a.isResolved).length,
+      };
+
+      const topAlerts = [...recentAlerts]
+        .sort((a, b) => {
+          const order: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+          const sa = order[a.severity] ?? 2, sb = order[b.severity] ?? 2;
+          return sa !== sb ? sa - sb : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        })
+        .slice(0, 5)
+        .map((a) => ({ title: a.title, severity: a.severity, createdAt: a.createdAt }));
+
+      let aiSummary: string | undefined;
+      try {
+        const aiKey = await getUserAIKey(userId);
+        if (aiKey) {
+          const alertList = [...recentAlerts]
+            .sort((a, b) => (a.severity === "critical" ? -1 : 1))
+            .slice(0, 10)
+            .map((a) => `- [${a.severity}] ${a.title}${a.isResolved ? " (resolved)" : ""}`)
+            .join("\n");
+          aiSummary = await callAI(
+            aiKey.key,
+            "You are a DevOps assistant writing a concise weekly incident summary. Be professional but conversational. No markdown.",
+            [{ role: "user", content: `Summarize this week's alerts in 2-3 sentences. Highlight patterns, recurring issues, and overall health trend.\n\nAlerts (${recentAlerts.length} total):\n${alertList}` }],
+            { maxTokens: 200 },
+          ) ?? undefined;
+        }
+      } catch { /* AI optional */ }
+
+      const blocks = buildWeeklyDigestBlocks(stats, topAlerts, aiSummary);
+      const fallbackText = `Weekly digest — ${stats.total} alert${stats.total !== 1 ? "s" : ""} this week, ${stats.critical} critical`;
+
+      for (const { installationId, channelId } of channels) {
+        try {
+          const client = await getSlackClient(installationId);
+          await client.chat.postMessage({ channel: channelId, text: fallbackText, blocks });
+          sent++;
+        } catch { /* skip failed channel */ }
+      }
+    } catch { /* continue to next user */ }
   }
 
   cronLog("digest", { digests_sent: sent });

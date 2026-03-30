@@ -512,6 +512,72 @@ export function buildHelpBlocks(): KnownBlock[] {
   }];
 }
 
+// ── Weekly digest ─────────────────────────────────────────────────────────────
+
+export function buildWeeklyDigestBlocks(
+  stats: { total: number; critical: number; resolved: number; unresolved: number },
+  topAlerts: Array<{ title: string; severity: string; createdAt: Date }>,
+  aiSummary?: string,
+): KnownBlock[] {
+  const appUrl = process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://app.inariwatch.com";
+  const blocks: KnownBlock[] = [];
+
+  blocks.push({
+    type: "header",
+    text: { type: "plain_text", text: ":bar_chart: Weekly InariWatch Digest", emoji: true },
+  });
+
+  blocks.push({
+    type: "section",
+    fields: [
+      { type: "mrkdwn", text: `*Total*\n${stats.total}` },
+      { type: "mrkdwn", text: `*Critical*\n:red_circle: ${stats.critical}` },
+      { type: "mrkdwn", text: `*Resolved*\n:white_check_mark: ${stats.resolved}` },
+      { type: "mrkdwn", text: `*Open*\n:large_yellow_circle: ${stats.unresolved}` },
+    ],
+  });
+
+  if (aiSummary) {
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `✦ *AI Summary*\n${escapeSlack(aiSummary.slice(0, 2000))}`,
+      },
+    });
+  }
+
+  if (topAlerts.length > 0) {
+    blocks.push({ type: "divider" });
+    const lines = topAlerts.slice(0, 5).map((a) => {
+      const emoji = SEVERITY_EMOJI[a.severity] ?? ":white_circle:";
+      const date = new Date(a.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return `${emoji} ${escapeSlack(a.title.slice(0, 120))}  _${date}_`;
+    }).join("\n");
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Top alerts this week*\n${lines}` },
+    });
+  }
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        text: { type: "plain_text", text: "View Dashboard", emoji: true },
+        url: `${appUrl}/dashboard`,
+        style: "primary",
+        action_id: "digest_view_dashboard",
+      },
+    ],
+  });
+
+  return blocks;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function escapeSlack(text: string): string {
