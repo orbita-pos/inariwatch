@@ -23,13 +23,15 @@ export async function GET(req: NextRequest) {
   }
 
   // Verify state signature FIRST, then extract userId
-  const parts = state.split(":");
-  if (parts.length < 3) {
+  // State format: "userId:sig:ts" — split into userId and the "sig:ts" token
+  const firstColon = state.indexOf(":");
+  if (firstColon < 1) {
     return NextResponse.redirect(`${appUrl}/settings?slack=error&reason=invalid_state`);
   }
+  const candidateUserId = state.slice(0, firstColon);
+  const signedToken = state.slice(firstColon + 1);
   // Verify before trusting any data from the state
-  const candidateUserId = parts[0];
-  const isValid = verifySignedValue(candidateUserId, state, 600); // 10 min TTL
+  const isValid = verifySignedValue(candidateUserId, signedToken, 600); // 10 min TTL
   if (!isValid) {
     return NextResponse.redirect(`${appUrl}/settings?slack=error&reason=expired_state`);
   }

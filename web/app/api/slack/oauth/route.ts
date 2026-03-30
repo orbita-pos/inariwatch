@@ -26,7 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "Slack not configured" }, { status: 500 });
   }
 
-  const state = signValue(userId);
+  const state = `${userId}:${signValue(userId, 600)}`;
   const redirectUri = `${process.env.APP_URL || process.env.NEXTAUTH_URL}/api/slack/oauth/callback`;
 
   const url = new URL("https://slack.com/oauth/v2/authorize");
