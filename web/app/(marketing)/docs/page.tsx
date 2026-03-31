@@ -132,6 +132,17 @@ const NAV = [
     ],
   },
   {
+    group: "MCP Server",
+    items: [
+      { id: "mcp-overview",   label: "Overview" },
+      { id: "mcp-setup",      label: "Setup" },
+      { id: "mcp-tools",      label: "Tools (14)" },
+      { id: "mcp-resources",  label: "Resources (4)" },
+      { id: "mcp-prompts",    label: "Prompts (5)" },
+      { id: "mcp-auth",       label: "Auth & scopes" },
+    ],
+  },
+  {
     group: "Public APIs",
     items: [
       { id: "api-fix-marketplace", label: "Fix Marketplace" },
@@ -1632,6 +1643,147 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               You can trigger it manually with <InlineCode>GET /api/cron/digest</InlineCode> using
               your <InlineCode>CRON_SECRET</InlineCode> header.
             </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                MCP SERVER
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="mcp-overview">MCP Server</SectionHeading>
+            <p>
+              Connect any AI coding tool to InariWatch via the{" "}
+              <strong>Model Context Protocol (MCP)</strong>. Your AI gets real-time access
+              to production alerts, root cause analysis, community fixes, and remediation
+              — all from inside your editor.
+            </p>
+            <p className="mt-2">
+              Works with Claude Code, Cursor, Windsurf, VS Code Copilot, Codex CLI, Gemini CLI,
+              and any tool that supports MCP over HTTP.
+            </p>
+
+            <SubHeading id="mcp-setup">Setup</SubHeading>
+            <p className="font-medium">Option A — One command (recommended)</p>
+            <CodeBlock label="Auto-detect & configure">{`npx @inariwatch/mcp init`}</CodeBlock>
+            <p className="mt-1 text-sm text-zinc-500">
+              Detects installed AI tools, opens the browser to authenticate, and writes config files automatically.
+              Pass <code>--token inari_xxxxx</code> to skip browser auth.
+            </p>
+
+            <p className="mt-4 font-medium">Option B — Manual setup</p>
+            <p>
+              1. Go to <strong>Settings &rarr; MCP</strong> and create an access token (choose scope: read, write, or full access).<br />
+              2. Add to your AI tool:
+            </p>
+
+            <Table
+              head={["Tool", "Config"]}
+              rows={[
+                ["Claude Code", "claude mcp add inariwatch https://mcp.inariwatch.com --transport http -H \"Authorization: Bearer <token>\""],
+                ["Cursor / Windsurf", ".cursor/mcp.json → { mcpServers: { inariwatch: { url, headers } } }"],
+                ["VS Code Copilot", ".vscode/mcp.json → { servers: { inariwatch: { url, headers } } }"],
+                ["Codex CLI", "codex mcp add inariwatch https://mcp.inariwatch.com --header \"Authorization: Bearer <token>\""],
+                ["Gemini CLI", "gemini mcp add inariwatch --url https://mcp.inariwatch.com --header \"Authorization: Bearer <token>\""],
+              ]}
+            />
+
+            <p className="mt-4 font-medium">Option C — OAuth (zero-token setup)</p>
+            <p className="text-sm text-zinc-500">
+              Tools that support OAuth 2.1 can discover InariWatch automatically via{" "}
+              <code>https://mcp.inariwatch.com/api/mcp/.well-known/oauth-authorization-server</code>.
+              Click &quot;Connect&quot; in your tool, approve in the browser, done. PKCE (S256) enforced.
+            </p>
+
+            <SubHeading id="mcp-tools">Tools (14)</SubHeading>
+            <p>Once connected, your AI can call these tools:</p>
+
+            <Table
+              head={["Tool", "Description", "Scope", "Rate"]}
+              rows={[
+                ["query_alerts", "List recent alerts by project/severity", "read", "200/min"],
+                ["get_status", "Projects, integrations, alert counts", "read", "200/min"],
+                ["get_uptime", "Current uptime status for all monitors", "read", "200/min"],
+                ["get_build_logs", "Vercel deployment build logs", "read", "200/min"],
+                ["get_substrate_context", "I/O recording context for an alert", "read", "200/min"],
+                ["get_root_cause", "AI-powered root cause analysis", "read", "30/min"],
+                ["assess_risk", "Pre-deploy risk assessment for a PR", "read", "30/min"],
+                ["get_postmortem", "Generate or retrieve a post-mortem", "read", "200/min"],
+                ["search_community_fixes", "Search community fix network", "read", "30/min"],
+                ["trigger_fix", "Start AI remediation pipeline (SSE streaming)", "execute", "5/min"],
+                ["rollback_vercel", "Roll back to previous deployment ⚠️", "execute", "5/min"],
+                ["silence_alert", "Mark alert as read/resolved", "write", "200/min"],
+                ["submit_feedback", "Report if an AI fix worked", "write", "200/min"],
+                ["run_check", "Trigger an immediate monitoring check", "execute", "30/min"],
+              ]}
+            />
+
+            <p className="mt-2 text-sm text-zinc-500">
+              Tools include MCP annotations (<code>readOnlyHint</code>, <code>destructiveHint</code>) so AI clients
+              know when to ask for confirmation. <code>rollback_vercel</code> is marked destructive.
+            </p>
+
+            <SubHeading id="mcp-resources">Resources (4)</SubHeading>
+            <p>
+              Resources are live data feeds your AI can read without calling a tool.
+              Subscribe for real-time notifications when data changes.
+            </p>
+
+            <Table
+              head={["URI", "Description"]}
+              rows={[
+                ["inariwatch://alerts/critical", "Currently open critical alerts across all projects"],
+                ["inariwatch://alerts/recent", "Last 20 alerts from the past 24 hours"],
+                ["inariwatch://status/overview", "All projects: uptime, alert counts, monitor status"],
+                ["inariwatch://remediations/active", "AI remediation sessions currently in progress"],
+              ]}
+            />
+
+            <p className="mt-2 text-sm text-zinc-500">
+              Subscribe via <code>resources/subscribe</code>. Receive{" "}
+              <code>notifications/resources/updated</code> via the SSE endpoint at{" "}
+              <code>GET /api/mcp/events</code> when subscribed resources change (polled every 10s).
+            </p>
+
+            <SubHeading id="mcp-prompts">Prompts (5)</SubHeading>
+            <p>
+              Predefined workflows that appear as commands in your AI tool.
+              Each prompt orchestrates multiple tool calls automatically.
+            </p>
+
+            <Table
+              head={["Prompt", "What it does"]}
+              rows={[
+                ["diagnose", "Find top critical alert → root cause → substrate context → community fixes → summary"],
+                ["status-report", "Full status: uptime, open alerts, active issues"],
+                ["fix-this", "Find critical alert → search known fixes → preview AI fix (dry run) → ask before applying"],
+                ["post-deploy-check", "After deploy: check uptime, new errors, build logs → health report"],
+                ["weekly-summary", "Past 7 days: alert trends, top patterns, system health (5-10 bullet points)"],
+              ]}
+            />
+
+            <SubHeading id="mcp-auth">Auth &amp; scopes</SubHeading>
+            <p>
+              Tokens are SHA-256 hashed (never stored in plaintext). Choose a scope when creating:
+            </p>
+
+            <Table
+              head={["Scope", "Access", "Use case"]}
+              rows={[
+                ["read", "Query tools, resources, prompts", "Dashboards, monitoring, read-only integrations"],
+                ["write", "Read + silence alerts, submit feedback", "Team members who triage alerts"],
+                ["execute", "Full access: remediation, rollback, checks", "Lead devs, CI/CD pipelines"],
+              ]}
+            />
+
+            <p className="mt-2 text-sm text-zinc-500">
+              Tokens can have an expiration date (30d / 90d / 1y / never). Usage stats are visible in{" "}
+              <strong>Settings &rarr; MCP usage</strong> (calls/day, top tools, latency, error rate).
+              All MCP calls are logged in the audit trail.
+            </p>
+
+            <div className="mt-4 rounded-lg border border-blue-900/30 bg-blue-950/20 px-4 py-3 text-sm">
+              <strong>Protocol:</strong> Streamable HTTP (JSON-RPC 2.0 over POST), spec version 2024-11-05.
+              Capabilities: tools, resources (subscribe), prompts, sampling.
+              Endpoint: <code>https://mcp.inariwatch.com</code>.
+            </div>
 
             {/* ────────────────────────────────────────────────────────────────
                 PUBLIC APIS

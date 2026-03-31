@@ -676,6 +676,38 @@ export const cliPendingCodes = pgTable("cli_pending_codes", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── MCP Access Tokens ────────────────────────────────────────────────────────
+
+export const mcpTokens = pgTable("mcp_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  /** SHA-256 hash of the token. Raw token is shown once on creation, never stored. */
+  tokenHash: text("token_hash").notNull().unique(),
+  /** @deprecated Kept for migration — will be removed. Use tokenHash. */
+  token: text("token"),
+  scopes: text("scopes").array().notNull().default(sql`'{read}'`),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type McpToken = typeof mcpTokens.$inferSelect;
+
+// ── MCP OAuth Codes (PKCE authorization flow) ────────────────────────────────
+
+export const mcpOauthCodes = pgTable("mcp_oauth_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull().unique(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  clientId: text("client_id").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  scopes: text("scopes").array().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Rate Limiting ────────────────────────────────────────────────────────────
 
 export const rateLimits = pgTable("rate_limits", {

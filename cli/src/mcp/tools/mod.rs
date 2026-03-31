@@ -9,3 +9,6 @@ pub mod rollback_vercel;
 pub mod get_build_logs;
 pub mod silence_alert;
 pub mod submit_feedback;
+pub mod search_community_fixes;
+pub mod get_uptime;
+pub mod get_substrate_context;

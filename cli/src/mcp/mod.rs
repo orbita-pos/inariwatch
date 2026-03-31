@@ -206,6 +206,51 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["memory_id", "worked"]
             }
+        },
+        {
+            "name": "search_community_fixes",
+            "description": "Search the InariWatch community fix network for known solutions matching an error message or description. Returns fixes with success rates and confidence scores contributed by teams who solved the same error.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Error message, exception text, or description to search for."
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Max number of patterns to return (default: 5, max: 20)."
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "get_uptime",
+            "description": "Run a live uptime check against all configured health endpoints and return current status, HTTP status codes, and response times.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "Filter to a specific project slug. Omit to check all configured projects."
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_substrate_context",
+            "description": "Retrieve the Substrate I/O recording context for an alert — the ring buffer of HTTP requests, file reads, DB queries, and system calls captured before the error occurred. Provides deep runtime context for AI diagnosis. Falls back to local incident memory if no recording is available.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "alert_id": {
+                        "type": "string",
+                        "description": "The alert ID to get substrate context for. Use query_alerts to find alert IDs."
+                    }
+                },
+                "required": ["alert_id"]
+            }
         }
     ])
 }
@@ -223,7 +268,10 @@ pub async fn call_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         "rollback_vercel" => tools::rollback_vercel::execute(args).await,
         "get_build_logs"  => tools::get_build_logs::execute(args).await,
         "silence_alert"   => tools::silence_alert::execute(args).await,
-        "submit_feedback" => tools::submit_feedback::execute(args).await,
+        "submit_feedback"       => tools::submit_feedback::execute(args).await,
+        "search_community_fixes" => tools::search_community_fixes::execute(args).await,
+        "get_uptime"            => tools::get_uptime::execute(args).await,
+        "get_substrate_context" => tools::get_substrate_context::execute(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     }
 }

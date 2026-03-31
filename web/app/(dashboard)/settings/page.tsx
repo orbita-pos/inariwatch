@@ -1,10 +1,13 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs, slackInstallations, slackChannelMappings, projects } from "@/lib/db";
+import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs, slackInstallations, slackChannelMappings, projects, mcpTokens } from "@/lib/db";
+import { sql } from "drizzle-orm";
 import { eq, desc } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { MessageSquare, Mail, Bell, Key, Monitor, Hash } from "lucide-react";
 import { GenerateDesktopTokenButton } from "./generate-token-button";
+import { McpTokenSection } from "./mcp-tokens";
+import { McpDashboard } from "./mcp-dashboard";
 import { ConnectTelegramButton } from "./connect-telegram";
 import { ConnectEmailButton } from "./connect-email";
 import { ConnectSlackButton, SlackChannelRow } from "./connect-slack";
@@ -37,7 +40,7 @@ export default async function SettingsPage() {
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
 
-  const [userRows, channels, keys, webhooks, auditEntries, slackRows, userProjects] = userId
+  const [userRows, channels, keys, webhooks, auditEntries, slackRows, userProjects, mcpTokenRows] = userId
     ? await Promise.all([
         db.select().from(users).where(eq(users.id, userId)).limit(1),
         db.select().from(notificationChannels).where(eq(notificationChannels.userId, userId)),
@@ -46,8 +49,9 @@ export default async function SettingsPage() {
         db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(desc(auditLogs.createdAt)).limit(30),
         db.select().from(slackInstallations).where(eq(slackInstallations.userId, userId)).limit(1),
         db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.userId, userId)),
+        db.select().from(mcpTokens).where(eq(mcpTokens.userId, userId)).orderBy(desc(mcpTokens.createdAt)),
       ])
-    : [[], [], [], [], [], [], []];
+    : [[], [], [], [], [], [], [], []];
 
   const user       = userRows[0];
   const isPro      = user?.plan === "pro";
@@ -70,6 +74,41 @@ export default async function SettingsPage() {
     .filter((k) => AI_SERVICES.includes(k.service))
     .sort((a, b) => (AI_PRIORITY[a.service] ?? 99) - (AI_PRIORITY[b.service] ?? 99))[0] ?? null;
   const plan       = PLAN_BADGE[user?.plan ?? "free"] ?? PLAN_BADGE.free;
+
+  // MCP usage stats from audit logs (last 30 days)
+  const mcpStatsRaw = userId ? await db.execute(sql`
+    SELECT
+      count(*)::int AS total_calls,
+      count(*) FILTER (WHERE (metadata->>'ok')::boolean = false)::int AS total_errors,
+      coalesce(avg((metadata->>'latencyMs')::int), 0)::int AS avg_latency,
+      coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY (metadata->>'latencyMs')::int), 0)::int AS p99_latency
+    FROM audit_logs
+    WHERE user_id = ${userId} AND action LIKE 'mcp.%' AND created_at > now() - interval '30 days'
+  `) : null;
+
+  const mcpTopToolsRaw = userId ? await db.execute(sql`
+    SELECT action AS tool, count(*)::int AS count
+    FROM audit_logs
+    WHERE user_id = ${userId} AND action LIKE 'mcp.%' AND created_at > now() - interval '30 days'
+    GROUP BY action ORDER BY count DESC LIMIT 5
+  `) : null;
+
+  const mcpByDayRaw = userId ? await db.execute(sql`
+    SELECT to_char(created_at, 'YYYY-MM-DD') AS date, count(*)::int AS count
+    FROM audit_logs
+    WHERE user_id = ${userId} AND action LIKE 'mcp.%' AND created_at > now() - interval '7 days'
+    GROUP BY date ORDER BY date
+  `) : null;
+
+  const s = mcpStatsRaw?.rows?.[0] as Record<string, number> | undefined;
+  const mcpStats = {
+    totalCalls: s?.total_calls ?? 0,
+    totalErrors: s?.total_errors ?? 0,
+    avgLatencyMs: s?.avg_latency ?? 0,
+    p99LatencyMs: s?.p99_latency ?? 0,
+    topTools: ((mcpTopToolsRaw?.rows ?? []) as { tool: string; count: number }[]),
+    callsByDay: ((mcpByDayRaw?.rows ?? []) as { date: string; count: number }[]),
+  };
 
   return (
     <div className="mx-auto max-w-[680px] space-y-8">
@@ -177,6 +216,26 @@ export default async function SettingsPage() {
         )}
       </Section>
       </ProGate>
+
+      {/* ── MCP Access Tokens ─────────────────────────────────────────────── */}
+      <Section title="MCP">
+        <McpTokenSection
+          tokens={mcpTokenRows.map((t) => ({
+            id: t.id,
+            name: t.name,
+            tokenPreview: `inari_${"•".repeat(24)}`,
+            lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
+            createdAt: t.createdAt.toISOString(),
+          }))}
+        />
+      </Section>
+
+      {/* ── MCP Usage Dashboard ──────────────────────────────────────────── */}
+      {(mcpTokenRows.length > 0 || mcpStats.totalCalls > 0) && (
+        <Section title="MCP usage">
+          <McpDashboard stats={mcpStats} />
+        </Section>
+      )}
 
       {/* ── API Keys ─────────────────────────────────────────────────────── */}
       <Section title="API keys">

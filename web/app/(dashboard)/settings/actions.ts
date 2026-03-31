@@ -2,10 +2,10 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, apiKeys, notificationChannels, emailVerifications } from "@/lib/db";
+import { db, apiKeys, notificationChannels, emailVerifications, mcpTokens } from "@/lib/db";
 import { eq, and, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { encrypt, encryptConfig } from "@/lib/crypto";
 import { verifyTelegramBot, detectChatId, sendTelegram } from "@/lib/notifications/telegram";
 import { verifySlackWebhook } from "@/lib/notifications/slack";
@@ -415,6 +415,59 @@ export async function verifyEmailCode(
       verifiedAt: new Date(),
     });
   }
+
+  revalidatePath("/settings");
+  return {};
+}
+
+// ── MCP tokens ──────────────────────────────────────────────────────────────
+
+export async function generateMcpToken(
+  name: string,
+  scope: "read" | "write" | "execute" = "read"
+): Promise<{ token?: string; error?: string }> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return { error: "Not authenticated." };
+
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 64) return { error: "Name is required (max 64 chars)." };
+
+  // Max 5 tokens per user
+  const existing = await db
+    .select({ id: mcpTokens.id })
+    .from(mcpTokens)
+    .where(eq(mcpTokens.userId, userId));
+  if (existing.length >= 5) return { error: "Maximum 5 MCP tokens allowed." };
+
+  const token = `inari_${randomBytes(24).toString("hex")}`;
+
+  const VALID_SCOPES = ["read", "write", "execute"] as const;
+  const validScope = VALID_SCOPES.includes(scope) ? scope : "read";
+
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+
+  await db.insert(mcpTokens).values({
+    userId,
+    name: trimmed,
+    tokenHash,
+    scopes: [validScope],
+  });
+
+  revalidatePath("/settings");
+  return { token }; // Raw token shown once, only hash stored
+}
+
+export async function revokeMcpToken(
+  tokenId: string
+): Promise<{ error?: string }> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return { error: "Not authenticated." };
+
+  await db
+    .delete(mcpTokens)
+    .where(and(eq(mcpTokens.id, tokenId), eq(mcpTokens.userId, userId)));
 
   revalidatePath("/settings");
   return {};
