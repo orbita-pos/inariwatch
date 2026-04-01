@@ -1,0 +1,57 @@
+# ── Sibling directories (not needed for bot-app build) ────────────────────────
+web/
+cli/
+capture/
+mcp/
+action/
+vscode/
+desktop/
+.agents/
+.claude/
+.github/
+.vercel/
+.next/
+
+# ── Git (since eas-cli v15, .git gets included via shallow clone) ─────────────
+.git
+
+# ── Dependencies (must re-declare — .gitignore is fully bypassed) ─────────────
+node_modules/
+
+# ── Expo / React Native (from bot-app/.gitignore, now bypassed) ──────────────
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+
+# ── Build artifacts ───────────────────────────────────────────────────────────
+*.vsix
+*.tsbuildinfo
+
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Misc files at repo root ──────────────────────────────────────────────────
+skills-lock.json
+CLAUDE.md
+README.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+SECURITY.md
+SPONSORSHIP.md
+LICENSE
+.gitattributes
+err_*.txt
+vitest_*.txt
+raw.txt
+github_err.txt

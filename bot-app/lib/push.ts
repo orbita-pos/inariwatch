@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { router } from "expo-router";
 import { registerPushToken } from "./api";
@@ -36,9 +37,16 @@ export async function setupPush(): Promise<string | null> {
     });
   }
 
-  // Get token
+  // Get token — must use the real EAS project UUID, not the slug
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ??
+    Constants.easConfig?.projectId;
+  if (!projectId) {
+    console.error("Missing EAS projectId — push tokens unavailable");
+    return null;
+  }
   const tokenData = await Notifications.getExpoPushTokenAsync({
-    projectId: "inariwatch-bot",
+    projectId,
   });
   const token = tokenData.data;
 
