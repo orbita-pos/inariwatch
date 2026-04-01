@@ -1474,6 +1474,9 @@ export const onRequestError = captureRequestError`}</CodeBlock>
             />
 
             <SubHeading id="bot-install">Install</SubHeading>
+            <p className="mb-3">
+              <a href="/download" className="text-inari-accent underline font-medium">Download InariWatch Bot →</a>
+            </p>
             <Table
               head={["Platform", "How to install"]}
               rows={[

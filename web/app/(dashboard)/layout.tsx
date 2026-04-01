@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, Smartphone } from "lucide-react";
 import { SidebarNav } from "./nav";
 import { MobileNav } from "./mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -98,6 +98,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
                   <Settings className="h-3.5 w-3.5" />
                 </Link>
               )}
+              <Link
+                href="/download"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong transition-colors"
+                title="Get mobile app"
+              >
+                <Smartphone className="h-3.5 w-3.5" />
+              </Link>
               <ThemeToggle />
               <Link
                 href="/api/auth/signout"

@@ -116,6 +116,10 @@ function Hero() {
                 <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
                 Open source (MIT)
               </span>
+              <Link href="/download" className="flex items-center gap-1.5 hover:text-white transition-colors">
+                <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
+                Mobile app available
+              </Link>
             </div>
           </div>
         </div>
@@ -1036,6 +1040,7 @@ function Footer() {
         </div>
         <div className="flex items-center gap-6 text-sm text-zinc-500">
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
+          <Link href="/download" className="hover:text-fg-base transition-colors">Mobile App</Link>
           <Link href="/trust" className="hover:text-fg-base transition-colors">Trust</Link>
           <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
           <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
