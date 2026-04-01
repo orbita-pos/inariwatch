@@ -718,6 +718,17 @@ export const mcpOauthCodes = pgTable("mcp_oauth_codes", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Telegram User Links ──────────────────────────────────────────────────────
+
+export const telegramUserLinks = pgTable("telegram_user_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  botToken: text("bot_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Rate Limiting ────────────────────────────────────────────────────────────
 
 export const rateLimits = pgTable("rate_limits", {
