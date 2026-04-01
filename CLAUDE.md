@@ -19,20 +19,22 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 │   │   ├── api/          # API routes: webhooks, cron, stripe, auth, chat, notifications, slack
 │   │   ├── invite/       # Workspace invite flow
 │   │   └── status/       # Public status page
+│   │   └── api/mcp/      # Hosted MCP server (17 tools, 4 resources, 5 prompts)
 │   ├── lib/
 │   │   ├── ai/           # AI layer: correlate, remediate, auto-analyze, postmortem, risk assessment, community-fix-lookup
 │   │   ├── db/           # Drizzle ORM schema + migrations (Neon PostgreSQL)
+│   │   ├── services/     # Service layer — SSOT for all business logic (alerts, diagnosis, vercel, chat)
 │   │   ├── auth/         # NextAuth config and helpers
 │   │   ├── slack/        # Slack bot: client, blocks, send, actions, verify, remediation-bridge
 │   │   ├── pollers/      # Sentry, Vercel polling logic
-│   │   ├── services/     # External API clients (Vercel, GitHub, Sentry, Datadog, auto-rollback)
 │   │   ├── notifications/ # Email, push, Telegram, Slack webhooks
 │   │   └── webhooks/     # Webhook ingestion logic
 │   └── scripts/          # Demo recorder (Playwright), seed-demo
+├── mcp/          # @inariwatch/mcp — npx init tool (auto-detect AI tools, install capture, configure MCP)
 ├── capture/      # @inariwatch/capture — npm SDK (zero deps, zero config)
 ├── vscode/       # VS Code extension — inline diagnostics, AI hover, sidebar
 ├── action/       # GitHub Action — AI risk assessment on PRs
-└── cli/          # Rust CLI (local monitoring mode)
+└── cli/          # Rust CLI (local monitoring: dev, watch, simulate — serve-mcp deprecated)
 ```
 
 ## Stack
@@ -71,9 +73,51 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 - **Workspaces** — multi-tenant, invite system, role-based access
 - **Admin panel** — internal user/workspace management
 
+## Service layer — single source of truth
+
+All business logic lives in `web/lib/services/`. Every surface (MCP, Slack, dashboard, extension, cron) calls these services instead of reimplementing queries.
+
+| Service | File | Functions |
+|---|---|---|
+| Alerts | `lib/services/alerts.service.ts` | queryAlerts, getAlert, silenceAlert, acknowledgeAlert, reopenAlert, getAlertStats, getErrorTrends |
+| Diagnosis | `lib/services/diagnosis.service.ts` | diagnoseAlert (uses `lib/ai/prompts.ts` as prompt SSOT) |
+| Vercel | `lib/services/vercel.service.ts` | getRecentDeployments, rollbackToDeployment, getBuildLogs |
+| Chat | `lib/services/chat.service.ts` | gatherChatContext, buildContextString, SYSTEM_OPS |
+| URL validation | `lib/services/url-validation.ts` | isSafeUrl (SSRF protection) |
+
+**Rules:**
+- Services receive typed params, return typed data — no HTTP/MCP/Slack protocol objects
+- Services handle their own DB queries — consumers don't touch Drizzle directly for covered operations
+- When adding a new operation, add it to the service first, then wire it to each surface
+
+**Surfaces that consume services:**
+- MCP web tools (`web/app/api/mcp/tools/*.ts`) — 17 tools
+- Slack bot (`web/lib/slack/actions.ts`) — acknowledgeAlertCore, resolveAlertCore
+- Dashboard (`web/app/(dashboard)/alerts/[id]/ai-actions.ts`)
+- Extension endpoints (`web/app/api/extension/`) — DEPRECATED, migrating to MCP
+
+**Not yet extracted (acceptable — no duplication):**
+- Remediation: all surfaces already call `runRemediation()` from `lib/ai/remediate.ts`
+- On-call: centralized in `lib/on-call.ts`
+- Risk assessment: `lib/ai/risk-assessment.ts` (MCP has a simpler version, intentional)
+
+## MCP server
+
+Hosted at `mcp.inariwatch.com` (Vercel rewrite → `POST /api/mcp`). Streamable HTTP, JSON-RPC 2.0.
+
+- **17 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor
+- **4 resources** — alerts/critical, alerts/recent, status/overview, remediations/active
+- **5 prompts** — diagnose, status-report, fix-this, post-deploy-check, weekly-summary
+- **Auth:** Bearer tokens (SHA-256 hashed), OAuth 2.1 + PKCE, granular scopes (read/write/execute)
+- **Rate limits:** cheap (200/min), moderate (30/min), expensive (5/min) per tool
+- **Audit trail:** every tool call logged to audit_logs
+- **Setup:** `npx @inariwatch/mcp init` (detects AI tools, installs capture, configures MCP, links GitHub, enables Substrate)
+
+CLI Rust `serve-mcp` is deprecated — web MCP is the source of truth. CLI keeps: init, add, connect, config, dev, watch, simulate.
+
 ## Database migrations
 
-Migrations live in `web/lib/db/migrations/`. Run them with Drizzle Kit. Current: `0015_semantic_search.sql`.
+Migrations live in `web/lib/db/migrations/`. Run them with Drizzle Kit. Current: `0024_mcp_token_hash.sql`.
 
 ## Environment variables
 
