@@ -13,7 +13,7 @@ export default function DownloadPage() {
       <div className="max-w-md w-full space-y-8 text-center">
         {/* Logo */}
         <div>
-          <div className="text-6xl mb-4">🦊</div>
+          <Image src="/logo-inari/favicon-96x96.png" alt="InariWatch" width={80} height={80} className="mb-4" />
           <h1 className="text-3xl font-bold text-white">InariWatch Bot</h1>
           <p className="mt-2 text-zinc-400 text-lg">
             Production alerts. AI diagnosis. Fix from your phone.

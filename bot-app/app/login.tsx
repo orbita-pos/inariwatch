@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Image, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { router } from "expo-router";
 import { startDeviceFlow, openVerifyPage, pollForToken } from "../lib/auth";
 import { setupPush } from "../lib/push";
@@ -33,7 +33,7 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.logo}>🦊</Text>
+        <Image source={require("../assets/icon.png")} style={styles.logo} />
         <Text style={styles.title}>InariWatch Bot</Text>
         <Text style={styles.subtitle}>
           Your production alerts, fixes, and AI diagnosis — right here.
@@ -85,7 +85,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logo: {
-    fontSize: 64,
+    width: 80,
+    height: 80,
+    borderRadius: 20,
     marginBottom: spacing.lg,
   },
   title: {
