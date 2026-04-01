@@ -104,6 +104,15 @@ const NAV = [
     ],
   },
   {
+    group: "InariWatch Bot (Mobile)",
+    items: [
+      { id: "bot-overview",  label: "Overview" },
+      { id: "bot-install",   label: "Install" },
+      { id: "bot-screens",   label: "Screens" },
+      { id: "bot-push",      label: "Push Notifications" },
+    ],
+  },
+  {
     group: "VS Code Extension",
     items: [
       { id: "vscode-setup",    label: "Setup" },
@@ -1441,6 +1450,75 @@ export const onRequestError = captureRequestError`}</CodeBlock>
             <div className="rounded-lg border border-blue-900/30 bg-blue-950/20 px-4 py-3 text-sm">
               <strong>Full parity with Slack.</strong> Every feature available in the Slack bot is also available
               in Telegram — same commands, same buttons, same auto-delivery. Choose whichever your team prefers.
+            </div>
+
+            {/* ────────────────────────────────────────────────────────────────
+                INARIWATCH BOT (MOBILE)
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="bot-overview">InariWatch Bot — Overview</SectionHeading>
+            <P>
+              InariWatch Bot is the native mobile app — your 4th notification channel alongside Slack, Telegram, and the web dashboard.
+              Unlike Slack/Telegram, it has zero third-party limitations: full alert bodies, colored diffs, substrate I/O recordings, and native push notifications 24/7.
+            </P>
+            <Table
+              head={["Feature", "Slack/Telegram", "InariWatch Bot"]}
+              rows={[
+                ["Alert body", "Truncated (3000 chars)", "Full — no limit"],
+                ["AI diagnosis", "Truncated", "Full — no limit"],
+                ["Code diffs", "Monospace plain text", "Colored (green/red)"],
+                ["Substrate I/O", "Summary only", "Full event browser"],
+                ["Push notifications", "Via third-party app", "Native iOS/Android"],
+                ["Quick actions", "Inline buttons", "Swipe gestures + buttons"],
+              ]}
+            />
+
+            <SubHeading id="bot-install">Install</SubHeading>
+            <Table
+              head={["Platform", "How to install"]}
+              rows={[
+                ["Android", "Download APK from app.inariwatch.com/download — enable \"Install from unknown sources\""],
+                ["iOS", "Join TestFlight from app.inariwatch.com/download — tap \"Join\""],
+              ]}
+            />
+            <P>
+              On first launch, tap <strong>Sign in with InariWatch</strong>. The browser opens for authentication —
+              approve and the app is ready. Push notifications register automatically.
+            </P>
+
+            <SubHeading id="bot-screens">Screens (5)</SubHeading>
+            <Table
+              head={["Screen", "What it does"]}
+              rows={[
+                ["Feed", "Real-time alert list (10s polling). Filter by severity. Swipe right to ack, left to resolve. Tap for detail."],
+                ["Alert Detail", "Full body + AI diagnosis + Substrate I/O recording + Community fix (with success rate) + Remediation history. Actions: Ack, Resolve, Fix It."],
+                ["Fix Progress", "Live remediation timeline (3s polling). Steps: analyzing → reading code → generating → CI → PR. Approve, cancel, or retry."],
+                ["Ask Inari", "Chat with AI about your infrastructure. Full context: alerts, remediations, integrations, uptime. Example questions to tap."],
+                ["Status", "Uptime monitors (green/red), on-call rotation, alert count, error trends (7 days)."],
+              ]}
+            />
+
+            <SubHeading id="bot-push">Push Notifications</SubHeading>
+            <P>
+              Push notifications use Expo Push Service → FCM (Android) / APNs (iOS).
+              They work 24/7, even when the app is closed.
+            </P>
+            <Table
+              head={["Severity", "Behavior"]}
+              rows={[
+                ["Critical", "High priority push with urgent sound + vibration"],
+                ["Warning", "Normal push with default sound"],
+                ["Info", "Silent push (badge update only)"],
+              ]}
+            />
+            <P>
+              Tapping a push notification opens the alert detail directly (deep link).
+              Configure which severities trigger push in <strong>Settings → Notification channels</strong> on the web dashboard.
+            </P>
+
+            <div className="rounded-lg border border-blue-900/30 bg-blue-950/20 px-4 py-3 text-sm">
+              <strong>Same service layer.</strong> InariWatch Bot calls the same 17 MCP tools and service layer as Slack, Telegram, and the dashboard.
+              A fix triggered from the mobile app appears in Slack. An alert resolved in Telegram disappears from the mobile feed.
             </div>
 
             {/* ────────────────────────────────────────────────────────────────
