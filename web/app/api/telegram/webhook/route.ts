@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, users, telegramUserLinks, notificationChannels, alerts, projects, uptimeMonitors, uptimeChecks, projectIntegrations, maintenanceWindows, remediationSessions } from "@/lib/db";
+import { db, users, telegramUserLinks, notificationChannels, alerts, projects, uptimeMonitors, uptimeChecks, projectIntegrations, maintenanceWindows, remediationSessions, onCallSchedules, onCallOverrides } from "@/lib/db";
 import { eq, and, desc, inArray, gt } from "drizzle-orm";
 import { sendMessage, answerCallbackQuery } from "@/lib/telegram/bot";
 import * as fmt from "@/lib/telegram/format";
@@ -88,7 +88,11 @@ export async function POST(req: NextRequest) {
       await cmdUptime(botToken, chatId, projectIds);
       break;
     case "oncall":
-      await cmdOnCall(botToken, chatId, projectIds);
+      if (args[0] === "swap") {
+        await cmdOnCallSwap(botToken, chatId, userId, projectIds, args[1]);
+      } else {
+        await cmdOnCall(botToken, chatId, projectIds);
+      }
       break;
     case "ask":
       await cmdAsk(botToken, chatId, userId, projectIds, argsStr.trim());
@@ -97,7 +101,11 @@ export async function POST(req: NextRequest) {
       await cmdRollback(botToken, chatId, userId, projectIds, args[0]);
       break;
     case "maintenance":
-      await cmdMaintenance(botToken, chatId, userId, projectIds, args[0], args[1]);
+      if (args[0] === "list") {
+        await cmdMaintenanceList(botToken, chatId, projectIds);
+      } else {
+        await cmdMaintenance(botToken, chatId, userId, projectIds, args[0], args[1]);
+      }
       break;
     case "search":
       await cmdSearch(botToken, chatId, argsStr.trim());
@@ -403,6 +411,49 @@ async function cmdFix(botToken: string, chatId: string, userId: string, alertIdP
   }
 }
 
+async function cmdOnCallSwap(botToken: string, chatId: string, userId: string, projectIds: string[], targetEmail?: string) {
+  if (!targetEmail) { await sendMessage(botToken, chatId, "Usage: /oncall swap user@email.com"); return; }
+
+  const [targetUser] = await db.select().from(users).where(eq(users.email, targetEmail.toLowerCase())).limit(1);
+  if (!targetUser) { await sendMessage(botToken, chatId, `User not found: ${fmt.esc(targetEmail)}`); return; }
+
+  const { onCallSchedules, onCallOverrides } = await import("@/lib/db");
+  const schedules = await db.select().from(onCallSchedules).where(inArray(onCallSchedules.projectId, projectIds)).limit(1);
+  if (schedules.length === 0) { await sendMessage(botToken, chatId, "No on-call schedules configured."); return; }
+
+  const now = new Date();
+  const endsAt = new Date(now.getTime() + 24 * 60 * 60_000);
+
+  await db.insert(onCallOverrides).values({
+    scheduleId: schedules[0].id,
+    userId: targetUser.id,
+    level: 1,
+    startsAt: now,
+    endsAt,
+  });
+
+  await sendMessage(botToken, chatId, `🔄 On-call swapped to <b>${fmt.esc(targetUser.name || targetEmail)}</b> for 24 hours.`);
+}
+
+async function cmdMaintenanceList(botToken: string, chatId: string, projectIds: string[]) {
+  if (projectIds.length === 0) { await sendMessage(botToken, chatId, "No projects found."); return; }
+
+  const windows = await db.select().from(maintenanceWindows)
+    .where(and(inArray(maintenanceWindows.projectId, projectIds), gt(maintenanceWindows.endsAt, new Date())))
+    .orderBy(desc(maintenanceWindows.endsAt)).limit(10);
+
+  if (windows.length === 0) { await sendMessage(botToken, chatId, "No active maintenance windows."); return; }
+
+  const userProjects = await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, projectIds));
+  const projectMap = new Map(userProjects.map((p) => [p.id, p.name]));
+
+  const lines = windows.map((w) =>
+    `🔧 <b>${fmt.esc(projectMap.get(w.projectId) ?? "?")}</b> — ${w.title}\n   ${w.startsAt.toISOString().slice(0, 16)} → ${w.endsAt.toISOString().slice(0, 16)}`
+  ).join("\n\n");
+
+  await sendMessage(botToken, chatId, `<b>Active Maintenance Windows</b>\n\n${lines}`);
+}
+
 // ── Callback query handler (button presses) ─────────────────────────────────
 
 async function handleCallback(query: { id: string; data?: string; from: { id: number }; message?: { chat: { id: number } } }) {
@@ -438,6 +489,65 @@ async function handleCallback(query: { id: string; data?: string; from: { id: nu
       await answerCallbackQuery(botToken, query.id, "🔧 Starting fix...");
       await cmdFix(botToken, chatId, userId, alertId);
       break;
+    case "approve_rem": {
+      const { approveRemediationCore } = await import("@/lib/slack/actions");
+      await approveRemediationCore(alertId, userId);
+      await answerCallbackQuery(botToken, query.id, "✅ Remediation approved");
+      break;
+    }
+    case "cancel_rem": {
+      const { cancelRemediationCore } = await import("@/lib/slack/actions");
+      await cancelRemediationCore(alertId, userId);
+      await answerCallbackQuery(botToken, query.id, "❌ Remediation cancelled");
+      break;
+    }
+    case "retry_rem": {
+      await answerCallbackQuery(botToken, query.id, "🔧 Retrying...");
+      const [session] = await db.select().from(remediationSessions).where(eq(remediationSessions.id, alertId)).limit(1);
+      if (session) await cmdFix(botToken, chatId, userId, session.alertId);
+      break;
+    }
+    case "postmortem": {
+      await answerCallbackQuery(botToken, query.id, "📝 Generating...");
+      try {
+        const { generatePostmortemInternal } = await import("@/lib/ai/postmortem");
+        await generatePostmortemInternal(alertId);
+        const [a] = await db.select().from(alerts).where(eq(alerts.id, alertId)).limit(1);
+        if (a?.postmortem) await sendMessage(botToken, chatId, `<b>📝 Postmortem</b>\n\n${fmt.esc(a.postmortem.slice(0, 3500))}`);
+      } catch {}
+      break;
+    }
+    case "apply_fix": {
+      await answerCallbackQuery(botToken, query.id, "💡 Applying community fix...");
+      await cmdFix(botToken, chatId, userId, alertId);
+      break;
+    }
+    case "rate_yes": {
+      try {
+        const { communityFixes } = await import("@/lib/db");
+        const { sql: sqlTag } = await import("drizzle-orm");
+        await db.update(communityFixes).set({
+          successCount: sqlTag`${communityFixes.successCount} + 1`,
+          totalApplications: sqlTag`${communityFixes.totalApplications} + 1`,
+          updatedAt: new Date(),
+        }).where(eq(communityFixes.id, alertId));
+      } catch {}
+      await answerCallbackQuery(botToken, query.id, "✅ Rated as worked — thanks!");
+      break;
+    }
+    case "rate_no": {
+      try {
+        const { communityFixes } = await import("@/lib/db");
+        const { sql: sqlTag } = await import("drizzle-orm");
+        await db.update(communityFixes).set({
+          failureCount: sqlTag`${communityFixes.failureCount} + 1`,
+          totalApplications: sqlTag`${communityFixes.totalApplications} + 1`,
+          updatedAt: new Date(),
+        }).where(eq(communityFixes.id, alertId));
+      } catch {}
+      await answerCallbackQuery(botToken, query.id, "❌ Noted — improves future suggestions");
+      break;
+    }
     default:
       await answerCallbackQuery(botToken, query.id);
   }

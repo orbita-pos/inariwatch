@@ -226,9 +226,15 @@ export async function createAlertIfNew(
         .limit(10);
       const titles = stormAlerts.map((a) => a.title);
       sendIncidentThread(stormId, projectId, titles.length, titles).catch(() => {});
+      // Telegram storm notification
+      import("@/lib/telegram/send").then(({ sendIncidentStormToProject }) => {
+        sendIncidentStormToProject(projectId, titles.length, titles, inserted.id).catch(() => {});
+      }).catch(() => {});
     } else if (!stormId) {
       const { sendAlertToSlack } = await import("@/lib/slack/send");
       sendAlertToSlack(inserted as Alert).catch(() => {});
+      const { sendAlertToTelegram } = await import("@/lib/telegram/send");
+      sendAlertToTelegram(inserted as Alert).catch(() => {});
     }
   } catch {
     // Non-blocking — Slack delivery should never block alert creation

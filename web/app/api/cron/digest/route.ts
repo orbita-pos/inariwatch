@@ -7,6 +7,7 @@ import {
   projects,
   slackInstallations,
   slackChannelMappings,
+  getUserProjectIds,
 } from "@/lib/db";
 import { eq, and, gt, desc } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications/email";
@@ -268,6 +269,46 @@ export async function GET(req: Request) {
         } catch { /* skip failed channel */ }
       }
     } catch { /* continue to next user */ }
+  }
+
+  // ── Telegram digests ──────────────────────────────────────────────────────
+  const telegramChannels = await db.select().from(notificationChannels)
+    .where(and(eq(notificationChannels.type, "telegram"), eq(notificationChannels.isActive, true)));
+
+  for (const ch of telegramChannels) {
+    try {
+      const config = ch.config as { bot_token?: string; chat_id?: string };
+      if (!config.bot_token || !config.chat_id) continue;
+
+      const userProjectIds = await getUserProjectIds(ch.userId);
+      if (userProjectIds.length === 0) continue;
+
+      const recentAlerts = [];
+      for (const pid of userProjectIds) {
+        const pa = await db.select().from(alerts).where(and(eq(alerts.projectId, pid), gt(alerts.createdAt, sevenDaysAgo)));
+        recentAlerts.push(...pa);
+      }
+      if (recentAlerts.length === 0) continue;
+
+      const stats = {
+        total: recentAlerts.length,
+        critical: recentAlerts.filter((a) => a.severity === "critical").length,
+        resolved: recentAlerts.filter((a) => a.isResolved).length,
+        open: recentAlerts.filter((a) => !a.isResolved).length,
+      };
+
+      const topAlerts = [...recentAlerts]
+        .sort((a, b) => {
+          const order: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+          return (order[a.severity] ?? 2) - (order[b.severity] ?? 2);
+        })
+        .slice(0, 5)
+        .map((a) => ({ title: a.title, severity: a.severity }));
+
+      const { sendWeeklyDigest } = await import("@/lib/telegram/send");
+      await sendWeeklyDigest(config.bot_token, config.chat_id, stats, topAlerts);
+      sent++;
+    } catch { /* skip failed */ }
   }
 
   cronLog("digest", { digests_sent: sent });
