@@ -158,7 +158,7 @@ function DemoVideo() {
 function StatsBar() {
   const stats = [
     { value: "8", label: "integrations monitored" },
-    { value: "5 min", label: "cloud poll interval" },
+    { value: "17", label: "MCP tools" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
   ];
@@ -615,6 +615,7 @@ function WhyNotNative() {
             { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
             { cap: "Anomaly detection", dd: "Paid", us: true },
             { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
+            { cap: "MCP server (17 tools for AI editors)", dd: false, us: true },
             { cap: "Fully open source (MIT)", dd: false, us: true },
             { cap: "BYOK (your AI key)", dd: false, us: true },
           ].map((row, idx) => (
@@ -884,34 +885,34 @@ function AIFeatures() {
 // ── MCP Section ───────────────────────────────────────────────────────────────
 
 function McpSection() {
-  const tools = [
+  const highlights = [
     {
-      name: "get_root_cause",
-      desc: "Deep AI analysis of an alert — pulls Sentry stack traces, Vercel build logs, and GitHub CI output in parallel.",
+      name: "ask_inari",
+      desc: "Ask natural language questions about your infrastructure. \"What broke yesterday?\" — Inari has the full context.",
     },
     {
       name: "trigger_fix",
-      desc: "Full remediation pipeline: diagnose → read code → AI fix → self-review → push branch → wait CI → open PR.",
+      desc: "Full AI remediation: diagnose → read code → generate fix → self-review → push → CI → PR. Streams progress in real time.",
+    },
+    {
+      name: "get_root_cause",
+      desc: "Deep root cause analysis pulling Sentry stack traces, Vercel build logs, GitHub CI, and Substrate I/O recordings.",
     },
     {
       name: "rollback_vercel",
-      desc: "Instantly roll back to the last successful production deployment. No CLI flags needed.",
+      desc: "Instantly roll back to the last successful production deployment. One command.",
     },
     {
-      name: "get_build_logs",
-      desc: "Fetch Vercel build logs with automatic error extraction — ready to paste into a prompt.",
+      name: "search_community_fixes",
+      desc: "\"47 teams fixed this error. 96% success rate.\" Query the community fix network before writing code.",
     },
     {
-      name: "silence_alert",
-      desc: "Mark an alert as resolved from inside your editor once you've handled it.",
+      name: "get_error_trends",
+      desc: "Alert trends by severity, top recurring errors, and comparison to last period. Spot patterns early.",
     },
   ];
 
-  const editors = [
-    { name: "Claude Code", logo: "/editor-logos/claude-code.svg" },
-    { name: "Cursor",      logo: "/editor-logos/cursor.svg" },
-    { name: "Windsurf",    logo: "/editor-logos/windsurf.svg" },
-  ];
+  const editors = ["Claude Code", "Cursor", "Windsurf", "VS Code Copilot", "Codex CLI", "Gemini CLI"];
 
   return (
     <section className="py-24 border-t border-inari-border">
@@ -922,64 +923,75 @@ function McpSection() {
           <div>
             <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">MCP Server</p>
             <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-              Your editor becomes the ops dashboard
+              Your AI already knows what&apos;s broken
             </h2>
             <p className="mt-4 text-fg-base max-w-md">
-              InariWatch runs as an MCP server alongside your AI editor.
-              Claude Code, Cursor, and Windsurf can query alerts, trigger fixes,
-              and roll back deployments — without leaving your code.
+              One command connects InariWatch to any AI coding tool.
+              17 tools, 4 live data resources, 5 prompt workflows — your AI gets
+              full production context before you even ask.
             </p>
           </div>
           {/* Editor compatibility badges */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {editors.map((e) => (
               <div
-                key={e.name}
+                key={e}
                 className="flex items-center gap-2 rounded-lg border border-inari-border bg-inari-card px-3 py-2 text-xs text-zinc-400"
               >
                 <Code2 className="h-3.5 w-3.5 text-zinc-500" />
-                {e.name}
+                {e}
               </div>
             ))}
-            <div className="flex items-center gap-2 rounded-lg border border-inari-border bg-inari-card px-3 py-2 text-xs text-zinc-500">
-              <Plug className="h-3.5 w-3.5" />
-              + any MCP client
-            </div>
           </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
 
-          {/* Left: config snippet */}
-          <div className="rounded-2xl border border-inari-border bg-inari-card overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
-              <div className="flex gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-                <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-                <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+          {/* Left: setup snippet */}
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-inari-accent/25 bg-inari-card overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.06)]">
+              <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
+                <div className="flex gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
+                </div>
+                <span className="text-xs text-zinc-500 font-mono ml-1">terminal</span>
               </div>
-              <span className="text-xs text-zinc-500 font-mono ml-1">.mcp.json</span>
+              <div className="p-5 font-mono text-sm leading-7">
+                <p className="text-zinc-500 text-xs mb-3"># One command. Everything configured.</p>
+                <p><span className="text-inari-accent select-none">$ </span><span className="text-zinc-200">npx @inariwatch/mcp init</span></p>
+                <br />
+                <p className="text-zinc-600">  ✓ Claude Code configured</p>
+                <p className="text-zinc-600">  ✓ Cursor configured</p>
+                <p className="text-zinc-600">  ✓ @inariwatch/capture installed</p>
+                <p className="text-zinc-600">  ✓ Substrate I/O enabled</p>
+                <p className="text-zinc-600">  ✓ GitHub linked (via gh CLI)</p>
+                <br />
+                <p className="text-inari-accent">  Done! MCP + Capture + Substrate ready.</p>
+              </div>
             </div>
-            <pre className="p-5 text-sm font-mono leading-relaxed text-zinc-700 dark:text-zinc-300 overflow-x-auto">{`{
-  "mcpServers": {
-    "inariwatch": {
-      "command": "inariwatch",
-      "args": ["serve-mcp"]
-    }
-  }
-}`}</pre>
-            <div className="border-t border-inari-border px-5 py-4 bg-inari-bg/50">
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Drop this in your project root. The server starts automatically — no daemon, no ports.
-                Works the same in Claude Code, Cursor, and Windsurf.
-              </p>
+
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-lg border border-inari-border bg-inari-card p-3">
+                <p className="text-2xl font-bold text-fg-strong font-mono">17</p>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">tools</p>
+              </div>
+              <div className="rounded-lg border border-inari-border bg-inari-card p-3">
+                <p className="text-2xl font-bold text-fg-strong font-mono">4</p>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">resources</p>
+              </div>
+              <div className="rounded-lg border border-inari-border bg-inari-card p-3">
+                <p className="text-2xl font-bold text-fg-strong font-mono">5</p>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">prompts</p>
+              </div>
             </div>
           </div>
 
-          {/* Right: action tools list */}
+          {/* Right: highlight tools */}
           <div className="space-y-3">
-            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4">5 action tools</p>
-            {tools.map((t) => (
+            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4">Highlight tools</p>
+            {highlights.map((t) => (
               <div
                 key={t.name}
                 className="flex gap-3 rounded-xl border border-inari-border bg-inari-card px-4 py-3 hover:border-inari-accent/30 transition-colors"
@@ -997,13 +1009,13 @@ function McpSection() {
         </div>
 
         <div className="mt-8 flex items-center gap-4">
-          <Link href="/docs#cli-mcp" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
-            Read the MCP docs
+          <Link href="/docs#mcp-overview" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
+            MCP docs — all 17 tools
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
           <span className="text-zinc-700 text-sm">·</span>
-          <Link href="/docs#cli-installation" className="text-sm text-zinc-500 hover:text-fg-strong dark:hover:text-zinc-300 transition-colors">
-            Install the CLI
+          <Link href="/docs#mcp-setup" className="text-sm text-zinc-500 hover:text-fg-strong dark:hover:text-zinc-300 transition-colors">
+            Setup guide
           </Link>
         </div>
 
