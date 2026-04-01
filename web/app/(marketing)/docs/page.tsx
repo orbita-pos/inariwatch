@@ -86,7 +86,8 @@ const NAV = [
     group: "Slack Bot",
     items: [
       { id: "slack-setup",     label: "Setup" },
-      { id: "slack-commands",  label: "Commands" },
+      { id: "slack-commands",  label: "Commands (14)" },
+      { id: "slack-actions",   label: "Button actions (10)" },
       { id: "slack-fix",       label: "Fix from Slack" },
       { id: "slack-ai",        label: "Ask Inari" },
       { id: "slack-oncall",    label: "On-Call in Slack" },
@@ -1270,17 +1271,44 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               The bot requires 3 environment variables on Vercel: SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, and SLACK_SIGNING_SECRET.
             </Callout>
 
-            <SectionHeading id="slack-commands">Slack Bot — Commands</SectionHeading>
+            <SectionHeading id="slack-commands">Slack Bot — Commands (14)</SectionHeading>
             <Table
               head={["Command", "Description"]}
               rows={[
                 ["/inariwatch status", "Overview: open alert count, critical alerts, who is on-call"],
-                ["/inariwatch alerts", "List the 10 most recent unresolved alerts with severity badges"],
+                ["/inariwatch alerts [severity] [--resolved]", "List alerts with optional severity filter (critical, warning, info)"],
                 ["/inariwatch fix <id>", "Trigger AI remediation for an alert (diagnose, fix, PR)"],
                 ["/inariwatch oncall", "Show current on-call rotation for all your projects"],
                 ["/inariwatch oncall swap @user", "Create a 24-hour on-call override for another user"],
+                ["/inariwatch trends [days]", "Error trends: top recurring errors, period comparison (default: 7 days)"],
+                ["/inariwatch ask <question>", "Ask Inari AI about your infrastructure in natural language"],
+                ["/inariwatch uptime", "Check all uptime monitors with status codes and response times"],
+                ["/inariwatch rollback <project>", "Rollback Vercel to previous production deployment"],
+                ["/inariwatch maintenance <project> <mins>", "Create a maintenance window (suppresses alerts)"],
+                ["/inariwatch maintenance list", "Show active maintenance windows"],
+                ["/inariwatch search <error text>", "Search community fix network for known solutions"],
+                ["/inariwatch integrations", "Health check: status of all connected services"],
                 ["/inariwatch link <email>", "Link your Slack account to your InariWatch account"],
-                ["/inariwatch help", "Show all available commands"],
+              ]}
+            />
+
+            <SubHeading id="slack-actions">Button actions (10)</SubHeading>
+            <p>
+              These buttons appear on alert messages and remediation threads:
+            </p>
+            <Table
+              head={["Button", "Where", "What it does"]}
+              rows={[
+                ["Acknowledge", "Alert message", "Mark alert as read"],
+                ["Resolve", "Alert message", "Mark alert as resolved"],
+                ["Reopen", "Resolved alerts", "Reopen a resolved alert"],
+                ["Fix It", "Alert message", "Trigger full AI remediation pipeline"],
+                ["Apply Community Fix", "Community fix suggestion", "Apply a known fix from the network"],
+                ["Rate: Worked / Didn't Work", "After community fix applied", "Rate fix quality (improves network)"],
+                ["Approve & Merge", "Draft PR message", "Approve and merge the AI-generated fix"],
+                ["Cancel", "Draft PR message", "Cancel in-progress remediation"],
+                ["Retry", "Failed remediation", "Retry remediation with a fresh attempt"],
+                ["Generate Postmortem", "Incident storm", "Generate AI postmortem for the incident"],
               ]}
             />
 
