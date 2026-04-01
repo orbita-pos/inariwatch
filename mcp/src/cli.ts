@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { detectTools } from "./detect.js";
+import { detectTools, detectGitHub } from "./detect.js";
 import { configureTools } from "./configure.js";
 import { deviceAuth } from "./auth.js";
-import { detectProject, installCapture } from "./capture.js";
+import { detectProject, installCapture, promptSubstrate } from "./capture.js";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -42,7 +42,13 @@ async function main() {
     console.log(`    ${DIM}✗ ${t.name}${RESET}`);
   }
 
-  // ── 2. Detect project ──
+  // ── 2. Detect GitHub ──
+  const github = detectGitHub();
+  if (github) {
+    console.log(`    ${GREEN}✓${RESET} GitHub CLI ${DIM}(${github.user})${RESET}`);
+  }
+
+  // ── 3. Detect project ──
   const project = detectProject();
   console.log("");
 
@@ -99,7 +105,27 @@ async function main() {
     }
   }
 
-  // ── 5. Install capture SDK ──
+  // ── 5. Link GitHub (if detected) ──
+  if (github && token) {
+    try {
+      const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ service: "github", token: github.token }),
+      });
+      if (resp.ok) {
+        console.log(`\n  ${DIM}Integrations${RESET}\n`);
+        console.log(`    ${GREEN}✓${RESET} GitHub linked (${github.user})`);
+      }
+    } catch {
+      // Silent — non-critical
+    }
+  }
+
+  // ── 6. Install capture SDK ──
   let captureInstalled = false;
   if (project && !skipCapture && !project.hasCapture) {
     console.log(`\n  ${DIM}Installing @inariwatch/capture${RESET}\n`);
@@ -116,11 +142,22 @@ async function main() {
     }
   }
 
+  // ── 6. Substrate prompt ──
+  let substrateEnabled = false;
+  if (project && !skipCapture && (captureInstalled || project.hasCapture)) {
+    console.log("");
+    substrateEnabled = await promptSubstrate();
+    if (substrateEnabled) {
+      console.log(`    ${GREEN}✓${RESET} INARIWATCH_SUBSTRATE=true added to .env`);
+    }
+  }
+
   // ── Summary ──
   const parts: string[] = [];
   if (mcpCount > 0) parts.push(`MCP in ${mcpCount} tool${mcpCount !== 1 ? "s" : ""}`);
   if (captureInstalled) parts.push("capture SDK");
-  if (project?.hasCapture) parts.push("capture SDK (already installed)");
+  if (project?.hasCapture && !captureInstalled) parts.push("capture SDK (already installed)");
+  if (substrateEnabled) parts.push("Substrate I/O");
 
   if (parts.length > 0) {
     console.log(`\n  ${BOLD}Done!${RESET} ${parts.join(" + ")}.\n`);

@@ -77,3 +77,36 @@ export function detectTools(): Tool[] {
     },
   ];
 }
+
+export type GitHubAuth = { token: string; user: string };
+
+/**
+ * Detect if `gh` CLI is installed and authenticated.
+ * Returns token + username, or null if not available.
+ * Never throws — silent skip if gh is missing or not logged in.
+ */
+export function detectGitHub(): GitHubAuth | null {
+  if (!which("gh")) return null;
+  try {
+    const status = execSync("gh auth status 2>&1", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (!status.includes("Logged in")) return null;
+
+    const token = execSync("gh auth token", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    if (!token) return null;
+
+    const user = execSync("gh api user --jq .login 2>/dev/null", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+
+    return { token, user: user || "unknown" };
+  } catch {
+    return null;
+  }
+}

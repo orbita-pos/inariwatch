@@ -9,3 +9,8 @@ export declare function installCapture(project: ProjectInfo, cwd?: string): {
     ok: boolean;
     error?: string;
 };
+/**
+ * Prompt the user to enable Substrate I/O recording.
+ * Returns true if enabled, false if skipped.
+ */
+export declare function promptSubstrate(cwd?: string): Promise<boolean>;

@@ -68,13 +68,19 @@ export async function execute(
     })
     .returning({ id: remediationSessions.id });
 
+  // Fire-and-forget: run remediation in background
+  // The function runs server-side regardless of client disconnect
+  import("@/lib/ai/remediate").then(({ runRemediation }) => {
+    runRemediation(session.id, () => {}).catch(() => {});
+  }).catch(() => {});
+
   return JSON.stringify(
     {
       status: "started",
       session_id: session.id,
       alert_id: alertId,
       project: project.name,
-      note: "Remediation pipeline started. Monitor progress at app.inariwatch.com or use the dashboard SSE stream.",
+      note: "Remediation running. Check progress via the 'remediations/active' resource or at app.inariwatch.com.",
       stream_url: `https://app.inariwatch.com/api/remediation/stream/${session.id}`,
     },
     null,

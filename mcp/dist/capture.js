@@ -2,9 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.detectProject = detectProject;
 exports.installCapture = installCapture;
+exports.promptSubstrate = promptSubstrate;
 const fs_1 = require("fs");
 const path_1 = require("path");
 const child_process_1 = require("child_process");
+const readline_1 = require("readline");
 function detectProject(cwd = process.cwd()) {
     const pkgPath = (0, path_1.join)(cwd, "package.json");
     if (!(0, fs_1.existsSync)(pkgPath))
@@ -102,4 +104,37 @@ function setupNextjs(cwd) {
         break;
     }
     return { ok: true };
+}
+/**
+ * Prompt the user to enable Substrate I/O recording.
+ * Returns true if enabled, false if skipped.
+ */
+async function promptSubstrate(cwd = process.cwd()) {
+    // Check if already enabled in any .env file
+    const envFiles = [".env.local", ".env"];
+    for (const f of envFiles) {
+        const p = (0, path_1.join)(cwd, f);
+        if ((0, fs_1.existsSync)(p) && (0, fs_1.readFileSync)(p, "utf8").includes("INARIWATCH_SUBSTRATE")) {
+            return false; // Already configured
+        }
+    }
+    const answer = await ask("  Enable Substrate I/O recording? (y/N) ");
+    if (answer.toLowerCase() !== "y")
+        return false;
+    // Write to .env.local (preferred) or .env
+    const targetEnv = (0, fs_1.existsSync)((0, path_1.join)(cwd, ".env.local")) ? ".env.local" : ".env";
+    const envPath = (0, path_1.join)(cwd, targetEnv);
+    const content = (0, fs_1.existsSync)(envPath) ? (0, fs_1.readFileSync)(envPath, "utf8") : "";
+    const newline = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+    (0, fs_1.appendFileSync)(envPath, `${newline}INARIWATCH_SUBSTRATE=true\n`);
+    return true;
+}
+function ask(question) {
+    const rl = (0, readline_1.createInterface)({ input: process.stdin, output: process.stdout });
+    return new Promise((resolve) => {
+        rl.question(question, (answer) => {
+            rl.close();
+            resolve(answer);
+        });
+    });
 }

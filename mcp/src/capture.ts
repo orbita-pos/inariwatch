@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
+import { createInterface } from "readline";
 
 export type ProjectType = "nextjs" | "node" | "unknown";
 
@@ -123,4 +124,42 @@ function setupNextjs(cwd: string): { ok: boolean; error?: string } {
   }
 
   return { ok: true };
+}
+
+/**
+ * Prompt the user to enable Substrate I/O recording.
+ * Returns true if enabled, false if skipped.
+ */
+export async function promptSubstrate(cwd: string = process.cwd()): Promise<boolean> {
+  // Check if already enabled in any .env file
+  const envFiles = [".env.local", ".env"];
+  for (const f of envFiles) {
+    const p = join(cwd, f);
+    if (existsSync(p) && readFileSync(p, "utf8").includes("INARIWATCH_SUBSTRATE")) {
+      return false; // Already configured
+    }
+  }
+
+  const answer = await ask("  Enable Substrate I/O recording? (y/N) ");
+  if (answer.toLowerCase() !== "y") return false;
+
+  // Write to .env.local (preferred) or .env
+  const targetEnv = existsSync(join(cwd, ".env.local")) ? ".env.local" : ".env";
+  const envPath = join(cwd, targetEnv);
+
+  const content = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+  const newline = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+  appendFileSync(envPath, `${newline}INARIWATCH_SUBSTRATE=true\n`);
+
+  return true;
+}
+
+function ask(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
 }

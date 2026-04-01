@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.detectTools = detectTools;
+exports.detectGitHub = detectGitHub;
 const child_process_1 = require("child_process");
 const fs_1 = require("fs");
 const path_1 = require("path");
@@ -70,4 +71,35 @@ function detectTools() {
             version: getVersion("gemini") ?? undefined,
         },
     ];
+}
+/**
+ * Detect if `gh` CLI is installed and authenticated.
+ * Returns token + username, or null if not available.
+ * Never throws — silent skip if gh is missing or not logged in.
+ */
+function detectGitHub() {
+    if (!which("gh"))
+        return null;
+    try {
+        const status = (0, child_process_1.execSync)("gh auth status 2>&1", {
+            encoding: "utf8",
+            stdio: ["pipe", "pipe", "pipe"],
+        });
+        if (!status.includes("Logged in"))
+            return null;
+        const token = (0, child_process_1.execSync)("gh auth token", {
+            encoding: "utf8",
+            stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        if (!token)
+            return null;
+        const user = (0, child_process_1.execSync)("gh api user --jq .login 2>/dev/null", {
+            encoding: "utf8",
+            stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        return { token, user: user || "unknown" };
+    }
+    catch {
+        return null;
+    }
 }

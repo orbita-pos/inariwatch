@@ -28,6 +28,9 @@ import * as rollbackVercel from "./tools/rollback-vercel";
 import * as silenceAlert from "./tools/silence-alert";
 import * as submitFeedback from "./tools/submit-feedback";
 import * as runCheck from "./tools/run-check";
+import * as askInari from "./tools/ask-inari";
+import * as getErrorTrends from "./tools/get-error-trends";
+import * as createUptimeMonitor from "./tools/create-uptime-monitor";
 
 type ToolHandler = {
   execute: (args: Record<string, unknown>, user: McpUser) => Promise<string>;
@@ -49,6 +52,9 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   silence_alert: silenceAlert,
   submit_feedback: submitFeedback,
   run_check: runCheck,
+  ask_inari: askInari,
+  get_error_trends: getErrorTrends,
+  create_uptime_monitor: createUptimeMonitor,
 };
 
 const PROTOCOL_VERSION = "2024-11-05";

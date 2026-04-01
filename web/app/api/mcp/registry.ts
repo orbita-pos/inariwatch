@@ -273,4 +273,58 @@ export const TOOLS: ToolDef[] = [
     annotations: { idempotentHint: false, openWorldHint: true },
     costTier: "moderate",
   },
+
+  // ── New tools (post-audit) ─────────────────────────────────────────────────
+  {
+    name: "ask_inari",
+    description:
+      "Ask a natural language question about your infrastructure. Inari AI has full context: alerts, remediations, integrations, uptime — and answers based on real data, not guesses.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description: "Natural language question (e.g. 'what broke yesterday?', 'how many critical alerts this week?').",
+        },
+      },
+      required: ["question"],
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    costTier: "moderate",
+  },
+  {
+    name: "get_error_trends",
+    description:
+      "Error trend analysis: alerts per day by severity, top recurring errors, and comparison to previous period. Useful for spotting patterns before they escalate.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        days: { type: "number", description: "Number of days to analyze (default: 7, max: 30)." },
+        project: { type: "string", description: "Filter to a specific project slug." },
+      },
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    costTier: "cheap",
+  },
+  {
+    name: "create_uptime_monitor",
+    description:
+      "Create a new uptime monitor for a URL. InariWatch will check it on the configured interval and alert when it goes down.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Public URL to monitor (e.g. https://api.example.com/health)." },
+        project: { type: "string", description: "Project slug to attach the monitor to." },
+        name: { type: "string", description: "Display name for the monitor." },
+        interval_sec: { type: "number", description: "Check interval in seconds (default: 60, min: 30, max: 3600)." },
+        expected_status: { type: "number", description: "Expected HTTP status code (default: 200)." },
+      },
+      required: ["url", "project"],
+    },
+    scope: "execute",
+    annotations: { idempotentHint: false },
+    costTier: "cheap",
+  },
 ];

@@ -74,8 +74,8 @@ export async function readResource(
         id: a.id,
         project: projectMap[a.projectId],
         title: a.title,
-        body: a.body?.slice(0, 500),
-        aiReasoning: a.aiReasoning?.slice(0, 300),
+        body: a.body?.slice(0, 5000),
+        aiReasoning: a.aiReasoning?.slice(0, 3000),
         createdAt: a.createdAt.toISOString(),
       }));
 
