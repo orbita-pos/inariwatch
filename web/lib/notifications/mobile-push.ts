@@ -43,12 +43,17 @@ export async function sendMobilePush(alert: Alert): Promise<void> {
     const config = ch.config as { expoToken: string };
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      };
+      if (process.env.EXPO_ACCESS_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.EXPO_ACCESS_TOKEN}`;
+      }
+
       await fetch(EXPO_PUSH_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers,
         body: JSON.stringify({
           to: config.expoToken,
           title: `${emoji} ${alert.title}`,

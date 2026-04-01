@@ -109,7 +109,7 @@ export async function getErrorTrends(days?: number): Promise<string> {
 // ── Push registration ───────────────────────────────────────────────────────
 
 export async function registerPushToken(expoToken: string): Promise<void> {
-  const resp = await fetch(`${API_BASE}/api/mobile/push/register`, {
+  const resp = await fetch(`${API_BASE}/api/mobile/push`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ expoToken }),
