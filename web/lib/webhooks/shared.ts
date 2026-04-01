@@ -235,6 +235,8 @@ export async function createAlertIfNew(
       sendAlertToSlack(inserted as Alert).catch(() => {});
       const { sendAlertToTelegram } = await import("@/lib/telegram/send");
       sendAlertToTelegram(inserted as Alert).catch(() => {});
+      const { sendMobilePush } = await import("@/lib/notifications/mobile-push");
+      sendMobilePush(inserted as Alert).catch(() => {});
     }
   } catch {
     // Non-blocking — Slack delivery should never block alert creation
