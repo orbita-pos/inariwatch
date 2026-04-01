@@ -403,7 +403,7 @@ async fn handle_capture_event(
     if cfg_reload.global.fix_replay {
         if let Some(ref base_url) = cfg_reload.global.fix_replay_url {
             let changed_paths: Vec<String> = fix_files.iter().map(|(p, _)| p.clone()).collect();
-            let _ = crate::mcp::tools::trigger_fix::contribute_fix_replay(
+            let _ = crate::remediate::contribute_fix_replay(
                 &fp,
                 title,
                 "runtime_error",

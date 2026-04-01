@@ -330,7 +330,7 @@ pub async fn run(project_name: Option<String>, shadow: bool) -> Result<()> {
                                 "alert_id": alert_id,
                                 "auto_merge": auto_merge,
                             });
-                            match crate::mcp::tools::trigger_fix::execute(&args).await {
+                            match crate::remediate::execute(&args).await {
                                 Ok(result) => {
                                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
                                         let status = v["status"].as_str().unwrap_or("unknown");
@@ -976,7 +976,7 @@ async fn run_shadow_prediction(alert_id: &str, project: &str) -> anyhow::Result<
         "alert_id": alert_id,
         "dry_run": true,
     });
-    let result = crate::mcp::tools::trigger_fix::execute(&args).await?;
+    let result = crate::remediate::execute(&args).await?;
     let parsed: serde_json::Value = serde_json::from_str(&result)?;
 
     let status = parsed["status"].as_str().unwrap_or("");

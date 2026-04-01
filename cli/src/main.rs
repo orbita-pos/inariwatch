@@ -8,6 +8,7 @@ mod integrations;
 mod mcp;
 mod notifications;
 mod orchestrator;
+mod remediate;
 mod local_fs;
 pub mod url_validation;
 #[cfg(test)]
@@ -93,8 +94,7 @@ enum Commands {
         alert_id: String,
     },
 
-    /// Start an MCP server over stdio (for Claude Code, Cursor, etc.)
-    ServeMcp,
+    // serve-mcp removed — use https://mcp.inariwatch.com instead
 
     /// Show AI agent track record and trust level
     AgentStats {
@@ -158,7 +158,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Feedback { project } => commands::feedback::run(project).await,
         Commands::AgentStats { project } => commands::agent_stats::run(project).await,
         Commands::Daemon { action } => commands::daemon::run(&action).await,
-        Commands::ServeMcp => commands::serve_mcp::run().await,
+        // serve-mcp removed
         Commands::Rollback { service, project } => {
             commands::rollback::run(&service, project).await
         }
