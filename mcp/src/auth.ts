@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 const API_BASE = "https://app.inariwatch.com";
 
@@ -30,15 +30,14 @@ export async function deviceAuth(): Promise<string | null> {
     console.log(`  Code: ${code}`);
     console.log(`  Opening: ${verifyUrl}\n`);
 
-    // Open browser
+    // Open browser (use spawnSync with args array to prevent injection)
     try {
-      const cmd =
-        process.platform === "win32"
-          ? `start "${verifyUrl}"`
-          : process.platform === "darwin"
-            ? `open "${verifyUrl}"`
-            : `xdg-open "${verifyUrl}"`;
-      execSync(cmd, { stdio: "pipe" });
+      const opener =
+        process.platform === "win32" ? "cmd" :
+        process.platform === "darwin" ? "open" : "xdg-open";
+      const args =
+        process.platform === "win32" ? ["/c", "start", "", verifyUrl] : [verifyUrl];
+      spawnSync(opener, args, { stdio: "pipe" });
     } catch {
       console.log(`  Could not open browser. Visit: ${verifyUrl}`);
     }

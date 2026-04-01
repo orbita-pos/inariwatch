@@ -154,7 +154,7 @@ export async function promptSubstrate(cwd: string = process.cwd()): Promise<bool
   return true;
 }
 
-function ask(question: string): Promise<string> {
+export function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(question, (answer) => {

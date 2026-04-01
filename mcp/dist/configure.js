@@ -47,13 +47,30 @@ function configureTools(tools, token) {
     return results;
 }
 function configureClaude(token) {
-    (0, child_process_1.execSync)(`claude mcp add inariwatch ${MCP_URL} --transport http -H "Authorization: Bearer ${token}"`, { stdio: "pipe" });
+    const result = (0, child_process_1.spawnSync)("claude", [
+        "mcp", "add", "inariwatch", MCP_URL,
+        "--transport", "http",
+        "-H", `Authorization: Bearer ${token}`,
+    ], { stdio: "pipe" });
+    if (result.status !== 0)
+        throw new Error(result.stderr?.toString().trim() || "claude mcp add failed");
 }
 function configureCodex(token) {
-    (0, child_process_1.execSync)(`codex mcp add inariwatch ${MCP_URL} --header "Authorization: Bearer ${token}"`, { stdio: "pipe" });
+    const result = (0, child_process_1.spawnSync)("codex", [
+        "mcp", "add", "inariwatch", MCP_URL,
+        "--header", `Authorization: Bearer ${token}`,
+    ], { stdio: "pipe" });
+    if (result.status !== 0)
+        throw new Error(result.stderr?.toString().trim() || "codex mcp add failed");
 }
 function configureGemini(token) {
-    (0, child_process_1.execSync)(`gemini mcp add inariwatch --url ${MCP_URL} --header "Authorization: Bearer ${token}"`, { stdio: "pipe" });
+    const result = (0, child_process_1.spawnSync)("gemini", [
+        "mcp", "add", "inariwatch",
+        "--url", MCP_URL,
+        "--header", `Authorization: Bearer ${token}`,
+    ], { stdio: "pipe" });
+    if (result.status !== 0)
+        throw new Error(result.stderr?.toString().trim() || "gemini mcp add failed");
 }
 function cursorConfigPath() {
     const home = (0, os_1.homedir)();

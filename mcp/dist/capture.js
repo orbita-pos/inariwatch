@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.detectProject = detectProject;
 exports.installCapture = installCapture;
 exports.promptSubstrate = promptSubstrate;
+exports.ask = ask;
 const fs_1 = require("fs");
 const path_1 = require("path");
 const child_process_1 = require("child_process");

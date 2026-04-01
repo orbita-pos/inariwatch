@@ -14,3 +14,4 @@ export declare function installCapture(project: ProjectInfo, cwd?: string): {
  * Returns true if enabled, false if skipped.
  */
 export declare function promptSubstrate(cwd?: string): Promise<boolean>;
+export declare function ask(question: string): Promise<string>;

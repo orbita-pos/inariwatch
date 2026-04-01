@@ -104,11 +104,18 @@ export async function logMcpCall(
   args: Record<string, unknown>,
   result: { ok: boolean; latencyMs: number; error?: string }
 ): Promise<void> {
-  // Redact sensitive fields from args
-  const safeArgs = { ...args };
-  for (const key of ["token", "key", "secret", "password"]) {
-    if (key in safeArgs) safeArgs[key] = "[REDACTED]";
+  // Deep redact sensitive fields from args
+  const SENSITIVE = new Set(["token", "key", "secret", "password", "api_key", "apiKey", "access_token", "authorization", "credentials"]);
+  function redact(obj: Record<string, unknown>): Record<string, unknown> {
+    const safe: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (SENSITIVE.has(k.toLowerCase())) { safe[k] = "[REDACTED]"; continue; }
+      if (v && typeof v === "object" && !Array.isArray(v)) { safe[k] = redact(v as Record<string, unknown>); continue; }
+      safe[k] = v;
+    }
+    return safe;
   }
+  const safeArgs = redact(args);
 
   try {
     await db.insert(auditLogs).values({

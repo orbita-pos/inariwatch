@@ -3,7 +3,7 @@
 import { detectTools, detectGitHub } from "./detect.js";
 import { configureTools } from "./configure.js";
 import { deviceAuth } from "./auth.js";
-import { detectProject, installCapture, promptSubstrate } from "./capture.js";
+import { detectProject, installCapture, promptSubstrate, ask } from "./capture.js";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -105,8 +105,10 @@ async function main() {
     }
   }
 
-  // ── 5. Link GitHub (if detected) ──
+  // ── 5. Link GitHub (if detected, with consent) ──
   if (github && token) {
+    const consent = await ask(`  Link GitHub (${github.user}) to InariWatch? (y/N) `);
+    if (consent.toLowerCase() === "y") {
     try {
       const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
         method: "POST",
@@ -117,11 +119,11 @@ async function main() {
         body: JSON.stringify({ service: "github", token: github.token }),
       });
       if (resp.ok) {
-        console.log(`\n  ${DIM}Integrations${RESET}\n`);
         console.log(`    ${GREEN}✓${RESET} GitHub linked (${github.user})`);
       }
     } catch {
       // Silent — non-critical
+    }
     }
   }
 

@@ -26,14 +26,12 @@ async function deviceAuth() {
         const verifyUrl = `${API_BASE}/cli/verify?code=${code}`;
         console.log(`  Code: ${code}`);
         console.log(`  Opening: ${verifyUrl}\n`);
-        // Open browser
+        // Open browser (use spawnSync with args array to prevent injection)
         try {
-            const cmd = process.platform === "win32"
-                ? `start "${verifyUrl}"`
-                : process.platform === "darwin"
-                    ? `open "${verifyUrl}"`
-                    : `xdg-open "${verifyUrl}"`;
-            (0, child_process_1.execSync)(cmd, { stdio: "pipe" });
+            const opener = process.platform === "win32" ? "cmd" :
+                process.platform === "darwin" ? "open" : "xdg-open";
+            const args = process.platform === "win32" ? ["/c", "start", "", verifyUrl] : [verifyUrl];
+            (0, child_process_1.spawnSync)(opener, args, { stdio: "pipe" });
         }
         catch {
             console.log(`  Could not open browser. Visit: ${verifyUrl}`);

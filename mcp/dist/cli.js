@@ -94,24 +94,26 @@ async function main() {
             }
         }
     }
-    // ── 5. Link GitHub (if detected) ──
+    // ── 5. Link GitHub (if detected, with consent) ──
     if (github && token) {
-        try {
-            const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({ service: "github", token: github.token }),
-            });
-            if (resp.ok) {
-                console.log(`\n  ${DIM}Integrations${RESET}\n`);
-                console.log(`    ${GREEN}✓${RESET} GitHub linked (${github.user})`);
+        const consent = await (0, capture_js_1.ask)(`  Link GitHub (${github.user}) to InariWatch? (y/N) `);
+        if (consent.toLowerCase() === "y") {
+            try {
+                const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ service: "github", token: github.token }),
+                });
+                if (resp.ok) {
+                    console.log(`    ${GREEN}✓${RESET} GitHub linked (${github.user})`);
+                }
             }
-        }
-        catch {
-            // Silent — non-critical
+            catch {
+                // Silent — non-critical
+            }
         }
     }
     // ── 6. Install capture SDK ──

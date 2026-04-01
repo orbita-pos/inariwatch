@@ -46,7 +46,10 @@ export async function queryAlerts(params: QueryAlertsParams): Promise<AlertSumma
   const conditions = [inArray(alerts.projectId, projectIds)];
   if (severity) conditions.push(eq(alerts.severity, severity));
   if (isResolved !== undefined) conditions.push(eq(alerts.isResolved, isResolved));
-  if (search) conditions.push(ilike(alerts.title, `%${search}%`));
+  if (search) {
+    const escaped = search.replace(/%/g, "\\%").replace(/_/g, "\\_");
+    conditions.push(ilike(alerts.title, `%${escaped}%`));
+  }
 
   return db
     .select({
