@@ -38,7 +38,7 @@ export default function DownloadPage() {
         {/* Download buttons */}
         <div className="space-y-3">
           <a
-            href="https://expo.dev/accounts/jesusdev21/projects/inariwatch-bot/builds/5a48d14d-cb94-4176-99b9-57f5f9485505"
+            href="https://expo.dev/accounts/jesusdev21/projects/inariwatch-bot/builds/10c0e3b6-f9db-4870-8ced-3198b3053b2c"
             className="flex items-center justify-center gap-2 w-full rounded-xl bg-[#7c3aed] px-6 py-4 text-white font-semibold text-lg hover:bg-[#6d28d9] transition-colors"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 11.6l1.6-2.8c.1-.2 0-.4-.2-.5s-.4 0-.5.2l-1.6 2.8c-1.2-.5-2.5-.8-3.9-.8s-2.7.3-3.9.8L7.5 8.5c-.1-.2-.3-.3-.5-.2s-.3.3-.2.5l1.6 2.8C5.4 13.2 3.4 16.1 3 19.5h18c-.4-3.4-2.4-6.3-5.4-7.9zM8.5 16.5c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zm7 0c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1z"/></svg>
