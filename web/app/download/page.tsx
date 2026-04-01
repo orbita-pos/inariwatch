@@ -35,26 +35,29 @@ export default function DownloadPage() {
           ))}
         </div>
 
-        {/* Coming soon */}
-        <div className="space-y-4">
-          <div className="rounded-xl border border-[#7c3aed]/30 bg-[#7c3aed]/10 px-6 py-8">
-            <p className="text-2xl font-bold text-white mb-2">Coming Soon</p>
-            <p className="text-zinc-400">
-              InariWatch Bot for Android &amp; iOS is in development.
-              Push alerts, AI diagnosis, and one-tap fixes — right from your phone.
-            </p>
-          </div>
+        {/* Download buttons */}
+        <div className="space-y-3">
+          <a
+            href="/downloads/inariwatch-bot.apk"
+            className="flex items-center justify-center gap-2 w-full rounded-xl bg-[#7c3aed] px-6 py-4 text-white font-semibold text-lg hover:bg-[#6d28d9] transition-colors"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 11.6l1.6-2.8c.1-.2 0-.4-.2-.5s-.4 0-.5.2l-1.6 2.8c-1.2-.5-2.5-.8-3.9-.8s-2.7.3-3.9.8L7.5 8.5c-.1-.2-.3-.3-.5-.2s-.3.3-.2.5l1.6 2.8C5.4 13.2 3.4 16.1 3 19.5h18c-.4-3.4-2.4-6.3-5.4-7.9zM8.5 16.5c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zm7 0c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1z"/></svg>
+            Download for Android
+          </a>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-center opacity-50">
-              <p className="text-sm font-semibold text-zinc-400">Android APK</p>
-              <p className="text-xs text-zinc-600 mt-1">Coming soon</p>
-            </div>
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-center opacity-50">
-              <p className="text-sm font-semibold text-zinc-400">iOS TestFlight</p>
-              <p className="text-xs text-zinc-600 mt-1">Coming soon</p>
-            </div>
-          </div>
+          <a
+            href="https://testflight.apple.com/join/inariwatch"
+            className="flex items-center justify-center gap-2 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-6 py-4 text-white font-semibold text-lg hover:bg-zinc-800 transition-colors"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            Join TestFlight (iOS)
+          </a>
+        </div>
+
+        {/* Info */}
+        <div className="space-y-2 text-sm text-zinc-500">
+          <p>Android: Download the APK and enable &quot;Install from unknown sources&quot;</p>
+          <p>iOS: TestFlight handles everything — just tap &quot;Join&quot;</p>
         </div>
 
         {/* Version */}
