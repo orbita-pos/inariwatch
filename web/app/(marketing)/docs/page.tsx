@@ -95,6 +95,15 @@ const NAV = [
     ],
   },
   {
+    group: "Telegram Bot",
+    items: [
+      { id: "telegram-setup",    label: "Setup" },
+      { id: "telegram-commands", label: "Commands (16)" },
+      { id: "telegram-actions",  label: "Button actions (11)" },
+      { id: "telegram-auto",     label: "Auto-delivery" },
+    ],
+  },
+  {
     group: "VS Code Extension",
     items: [
       { id: "vscode-setup",    label: "Setup" },
@@ -1353,6 +1362,88 @@ export const onRequestError = captureRequestError`}</CodeBlock>
             </P>
 
             {/* ────────────────────────────────────────────────────────────────
+                TELEGRAM BOT
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="telegram-setup">Telegram Bot — Setup</SectionHeading>
+            <P>
+              The InariWatch Telegram bot has full parity with Slack — 16 commands, 11 inline button actions,
+              auto-delivery of alerts with AI diagnosis, and all remediation workflows.
+            </P>
+            <StepList steps={[
+              { title: "Create a Telegram bot", body: <>Open Telegram → search <strong>@BotFather</strong> → <InlineCode>/newbot</InlineCode>. Copy the token.</> },
+              { title: "Connect in Settings", body: "Go to Settings → Notification channels → Telegram. Paste the bot token." },
+              { title: "Link your account", body: <>Send <InlineCode>/link your@email.com</InlineCode> to the bot to connect your Telegram to InariWatch.</> },
+              { title: "Set webhook", body: <>The webhook URL is <InlineCode>https://app.inariwatch.com/api/telegram/webhook</InlineCode>. Set <InlineCode>TELEGRAM_WEBHOOK_SECRET</InlineCode> in your env.</> },
+            ]} />
+
+            <SubHeading id="telegram-commands">Commands (16)</SubHeading>
+            <Table
+              head={["Command", "Description"]}
+              rows={[
+                ["/status", "Open alert count, critical alerts, who is on-call"],
+                ["/alerts [severity]", "List alerts with optional filter (critical, warning, info)"],
+                ["/fix_ALERTID", "Trigger AI remediation for an alert"],
+                ["/oncall", "Show current on-call rotation"],
+                ["/oncall swap EMAIL", "Create a 24-hour on-call override"],
+                ["/trends [days]", "Error trends: top errors, period comparison"],
+                ["/ask QUESTION", "Ask Inari AI about your infrastructure"],
+                ["/uptime", "Check all uptime monitors"],
+                ["/rollback PROJECT", "Rollback Vercel to previous deployment"],
+                ["/maintenance PROJECT MINS", "Create a maintenance window"],
+                ["/maintenance list", "Show active maintenance windows"],
+                ["/search ERROR", "Search community fix network"],
+                ["/integrations", "Integration health check"],
+                ["/link EMAIL", "Link your Telegram to InariWatch"],
+                ["/help", "Show all commands"],
+              ]}
+            />
+
+            <SubHeading id="telegram-actions">Button Actions (11)</SubHeading>
+            <P>Inline buttons appear on alert messages and remediation updates:</P>
+            <Table
+              head={["Button", "What it does"]}
+              rows={[
+                ["Ack", "Acknowledge alert"],
+                ["Resolve", "Resolve alert"],
+                ["Reopen", "Reopen resolved alert"],
+                ["Fix", "Trigger AI remediation"],
+                ["Apply Fix", "Apply community fix"],
+                ["Worked / Didn't Work", "Rate community fix quality"],
+                ["Approve & Merge", "Approve AI-generated PR"],
+                ["Cancel", "Cancel in-progress remediation"],
+                ["Retry", "Retry failed remediation"],
+                ["Generate Postmortem", "AI postmortem for incidents"],
+              ]}
+            />
+
+            <SubHeading id="telegram-auto">Auto-Delivery</SubHeading>
+            <P>
+              These messages are sent automatically — no command needed:
+            </P>
+            <Table
+              head={["Feature", "What it sends"]}
+              rows={[
+                ["Alert push", "New alerts with AI diagnosis + Ack/Resolve/Fix buttons"],
+                ["Substrate recording", "I/O recording attached 5s after alert (HTTP calls, DB queries)"],
+                ["Community fix suggest", "Known fix with success rate + Apply/Rate buttons"],
+                ["On-call tagging", "DM to on-call engineer on critical alerts"],
+                ["Incident storms", "Grouped notification + Generate Postmortem button"],
+                ["Deploy notifications", "Success/failure + 15-min health follow-up"],
+                ["Shadow replay", "Execution replay risk score"],
+                ["PR predictions", "Pre-deploy risk warning with View PR link"],
+                ["EAP verification", "Cryptographic verification chain display"],
+                ["Weekly digest", "Stats, top alerts, AI summary via cron"],
+                ["Remediation progress", "Step-by-step updates as replies"],
+              ]}
+            />
+
+            <div className="rounded-lg border border-blue-900/30 bg-blue-950/20 px-4 py-3 text-sm">
+              <strong>Full parity with Slack.</strong> Every feature available in the Slack bot is also available
+              in Telegram — same commands, same buttons, same auto-delivery. Choose whichever your team prefers.
+            </div>
+
+            {/* ────────────────────────────────────────────────────────────────
                 VS CODE EXTENSION
             ──────────────────────────────────────────────────────────────── */}
 
@@ -1400,25 +1491,10 @@ INARIWATCH_DSN=http://localhost:9222/ingest`}</CodeBlock>
 
             <SectionHeading id="notif-telegram">Notifications — Telegram</SectionHeading>
             <P>
-              Telegram is supported in both the CLI and the web dashboard.
-              It&apos;s the fastest setup — no server, no webhook config.
+              The Telegram bot has full parity with Slack — 16 commands, 11 inline buttons,
+              auto-delivery with AI diagnosis, and all remediation workflows.
+              See the <a href="#telegram-setup" className="text-inari-accent underline">Telegram Bot</a> section above for the complete setup and feature guide.
             </P>
-            <StepList steps={[
-              {
-                title: "Create a Telegram bot",
-                body: <>Open Telegram → search <strong>@BotFather</strong> → send <InlineCode>/newbot</InlineCode>. Copy the token it gives you.</>,
-              },
-              {
-                title: "Find your chat ID",
-                body: <>Send a message to your bot, then open: <InlineCode>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</InlineCode>. The <InlineCode>chat.id</InlineCode> field is your ID.</>,
-              },
-              {
-                title: "Connect in InariWatch",
-                body: "Web: Settings → Notification channels → Telegram. CLI: inariwatch connect telegram.",
-              },
-            ]} />
-            <CodeBlock label="CLI shortcut">{`inariwatch connect telegram
-# Prompts for bot token and chat ID`}</CodeBlock>
 
             <SectionHeading id="notif-email">Notifications — Email</SectionHeading>
             <P>
