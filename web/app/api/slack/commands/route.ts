@@ -9,10 +9,18 @@ import {
   buildStatusBlocks,
   buildOnCallBlocks,
   buildHelpBlocks,
+  buildTrendsBlocks,
+  buildUptimeBlocks,
+  buildRollbackBlocks,
+  buildMaintenanceBlocks,
+  buildSearchFixBlocks,
 } from "@/lib/slack/blocks";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { runSlackRemediation } from "@/lib/slack/remediation-bridge";
 import { waitUntil } from "@vercel/functions";
+import { getErrorTrends } from "@/lib/services/alerts.service";
+import { rollbackToDeployment } from "@/lib/services/vercel.service";
+import { gatherChatContext, buildContextString, SYSTEM_OPS } from "@/lib/services/chat.service";
 
 export const runtime = "nodejs";
 
@@ -72,6 +80,24 @@ export async function POST(req: NextRequest) {
 
     case "oncall":
       return handleOnCall(userId, args);
+
+    case "trends":
+      return handleTrends(userId, args[0]);
+
+    case "ask":
+      return handleAsk(userId, args.join(" "), responseUrl);
+
+    case "uptime":
+      return handleUptime(userId);
+
+    case "rollback":
+      return handleRollback(userId, args[0], responseUrl);
+
+    case "maintenance":
+      return handleMaintenance(userId, args[0], args[1]);
+
+    case "search":
+      return handleSearch(args.join(" "));
 
     case "help":
     default:
@@ -312,6 +338,205 @@ async function handleLink(slackUserId: string, installationId: string, email: st
   return NextResponse.json({
     response_type: "ephemeral",
     text: `:link: Linked! Your Slack account is now connected to *${user.name || email}* on InariWatch.`,
+  });
+}
+
+// ── /inariwatch trends [days] ──────────────────────────────────────────────
+
+async function handleTrends(userId: string, daysArg?: string) {
+  const days = Math.min(Number(daysArg) || 7, 30);
+  const projectIds = await getUserProjectIds(userId);
+  if (projectIds.length === 0) return NextResponse.json({ response_type: "ephemeral", text: "No projects found." });
+
+  const trends = await getErrorTrends(projectIds, days);
+  const blocks = buildTrendsBlocks(days, trends.current, trends.previous, trends.topErrors, trends.daily);
+  return NextResponse.json({ response_type: "ephemeral", blocks });
+}
+
+// ── /inariwatch ask <question> ────────────────────────────────────────────
+
+async function handleAsk(userId: string, question: string, responseUrl: string) {
+  if (!question.trim()) return NextResponse.json({ response_type: "ephemeral", text: "Usage: `/inariwatch ask what broke yesterday?`" });
+
+  // Respond immediately, process async
+  waitUntil((async () => {
+    try {
+      const projectIds = await getUserProjectIds(userId);
+      if (projectIds.length === 0) {
+        await postToResponseUrl(responseUrl, { text: "No projects found." });
+        return;
+      }
+
+      const ctx = await gatherChatContext(projectIds);
+      const context = buildContextString(ctx);
+
+      const { getUserAIKey } = await import("@/lib/ai/get-key");
+      const aiKey = await getUserAIKey(userId);
+      if (!aiKey) {
+        await postToResponseUrl(responseUrl, { text: "No AI key configured. Add one in Settings → AI analysis." });
+        return;
+      }
+
+      const { callAI } = await import("@/lib/ai/client");
+      const result = await callAI(aiKey.key, SYSTEM_OPS, [
+        { role: "user", content: `${context}\n\n---\n\nUser question: ${question}` },
+      ]);
+
+      await postToResponseUrl(responseUrl, {
+        response_type: "ephemeral",
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*Ask Inari*\n_${question}_` } },
+          { type: "divider" },
+          { type: "section", text: { type: "mrkdwn", text: result.slice(0, 2900) } },
+        ],
+      });
+    } catch (e) {
+      await postToResponseUrl(responseUrl, { text: `Error: ${e instanceof Error ? e.message : "unknown"}` });
+    }
+  })());
+
+  return NextResponse.json({ response_type: "ephemeral", text: ":brain: Thinking..." });
+}
+
+// ── /inariwatch uptime ────────────────────────────────────────────────────
+
+async function handleUptime(userId: string) {
+  const projectIds = await getUserProjectIds(userId);
+  if (projectIds.length === 0) return NextResponse.json({ response_type: "ephemeral", text: "No projects found." });
+
+  const { uptimeMonitors, uptimeChecks, projects } = await import("@/lib/db");
+  const userProjects = await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, projectIds));
+  const projectMap = new Map(userProjects.map((p) => [p.id, p.name]));
+
+  const monitors = await db
+    .select()
+    .from(uptimeMonitors)
+    .where(and(inArray(uptimeMonitors.projectId, projectIds), eq(uptimeMonitors.isActive, true)));
+
+  const monitorData = await Promise.all(monitors.map(async (m) => {
+    const [lastCheck] = await db
+      .select({ statusCode: uptimeChecks.statusCode, responseTimeMs: uptimeChecks.responseTimeMs })
+      .from(uptimeChecks)
+      .where(eq(uptimeChecks.monitorId, m.id))
+      .orderBy(desc(uptimeChecks.checkedAt))
+      .limit(1);
+
+    return {
+      projectName: projectMap.get(m.projectId) ?? "?",
+      url: m.url,
+      isDown: m.isDown,
+      statusCode: lastCheck?.statusCode,
+      responseTimeMs: lastCheck?.responseTimeMs,
+    };
+  }));
+
+  const blocks = buildUptimeBlocks(monitorData);
+  return NextResponse.json({ response_type: "ephemeral", blocks });
+}
+
+// ── /inariwatch rollback <project> ────────────────────────────────────────
+
+async function handleRollback(userId: string, projectSlug: string | undefined, responseUrl: string) {
+  if (!projectSlug) return NextResponse.json({ response_type: "ephemeral", text: "Usage: `/inariwatch rollback <project-slug>`" });
+
+  const { projects } = await import("@/lib/db");
+  const [project] = await db.select().from(projects).where(eq(projects.slug, projectSlug)).limit(1);
+  if (!project) return NextResponse.json({ response_type: "ephemeral", text: `Project not found: ${projectSlug}` });
+
+  const pIds = await getUserProjectIds(userId);
+  if (!pIds.includes(project.id)) return NextResponse.json({ response_type: "ephemeral", text: "Access denied." });
+
+  waitUntil((async () => {
+    try {
+      const result = await rollbackToDeployment(project.id);
+      const blocks = buildRollbackBlocks(project.name, result);
+      await postToResponseUrl(responseUrl, { response_type: "in_channel", blocks });
+    } catch (e) {
+      await postToResponseUrl(responseUrl, { text: `Rollback failed: ${e instanceof Error ? e.message : "unknown"}` });
+    }
+  })());
+
+  return NextResponse.json({ response_type: "ephemeral", text: ":arrows_counterclockwise: Rolling back..." });
+}
+
+// ── /inariwatch maintenance <project> <minutes> ──────────────────────────
+
+async function handleMaintenance(userId: string, projectSlug?: string, minutesArg?: string) {
+  if (!projectSlug) return NextResponse.json({ response_type: "ephemeral", text: "Usage: `/inariwatch maintenance <project-slug> <minutes>`" });
+
+  const minutes = Math.min(Math.max(Number(minutesArg) || 30, 5), 1440);
+  const { projects, maintenanceWindows } = await import("@/lib/db");
+
+  const [project] = await db.select().from(projects).where(eq(projects.slug, projectSlug)).limit(1);
+  if (!project) return NextResponse.json({ response_type: "ephemeral", text: `Project not found: ${projectSlug}` });
+
+  const pIds = await getUserProjectIds(userId);
+  if (!pIds.includes(project.id)) return NextResponse.json({ response_type: "ephemeral", text: "Access denied." });
+
+  const now = new Date();
+  const endsAt = new Date(now.getTime() + minutes * 60_000);
+
+  await db.insert(maintenanceWindows).values({
+    projectId: project.id,
+    title: `Maintenance (Slack)`,
+    startsAt: now,
+    endsAt,
+    createdBy: userId,
+  });
+
+  const blocks = buildMaintenanceBlocks(project.name, minutes, endsAt);
+  return NextResponse.json({ response_type: "in_channel", blocks });
+}
+
+// ── /inariwatch search <query> ────────────────────────────────────────────
+
+async function handleSearch(query: string) {
+  if (!query.trim()) return NextResponse.json({ response_type: "ephemeral", text: "Usage: `/inariwatch search TypeError cannot read property`" });
+
+  const { errorPatterns, communityFixes } = await import("@/lib/db");
+  const { sql: sqlTag } = await import("drizzle-orm");
+
+  const raw = await db.execute(sqlTag`
+    SELECT
+      p.pattern_text, p.category,
+      cf.fix_approach, cf.success_count, cf.total_applications
+    FROM error_patterns p
+    LEFT JOIN community_fixes cf ON cf.pattern_id = p.id
+    WHERE similarity(p.pattern_text, ${query}) > 0.1
+    ORDER BY similarity(p.pattern_text, ${query}) DESC, cf.success_count DESC
+    LIMIT 15
+  `);
+
+  const rows = raw.rows as { pattern_text: string; category: string; fix_approach: string | null; success_count: number | null; total_applications: number | null }[];
+
+  // Group by pattern
+  const patterns = new Map<string, { patternText: string; category: string; fixes: { approach: string; successPct: number; total: number }[] }>();
+  for (const r of rows) {
+    if (!patterns.has(r.pattern_text)) {
+      patterns.set(r.pattern_text, { patternText: r.pattern_text, category: r.category, fixes: [] });
+    }
+    if (r.fix_approach) {
+      const total = Number(r.total_applications) || 0;
+      const success = Number(r.success_count) || 0;
+      patterns.get(r.pattern_text)!.fixes.push({
+        approach: r.fix_approach,
+        successPct: total > 0 ? Math.round((success / total) * 100) : 0,
+        total,
+      });
+    }
+  }
+
+  const blocks = buildSearchFixBlocks(query, Array.from(patterns.values()));
+  return NextResponse.json({ response_type: "ephemeral", blocks });
+}
+
+// ── Helper: post to response URL (async Slack responses) ──────────────────
+
+async function postToResponseUrl(url: string, body: Record<string, unknown>) {
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 

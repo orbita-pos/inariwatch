@@ -503,6 +503,12 @@ export function buildHelpBlocks(): KnownBlock[] {
         "`/inariwatch fix <alert-id>` — Trigger AI remediation",
         "`/inariwatch oncall` — Show on-call rotation",
         "`/inariwatch oncall swap @user` — Swap on-call shift",
+        "`/inariwatch trends [days]` — Error trends (default: 7 days)",
+        "`/inariwatch ask <question>` — Ask Inari AI anything",
+        "`/inariwatch uptime` — Check all uptime monitors",
+        "`/inariwatch rollback <project>` — Rollback Vercel deploy",
+        "`/inariwatch maintenance <project> <mins>` — Start maintenance window",
+        "`/inariwatch search <error text>` — Search community fixes",
         "`/inariwatch link <email>` — Link your Slack to InariWatch",
         "`/inariwatch help` — This message",
         "",
@@ -574,6 +580,158 @@ export function buildWeeklyDigestBlocks(
       },
     ],
   });
+
+  return blocks;
+}
+
+// ── Error trends ────────────────────────────────────────────────────────────
+
+export function buildTrendsBlocks(
+  days: number,
+  current: number,
+  previous: number,
+  topErrors: { title: string; count: number; severity: string }[],
+  daily: { date: string; severity: string; count: number }[],
+): KnownBlock[] {
+  const change = previous > 0
+    ? `${current > previous ? "+" : ""}${Math.round(((current - previous) / previous) * 100)}%`
+    : "N/A";
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `Error Trends — Last ${days} Days`, emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Total alerts*\n${current}` },
+        { type: "mrkdwn", text: `*vs previous ${days}d*\n${change}` },
+      ],
+    },
+  ];
+
+  if (topErrors.length > 0) {
+    const lines = topErrors.slice(0, 5).map((e) => {
+      const emoji = SEVERITY_EMOJI[e.severity] || ":white_circle:";
+      return `${emoji} ${escapeSlack(e.title)} — ${e.count}x`;
+    }).join("\n");
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Top recurring errors*\n${lines}` },
+    });
+  }
+
+  return blocks;
+}
+
+// ── Uptime status ───────────────────────────────────────────────────────────
+
+export function buildUptimeBlocks(
+  monitors: { projectName: string; url: string; isDown: boolean; statusCode?: number | null; responseTimeMs?: number | null }[],
+): KnownBlock[] {
+  const allUp = monitors.every((m) => !m.isDown);
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: allUp ? "✓ All Systems Operational" : "✗ Degraded — monitors down", emoji: true },
+    },
+  ];
+
+  const lines = monitors.map((m) => {
+    const status = m.isDown ? ":red_circle:" : ":large_green_circle:";
+    const details = m.statusCode ? `HTTP ${m.statusCode} · ${m.responseTimeMs ?? "?"}ms` : "no data";
+    return `${status} *${escapeSlack(m.projectName)}* — ${escapeSlack(m.url)}\n      ${details}`;
+  }).join("\n");
+
+  blocks.push({
+    type: "section",
+    text: { type: "mrkdwn", text: lines || "No uptime monitors configured." },
+  });
+
+  return blocks;
+}
+
+// ── Rollback result ─────────────────────────────────────────────────────────
+
+export function buildRollbackBlocks(
+  projectName: string,
+  result: { uid: string; url: string | null; created: string },
+): KnownBlock[] {
+  return [
+    {
+      type: "header",
+      text: { type: "plain_text", text: "✓ Rollback Complete", emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Project*\n${escapeSlack(projectName)}` },
+        { type: "mrkdwn", text: `*Deployment*\n${result.uid.slice(0, 12)}` },
+      ],
+    },
+    ...(result.url ? [{
+      type: "section" as const,
+      text: { type: "mrkdwn" as const, text: `*URL:* ${result.url}` },
+    }] : []),
+  ];
+}
+
+// ── Maintenance window ──────────────────────────────────────────────────────
+
+export function buildMaintenanceBlocks(
+  projectName: string,
+  durationMin: number,
+  endsAt: Date,
+): KnownBlock[] {
+  return [
+    {
+      type: "header",
+      text: { type: "plain_text", text: ":wrench: Maintenance Window Active", emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Project*\n${escapeSlack(projectName)}` },
+        { type: "mrkdwn", text: `*Duration*\n${durationMin} minutes` },
+        { type: "mrkdwn", text: `*Ends at*\n${endsAt.toISOString().slice(0, 16)}` },
+      ],
+    },
+  ];
+}
+
+// ── Community fix search ────────────────────────────────────────────────────
+
+export function buildSearchFixBlocks(
+  query: string,
+  results: { patternText: string; category: string; fixes: { approach: string; successPct: number; total: number }[] }[],
+): KnownBlock[] {
+  if (results.length === 0) {
+    return [{
+      type: "section",
+      text: { type: "mrkdwn", text: `No community fixes found for: _${escapeSlack(query)}_` },
+    }];
+  }
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: "Community Fixes Found", emoji: true },
+    },
+  ];
+
+  for (const r of results.slice(0, 3)) {
+    let fixLines = "";
+    for (const f of r.fixes.slice(0, 2)) {
+      fixLines += `\n   • ${escapeSlack(f.approach)} — ${f.successPct}% success (${f.total} teams)`;
+    }
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*${escapeSlack(r.patternText)}*\n_${r.category}_${fixLines}` },
+    });
+  }
 
   return blocks;
 }
