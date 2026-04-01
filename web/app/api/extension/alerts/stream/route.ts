@@ -1,3 +1,4 @@
+// DEPRECATED: migrate to MCP — see service layer (lib/services/alerts.service.ts)
 import { db, alerts } from "@/lib/db"
 import { desc, inArray } from "drizzle-orm"
 import { NextRequest } from "next/server"

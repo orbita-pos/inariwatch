@@ -4,11 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, alerts, projects } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
-import { getUserAIKey } from "@/lib/ai/get-key";
-import { callAI } from "@/lib/ai/client";
-import { resolveModel } from "@/lib/ai/models";
-import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "@/lib/ai/prompts";
 import { revalidatePath } from "next/cache";
+import { diagnoseAlert } from "@/lib/services/diagnosis.service";
 
 export async function analyzeAlert(
   alertId: string
@@ -17,9 +14,9 @@ export async function analyzeAlert(
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) return { error: "Not authenticated" };
 
-  // Load alert + verify ownership
+  // Verify ownership
   const [alert] = await db
-    .select()
+    .select({ id: alerts.id, projectId: alerts.projectId })
     .from(alerts)
     .where(eq(alerts.id, alertId))
     .limit(1);
@@ -27,42 +24,23 @@ export async function analyzeAlert(
   if (!alert) return { error: "Alert not found" };
 
   const [project] = await db
-    .select()
+    .select({ id: projects.id })
     .from(projects)
     .where(and(eq(projects.id, alert.projectId), eq(projects.userId, userId)))
     .limit(1);
 
   if (!project) return { error: "Unauthorized" };
 
-  // Get AI key
-  const aiKey = await getUserAIKey(userId);
-  if (!aiKey) return { error: "No AI key configured. Add one in Settings → AI." };
-
-  // Build prompt and call AI
-  const prompt = buildAnalyzePrompt({
-    title: alert.title,
-    severity: alert.severity,
-    body: alert.body ?? "",
-    sourceIntegrations: alert.sourceIntegrations,
-  });
-
-  let reasoning: string;
   try {
-    const model = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
-    reasoning = await callAI(aiKey.key, SYSTEM_ANALYZER, [
-      { role: "user", content: prompt },
-    ], { model, provider: aiKey.provider });
+    const result = await diagnoseAlert(alertId, userId);
+
+    if (result.source === "none") {
+      return { error: "No AI key configured. Add one in Settings → AI." };
+    }
+
+    revalidatePath(`/alerts/${alertId}`);
+    return { reasoning: result.analysis };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "AI call failed";
-    return { error: msg };
+    return { error: err instanceof Error ? err.message : "AI call failed" };
   }
-
-  // Persist the reasoning
-  await db
-    .update(alerts)
-    .set({ aiReasoning: reasoning })
-    .where(eq(alerts.id, alertId));
-
-  revalidatePath(`/alerts/${alertId}`);
-  return { reasoning };
 }

@@ -1,10 +1,12 @@
 import { db, alerts, remediationSessions, slackUserLinks } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { getUserProjectIds } from "@/lib/db";
+import { acknowledgeAlert, silenceAlert } from "@/lib/services/alerts.service";
 
 /**
  * Core alert/remediation actions — no NextAuth dependency.
- * Used by both Slack bot and web dashboard (after extracting from server actions).
+ * Used by both Slack bot and web dashboard.
+ * Alert operations delegate to the shared service layer.
  */
 
 /** Resolve a Slack user ID to an InariWatch user ID */
@@ -37,8 +39,7 @@ export async function acknowledgeAlertCore(
   userId: string,
 ): Promise<{ error?: string }> {
   if (!(await verifyAccess(userId, alertId))) return { error: "Access denied" };
-
-  await db.update(alerts).set({ isRead: true }).where(eq(alerts.id, alertId));
+  await acknowledgeAlert(alertId);
   return {};
 }
 
@@ -47,11 +48,7 @@ export async function resolveAlertCore(
   userId: string,
 ): Promise<{ error?: string }> {
   if (!(await verifyAccess(userId, alertId))) return { error: "Access denied" };
-
-  await db
-    .update(alerts)
-    .set({ isRead: true, isResolved: true })
-    .where(eq(alerts.id, alertId));
+  await silenceAlert(alertId, true);
   return {};
 }
 

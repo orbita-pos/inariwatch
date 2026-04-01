@@ -2,24 +2,7 @@ import { db, projects, uptimeMonitors } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import type { McpUser } from "../auth";
 import { userCanAccessProject } from "../helpers";
-
-/** Block SSRF: reject private/internal IPs and non-HTTP schemes */
-function isSafeUrl(urlStr: string): boolean {
-  try {
-    const url = new URL(urlStr);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const host = url.hostname;
-    if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
-    if (host.startsWith("10.")) return false;
-    if (host.startsWith("172.") && parseInt(host.split(".")[1]) >= 16 && parseInt(host.split(".")[1]) <= 31) return false;
-    if (host.startsWith("192.168.")) return false;
-    if (host.startsWith("169.254.")) return false;
-    if (host.endsWith(".internal") || host.endsWith(".local")) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { isSafeUrl } from "@/lib/services/url-validation";
 
 export async function execute(
   args: Record<string, unknown>,

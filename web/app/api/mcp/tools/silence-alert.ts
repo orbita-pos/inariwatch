@@ -1,7 +1,6 @@
-import { db, alerts } from "@/lib/db";
-import { eq } from "drizzle-orm";
 import type { McpUser } from "../auth";
 import { userCanAccessProject } from "../helpers";
+import { getAlert, silenceAlert } from "@/lib/services/alerts.service";
 
 export async function execute(
   args: Record<string, unknown>,
@@ -12,25 +11,15 @@ export async function execute(
 
   const resolve = args.resolve !== false;
 
-  const [alert] = await db
-    .select({ id: alerts.id, projectId: alerts.projectId, title: alerts.title })
-    .from(alerts)
-    .where(eq(alerts.id, alertId))
-    .limit(1);
-
+  const alert = await getAlert(alertId);
   if (!alert) return `Error: Alert not found: ${alertId}`;
   if (!(await userCanAccessProject(user.userId, alert.projectId)))
     return "Error: Alert does not belong to your projects.";
 
-  await db
-    .update(alerts)
-    .set({
-      isRead: true,
-      ...(resolve ? { isResolved: true, resolvedAt: new Date() } : {}),
-    })
-    .where(eq(alerts.id, alertId));
+  const result = await silenceAlert(alertId, resolve);
+  if (!result.ok) return "Error: Failed to update alert.";
 
   return resolve
-    ? `Alert resolved: ${alert.title}`
-    : `Alert marked as read: ${alert.title}`;
+    ? `Alert resolved: ${result.title}`
+    : `Alert marked as read: ${result.title}`;
 }
