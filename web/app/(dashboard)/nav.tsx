@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity } from "lucide-react";
 
-type NavItem = { href: string; label: string; icon: React.ElementType; exact?: boolean };
+type NavItem = { href: string; label: string; icon: React.ElementType; exact?: boolean; badge?: number };
 type NavGroup = { label?: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
@@ -48,7 +48,7 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items).concat([
   { href: "/settings", label: "Settings", icon: Settings },
 ]);
 
-function NavLink({ href, label, icon: Icon, exact }: NavItem) {
+function NavLink({ href, label, icon: Icon, exact, badge }: NavItem) {
   const pathname = usePathname();
   const active = pathname === href || (!exact && pathname.startsWith(href + "/"));
 
@@ -62,12 +62,17 @@ function NavLink({ href, label, icon: Icon, exact }: NavItem) {
       }`}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      <span>{label}</span>
+      <span className="flex-1">{label}</span>
+      {badge != null && badge > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </Link>
   );
 }
 
-export function SidebarNav({ unreadAlerts: _ = 0, isAdmin = false, activeOrgId }: { unreadAlerts?: number; isAdmin?: boolean; activeOrgId?: string | null }) {
+export function SidebarNav({ unreadAlerts = 0, isAdmin = false, activeOrgId }: { unreadAlerts?: number; isAdmin?: boolean; activeOrgId?: string | null }) {
   const settingsHref = activeOrgId ? "/workspace/settings" : "/settings";
 
   return (
@@ -81,7 +86,11 @@ export function SidebarNav({ unreadAlerts: _ = 0, isAdmin = false, activeOrgId }
           )}
           <div className="space-y-px">
             {group.items.map((item) => (
-              <NavLink key={item.href} {...item} />
+              <NavLink
+                key={item.href}
+                {...item}
+                badge={item.href === "/alerts" ? unreadAlerts : undefined}
+              />
             ))}
           </div>
         </div>

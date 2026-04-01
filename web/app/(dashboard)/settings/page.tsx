@@ -4,7 +4,8 @@ import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs, 
 import { sql } from "drizzle-orm";
 import { eq, desc } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
-import { MessageSquare, Mail, Bell, Key, Monitor, Hash } from "lucide-react";
+import { MessageSquare, Mail, Bell, Key, Monitor, Hash, Smartphone } from "lucide-react";
+import Link from "next/link";
 import { GenerateDesktopTokenButton } from "./generate-token-button";
 import { McpTokenSection } from "./mcp-tokens";
 import { McpDashboard } from "./mcp-dashboard";
@@ -161,6 +162,10 @@ export default async function SettingsPage() {
               {!slackInstall && <ConnectSlackButton projects={userProjects} />}
             </div>
             <PushNotificationsButton />
+            <Link href="/download" className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all">
+              <Smartphone className="h-3.5 w-3.5" />
+              Get mobile app
+            </Link>
           </div>
         ) : (
           <div className="space-y-3 py-1">
@@ -211,6 +216,10 @@ export default async function SettingsPage() {
               {!channels.some((ch) => ch.type === "email")             && <ConnectEmailButton />}
               {!slackInstall && <ConnectSlackButton projects={userProjects} />}
               {!channels.some((ch) => (ch.type as string) === "push")  && <PushNotificationsButton />}
+              <Link href="/download" className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all">
+                <Smartphone className="h-3.5 w-3.5" />
+                Mobile app
+              </Link>
             </div>
           </div>
         )}
