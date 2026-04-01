@@ -509,6 +509,8 @@ export function buildHelpBlocks(): KnownBlock[] {
         "`/inariwatch rollback <project>` — Rollback Vercel deploy",
         "`/inariwatch maintenance <project> <mins>` — Start maintenance window",
         "`/inariwatch search <error text>` — Search community fixes",
+        "`/inariwatch integrations` — Integration health check",
+        "`/inariwatch maintenance list` — Active maintenance windows",
         "`/inariwatch link <email>` — Link your Slack to InariWatch",
         "`/inariwatch help` — This message",
         "",

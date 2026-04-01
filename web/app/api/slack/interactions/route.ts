@@ -141,6 +141,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ response_type: "ephemeral", text: ":page_facing_up: Generating postmortem..." });
     }
 
+    case "reopen_alert": {
+      const { reopenAlert } = await import("@/lib/services/alerts.service");
+      await reopenAlert(value);
+      return NextResponse.json({ response_type: "ephemeral", text: ":arrows_counterclockwise: Alert reopened." });
+    }
+
+    case "retry_remediation": {
+      const { remediationSessions } = await import("@/lib/db");
+      const [session] = await db.select().from(remediationSessions).where(eq(remediationSessions.id, value)).limit(1);
+      if (!session) return NextResponse.json({ response_type: "ephemeral", text: "Session not found." });
+
+      waitUntil(runSlackRemediation(session.alertId, userId, responseUrl));
+      return NextResponse.json({ response_type: "ephemeral", text: ":gear: Retrying remediation..." });
+    }
+
+    case "rate_fix_worked":
+    case "rate_fix_failed": {
+      const worked = actionId === "rate_fix_worked";
+      try {
+        const { communityFixes } = await import("@/lib/db");
+        const { sql: sqlTag } = await import("drizzle-orm");
+        await db.update(communityFixes).set({
+          ...(worked
+            ? { successCount: sqlTag`${communityFixes.successCount} + 1` }
+            : { failureCount: sqlTag`${communityFixes.failureCount} + 1` }),
+          totalApplications: sqlTag`${communityFixes.totalApplications} + 1`,
+          updatedAt: new Date(),
+        }).where(eq(communityFixes.id, value));
+      } catch {}
+      return NextResponse.json({ response_type: "ephemeral", text: worked ? ":white_check_mark: Rated as worked — thanks!" : ":x: Rated as didn't work — noted." });
+    }
+
     default:
       return NextResponse.json({ ok: true });
   }

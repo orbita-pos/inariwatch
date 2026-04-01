@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       return handleStatus(userId);
 
     case "alerts":
-      return handleAlerts(userId);
+      return handleAlerts(userId, args);
 
     case "fix":
       return handleFix(args[0], userId, responseUrl);
@@ -94,10 +94,14 @@ export async function POST(req: NextRequest) {
       return handleRollback(userId, args[0], responseUrl);
 
     case "maintenance":
+      if (args[0] === "list") return handleMaintenanceList(userId);
       return handleMaintenance(userId, args[0], args[1]);
 
     case "search":
       return handleSearch(args.join(" "));
+
+    case "integrations":
+      return handleIntegrations(userId);
 
     case "help":
     default:
@@ -132,33 +136,47 @@ async function handleStatus(userId: string) {
   return NextResponse.json({ response_type: "in_channel", blocks });
 }
 
-async function handleAlerts(userId: string) {
+async function handleAlerts(userId: string, args: string[]) {
   const projectIds = await getUserProjectIds(userId);
   if (projectIds.length === 0) {
     return NextResponse.json({ response_type: "ephemeral", text: "No projects found." });
   }
 
-  const recentAlerts = await db
-    .select()
-    .from(alerts)
-    .where(and(inArray(alerts.projectId, projectIds), eq(alerts.isResolved, false)))
-    .orderBy(desc(alerts.createdAt))
-    .limit(10);
+  // Parse filters: /inariwatch alerts [critical|warning|info] [--source=sentry] [--resolved]
+  let severityFilter: "critical" | "warning" | "info" | undefined;
+  let showResolved = false;
+  const validSeverities = ["critical", "warning", "info"];
+
+  for (const arg of args) {
+    if (validSeverities.includes(arg.toLowerCase())) severityFilter = arg.toLowerCase() as "critical" | "warning" | "info";
+    if (arg === "--resolved" || arg === "resolved") showResolved = true;
+  }
+
+  const { queryAlerts } = await import("@/lib/services/alerts.service");
+  const recentAlerts = await queryAlerts({
+    projectIds,
+    severity: severityFilter,
+    isResolved: showResolved ? undefined : false,
+    limit: 10,
+  });
 
   if (recentAlerts.length === 0) {
-    return NextResponse.json({ response_type: "ephemeral", text: ":white_check_mark: No unresolved alerts!" });
+    const filterDesc = severityFilter ? ` (${severityFilter})` : "";
+    return NextResponse.json({ response_type: "ephemeral", text: `:white_check_mark: No${showResolved ? "" : " unresolved"} alerts${filterDesc}!` });
   }
 
   const EMOJI: Record<string, string> = { critical: ":red_circle:", warning: ":large_orange_circle:", info: ":large_blue_circle:" };
   const lines = recentAlerts.map((a) => {
     const emoji = EMOJI[a.severity] || ":white_circle:";
     const ago = timeAgo(a.createdAt);
-    return `${emoji} *${a.title?.slice(0, 80)}* (${ago})\n   \`${a.id.slice(0, 8)}\` — /inariwatch fix ${a.id.slice(0, 8)}`;
+    const status = a.isResolved ? " _(resolved)_" : "";
+    return `${emoji} *${a.title?.slice(0, 80)}*${status} (${ago})\n   \`${a.id.slice(0, 8)}\` — /inariwatch fix ${a.id.slice(0, 8)}`;
   });
 
+  const filterLabel = severityFilter ? ` ${severityFilter}` : "";
   return NextResponse.json({
     response_type: "ephemeral",
-    text: `*${recentAlerts.length} unresolved alerts:*\n\n${lines.join("\n\n")}`,
+    text: `*${recentAlerts.length}${filterLabel} alerts:*\n\n${lines.join("\n\n")}`,
   });
 }
 
@@ -538,6 +556,68 @@ async function postToResponseUrl(url: string, body: Record<string, unknown>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+// ── /inariwatch maintenance list ──────────────────────────────────────────
+
+async function handleMaintenanceList(userId: string) {
+  const pIds = await getUserProjectIds(userId);
+  if (pIds.length === 0) return NextResponse.json({ response_type: "ephemeral", text: "No projects found." });
+
+  const { maintenanceWindows, projects } = await import("@/lib/db");
+  const { gt } = await import("drizzle-orm");
+
+  const windows = await db
+    .select({
+      title: maintenanceWindows.title,
+      startsAt: maintenanceWindows.startsAt,
+      endsAt: maintenanceWindows.endsAt,
+      projectId: maintenanceWindows.projectId,
+    })
+    .from(maintenanceWindows)
+    .where(and(inArray(maintenanceWindows.projectId, pIds), gt(maintenanceWindows.endsAt, new Date())))
+    .orderBy(desc(maintenanceWindows.endsAt))
+    .limit(10);
+
+  if (windows.length === 0) {
+    return NextResponse.json({ response_type: "ephemeral", text: "No active maintenance windows." });
+  }
+
+  const userProjects = await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, pIds));
+  const projectMap = new Map(userProjects.map((p) => [p.id, p.name]));
+
+  const lines = windows.map((w) =>
+    `:wrench: *${projectMap.get(w.projectId) ?? "?"}* — ${w.title}\n   ${w.startsAt.toISOString().slice(0, 16)} → ${w.endsAt.toISOString().slice(0, 16)}`
+  ).join("\n\n");
+
+  return NextResponse.json({ response_type: "ephemeral", text: `*Active maintenance windows:*\n\n${lines}` });
+}
+
+// ── /inariwatch integrations ──────────────────────────────────────────────
+
+async function handleIntegrations(userId: string) {
+  const pIds = await getUserProjectIds(userId);
+  if (pIds.length === 0) return NextResponse.json({ response_type: "ephemeral", text: "No projects found." });
+
+  const { projectIntegrations, projects } = await import("@/lib/db");
+
+  const userProjects = await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, pIds));
+  const integrations = await db.select().from(projectIntegrations).where(inArray(projectIntegrations.projectId, pIds));
+
+  const projectMap = new Map(userProjects.map((p) => [p.id, p.name]));
+
+  if (integrations.length === 0) {
+    return NextResponse.json({ response_type: "ephemeral", text: "No integrations connected. Visit app.inariwatch.com/integrations to set up." });
+  }
+
+  const lines = integrations.map((i) => {
+    const status = i.isActive ? ":large_green_circle:" : ":red_circle:";
+    const errors = i.errorCount > 0 ? ` — :warning: ${i.errorCount} errors` : "";
+    const lastCheck = i.lastCheckedAt ? ` — last checked: ${timeAgo(i.lastCheckedAt)}` : "";
+    return `${status} *${i.service}* (${projectMap.get(i.projectId) ?? "?"})${errors}${lastCheck}`;
+  }).join("\n");
+
+  return NextResponse.json({ response_type: "ephemeral", text: `*Integration health:*\n\n${lines}` });
 }
 
 function timeAgo(date: Date | null): string {
