@@ -145,7 +145,7 @@ export async function sendRemediationComplete(
 ): Promise<void> {
   const status = session.status === "completed" ? "✅ Completed" : "❌ Failed";
   let text = `<b>${status}</b>\nConfidence: ${session.confidenceScore ?? "?"}%`;
-  if (session.prUrl) text += `\n<a href="${session.prUrl}">View PR</a>`;
+  if (session.prUrl) text += `\n<a href="${fmt.esc(session.prUrl)}">View PR</a>`;
 
   const buttons = session.status === "proposing" ? [[
     { text: "✅ Approve & Merge", callback_data: `approve_rem:${session.id}` },

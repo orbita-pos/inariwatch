@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     default:
       // Handle /fix_ALERTID pattern
       if (command?.startsWith("fix_")) {
-        await cmdFix(botToken, chatId, userId, command.slice(4));
+        await cmdFix(botToken, chatId, userId, command.slice(4), projectIds);
       } else {
         await sendMessage(botToken, chatId, fmt.formatHelp());
       }
@@ -128,17 +128,10 @@ export async function POST(req: NextRequest) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function findBotToken(chatId: string): Promise<string | null> {
-  const [ch] = await db
-    .select({ config: notificationChannels.config })
-    .from(notificationChannels)
-    .where(eq(notificationChannels.type, "telegram"))
-    .limit(50);
-
-  // Search all telegram channels for matching chat_id
   const channels = await db
     .select({ config: notificationChannels.config })
     .from(notificationChannels)
-    .where(eq(notificationChannels.type, "telegram"));
+    .where(and(eq(notificationChannels.type, "telegram"), eq(notificationChannels.isActive, true)));
 
   for (const c of channels) {
     const cfg = c.config as { bot_token?: string; chat_id?: string };
@@ -186,14 +179,47 @@ async function handleLink(botToken: string, chatId: string, tgUserId: string, em
     return NextResponse.json({ ok: true });
   }
 
-  await db.insert(telegramUserLinks).values({
+  // Verification: redirect to web dashboard to confirm
+  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "https://app.inariwatch.com";
+  const { randomBytes } = await import("crypto");
+  const token = randomBytes(16).toString("hex");
+
+  // Store pending link using cliPendingCodes (reuse existing device flow)
+  const { cliPendingCodes } = await import("@/lib/db");
+  await db.insert(cliPendingCodes).values({
+    code: `tg_${token}`,
     userId: user.id,
-    telegramUserId: tgUserId,
-    chatId,
-    botToken,
+    approved: false,
+    expiresAt: new Date(Date.now() + 10 * 60_000),
   });
 
-  await sendMessage(botToken, chatId, `🔗 Linked! Connected to <b>${fmt.esc(user.name || email)}</b> on InariWatch.`);
+  const verifyUrl = `${appUrl}/cli/verify?code=tg_${token}`;
+
+  await sendMessage(botToken, chatId,
+    `🔗 Verify your identity:\n\n<a href="${fmt.esc(verifyUrl)}">Click here to verify</a>\n\nThis link expires in 10 minutes. After verifying, send /link ${fmt.esc(email)} again.`
+  );
+
+  // Poll for approval (background, max 2 minutes)
+  (async () => {
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const [pending] = await db.select().from(cliPendingCodes).where(eq(cliPendingCodes.code, `tg_${token}`)).limit(1);
+      if (pending?.approved) {
+        await db.insert(telegramUserLinks).values({
+          userId: user.id,
+          telegramUserId: tgUserId,
+          chatId,
+          botToken,
+        });
+        await db.delete(cliPendingCodes).where(eq(cliPendingCodes.code, `tg_${token}`));
+        await sendMessage(botToken, chatId, `✅ Linked! Connected to <b>${fmt.esc(user.name || email)}</b>.`);
+        return;
+      }
+    }
+    // Cleanup expired
+    await db.delete(cliPendingCodes).where(eq(cliPendingCodes.code, `tg_${token}`));
+  })().catch(() => {});
+
   return NextResponse.json({ ok: true });
 }
 
@@ -382,9 +408,13 @@ async function cmdIntegrations(botToken: string, chatId: string, projectIds: str
   await sendMessage(botToken, chatId, `<b>Integration Health</b>\n\n${lines}`);
 }
 
-async function cmdFix(botToken: string, chatId: string, userId: string, alertIdPrefix: string) {
-  const allAlerts = await db.select({ id: alerts.id, title: alerts.title }).from(alerts).limit(100);
-  const alert = allAlerts.find((a) => a.id.startsWith(alertIdPrefix));
+async function cmdFix(botToken: string, chatId: string, userId: string, alertIdPrefix: string, projectIds?: string[]) {
+  // Only search user's own alerts
+  const pIds = projectIds ?? await (await import("@/lib/db")).getUserProjectIds(userId);
+  const userAlerts = pIds.length > 0
+    ? await db.select({ id: alerts.id, title: alerts.title, projectId: alerts.projectId }).from(alerts).where(inArray(alerts.projectId, pIds)).limit(100)
+    : [];
+  const alert = userAlerts.find((a) => a.id.startsWith(alertIdPrefix));
 
   if (!alert) { await sendMessage(botToken, chatId, `Alert not found: ${fmt.esc(alertIdPrefix)}`); return; }
 
@@ -470,82 +500,106 @@ async function handleCallback(query: { id: string; data?: string; from: { id: nu
     return NextResponse.json({ ok: true });
   }
 
-  const [action, alertId] = data.split(":");
+  // Rate limit callbacks (prevents vote manipulation + spam)
+  const cbRl = await rateLimit("telegram-cb", userId, { windowMs: 60_000, max: 30 });
+  if (!cbRl.allowed) {
+    await answerCallbackQuery(botToken, query.id, "Rate limited. Try again shortly.");
+    return NextResponse.json({ ok: true });
+  }
+
+  // Get user's project IDs for ownership checks
+  const { getUserProjectIds } = await import("@/lib/db");
+  const userProjectIds = await getUserProjectIds(userId);
+
+  const [action, targetId] = data.split(":");
+
+  // Ownership check for alert actions
+  async function verifyAlertAccess(alertId: string): Promise<boolean> {
+    const [a] = await db.select({ projectId: alerts.projectId }).from(alerts).where(eq(alerts.id, alertId)).limit(1);
+    return !!a && userProjectIds.includes(a.projectId);
+  }
 
   switch (action) {
     case "ack":
-      await acknowledgeAlert(alertId);
+      if (!(await verifyAlertAccess(targetId))) { await answerCallbackQuery(botToken, query.id, "Access denied"); break; }
+      await acknowledgeAlert(targetId);
       await answerCallbackQuery(botToken, query.id, "👁️ Acknowledged");
       break;
     case "resolve":
-      await silenceAlert(alertId, true);
+      if (!(await verifyAlertAccess(targetId))) { await answerCallbackQuery(botToken, query.id, "Access denied"); break; }
+      await silenceAlert(targetId, true);
       await answerCallbackQuery(botToken, query.id, "✅ Resolved");
       break;
     case "reopen":
-      await reopenAlert(alertId);
+      if (!(await verifyAlertAccess(targetId))) { await answerCallbackQuery(botToken, query.id, "Access denied"); break; }
+      await reopenAlert(targetId);
       await answerCallbackQuery(botToken, query.id, "🔄 Reopened");
       break;
     case "fix":
+      if (!(await verifyAlertAccess(targetId))) { await answerCallbackQuery(botToken, query.id, "Access denied"); break; }
       await answerCallbackQuery(botToken, query.id, "🔧 Starting fix...");
-      await cmdFix(botToken, chatId, userId, alertId);
+      await cmdFix(botToken, chatId, userId, targetId, userProjectIds);
       break;
     case "approve_rem": {
       const { approveRemediationCore } = await import("@/lib/slack/actions");
-      await approveRemediationCore(alertId, userId);
+      await approveRemediationCore(targetId, userId);
       await answerCallbackQuery(botToken, query.id, "✅ Remediation approved");
       break;
     }
     case "cancel_rem": {
       const { cancelRemediationCore } = await import("@/lib/slack/actions");
-      await cancelRemediationCore(alertId, userId);
+      await cancelRemediationCore(targetId, userId);
       await answerCallbackQuery(botToken, query.id, "❌ Remediation cancelled");
       break;
     }
     case "retry_rem": {
       await answerCallbackQuery(botToken, query.id, "🔧 Retrying...");
-      const [session] = await db.select().from(remediationSessions).where(eq(remediationSessions.id, alertId)).limit(1);
-      if (session) await cmdFix(botToken, chatId, userId, session.alertId);
+      const [session] = await db.select().from(remediationSessions).where(eq(remediationSessions.id, targetId)).limit(1);
+      if (session) await cmdFix(botToken, chatId, userId, session.alertId, userProjectIds);
       break;
     }
     case "postmortem": {
+      if (!(await verifyAlertAccess(targetId))) { await answerCallbackQuery(botToken, query.id, "Access denied"); break; }
       await answerCallbackQuery(botToken, query.id, "📝 Generating...");
       try {
         const { generatePostmortemInternal } = await import("@/lib/ai/postmortem");
-        await generatePostmortemInternal(alertId);
-        const [a] = await db.select().from(alerts).where(eq(alerts.id, alertId)).limit(1);
+        await generatePostmortemInternal(targetId);
+        const [a] = await db.select().from(alerts).where(eq(alerts.id, targetId)).limit(1);
         if (a?.postmortem) await sendMessage(botToken, chatId, `<b>📝 Postmortem</b>\n\n${fmt.esc(a.postmortem.slice(0, 3500))}`);
       } catch {}
       break;
     }
     case "apply_fix": {
+      if (!(await verifyAlertAccess(targetId))) { await answerCallbackQuery(botToken, query.id, "Access denied"); break; }
       await answerCallbackQuery(botToken, query.id, "💡 Applying community fix...");
-      await cmdFix(botToken, chatId, userId, alertId);
+      await cmdFix(botToken, chatId, userId, targetId, userProjectIds);
       break;
     }
-    case "rate_yes": {
-      try {
-        const { communityFixes } = await import("@/lib/db");
-        const { sql: sqlTag } = await import("drizzle-orm");
-        await db.update(communityFixes).set({
-          successCount: sqlTag`${communityFixes.successCount} + 1`,
-          totalApplications: sqlTag`${communityFixes.totalApplications} + 1`,
-          updatedAt: new Date(),
-        }).where(eq(communityFixes.id, alertId));
-      } catch {}
-      await answerCallbackQuery(botToken, query.id, "✅ Rated as worked — thanks!");
-      break;
-    }
+    case "rate_yes":
     case "rate_no": {
+      const worked = action === "rate_yes";
       try {
-        const { communityFixes } = await import("@/lib/db");
+        const { fixRatings, communityFixes } = await import("@/lib/db");
         const { sql: sqlTag } = await import("drizzle-orm");
+
+        // Dedup: one vote per user per fix
+        const [existing] = await db.select({ id: fixRatings.id }).from(fixRatings)
+          .where(and(eq(fixRatings.fixId, targetId), eq(fixRatings.userId, userId))).limit(1);
+        if (existing) {
+          await answerCallbackQuery(botToken, query.id, "Already rated this fix");
+          break;
+        }
+
+        await db.insert(fixRatings).values({ fixId: targetId, userId, worked });
         await db.update(communityFixes).set({
-          failureCount: sqlTag`${communityFixes.failureCount} + 1`,
+          ...(worked
+            ? { successCount: sqlTag`${communityFixes.successCount} + 1` }
+            : { failureCount: sqlTag`${communityFixes.failureCount} + 1` }),
           totalApplications: sqlTag`${communityFixes.totalApplications} + 1`,
           updatedAt: new Date(),
-        }).where(eq(communityFixes.id, alertId));
+        }).where(eq(communityFixes.id, targetId));
       } catch {}
-      await answerCallbackQuery(botToken, query.id, "❌ Noted — improves future suggestions");
+      await answerCallbackQuery(botToken, query.id, worked ? "✅ Rated as worked" : "❌ Noted");
       break;
     }
     default:
