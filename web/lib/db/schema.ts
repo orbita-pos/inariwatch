@@ -684,8 +684,6 @@ export const mcpTokens = pgTable("mcp_tokens", {
   name: text("name").notNull(),
   /** SHA-256 hash of the token. Raw token is shown once on creation, never stored. */
   tokenHash: text("token_hash").notNull().unique(),
-  /** @deprecated Kept for migration — will be removed. Use tokenHash. */
-  token: text("token"),
   scopes: text("scopes").array().notNull().default(sql`'{read}'`),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
