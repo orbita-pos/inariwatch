@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, mcpOauthCodes, mcpTokens } from "@/lib/db";
+import { db, mcpOauthCodes, mcpOauthClients, mcpTokens } from "@/lib/db";
 import { eq, and, gt } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { rateLimit } from "@/lib/auth-rate-limit";
@@ -49,6 +49,20 @@ export async function POST(request: Request) {
   if (!code || !codeVerifier || !clientId || !redirectUri) {
     return NextResponse.json(
       { error: "invalid_request", error_description: "code, code_verifier, client_id, and redirect_uri are required" },
+      { status: 400 }
+    );
+  }
+
+  // Validate client_id is registered
+  const [client] = await db
+    .select({ id: mcpOauthClients.id })
+    .from(mcpOauthClients)
+    .where(eq(mcpOauthClients.clientId, clientId))
+    .limit(1);
+
+  if (!client) {
+    return NextResponse.json(
+      { error: "invalid_client", error_description: "Unregistered client_id" },
       { status: 400 }
     );
   }

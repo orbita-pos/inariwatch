@@ -694,6 +694,16 @@ export const mcpTokens = pgTable("mcp_tokens", {
 
 export type McpToken = typeof mcpTokens.$inferSelect;
 
+// ── MCP OAuth Clients (registered apps allowed to use OAuth) ─────────────────
+
+export const mcpOauthClients = pgTable("mcp_oauth_clients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: text("client_id").notNull().unique(),
+  name: text("name").notNull(),
+  redirectUris: text("redirect_uris").array().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── MCP OAuth Codes (PKCE authorization flow) ────────────────────────────────
 
 export const mcpOauthCodes = pgTable("mcp_oauth_codes", {

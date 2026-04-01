@@ -1,19 +1,24 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, mcpOauthCodes } from "@/lib/db";
+import { db, mcpOauthCodes, mcpOauthClients } from "@/lib/db";
+import { eq } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
-// Only allow HTTPS redirect URIs (except localhost for dev)
-function isValidRedirectUri(uri: string): boolean {
-  try {
-    const url = new URL(uri);
-    if (url.protocol === "https:") return true;
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return true;
-    return false;
-  } catch {
-    return false;
+/**
+ * Validate redirect_uri against the client's registered URIs.
+ * Supports wildcards: "http://localhost:*" matches any localhost port.
+ */
+function matchesRedirectUri(uri: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    if (pattern === uri) return true;
+    // Wildcard match: "http://localhost:*" → matches "http://localhost:3000/callback"
+    if (pattern.includes("*")) {
+      const regex = new RegExp("^" + pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$");
+      if (regex.test(uri)) return true;
+    }
   }
+  return false;
 }
 
 /**
@@ -36,8 +41,20 @@ export async function GET(request: Request) {
     return new Response("Only S256 code_challenge_method is supported", { status: 400 });
   }
 
-  if (!isValidRedirectUri(redirectUri)) {
-    return new Response("Invalid redirect_uri: must be HTTPS (or localhost for development)", { status: 400 });
+  // Validate client_id against registered clients
+  const [client] = await db
+    .select()
+    .from(mcpOauthClients)
+    .where(eq(mcpOauthClients.clientId, clientId))
+    .limit(1);
+
+  if (!client) {
+    return new Response(`Unknown client_id: ${escapeHtml(clientId)}. Register at app.inariwatch.com/admin.`, { status: 400 });
+  }
+
+  // Validate redirect_uri against client's registered URIs
+  if (!matchesRedirectUri(redirectUri, client.redirectUris)) {
+    return new Response("redirect_uri not allowed for this client.", { status: 400 });
   }
 
   const session = await getServerSession(authOptions);
@@ -67,7 +84,7 @@ button{flex:1;padding:10px;border-radius:8px;border:none;font-size:14px;font-wei
 <body>
 <div class="card">
   <h1>Authorize MCP Connection</h1>
-  <p><strong>${escapeHtml(clientId)}</strong> wants to connect to your InariWatch account.</p>
+  <p><strong>${escapeHtml(client.name)}</strong> wants to connect to your InariWatch account.</p>
   <div class="scope">Scopes: <strong>${escapeHtml(scope)}</strong></div>
   <div class="uri">Redirect: ${escapeHtml(redirectUri)}</div>
   <form method="POST">
@@ -85,7 +102,6 @@ button{flex:1;padding:10px;border-radius:8px;border:none;font-size:14px;font-wei
 </div>
 </body></html>`;
 
-  // Set CSRF token as HttpOnly cookie
   return new Response(html, {
     headers: {
       "Content-Type": "text/html",
@@ -119,9 +135,15 @@ export async function POST(request: Request) {
   const state = form.get("state") as string;
   const scope = form.get("scope") as string || "read";
 
-  // Validate redirect_uri again
-  if (!isValidRedirectUri(redirectUri)) {
-    return new Response("Invalid redirect_uri", { status: 400 });
+  // Re-validate client + redirect_uri (defense in depth)
+  const [client] = await db
+    .select()
+    .from(mcpOauthClients)
+    .where(eq(mcpOauthClients.clientId, clientId))
+    .limit(1);
+
+  if (!client || !matchesRedirectUri(redirectUri, client.redirectUris)) {
+    return new Response("Invalid client or redirect_uri", { status: 400 });
   }
 
   if (action === "deny") {
