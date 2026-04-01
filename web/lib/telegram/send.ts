@@ -3,7 +3,7 @@
  * Mirrors web/lib/slack/send.ts functionality for Telegram.
  */
 
-import { db, alerts, notificationChannels, projects, telegramUserLinks, substrateRecordings, remediationSessions } from "@/lib/db";
+import { db, alerts, notificationChannels, projects, telegramUserLinks, substrateRecordings, remediationSessions, telegramMessageLinks } from "@/lib/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { sendMessage } from "./bot";
 import * as fmt from "./format";
@@ -47,9 +47,19 @@ export async function sendAlertToTelegram(alert: Alert): Promise<void> {
         reply_markup: { inline_keyboard: buttons },
       });
 
-      // Auto-attach substrate recording after 5s
+      // Track message for thread context
       if (result.result?.message_id) {
         const msgId = result.result.message_id;
+
+        // Store message link for thread context
+        db.insert(telegramMessageLinks).values({
+          chatId: config.chat_id,
+          messageId: msgId,
+          alertId: alert.id,
+          type: "alert",
+        }).catch(() => {});
+
+        // Auto-attach enrichments
         setTimeout(() => attachSubstrate(config.bot_token!, config.chat_id!, alert.id, msgId).catch(() => {}), 5000);
         setTimeout(() => attachCommunityFix(config.bot_token!, config.chat_id!, alert, msgId).catch(() => {}), 3000);
       }
@@ -205,6 +215,72 @@ export async function sendIncidentStormToProject(
     if (!config.bot_token || !config.chat_id) continue;
     await sendIncidentStorm(config.bot_token, config.chat_id, alertCount, titles, alertId);
   }
+}
+
+// ── Deploy follow-up (15-minute health check) ───────────────────────────────
+
+export async function sendDeployFollowUp(
+  botToken: string,
+  chatId: string,
+  healthy: boolean,
+  errorCount: number,
+  replyTo?: number
+): Promise<void> {
+  const text = fmt.formatDeployFollowUp(healthy, errorCount);
+  await sendMessage(botToken, chatId, text, { reply_to_message_id: replyTo });
+}
+
+// ── Shadow replay result ─────────────────────────────────────────────────────
+
+export async function sendShadowReplay(
+  botToken: string,
+  chatId: string,
+  replay: { totalRecordings: number; passed: number; failed: number; riskScore: number; riskLevel: string },
+  replyTo?: number
+): Promise<void> {
+  await sendMessage(botToken, chatId, fmt.formatShadowReplay(replay), { reply_to_message_id: replyTo });
+}
+
+// ── PR prediction ────────────────────────────────────────────────────────────
+
+export async function sendPRPrediction(
+  botToken: string,
+  chatId: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  prTitle: string,
+  prediction: string
+): Promise<void> {
+  const text = fmt.formatPRPrediction(owner, repo, prNumber, prTitle, prediction);
+  await sendMessage(botToken, chatId, text, {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "View PR", url: `https://github.com/${owner}/${repo}/pull/${prNumber}` },
+      ]],
+    },
+  });
+}
+
+// ── EAP verification ─────────────────────────────────────────────────────────
+
+export async function sendEAPVerification(
+  botToken: string,
+  chatId: string,
+  eap: { verified: boolean; chainDepth: number; surfaces: { httpEndpoints: string[]; dbTables: string[]; llmCalls: { provider: string; model: string }[] } },
+  replyTo?: number
+): Promise<void> {
+  await sendMessage(botToken, chatId, fmt.formatEAPVerification(eap), { reply_to_message_id: replyTo });
+}
+
+// ── Get message ID for alert thread context ──────────────────────────────────
+
+export async function getAlertMessageId(chatId: string, alertId: string): Promise<number | undefined> {
+  const [link] = await db.select({ messageId: telegramMessageLinks.messageId })
+    .from(telegramMessageLinks)
+    .where(and(eq(telegramMessageLinks.chatId, chatId), eq(telegramMessageLinks.alertId, alertId)))
+    .limit(1);
+  return link?.messageId;
 }
 
 // ── Weekly digest ────────────────────────────────────────────────────────────

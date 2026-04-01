@@ -109,6 +109,52 @@ export function formatCommunityFixes(
   return text;
 }
 
+export function formatDeployFollowUp(healthy: boolean, errorCount: number): string {
+  if (healthy) {
+    return `✅ <b>Deploy healthy</b> — ${errorCount} errors in monitoring window.`;
+  }
+  return `⚠️ <b>Deploy may be causing issues</b> — ${errorCount} errors detected in monitoring window.`;
+}
+
+export function formatShadowReplay(replay: {
+  totalRecordings: number; passed: number; failed: number; riskScore: number; riskLevel: string;
+}): string {
+  const emoji = replay.failed === 0 ? "✅" : "❌";
+  const riskEmoji = replay.riskScore >= 71 ? "🔴" : replay.riskScore >= 41 ? "🟠" : "🟢";
+
+  return [
+    `${emoji} <b>Shadow Execution</b> — Replayed ${replay.totalRecordings} production recordings`,
+    `Passed: ${replay.passed} | Failed: ${replay.failed}`,
+    `${riskEmoji} Risk score: ${replay.riskScore}/100 (${replay.riskLevel})`,
+  ].join("\n");
+}
+
+export function formatPRPrediction(
+  owner: string, repo: string, prNumber: number, prTitle: string, prediction: string
+): string {
+  return [
+    `⚠️ <b>Prediction: PR #${prNumber} may cause an error</b>`,
+    `<a href="https://github.com/${esc(owner)}/${esc(repo)}/pull/${prNumber}">${esc(prTitle)}</a>`,
+    "",
+    esc(prediction.slice(0, 600)),
+  ].join("\n");
+}
+
+export function formatEAPVerification(eap: {
+  verified: boolean; chainDepth: number;
+  surfaces: { httpEndpoints: string[]; dbTables: string[]; llmCalls: { provider: string; model: string }[] };
+}): string {
+  const emoji = eap.verified ? "🔒" : "⚠️";
+  const status = eap.verified ? "Chain verified" : "Chain NOT verified";
+
+  const parts: string[] = [];
+  if (eap.surfaces.httpEndpoints.length > 0) parts.push(`${eap.surfaces.httpEndpoints.length} HTTP endpoints`);
+  if (eap.surfaces.dbTables.length > 0) parts.push(`${eap.surfaces.dbTables.length} DB tables`);
+  if (eap.surfaces.llmCalls.length > 0) parts.push(`${eap.surfaces.llmCalls.length} LLM calls`);
+
+  return `${emoji} <b>EAP Verification</b> — ${status}\nChain depth: ${eap.chainDepth} | ${parts.join(", ") || "no surfaces"}`;
+}
+
 export function formatHelp(): string {
   return [
     "<b>InariWatch Bot Commands</b>\n",

@@ -729,6 +729,18 @@ export const telegramUserLinks = pgTable("telegram_user_links", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Telegram Message Tracking (thread context equivalent) ────────────────────
+
+export const telegramMessageLinks = pgTable("telegram_message_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  chatId: text("chat_id").notNull(),
+  messageId: integer("message_id").notNull(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }),
+  stormId: uuid("storm_id").references(() => incidentStorms.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("alert"), // 'alert' | 'incident' | 'deploy'
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Rate Limiting ────────────────────────────────────────────────────────────
 
 export const rateLimits = pgTable("rate_limits", {
