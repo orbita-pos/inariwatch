@@ -162,7 +162,7 @@ function DemoVideo() {
 function StatsBar() {
   const stats = [
     { value: "9", label: "integrations monitored" },
-    { value: "17", label: "MCP tools" },
+    { value: "18", label: "MCP tools" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
   ];
@@ -235,24 +235,14 @@ function RemediationWalkthrough() {
           </p>
         </div>
 
-        {/* Steps */}
-        <div className="grid gap-4 sm:grid-cols-5 mb-10">
+        {/* Steps — horizontal breadcrumb */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-10 rounded-xl border border-inari-border bg-inari-card px-6 py-4">
           {steps.map((step, i) => (
-            <div key={step.n} className="relative flex flex-col gap-3 rounded-xl border border-inari-border bg-inari-card p-5">
-              {i < steps.length - 1 && (
-                <div className="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 z-10">
-                  <ArrowRight className="h-4 w-4 text-zinc-700" />
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-inari-accent/10 text-inari-accent">
-                  {step.icon}
-                </div>
-                <span className="font-mono text-[11px] text-zinc-600">{step.n}</span>
-              </div>
-              <p className="text-sm font-semibold text-fg-strong">{step.title}</p>
-              <p className="text-xs text-zinc-500 leading-relaxed">{step.desc}</p>
-            </div>
+            <span key={step.n} className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-inari-accent/10 text-inari-accent text-xs font-bold">{step.n}</span>
+              <span className="text-sm font-medium text-fg-strong">{step.title}</span>
+              {i < steps.length - 1 && <ArrowRight className="h-3.5 w-3.5 text-zinc-600 mx-1" />}
+            </span>
           ))}
         </div>
 
@@ -345,51 +335,22 @@ function AutoMergeSafety() {
   ];
 
   return (
-    <section className="py-24 border-t border-inari-border bg-inari-card/20">
+    <section className="py-20 border-t border-inari-border bg-inari-card/20">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="grid gap-16 lg:grid-cols-2 items-start">
-          {/* Left: copy + gates */}
-          <div>
-            <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">
-              Auto-merge
-            </p>
-            <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl leading-tight">
-              You sleep. We ship.
-              <br />
-              <span className="text-inari-accent">Safely.</span>
-            </h2>
-            <p className="mt-4 text-fg-base leading-relaxed max-w-md">
-              Skeptical about AI auto-merging code into production? Fair. Here's
-              how we make sure every auto-merged fix is something we'd sign off
-              on ourselves.
-            </p>
+        <div className="mb-10 max-w-xl">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">
+            Auto-merge
+          </p>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl leading-tight">
+            You sleep. We ship.{" "}
+            <span className="text-inari-accent">Safely.</span>
+          </h2>
+          <p className="mt-4 text-fg-base leading-relaxed">
+            5 safety gates — CI, confidence ≥ 90%, self-review ≥ 70/100, ≤ 50 lines, auto-merge enabled — all must pass. Off by default.
+          </p>
+        </div>
 
-            <p className="mt-8 text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4">
-              5 gates — all must pass to auto-merge
-            </p>
-
-            <div className="space-y-3">
-              {gates.map((gate) => (
-                <div
-                  key={gate.label}
-                  className="flex items-start gap-3 rounded-xl border border-inari-border bg-inari-card p-4"
-                >
-                  <div className="mt-0.5 shrink-0">{gate.icon}</div>
-                  <div>
-                    <p className="text-sm font-semibold text-fg-strong">
-                      {gate.label}
-                    </p>
-                    <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-                      {gate.detail}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Right: live terminal */}
-          <div className="space-y-4">
+        <div className="max-w-2xl mx-auto space-y-4">
             {/* Terminal */}
             <div className="rounded-xl border border-inari-accent/25 bg-zinc-950 overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.08)]">
               <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
@@ -489,7 +450,6 @@ function AutoMergeSafety() {
               </Link>
             </p>
           </div>
-        </div>
       </div>
     </section>
   );
@@ -608,20 +568,13 @@ function WhyNotNative() {
             ))}
           </div>
           {[
-            { cap: "Alert aggregation", dd: true, us: true },
-            { cap: "Incident Storm Control", dd: "Paid", us: true },
-            { cap: "Cross-service correlation", dd: false, us: true },
-            { cap: "On-Call Rotations & Overrides", dd: "Paid", us: true },
-            { cap: "Interactive Chat ACK (Telegram, etc)", dd: "Paid", us: true },
-            { cap: "Root cause AI analysis", dd: "Paid", us: "BYOK" },
-            { cap: "Writes code fix", dd: false, us: true },
-            { cap: "Pushes branch + waits for CI", dd: false, us: true },
+            { cap: "Writes code fix automatically", dd: false, us: true },
+            { cap: "Pushes branch + waits for CI (3× retry)", dd: false, us: true },
             { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
-            { cap: "Anomaly detection", dd: "Paid", us: true },
+            { cap: "Community fix network (crowdsourced)", dd: false, us: true },
+            { cap: "MCP server (18 tools for AI editors)", dd: false, us: true },
             { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
-            { cap: "MCP server (17 tools for AI editors)", dd: false, us: true },
             { cap: "Fully open source (MIT)", dd: false, us: true },
-            { cap: "BYOK (your AI key)", dd: false, us: true },
           ].map((row, idx) => (
             <div key={row.cap} className={`grid grid-cols-3 border-b border-inari-border last:border-0 px-4 py-3 ${idx % 2 === 0 ? "bg-inari-bg" : "bg-inari-card/30"}`}>
               <span className="text-sm text-fg-base">{row.cap}</span>
@@ -794,14 +747,6 @@ function McpSection() {
       name: "rollback_vercel",
       desc: "Instantly roll back to the last successful production deployment. One command.",
     },
-    {
-      name: "search_community_fixes",
-      desc: "\"47 teams fixed this error. 96% success rate.\" Query the community fix network before writing code.",
-    },
-    {
-      name: "get_error_trends",
-      desc: "Alert trends by severity, top recurring errors, and comparison to last period. Spot patterns early.",
-    },
   ];
 
   const editors = ["Claude Code", "Cursor", "Windsurf", "VS Code Copilot", "Codex CLI", "Gemini CLI"];
@@ -819,7 +764,7 @@ function McpSection() {
             </h2>
             <p className="mt-4 text-fg-base max-w-md">
               One command connects InariWatch to any AI coding tool.
-              17 tools, 4 live data resources, 5 prompt workflows — your AI gets
+              18 tools, 4 live data resources, 5 prompt workflows — your AI gets
               full production context before you even ask.
             </p>
           </div>
@@ -866,7 +811,7 @@ function McpSection() {
 
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="rounded-lg border border-inari-border bg-inari-card p-3">
-                <p className="text-2xl font-bold text-fg-strong font-mono">17</p>
+                <p className="text-2xl font-bold text-fg-strong font-mono">18</p>
                 <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">tools</p>
               </div>
               <div className="rounded-lg border border-inari-border bg-inari-card p-3">
@@ -902,7 +847,7 @@ function McpSection() {
 
         <div className="mt-8 flex items-center gap-4">
           <Link href="/docs#mcp-overview" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
-            MCP docs — all 17 tools
+            MCP docs — all 18 tools
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
           <span className="text-zinc-700 text-sm">·</span>
