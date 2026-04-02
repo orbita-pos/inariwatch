@@ -1,6 +1,10 @@
 import type { CaptureConfig, ErrorEvent, SubstrateConfig } from "./types.js"
 import { computeErrorFingerprint } from "./fingerprint.js"
 import { parseDSN, createTransport, createLocalTransport, type Transport } from "./transport.js"
+import { getGitContext } from "./git.js"
+import { getEnvironmentContext } from "./environment.js"
+import { getBreadcrumbs, initBreadcrumbs } from "./breadcrumbs.js"
+import { getUser, getTags, getRequestContext } from "./scope.js"
 
 let globalTransport: Transport | null = null
 let globalConfig: CaptureConfig | null = null
@@ -13,13 +17,11 @@ export async function flush(): Promise<void> {
 }
 
 export function init(config: CaptureConfig = {}): void {
-  // Resolve DSN: explicit > env var > local mode
   const dsn = config.dsn || process.env.INARIWATCH_DSN
   const environment = config.environment || process.env.INARIWATCH_ENVIRONMENT || process.env.NODE_ENV
   globalConfig = { ...config, dsn, environment }
 
   if (!dsn) {
-    // Local mode — no DSN, print errors to terminal
     globalTransport = createLocalTransport(globalConfig)
     if (!config.silent) {
       console.log("\x1b[2m[@inariwatch/capture] Local mode — errors print to terminal. Set INARIWATCH_DSN to send to cloud.\x1b[0m")
@@ -29,7 +31,10 @@ export function init(config: CaptureConfig = {}): void {
     globalTransport = createTransport(globalConfig, parsed)
   }
 
-  // Report deploy if release is set (deploy detection)
+  // Initialize breadcrumbs (auto-intercept console + fetch)
+  initBreadcrumbs()
+
+  // Report deploy if release is set
   if (config.release && config.release !== lastReportedRelease) {
     lastReportedRelease = config.release
     reportDeploy(config.release, config.environment)
@@ -44,7 +49,6 @@ export function init(config: CaptureConfig = {}): void {
 
 async function initSubstrate(subConfig: SubstrateConfig, config: CaptureConfig): Promise<void> {
   try {
-    // Dynamic import — optional dependency, may not be installed
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agent: any = await (Function('return import("@inariwatch/substrate-agent")')())
     agent.init({
@@ -83,6 +87,19 @@ function reportDeploy(release: string, environment?: string): void {
   })
 }
 
+/** Enrich event with git, env, breadcrumbs, user, tags, request context */
+function enrichEvent(event: ErrorEvent): ErrorEvent {
+  return {
+    ...event,
+    git: getGitContext() ?? undefined,
+    env: getEnvironmentContext(),
+    breadcrumbs: getBreadcrumbs(),
+    user: getUser(),
+    tags: getTags(),
+    request: getRequestContext() ?? event.request,
+  }
+}
+
 export function captureException(
   error: Error,
   context?: Record<string, unknown>,
@@ -106,11 +123,10 @@ export function captureException(
     routeType: context?.routeType as string | undefined,
   }
 
-  // Compute fingerprint async, then send
   const transport = globalTransport
   const config = globalConfig
   computeErrorFingerprint(title, body).then((fp) => {
-    const fullEvent: ErrorEvent = { ...event, fingerprint: fp }
+    const fullEvent = enrichEvent({ ...event, fingerprint: fp })
 
     if (config.beforeSend) {
       const filtered = config.beforeSend(fullEvent)
@@ -120,9 +136,8 @@ export function captureException(
       transport.send(fullEvent)
     }
 
-    // Auto-flush Substrate recording on exception — uploads full I/O trace
     if (substrateFlush) {
-      substrateFlush().catch(() => {}) // non-blocking, uploads via its own config
+      substrateFlush().catch(() => {})
     }
   })
 }
@@ -137,7 +152,7 @@ export function captureMessage(
   const config = globalConfig
 
   computeErrorFingerprint(message, "").then((fp) => {
-    const event: ErrorEvent = {
+    const event = enrichEvent({
       fingerprint: fp,
       title: message,
       body: message,
@@ -145,7 +160,7 @@ export function captureMessage(
       timestamp: new Date().toISOString(),
       environment: config.environment,
       release: config.release,
-    }
+    })
 
     if (config.beforeSend) {
       const filtered = config.beforeSend(event)
@@ -176,7 +191,7 @@ export function captureLog(
   const config = globalConfig
 
   computeErrorFingerprint(`log:${level}:${message}`, "").then((fp) => {
-    const event: ErrorEvent = {
+    const event = enrichEvent({
       fingerprint: fp,
       title: `[${level.toUpperCase()}] ${message}`,
       body: metadata ? `${message}\n\n${JSON.stringify(metadata, null, 2)}` : message,
@@ -187,7 +202,7 @@ export function captureLog(
       eventType: "log",
       logLevel: level,
       metadata,
-    }
+    })
 
     if (config.beforeSend) {
       const filtered = config.beforeSend(event)

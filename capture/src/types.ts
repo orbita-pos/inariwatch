@@ -22,6 +22,35 @@ export interface SubstrateConfig {
   redact?: Record<string, unknown>
 }
 
+export interface Breadcrumb {
+  timestamp: string
+  category: "console" | "fetch" | "navigation" | "custom"
+  message: string
+  level: "debug" | "info" | "warning" | "error"
+  data?: Record<string, unknown>
+}
+
+export interface GitContext {
+  commit: string
+  branch: string
+  message: string
+  author: string
+  timestamp: string
+  dirty: boolean
+}
+
+export interface EnvironmentContext {
+  node: string
+  platform: string
+  arch: string
+  cpuCount: number
+  totalMemoryMB: number
+  freeMemoryMB: number
+  heapUsedMB: number
+  heapTotalMB: number
+  uptime: number
+}
+
 export interface ErrorEvent {
   fingerprint: string
   title: string
@@ -31,16 +60,30 @@ export interface ErrorEvent {
   environment?: string
   release?: string
   context?: Record<string, unknown>
-  request?: { method: string; url: string }
+  request?: {
+    method: string
+    url: string
+    headers?: Record<string, string>
+    query?: Record<string, string>
+    body?: unknown
+    ip?: string
+  }
   runtime?: "nodejs" | "edge"
   routePath?: string
   routeType?: string
-  /** Event type — "error" (default), "log", or "deploy" */
   eventType?: "error" | "log" | "deploy"
-  /** Log level for log events */
   logLevel?: "debug" | "info" | "warn" | "error" | "fatal"
-  /** Structured metadata for log events */
   metadata?: Record<string, unknown>
+  /** Git context — injected at build time */
+  git?: GitContext
+  /** Last N actions before the error */
+  breadcrumbs?: Breadcrumb[]
+  /** System environment at time of error */
+  env?: EnvironmentContext
+  /** User who triggered the error */
+  user?: { id?: string; role?: string }
+  /** Custom tags */
+  tags?: Record<string, string>
 }
 
 export interface ParsedDSN {
