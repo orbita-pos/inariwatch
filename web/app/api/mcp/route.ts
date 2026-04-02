@@ -31,6 +31,7 @@ import * as runCheck from "./tools/run-check";
 import * as askInari from "./tools/ask-inari";
 import * as getErrorTrends from "./tools/get-error-trends";
 import * as createUptimeMonitor from "./tools/create-uptime-monitor";
+import * as runHealthCheck from "./tools/run-health-check";
 
 type ToolHandler = {
   execute: (args: Record<string, unknown>, user: McpUser) => Promise<string>;
@@ -55,6 +56,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ask_inari: askInari,
   get_error_trends: getErrorTrends,
   create_uptime_monitor: createUptimeMonitor,
+  run_health_check: runHealthCheck,
 };
 
 const PROTOCOL_VERSION = "2024-11-05";

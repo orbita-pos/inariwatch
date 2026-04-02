@@ -327,4 +327,16 @@ export const TOOLS: ToolDef[] = [
     annotations: { idempotentHint: false },
     costTier: "cheap",
   },
+  {
+    name: "run_health_check",
+    description:
+      "Run a complete health check of the InariWatch installation. Checks capture SDK, integrations, notifications, AI key, cron polling, database, substrate, and MCP tools. Returns a structured report with pass/warn/fail for each check.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    costTier: "moderate",
+  },
 ];
