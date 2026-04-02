@@ -648,103 +648,40 @@ function WhyNotNative() {
 
 function Integrations() {
   const integrations = [
-    {
-      name: "GitHub",
-      alerts: ["Failed CI checks", "Stale & unreviewed PRs", "Pre-deploy risk on PRs"],
-      status: "live",
-    },
-    {
-      name: "Vercel",
-      alerts: ["Failed production deploys", "Failed preview deploys", "Instant rollback"],
-      status: "live",
-    },
-    {
-      name: "Sentry",
-      alerts: ["New issues", "Regressions (resolved → reopen)"],
-      status: "live",
-    },
-    {
-      name: "Uptime",
-      alerts: ["Endpoint downtime", "Slow response time (configurable)"],
-      status: "live",
-    },
-    {
-      name: "PostgreSQL",
-      alerts: ["Connection failures", "High connections", "Long-running queries"],
-      status: "live",
-    },
-    {
-      name: "npm / Cargo",
-      alerts: ["Critical CVEs", "High-severity vulnerabilities"],
-      status: "live",
-    },
-    {
-      name: "Datadog",
-      alerts: ["Log anomalies", "Infrastructure spikes", "APM Traces"],
-      status: "live",
-    },
-    {
-      name: "Expo",
-      alerts: ["EAS Build failures", "OTA Update rollbacks"],
-      status: "live",
-    },
-    {
-      name: "@inariwatch/capture",
-      alerts: ["Exceptions from your app", "Custom log events", "Deploy markers"],
-      status: "live",
-    },
+    { name: "GitHub", desc: "CI, PRs, risk scoring" },
+    { name: "Vercel", desc: "Deploys, rollback" },
+    { name: "Sentry", desc: "Issues, regressions" },
+    { name: "Datadog", desc: "Logs, infra, APM" },
+    { name: "Expo", desc: "Builds, OTA updates" },
+    { name: "PostgreSQL", desc: "Connections, queries" },
+    { name: "Uptime", desc: "Endpoint monitoring" },
+    { name: "npm / Cargo", desc: "CVEs, vulnerabilities" },
+    { name: "Capture SDK", desc: "Your app errors" },
   ];
 
   return (
-    <section id="integrations" className="py-24 border-t border-inari-border overflow-hidden">
+    <section id="integrations" className="py-16 border-t border-inari-border">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Integrations</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
+        <div className="text-center mb-10">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">9 Integrations</p>
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
             Monitors your entire stack
           </h2>
-          <p className="mt-4 text-fg-base max-w-md">
-            GitHub CI, Vercel deploys, Sentry errors, Datadog monitors, uptime,
-            database health, dependency vulnerabilities, and your own app via the capture SDK — all in one place, already correlated.
+          <p className="mt-3 text-fg-base max-w-lg mx-auto">
+            All signals correlated into one brain. When Vercel fails and Sentry spikes at the same time, you get one alert — not three.
           </p>
         </div>
 
-        <div className="grid gap-10 lg:grid-cols-[1fr_1.6fr] items-start">
-          <div className="relative rounded-2xl overflow-hidden aspect-square lg:aspect-[3/4] hidden lg:block">
-            <Image
-              src="/integration.png"
-              alt="Inari fox watching your integrations"
-              fill
-              className="object-cover object-center"
-              quality={85}
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-inari-bg" />
-            <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-inari-bg to-transparent" />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {integrations.map((item) => (
-              <div
-                key={item.name}
-                className="rounded-xl border border-inari-border bg-inari-card p-5 hover:border-inari-accent/30 hover:shadow-[0_0_20px_rgba(124,58,237,0.06)] transition-all"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-fg-strong">{item.name}</h3>
-                  <span className="text-xs font-mono text-inari-accent bg-inari-accent-dim px-2 py-0.5 rounded-full border border-inari-accent/20">
-                    live
-                  </span>
-                </div>
-                <ul className="space-y-1">
-                  {item.alerts.map((a) => (
-                    <li key={a} className="flex items-start gap-2 text-xs text-zinc-500">
-                      <span className="mt-0.5 text-inari-accent/60">·</span>
-                      {a}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3">
+          {integrations.map((item) => (
+            <div
+              key={item.name}
+              className="group flex flex-col items-center gap-2 rounded-xl border border-inari-border bg-inari-card p-4 hover:border-inari-accent/30 transition-all text-center"
+            >
+              <span className="text-sm font-semibold text-fg-strong">{item.name}</span>
+              <span className="text-[11px] text-zinc-500 leading-tight">{item.desc}</span>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -758,126 +695,65 @@ function AIFeatures() {
     {
       icon: <Wrench className="h-5 w-5" />,
       title: "AI Code Remediation",
-      body: "Reads your repo, writes the fix, pushes a branch, waits for CI. If CI fails, reads the logs and retries with a different approach — up to 3 times. Opens the PR only when it passes.",
+      body: "Reads your repo, writes the fix, pushes a branch, waits for CI, retries up to 3×. Opens the PR only when it passes.",
       tag: "Unique",
-      highlight: true,
-    },
-    {
-      icon: <GitPullRequest className="h-5 w-5" />,
-      title: "Pre-deploy Risk Assessment",
-      body: "AI reads every PR diff against your actual incident history and posts a risk score (Low / Medium / High) directly on GitHub before you merge. No config needed.",
-      tag: "GitHub PRs",
-      highlight: true,
-    },
-    {
-      icon: <TrendingUp className="h-5 w-5" />,
-      title: "Anomaly Detection",
-      body: "Detects alert frequency spikes (3–5× vs baseline), repeating failure loops, integration degradation, and silent projects — proactively, before they escalate.",
-      tag: "Proactive",
-    },
-    {
-      icon: <Brain className="h-5 w-5" />,
-      title: "Alert Correlation",
-      body: "When Vercel fails and Sentry spikes at the same time, AI groups them into one correlated alert with a single root cause. 5 alerts become 1 actionable message.",
-      tag: "Smart alerts",
-    },
-    {
-      icon: <MessageSquare className="h-5 w-5" />,
-      title: "Ask Inari",
-      body: "Chat with your live monitoring data. \"What failed this week?\", \"Which integration has the most errors?\", \"Summarize last night's incidents.\" Inari has the context.",
-      tag: "Ops copilot",
-    },
-    {
-      icon: <Bell className="h-5 w-5" />,
-      title: "On-Call Rotations",
-      body: "Set up timezone-aware schedules with multi-level escalations. When a critical issue happens, InariWatch pages the specific developer on-call (and escalates if they don't respond).",
-      tag: "PagerDuty Alternative",
-    },
-    {
-      icon: <MessageSquare className="h-5 w-5" />,
-      title: "Interactive Chat ACK",
-      body: "Acknowledge or resolve alerts directly from Telegram or Slack using interactive inline buttons. No need to open your laptop at 3 AM just to silence an alarm.",
-      tag: "Frictionless",
-    },
-    {
-      icon: <Shield className="h-5 w-5" />,
-      title: "Incident Storm Control",
-      body: "When your database crashes, you get 1 correlated 'Incident Storm' alert instead of 50 individual service failure emails. Silence the noise when the whole stack is burning.",
-      tag: "Alert Fatigue",
-    },
-    {
-      icon: <Activity className="h-5 w-5" />,
-      title: "Uptime Monitoring",
-      body: "Constant 1-minute global pings to your endpoints. If your site goes down, InariWatch catches it instantly, creates an alert, and updates your Status Page.",
-      tag: "1-min pings",
-    },
-    {
-      icon: <Hash className="h-5 w-5" />,
-      title: "Slack Bot",
-      body: "Errors arrive in Slack with AI diagnosis. Click Fix It to trigger remediation — progress, PR link, and Approve & Merge all in-thread. Ask @InariWatch questions, manage on-call, monitor deploys.",
-      tag: "Control surface",
-      highlight: true,
-    },
-    {
-      icon: <Monitor className="h-5 w-5" />,
-      title: "VS Code Extension",
-      body: "Errors appear as inline squiggly lines in your editor. Hover for AI diagnosis. Sidebar shows all alerts grouped by file. Status bar shows unread count. Works in local mode too.",
-      tag: "In your editor",
-    },
-    {
-      icon: <Film className="h-5 w-5" />,
-      title: "Substrate I/O Recording",
-      body: "Capture every HTTP call, DB query, and file operation. When an error occurs, the last 60 seconds of I/O are attached to the alert. The AI sees exactly what your code did.",
-      tag: "Full trace",
     },
     {
       icon: <Zap className="h-5 w-5" />,
       title: "Community Fix Network",
-      body: "Your error was already fixed by 47 other teams. Success rate: 96%. One click to apply. The more teams use InariWatch, the faster everyone's errors get fixed.",
+      body: "Your error was already fixed by 47 other teams. Success rate: 96%. One click to apply.",
       tag: "Network effect",
-      highlight: true,
     },
     {
       icon: <Shield className="h-5 w-5" />,
       title: "Auto-Heal",
-      body: "Site goes down? InariWatch rolls back to the last working deploy in 30 seconds, then fixes the bug in the background. Total downtime: ~90 seconds. No human needed.",
+      body: "Site goes down? Rollback in 30 seconds, then AI fixes the bug in the background. ~90s total downtime.",
       tag: "Self-healing",
-      highlight: true,
+    },
+    {
+      icon: <Hash className="h-5 w-5" />,
+      title: "Slack & Telegram Bot",
+      body: "14 commands, Fix It button, AI diagnosis, on-call management, deploy monitoring — all in-thread.",
+      tag: "Control surface",
+    },
+    {
+      icon: <GitPullRequest className="h-5 w-5" />,
+      title: "Pre-deploy Risk Assessment",
+      body: "AI reads every PR diff against your incident history and posts a risk score on GitHub before you merge.",
+      tag: "Prevention",
+    },
+    {
+      icon: <MessageSquare className="h-5 w-5" />,
+      title: "Ask Inari",
+      body: "\"What broke yesterday?\" Chat with your live monitoring data. Inari has full context — alerts, remediations, uptime.",
+      tag: "Ops copilot",
     },
   ];
 
   return (
-    <section id="features" className="py-24 border-t border-inari-border">
+    <section id="features" className="py-20 border-t border-inari-border">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14">
+        <div className="mb-10 text-center">
           <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Platform</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-            A complete automated monitoring platform
+          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
+            Not just monitoring. Automated fixing.
           </h2>
-          <p className="mt-4 text-fg-base max-w-md">
-            Alert analysis and correlation are included free. Bring your own AI key
-            (Claude, OpenAI, Grok, DeepSeek, or Gemini) to unlock auto-fix and remediation.
+          <p className="mt-3 text-fg-base max-w-lg mx-auto">
+            AI analysis included free. Bring your own key (Claude, OpenAI, Grok, DeepSeek, Gemini) for auto-fix.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (
             <div
               key={f.title}
-              className={`group rounded-xl border p-6 transition-all hover:shadow-[0_0_24px_rgba(124,58,237,0.07)] ${f.highlight
-                ? "border-inari-accent/30 bg-inari-accent-dim hover:border-inari-accent/50"
-                : "border-inari-border bg-inari-card hover:border-inari-accent/30"
-                }`}
+              className="group rounded-xl border border-inari-accent/20 bg-inari-accent-dim p-6 transition-all hover:border-inari-accent/40 hover:shadow-[0_0_24px_rgba(124,58,237,0.07)]"
             >
               <div className="mb-4 flex items-center justify-between">
-                <div className={`flex h-10 w-10 items-center justify-center rounded-lg border text-inari-accent transition-colors ${f.highlight ? "border-inari-accent/30 bg-inari-accent/10" : "border-inari-border bg-inari-bg group-hover:border-inari-accent/30"
-                  }`}>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-accent/30 bg-inari-accent/10 text-inari-accent">
                   {f.icon}
                 </div>
-                <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${f.highlight
-                  ? "text-inari-accent bg-inari-accent/10 border border-inari-accent/20"
-                  : "text-zinc-600 bg-zinc-800/50"
-                  }`}>
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full text-inari-accent bg-inari-accent/10 border border-inari-accent/20">
                   {f.tag}
                 </span>
               </div>
@@ -885,6 +761,13 @@ function AIFeatures() {
               <p className="text-sm text-fg-base leading-relaxed">{f.body}</p>
             </div>
           ))}
+        </div>
+
+        <div className="mt-8 text-center">
+          <Link href="/docs#features" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors">
+            See all 14 features — on-call, uptime, anomaly detection, incident storms, and more
+            <ArrowRight className="inline ml-1 h-3.5 w-3.5" />
+          </Link>
         </div>
       </div>
     </section>
@@ -1069,10 +952,10 @@ export default function LandingPage() {
         <StatsBar />
         <RemediationWalkthrough />
         <AutoMergeSafety />
-        <WhyNotNative />
         <Integrations />
         <AIFeatures />
         <McpSection />
+        <WhyNotNative />
       </main>
       <Footer />
     </div>
