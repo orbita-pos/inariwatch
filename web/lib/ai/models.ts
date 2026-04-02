@@ -51,10 +51,17 @@ export const GEMINI_MODELS: ModelInfo[] = [
   { id: "gemini-2.0-flash", label: "Flash 2.0",  desc: "Latest & fast",   tier: "powerful" },
 ];
 
+export const GROQ_MODELS: ModelInfo[] = [
+  { id: "llama-3.1-70b-versatile", label: "Llama 3.1 70B", desc: "Fast & capable", tier: "balanced" },
+  { id: "llama-3.1-8b-instant",    label: "Llama 3.1 8B",  desc: "Ultra-fast",     tier: "fast" },
+  { id: "mixtral-8x7b-32768",      label: "Mixtral 8x7B",  desc: "MoE balanced",   tier: "balanced" },
+];
+
 export function getModelsForProvider(provider: AIProvider): ModelInfo[] {
   switch (provider) {
     case "claude":   return CLAUDE_MODELS;
     case "grok":     return GROK_MODELS;
+    case "groq":     return GROQ_MODELS;
     case "deepseek": return DEEPSEEK_MODELS;
     case "gemini":   return GEMINI_MODELS;
     default:         return OPENAI_MODELS;
@@ -93,6 +100,12 @@ const DEFAULTS: Record<AIProvider, Record<AITask, string>> = {
     chat:        "gemini-1.5-flash",
     remediation: "gemini-1.5-pro",
     postmortem:  "gemini-1.5-pro",
+  },
+  groq: {
+    analysis:    "llama-3.1-70b-versatile",
+    chat:        "llama-3.1-70b-versatile",
+    remediation: "llama-3.1-70b-versatile",
+    postmortem:  "llama-3.1-70b-versatile",
   },
 };
 

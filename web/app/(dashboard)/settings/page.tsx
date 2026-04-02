@@ -69,7 +69,7 @@ export default async function SettingsPage() {
         .where(eq(slackChannelMappings.installationId, slackInstall.id))
     : [];
   const desktopKey = keys.find((k) => k.service === "desktop");
-  const AI_PRIORITY: Record<string, number> = { claude: 0, openai: 1, grok: 2, deepseek: 3, gemini: 4 };
+  const AI_PRIORITY: Record<string, number> = { claude: 0, openai: 1, groq: 2, grok: 3, deepseek: 4, gemini: 5 };
   const AI_SERVICES = Object.keys(AI_PRIORITY);
   const aiKeyRow = keys
     .filter((k) => AI_SERVICES.includes(k.service))

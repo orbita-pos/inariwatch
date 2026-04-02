@@ -1,12 +1,12 @@
 /**
- * Unified AI client — Claude, OpenAI, Grok, DeepSeek, Gemini.
- * Grok and DeepSeek are OpenAI-compatible (different base URL).
+ * Unified AI client — Claude, OpenAI, Grok, DeepSeek, Gemini, Groq.
+ * Grok, DeepSeek, and Groq are OpenAI-compatible (different base URL).
  * Gemini uses its own REST API.
  */
 
 export type AIMessage = { role: "user" | "assistant"; content: string };
 
-export type AIProvider = "claude" | "openai" | "grok" | "deepseek" | "gemini";
+export type AIProvider = "claude" | "openai" | "grok" | "deepseek" | "gemini" | "groq";
 
 /**
  * Detect the AI provider from the key prefix.
@@ -16,6 +16,7 @@ export type AIProvider = "claude" | "openai" | "grok" | "deepseek" | "gemini";
 export function detectProvider(key: string): AIProvider {
   if (key.startsWith("sk-ant-")) return "claude";
   if (key.startsWith("xai-"))    return "grok";
+  if (key.startsWith("gsk_"))    return "groq";
   if (key.startsWith("AIza"))    return "gemini";
   return "openai"; // sk-... → openai (DeepSeek also uses sk- but is disambiguated via explicit service)
 }
@@ -37,6 +38,8 @@ export async function callAI(
       return callClaude(apiKey, systemPrompt, messages, opts);
     case "grok":
       return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.x.ai/v1");
+    case "groq":
+      return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.groq.com/openai/v1");
     case "deepseek":
       return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.deepseek.com/v1");
     case "gemini":

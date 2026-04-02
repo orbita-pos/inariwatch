@@ -5,7 +5,7 @@ import { Sparkles, Trash2, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { saveAIKey, deleteAIKeyByProvider, setActiveAIProvider, saveModelPreferences } from "./ai-key-actions";
 import {
-  TASK_LABELS, CLAUDE_MODELS, OPENAI_MODELS, GROK_MODELS, DEEPSEEK_MODELS, GEMINI_MODELS,
+  TASK_LABELS, CLAUDE_MODELS, OPENAI_MODELS, GROK_MODELS, GROQ_MODELS, DEEPSEEK_MODELS, GEMINI_MODELS,
   DEFAULT_MODEL_PREFS,
   type AITask, type AIModelPreferences, type ModelInfo,
 } from "@/lib/ai/models";
@@ -26,6 +26,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   grok:     "Grok (xAI)",
   deepseek: "DeepSeek",
   gemini:   "Gemini (Google)",
+  groq:     "Groq (Llama)",
 };
 
 function getModels(provider: string | null): ModelInfo[] {
@@ -34,6 +35,7 @@ function getModels(provider: string | null): ModelInfo[] {
     case "grok":     return GROK_MODELS;
     case "deepseek": return DEEPSEEK_MODELS;
     case "gemini":   return GEMINI_MODELS;
+    case "groq":     return GROQ_MODELS;
     default:         return OPENAI_MODELS;
   }
 }
@@ -45,6 +47,7 @@ function getDefaultLabel(task: AITask, provider: string | null): string {
     grok:     { analysis: "Grok 2 Mini",  chat: "Grok 2",    remediation: "Grok 2",    postmortem: "Grok 2" },
     deepseek: { analysis: "DeepSeek V3",  chat: "DeepSeek V3", remediation: "DeepSeek R1", postmortem: "DeepSeek V3" },
     gemini:   { analysis: "Flash 1.5",    chat: "Flash 1.5", remediation: "Pro 1.5",   postmortem: "Pro 1.5" },
+    groq:     { analysis: "Llama 3.1 70B", chat: "Llama 3.1 70B", remediation: "Llama 3.1 70B", postmortem: "Llama 3.1 70B" },
   };
   return defaults[provider ?? "openai"]?.[task] ?? "Auto";
 }

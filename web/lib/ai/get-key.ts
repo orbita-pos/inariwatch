@@ -12,10 +12,10 @@ export interface AIKeyResult {
   isPlatformKey?: boolean;
 }
 
-const AI_SERVICES: AIProvider[] = ["claude", "openai", "grok", "deepseek", "gemini"];
-// Priority order: claude → openai → grok → deepseek → gemini
+const AI_SERVICES: AIProvider[] = ["claude", "openai", "groq", "grok", "deepseek", "gemini"];
+// Priority order: claude → openai → groq → grok → deepseek → gemini
 const PRIORITY: Record<AIProvider, number> = {
-  claude: 0, openai: 1, grok: 2, deepseek: 3, gemini: 4,
+  claude: 0, openai: 1, groq: 2, grok: 3, deepseek: 4, gemini: 5,
 };
 
 /** Platform-funded GPT-4o-mini key for free-tier analysis (auto-analyze + correlate). */
