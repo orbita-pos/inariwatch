@@ -59,7 +59,7 @@ const NAV = [
       { id: "int-uptime",    label: "Uptime" },
       { id: "int-postgres",  label: "PostgreSQL" },
       { id: "int-npm",       label: "npm / Cargo" },
-      { id: "int-capture",   label: "@inariwatch/capture" },
+      { id: "int-capture",   label: "@inariwatch/capture (v2)" },
     ],
   },
   {
@@ -1047,8 +1047,33 @@ export const onRequestError = captureRequestError`}</CodeBlock>
                 ["captureLog(message, level?, meta?)", "Send structured log event", "captureLog(\"DB timeout\", \"error\", { query })"],
                 ["captureMessage(message, level?)", "Send plain text event", "captureMessage(\"Deploy started\", \"info\")"],
                 ["flush()", "Wait for pending events (call before exit)", "await flush()"],
+                ["addBreadcrumb({ message, category?, level? })", "Add custom breadcrumb", "addBreadcrumb({ message: \"checkout started\" })"],
+                ["setUser({ id?, role? })", "Set user context (email stripped for privacy)", "setUser({ id: \"u123\", role: \"admin\" })"],
+                ["setTag(key, value)", "Set custom tag for filtering", "setTag(\"feature\", \"checkout\")"],
+                ["setRequestContext({ method, url, headers?, body? })", "Set HTTP request context", "setRequestContext({ method: \"POST\", url: \"/api/users\" })"],
               ]}
             />
+
+            <SubHeading id="int-capture-context">Automatic context (v2)</SubHeading>
+            <P>
+              Every error automatically includes rich context — no code changes needed.
+              Your AI gets the full picture without guessing.
+            </P>
+            <Table
+              head={["Context", "How it works", "What the AI sees"]}
+              rows={[
+                ["Git", "Injected at build time by withInariWatch — commit, branch, message", "\"commit f5eface on main — refactor session handling (23 min ago)\""],
+                ["Breadcrumbs", "Auto-intercepts console.log + fetch — last 30 actions", "GET /auth/session → 200 → console.log(\"Processing\") → POST /api/users → 500"],
+                ["Environment", "Node version, OS, memory, CPU at crash time", "Node v20, linux, heap 890/1130MB, uptime 24h"],
+                ["Request", "Full HTTP request (headers redacted, body scrubbed)", "POST /api/users { role: \"admin\" }"],
+                ["User", "Set via setUser() — id + role only (email stripped)", "user_456 (admin)"],
+                ["Tags", "Set via setTag() — custom key-value pairs", "feature=checkout, plan=pro"],
+              ]}
+            />
+            <p className="text-sm text-zinc-500 mt-2">
+              Sensitive data is scrubbed automatically: Bearer tokens, JWTs, passwords, API keys, credit card numbers,
+              connection strings, and auth headers are all redacted before leaving your app.
+            </p>
 
             <SubHeading id="int-capture-exports">Import paths</SubHeading>
             <Table
