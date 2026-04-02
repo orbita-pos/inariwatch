@@ -603,16 +603,16 @@ function WhyNotNative() {
 // ── Integrations ──────────────────────────────────────────────────────────────
 
 function Integrations() {
-  const integrations: { name: string; desc: string; icon: React.ReactNode }[] = [
-    { name: "GitHub", desc: "CI, PRs, risk scoring", icon: <GitHubIcon className="h-6 w-6" /> },
-    { name: "Vercel", desc: "Deploys, rollback", icon: <VercelIcon className="h-6 w-6" /> },
-    { name: "Sentry", desc: "Issues, regressions", icon: <SentryIcon className="h-6 w-6" /> },
-    { name: "Datadog", desc: "Logs, infra, APM", icon: <DatadogIcon className="h-6 w-6" /> },
-    { name: "Expo", desc: "Builds, OTA updates", icon: <ExpoIcon className="h-6 w-6" /> },
-    { name: "PostgreSQL", desc: "Connections, queries", icon: <PostgreSQLIcon className="h-6 w-6" /> },
-    { name: "Uptime", desc: "Endpoint monitoring", icon: <UptimeIcon className="h-6 w-6" /> },
-    { name: "npm / Cargo", desc: "CVEs, vulnerabilities", icon: <NpmIcon className="h-6 w-6" /> },
-    { name: "Capture SDK", desc: "Your app errors", icon: <Zap className="h-6 w-6 text-inari-accent" /> },
+  const integrations: { name: string; icon: React.ReactNode }[] = [
+    { name: "GitHub", icon: <GitHubIcon className="h-5 w-5" /> },
+    { name: "Vercel", icon: <VercelIcon className="h-5 w-5" /> },
+    { name: "Sentry", icon: <SentryIcon className="h-5 w-5" /> },
+    { name: "Datadog", icon: <DatadogIcon className="h-5 w-5" /> },
+    { name: "Expo", icon: <ExpoIcon className="h-5 w-5" /> },
+    { name: "PostgreSQL", icon: <PostgreSQLIcon className="h-5 w-5" /> },
+    { name: "Uptime", icon: <UptimeIcon className="h-5 w-5" /> },
+    { name: "npm / Cargo", icon: <NpmIcon className="h-5 w-5" /> },
+    { name: "Capture SDK", icon: <Zap className="h-5 w-5 text-inari-accent" /> },
   ];
 
   return (
@@ -628,15 +628,14 @@ function Integrations() {
           </p>
         </div>
 
-        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3">
+        <div className="flex flex-wrap justify-center gap-3">
           {integrations.map((item) => (
             <div
               key={item.name}
-              className="group flex flex-col items-center gap-2 rounded-xl border border-inari-border bg-inari-card p-4 hover:border-inari-accent/30 transition-all text-center"
+              className="flex items-center gap-2 rounded-full border border-inari-border bg-inari-card px-4 py-2 hover:border-inari-accent/30 transition-all"
             >
-              <div className="mb-1">{item.icon}</div>
-              <span className="text-sm font-semibold text-fg-strong">{item.name}</span>
-              <span className="text-[11px] text-zinc-500 leading-tight">{item.desc}</span>
+              <span className="shrink-0 text-zinc-400">{item.icon}</span>
+              <span className="text-sm font-medium text-fg-strong whitespace-nowrap">{item.name}</span>
             </div>
           ))}
         </div>
