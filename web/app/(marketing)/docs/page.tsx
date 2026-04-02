@@ -59,7 +59,7 @@ const NAV = [
       { id: "int-uptime",    label: "Uptime" },
       { id: "int-postgres",  label: "PostgreSQL" },
       { id: "int-npm",       label: "npm / Cargo" },
-      { id: "int-capture",   label: "@inariwatch/capture (v2)" },
+      { id: "int-capture",   label: "@inariwatch/capture" },
     ],
   },
   {
@@ -1054,7 +1054,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               ]}
             />
 
-            <SubHeading id="int-capture-context">Automatic context (v2)</SubHeading>
+            <SubHeading id="int-capture-context">Automatic context</SubHeading>
             <P>
               Every error automatically includes rich context — no code changes needed.
               Your AI gets the full picture without guessing.
