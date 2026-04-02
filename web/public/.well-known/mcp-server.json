@@ -30,12 +30,8 @@
     "scopes": ["read", "write", "execute"],
     "discovery": "https://mcp.inariwatch.com/api/mcp/.well-known/oauth-authorization-server"
   },
-  "tier": "freemium",
-  "plans": {
-    "free": { "tools": 8, "rate_limit": "100/hour" },
-    "pro": { "tools": 18, "rate_limit": "1000/hour" },
-    "enterprise": { "tools": 21, "rate_limit": "10000/hour" }
-  },
+  "tier": "free",
+  "rate_limit": "1000/hour",
   "sla": {
     "uptime": "99.9%",
     "p95_latency_ms": 500
