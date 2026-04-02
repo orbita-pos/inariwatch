@@ -157,9 +157,9 @@ const NAV = [
     items: [
       { id: "mcp-overview",   label: "Overview" },
       { id: "mcp-setup",      label: "Setup" },
-      { id: "mcp-tools",      label: "Tools (18)" },
+      { id: "mcp-tools",      label: "Tools (21)" },
       { id: "mcp-resources",  label: "Resources (4)" },
-      { id: "mcp-prompts",    label: "Prompts (5)" },
+      { id: "mcp-prompts",    label: "Prompts (7)" },
       { id: "mcp-auth",       label: "Auth & scopes" },
     ],
   },
@@ -1419,7 +1419,9 @@ export const onRequestError = captureRequestError`}</CodeBlock>
             <StepList steps={[
               { title: "Analyzing repository", body: "The AI connects to your GitHub repo and reads the codebase." },
               { title: "Diagnosing root cause", body: "AI analyzes the error with context from Sentry, Vercel, Substrate recordings, and past fixes." },
-              { title: "Generating fix", body: "Code changes are generated, self-reviewed, and pushed to a new branch." },
+              { title: "Generating fix", body: "Code changes are generated and pushed to a new branch." },
+              { title: "Security scan", body: "ESLint + AI review scans the fix for vulnerabilities (SQL injection, XSS, command injection, etc.). HIGH findings block auto-merge." },
+              { title: "Self-review", body: "A second AI call reviews the fix like a senior engineer — score, concerns, recommendation." },
               { title: "Waiting for CI", body: "The bot waits for GitHub Actions to pass (retries up to 3 times on failure)." },
               { title: "PR created", body: <>A PR appears in the thread with confidence score and EAP verification. Click <strong>Approve &amp; Merge</strong> to merge from Slack.</> },
             ]} />
@@ -1958,7 +1960,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               Click &quot;Connect&quot; in your tool, approve in the browser, done. PKCE (S256) enforced.
             </p>
 
-            <SubHeading id="mcp-tools">Tools (18)</SubHeading>
+            <SubHeading id="mcp-tools">Tools (21)</SubHeading>
             <p>Once connected, your AI can call these tools:</p>
 
             <Table
@@ -1982,6 +1984,9 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["get_error_trends", "Error trends: alerts/day, top recurring errors, period comparison", "read", "200/min"],
                 ["create_uptime_monitor", "Create a new uptime monitor for a URL", "execute", "200/min"],
                 ["run_health_check", "Full installation health check (capture, integrations, AI key, DB, substrate)", "read", "30/min"],
+                ["reproduce_bug", "Replay I/O timeline before a crash (HTTP, DB, file ops) via Substrate recording", "read", "30/min"],
+                ["simulate_fix", "AI simulates whether a proposed fix would resolve the bug based on I/O recording", "read", "5/min"],
+                ["verify_remediation", "Full verification chain: fix → CI → merge → monitoring → recurrence check", "read", "30/min"],
               ]}
             />
 
@@ -2012,7 +2017,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               <code>GET /api/mcp/events</code> when subscribed resources change (polled every 10s).
             </p>
 
-            <SubHeading id="mcp-prompts">Prompts (5)</SubHeading>
+            <SubHeading id="mcp-prompts">Prompts (7)</SubHeading>
             <p>
               Predefined workflows that appear as commands in your AI tool.
               Each prompt orchestrates multiple tool calls automatically.
@@ -2026,6 +2031,8 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["fix-this", "Find critical alert → search known fixes → preview AI fix (dry run) → ask before applying"],
                 ["post-deploy-check", "After deploy: check uptime, new errors, build logs → health report"],
                 ["weekly-summary", "Past 7 days: alert trends, top patterns, system health (5-10 bullet points)"],
+                ["production-health-check", "Scheduled: automated hourly health check with action items"],
+                ["daily-report", "Scheduled: daily ops report — new alerts, resolved, trends, integration health"],
               ]}
             />
 

@@ -165,7 +165,7 @@ function DemoVideo() {
 function StatsBar() {
   const stats = [
     { value: "9", label: "integrations monitored" },
-    { value: "18", label: "MCP tools" },
+    { value: "21", label: "MCP tools" },
     { value: "3×", label: "CI retry loop" },
     { value: "6", label: "AI providers supported" },
   ];
@@ -575,7 +575,7 @@ function WhyNotNative() {
             { cap: "Pushes branch + waits for CI (3× retry)", dd: false, us: true },
             { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
             { cap: "Community fix network (crowdsourced)", dd: false, us: true },
-            { cap: "MCP server (18 tools for AI editors)", dd: false, us: true },
+            { cap: "MCP server (21 tools for AI editors)", dd: false, us: true },
             { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
             { cap: "Fully open source (MIT)", dd: false, us: true },
           ].map((row, idx) => (
@@ -786,7 +786,7 @@ function McpSection() {
             </h2>
             <p className="mt-4 text-fg-base max-w-md">
               One command connects InariWatch to any AI coding tool.
-              18 tools, 4 live data resources, 5 prompt workflows — your AI gets
+              21 tools, 4 live data resources, 7 prompt workflows — your AI gets
               full production context before you even ask.
             </p>
           </div>
@@ -833,7 +833,7 @@ function McpSection() {
 
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="rounded-lg border border-inari-border bg-inari-card p-3">
-                <p className="text-2xl font-bold text-fg-strong font-mono">18</p>
+                <p className="text-2xl font-bold text-fg-strong font-mono">21</p>
                 <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">tools</p>
               </div>
               <div className="rounded-lg border border-inari-border bg-inari-card p-3">
@@ -841,7 +841,7 @@ function McpSection() {
                 <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">resources</p>
               </div>
               <div className="rounded-lg border border-inari-border bg-inari-card p-3">
-                <p className="text-2xl font-bold text-fg-strong font-mono">5</p>
+                <p className="text-2xl font-bold text-fg-strong font-mono">7</p>
                 <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">prompts</p>
               </div>
             </div>
@@ -869,7 +869,7 @@ function McpSection() {
 
         <div className="mt-8 flex items-center gap-4">
           <Link href="/docs#mcp-overview" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
-            MCP docs — all 18 tools
+            MCP docs — all 21 tools
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
           <span className="text-zinc-700 text-sm">·</span>

@@ -19,7 +19,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 │   │   ├── api/          # API routes: webhooks, cron, stripe, auth, chat, notifications, slack
 │   │   ├── invite/       # Workspace invite flow
 │   │   └── status/       # Public status page
-│   │   └── api/mcp/      # Hosted MCP server (17 tools, 4 resources, 5 prompts)
+│   │   └── api/mcp/      # Hosted MCP server (21 tools, 4 resources, 7 prompts)
 │   ├── lib/
 │   │   ├── ai/           # AI layer: correlate, remediate, auto-analyze, postmortem, risk assessment, community-fix-lookup
 │   │   ├── db/           # Drizzle ORM schema + migrations (Neon PostgreSQL)
@@ -42,7 +42,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 - **Framework:** Next.js 15 (App Router), TypeScript
 - **Database:** PostgreSQL via Neon + Drizzle ORM
 - **Auth:** NextAuth (credentials + Google)
-- **AI:** Multi-provider BYOK — Claude, OpenAI, Gemini, DeepSeek, Grok (5 providers)
+- **AI:** Multi-provider BYOK — Claude, OpenAI, Groq, Grok, DeepSeek, Gemini (6 providers)
 - **Deploy:** Vercel
 - **Email:** Resend
 - **Push notifications:** Web Push API
@@ -91,7 +91,7 @@ All business logic lives in `web/lib/services/`. Every surface (MCP, Slack, dash
 - When adding a new operation, add it to the service first, then wire it to each surface
 
 **Surfaces that consume services:**
-- MCP web tools (`web/app/api/mcp/tools/*.ts`) — 17 tools
+- MCP web tools (`web/app/api/mcp/tools/*.ts`) — 21 tools
 - Slack bot (`web/lib/slack/actions.ts`) — acknowledgeAlertCore, resolveAlertCore
 - Dashboard (`web/app/(dashboard)/alerts/[id]/ai-actions.ts`)
 - Extension endpoints (`web/app/api/extension/`) — DEPRECATED, migrating to MCP
@@ -105,9 +105,9 @@ All business logic lives in `web/lib/services/`. Every surface (MCP, Slack, dash
 
 Hosted at `mcp.inariwatch.com` (Vercel rewrite → `POST /api/mcp`). Streamable HTTP, JSON-RPC 2.0.
 
-- **17 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor
+- **21 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor, run_health_check, reproduce_bug, simulate_fix, verify_remediation
 - **4 resources** — alerts/critical, alerts/recent, status/overview, remediations/active
-- **5 prompts** — diagnose, status-report, fix-this, post-deploy-check, weekly-summary
+- **7 prompts** — diagnose, status-report, fix-this, post-deploy-check, weekly-summary, production-health-check, daily-report
 - **Auth:** Bearer tokens (SHA-256 hashed), OAuth 2.1 + PKCE, granular scopes (read/write/execute)
 - **Rate limits:** cheap (200/min), moderate (30/min), expensive (5/min) per tool
 - **Audit trail:** every tool call logged to audit_logs
