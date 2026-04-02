@@ -1,6 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
 import {
+  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, UptimeIcon, DatadogIcon, ExpoIcon,
+} from "@/components/brand-icons";
+import {
   Github,
   Terminal,
   Zap,
@@ -600,16 +603,16 @@ function WhyNotNative() {
 // ── Integrations ──────────────────────────────────────────────────────────────
 
 function Integrations() {
-  const integrations = [
-    { name: "GitHub", desc: "CI, PRs, risk scoring" },
-    { name: "Vercel", desc: "Deploys, rollback" },
-    { name: "Sentry", desc: "Issues, regressions" },
-    { name: "Datadog", desc: "Logs, infra, APM" },
-    { name: "Expo", desc: "Builds, OTA updates" },
-    { name: "PostgreSQL", desc: "Connections, queries" },
-    { name: "Uptime", desc: "Endpoint monitoring" },
-    { name: "npm / Cargo", desc: "CVEs, vulnerabilities" },
-    { name: "Capture SDK", desc: "Your app errors" },
+  const integrations: { name: string; desc: string; icon: React.ReactNode }[] = [
+    { name: "GitHub", desc: "CI, PRs, risk scoring", icon: <GitHubIcon className="h-6 w-6" /> },
+    { name: "Vercel", desc: "Deploys, rollback", icon: <VercelIcon className="h-6 w-6" /> },
+    { name: "Sentry", desc: "Issues, regressions", icon: <SentryIcon className="h-6 w-6" /> },
+    { name: "Datadog", desc: "Logs, infra, APM", icon: <DatadogIcon className="h-6 w-6" /> },
+    { name: "Expo", desc: "Builds, OTA updates", icon: <ExpoIcon className="h-6 w-6" /> },
+    { name: "PostgreSQL", desc: "Connections, queries", icon: <PostgreSQLIcon className="h-6 w-6" /> },
+    { name: "Uptime", desc: "Endpoint monitoring", icon: <UptimeIcon className="h-6 w-6" /> },
+    { name: "npm / Cargo", desc: "CVEs, vulnerabilities", icon: <NpmIcon className="h-6 w-6" /> },
+    { name: "Capture SDK", desc: "Your app errors", icon: <Zap className="h-6 w-6 text-inari-accent" /> },
   ];
 
   return (
@@ -631,6 +634,7 @@ function Integrations() {
               key={item.name}
               className="group flex flex-col items-center gap-2 rounded-xl border border-inari-border bg-inari-card p-4 hover:border-inari-accent/30 transition-all text-center"
             >
+              <div className="mb-1">{item.icon}</div>
               <span className="text-sm font-semibold text-fg-strong">{item.name}</span>
               <span className="text-[11px] text-zinc-500 leading-tight">{item.desc}</span>
             </div>
@@ -696,8 +700,27 @@ function AIFeatures() {
           </p>
         </div>
 
+        {/* Hero card — AI Remediation (the main feature) */}
+        <div className="mb-4 group rounded-xl border border-inari-accent/30 bg-inari-accent-dim p-8 transition-all hover:border-inari-accent/50 hover:shadow-[0_0_30px_rgba(124,58,237,0.1)]">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-inari-accent/30 bg-inari-accent/10 text-inari-accent">
+              {features[0].icon}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="text-xl font-bold text-fg-strong">{features[0].title}</h3>
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full text-inari-accent bg-inari-accent/10 border border-inari-accent/20">
+                  {features[0].tag}
+                </span>
+              </div>
+              <p className="text-fg-base leading-relaxed">{features[0].body}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Remaining features — grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((f) => (
+          {features.slice(1).map((f) => (
             <div
               key={f.title}
               className="group rounded-xl border border-inari-accent/20 bg-inari-accent-dim p-6 transition-all hover:border-inari-accent/40 hover:shadow-[0_0_24px_rgba(124,58,237,0.07)]"
