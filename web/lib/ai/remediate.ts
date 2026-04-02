@@ -527,6 +527,34 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       steps = await resolveStep(sessionId, steps, "completed",
         `Fix: ${fix.explanation}`, emit);
 
+      // ── SECURITY SCAN ────────────────────────────────────────────────
+      steps = await pushStep(sessionId, steps,
+        makeStep("security_scan", "Running security scan on generated fix..."), emit);
+
+      try {
+        const { scanFiles } = await import("./security-scan");
+        const scanResult = scanFiles(fix.files);
+
+        if (scanResult.highCount > 0) {
+          steps = await resolveStep(sessionId, steps, "failed",
+            `Security scan: ${scanResult.highCount} HIGH finding(s) — ${scanResult.findings.filter(f => f.severity === "HIGH").map(f => f.message).join("; ")}`, emit);
+          // Don't abort — flag for self-review awareness, continue to PR as draft
+        } else {
+          steps = await resolveStep(sessionId, steps, "completed",
+            `Security scan passed (${scanResult.findings.length} total findings, 0 HIGH)`, emit);
+        }
+
+        await updateSession(sessionId, {
+          context: {
+            ...(typeof session.context === "object" && session.context ? session.context : {}),
+            securityScan: { passed: scanResult.passed, highCount: scanResult.highCount, mediumCount: scanResult.mediumCount, findings: scanResult.findings.slice(0, 10) },
+          },
+        });
+      } catch {
+        steps = await resolveStep(sessionId, steps, "completed",
+          "Security scan skipped (non-blocking)", emit);
+      }
+
       // ── SELF-REVIEW ────────────────────────────────────────────────────
       let selfReview: SelfReviewResult | null = null;
       steps = await pushStep(sessionId, steps,
