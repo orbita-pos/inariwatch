@@ -53,7 +53,7 @@ export async function pollForToken(
     onStatus?.("waiting");
 
     try {
-      const resp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}`);
+      const resp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}&client=mobile`);
       if (!resp.ok) continue;
 
       const data = await resp.json();

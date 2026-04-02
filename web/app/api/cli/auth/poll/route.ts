@@ -16,6 +16,10 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return NextResponse.json({ status: "invalid" }, { status: 400 });
 
+  // client=mobile → separate token that won't be revoked by CLI re-auth
+  const client = req.nextUrl.searchParams.get("client");
+  const service = client === "mobile" ? "mobile" : "cli";
+
   const [pending] = await db
     .select()
     .from(cliPendingCodes)
@@ -33,16 +37,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: "pending" });
   }
 
-  // Approved — issue a long-lived CLI API token
-  const apiToken = `inari_cli_${randomBytes(24).toString("hex")}`;
+  // Approved — issue a long-lived API token
+  const apiToken = `inari_${service}_${randomBytes(24).toString("hex")}`;
 
-  // Revoke any existing CLI token for this user, then store the new one
+  // Revoke any existing token for this user+service, then store the new one
   await db
     .delete(apiKeys)
-    .where(and(eq(apiKeys.userId, pending.userId), eq(apiKeys.service, "cli")));
+    .where(and(eq(apiKeys.userId, pending.userId), eq(apiKeys.service, service)));
   await db.insert(apiKeys).values({
     userId:       pending.userId,
-    service:      "cli",
+    service,
     keyEncrypted: encrypt(apiToken),
   });
 

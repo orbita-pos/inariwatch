@@ -1,8 +1,9 @@
-import { getToken } from "./auth";
+import { getToken, clearToken } from "./auth";
+import { router } from "expo-router";
 import type { Alert, AlertDetail } from "./types";
 
 const API_BASE = "https://app.inariwatch.com";
-const MCP_BASE = "https://app.inariwatch.com/api/mcp";
+const MCP_BASE = "https://mcp.inariwatch.com";
 
 async function authHeaders(): Promise<Record<string, string>> {
   const token = await getToken();
@@ -10,6 +11,13 @@ async function authHeaders(): Promise<Record<string, string>> {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+/** Handle 401 — clear stale token and redirect to login */
+async function handleUnauthorized(): Promise<never> {
+  await clearToken();
+  router.replace("/login");
+  throw new Error("Session expired. Please sign in again.");
 }
 
 // ── REST endpoints (mobile-specific) ────────────────────────────────────────
@@ -29,6 +37,7 @@ export async function fetchAlerts(params?: {
   const resp = await fetch(`${API_BASE}/api/mobile/alerts?${qs}`, {
     headers: await authHeaders(),
   });
+  if (resp.status === 401) await handleUnauthorized();
   if (!resp.ok) throw new Error(`API error: ${resp.status}`);
   return resp.json();
 }
@@ -37,6 +46,7 @@ export async function fetchAlertDetail(id: string): Promise<AlertDetail> {
   const resp = await fetch(`${API_BASE}/api/mobile/alerts/${id}`, {
     headers: await authHeaders(),
   });
+  if (resp.status === 401) await handleUnauthorized();
   if (!resp.ok) throw new Error(`API error: ${resp.status}`);
   return resp.json();
 }
@@ -45,6 +55,7 @@ export async function fetchRemediation(id: string) {
   const resp = await fetch(`${API_BASE}/api/mobile/remediation/${id}`, {
     headers: await authHeaders(),
   });
+  if (resp.status === 401) await handleUnauthorized();
   if (!resp.ok) throw new Error(`API error: ${resp.status}`);
   return resp.json();
 }
@@ -66,6 +77,7 @@ export async function callMcpTool(
     }),
   });
 
+  if (resp.status === 401) await handleUnauthorized();
   if (!resp.ok) throw new Error(`MCP error: ${resp.status}`);
   const data = await resp.json();
 

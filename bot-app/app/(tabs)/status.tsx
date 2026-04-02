@@ -1,25 +1,36 @@
-import { View, Text, ScrollView, RefreshControl, StyleSheet } from "react-native";
+import { useState, useEffect } from "react";
+import { View, Text, ScrollView, RefreshControl, Pressable, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { getStatus, getUptime, getErrorTrends } from "../../lib/api";
+import { getToken, clearToken } from "../../lib/auth";
+import { router } from "expo-router";
 import { colors, spacing, fontSize } from "../../lib/theme";
 
 export default function StatusScreen() {
-  const { data: statusText, isLoading: statusLoading, refetch: refetchStatus, isRefetching } = useQuery({
+  const [token, setTokenState] = useState<string | null>(null);
+
+  useEffect(() => {
+    getToken().then(setTokenState);
+  }, []);
+  const { data: statusText, isLoading: statusLoading, refetch: refetchStatus, isRefetching, error: statusError } = useQuery({
     queryKey: ["status"],
     queryFn: getStatus,
     refetchInterval: 30_000,
+    retry: (count, error) => !error?.message?.includes("Session expired") && count < 2,
   });
 
   const { data: uptimeText } = useQuery({
     queryKey: ["uptime"],
     queryFn: getUptime,
     refetchInterval: 30_000,
+    retry: (count, error) => !error?.message?.includes("Session expired") && count < 2,
   });
 
   const { data: trendsText } = useQuery({
     queryKey: ["trends"],
     queryFn: () => getErrorTrends(7),
     refetchInterval: 60_000,
+    retry: (count, error) => !error?.message?.includes("Session expired") && count < 2,
   });
 
   // Parse status text for stats
@@ -87,6 +98,33 @@ export default function StatusScreen() {
       {statusLoading && (
         <Text style={styles.loadingText}>Loading...</Text>
       )}
+
+      {/* Account debug */}
+      <Section title="Account">
+        <View style={styles.textBlock}>
+          <Text style={styles.monoText}>
+            Token: {token ? `${token.slice(0, 15)}...${token.slice(-6)}` : "NOT SET"}
+          </Text>
+          <Text style={[styles.monoText, { marginTop: 4 }]}>
+            Status: {token ? "Authenticated" : "Not logged in"}
+          </Text>
+        </View>
+        {token ? (
+          <Pressable
+            onPress={async () => { await clearToken(); router.replace("/login"); }}
+            style={{ marginTop: 8, backgroundColor: colors.criticalDim, borderRadius: 8, padding: 10, alignItems: "center" }}
+          >
+            <Text style={{ color: colors.critical, fontSize: fontSize.sm, fontWeight: "600" }}>Sign out</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => router.replace("/login")}
+            style={{ marginTop: 8, backgroundColor: colors.accentDim, borderRadius: 8, padding: 10, alignItems: "center" }}
+          >
+            <Text style={{ color: colors.accent, fontSize: fontSize.sm, fontWeight: "600" }}>Sign in</Text>
+          </Pressable>
+        )}
+      </Section>
     </ScrollView>
   );
 }
