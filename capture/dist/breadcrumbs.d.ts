@@ -1,6 +1,7 @@
 /**
  * Breadcrumbs — automatic trail of actions before a crash.
  * Ring buffer of last 30 events: console, fetch, custom.
+ * Secrets are scrubbed from messages automatically.
  */
 import type { Breadcrumb } from "./types.js";
 export declare function addBreadcrumb(crumb: Partial<Breadcrumb> & {

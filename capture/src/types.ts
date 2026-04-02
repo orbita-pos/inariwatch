@@ -34,7 +34,6 @@ export interface GitContext {
   commit: string
   branch: string
   message: string
-  author: string
   timestamp: string
   dirty: boolean
 }

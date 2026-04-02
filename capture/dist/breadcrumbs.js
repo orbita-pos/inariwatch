@@ -1,16 +1,51 @@
 /**
  * Breadcrumbs — automatic trail of actions before a crash.
  * Ring buffer of last 30 events: console, fetch, custom.
+ * Secrets are scrubbed from messages automatically.
  */
 const MAX_BREADCRUMBS = 30;
 const breadcrumbs = [];
 let initialized = false;
+// Patterns that likely contain secrets
+const SECRET_PATTERNS = [
+    /Bearer\s+[A-Za-z0-9\-._~+\/]+=*/g, // Bearer tokens
+    /[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/g, // JWTs
+    /(?:sk|pk|api|key|token|secret|password|passwd)[_-]?[:\s=]+\S{8,}/gi, // key=value secrets
+    /:\/\/[^:]+:[^@]+@/g, // connection strings user:pass@
+    /[?&](api_key|token|secret|key|password|auth|credential)=[^&\s]+/gi, // query string secrets
+];
+function scrubSecrets(text) {
+    let scrubbed = text;
+    for (const pattern of SECRET_PATTERNS) {
+        scrubbed = scrubbed.replace(pattern, "[REDACTED]");
+    }
+    return scrubbed;
+}
+/** Strip sensitive query params from URLs */
+function scrubUrl(url) {
+    try {
+        const parsed = new URL(url, "http://localhost");
+        const sensitiveParams = ["token", "key", "secret", "password", "auth", "credential", "api_key", "apiKey", "access_token"];
+        for (const param of sensitiveParams) {
+            if (parsed.searchParams.has(param)) {
+                parsed.searchParams.set(param, "[REDACTED]");
+            }
+        }
+        // Return just path+query if relative URL
+        if (url.startsWith("/"))
+            return parsed.pathname + parsed.search;
+        return parsed.href;
+    }
+    catch {
+        return scrubSecrets(url);
+    }
+}
 export function addBreadcrumb(crumb) {
     breadcrumbs.push({
         timestamp: new Date().toISOString(),
         category: crumb.category ?? "custom",
         level: crumb.level ?? "info",
-        message: crumb.message.slice(0, 200),
+        message: scrubSecrets(crumb.message.slice(0, 200)),
         data: crumb.data,
     });
     if (breadcrumbs.length > MAX_BREADCRUMBS)
@@ -47,7 +82,8 @@ export function initBreadcrumbs() {
     if (typeof globalThis.fetch === "function") {
         const origFetch = globalThis.fetch;
         globalThis.fetch = async (input, init) => {
-            const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            const url = scrubUrl(rawUrl);
             const method = init?.method ?? "GET";
             addBreadcrumb({ category: "fetch", message: `${method} ${url}`, level: "info" });
             try {

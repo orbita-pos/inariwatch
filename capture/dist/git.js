@@ -14,7 +14,6 @@ export function getGitContext() {
         commit,
         branch: process.env.INARIWATCH_GIT_BRANCH || "unknown",
         message: process.env.INARIWATCH_GIT_MESSAGE || "",
-        author: process.env.INARIWATCH_GIT_AUTHOR || "",
         timestamp: process.env.INARIWATCH_GIT_TIMESTAMP || "",
         dirty: process.env.INARIWATCH_GIT_DIRTY === "true",
     };
@@ -34,11 +33,15 @@ export function extractGitInfo() {
                 return "";
             }
         };
+        const message = run("git log -1 --format=%s").slice(0, 200);
+        // Scrub potential secrets from commit message
+        const safeMessage = message
+            .replace(/(?:sk|pk|api|key|token|secret|password)[_-]?\S{8,}/gi, "[REDACTED]")
+            .replace(/:\/\/[^:]+:[^@]+@/g, "://[REDACTED]@");
         return {
             INARIWATCH_GIT_COMMIT: run("git rev-parse HEAD"),
             INARIWATCH_GIT_BRANCH: run("git rev-parse --abbrev-ref HEAD"),
-            INARIWATCH_GIT_MESSAGE: run("git log -1 --format=%s").slice(0, 200),
-            INARIWATCH_GIT_AUTHOR: run("git log -1 --format=%an"),
+            INARIWATCH_GIT_MESSAGE: safeMessage,
             INARIWATCH_GIT_TIMESTAMP: run("git log -1 --format=%cI"),
             INARIWATCH_GIT_DIRTY: run("git status --porcelain").length > 0 ? "true" : "false",
         };
