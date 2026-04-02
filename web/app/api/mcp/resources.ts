@@ -58,6 +58,7 @@ export async function readResource(
           id: alerts.id, title: alerts.title, body: alerts.body,
           projectId: alerts.projectId, severity: alerts.severity,
           aiReasoning: alerts.aiReasoning, createdAt: alerts.createdAt,
+          correlationData: alerts.correlationData,
         })
         .from(alerts)
         .where(
@@ -76,6 +77,7 @@ export async function readResource(
         title: a.title,
         body: a.body?.slice(0, 5000),
         aiReasoning: a.aiReasoning?.slice(0, 3000),
+        context: a.correlationData ?? null,
         createdAt: a.createdAt.toISOString(),
       }));
 

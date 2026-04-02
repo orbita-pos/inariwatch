@@ -27,6 +27,7 @@ export type AlertSummary = {
   isRead: boolean;
   isResolved: boolean;
   createdAt: Date;
+  correlationData: unknown;
 };
 
 export type AlertDetail = AlertSummary & {
@@ -63,6 +64,7 @@ export async function queryAlerts(params: QueryAlertsParams): Promise<AlertSumma
       isRead: alerts.isRead,
       isResolved: alerts.isResolved,
       createdAt: alerts.createdAt,
+      correlationData: alerts.correlationData,
     })
     .from(alerts)
     .where(and(...conditions))

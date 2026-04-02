@@ -3,6 +3,7 @@ import { inArray } from "drizzle-orm";
 import type { McpUser } from "../auth";
 import { getUserProjectIds } from "../helpers";
 import { queryAlerts } from "@/lib/services/alerts.service";
+import { formatContext } from "../format-context";
 
 export async function execute(
   args: Record<string, unknown>,
@@ -40,7 +41,9 @@ export async function execute(
     if (a.aiReasoning) out += `AI: ${a.aiReasoning.slice(0, 300)}\n`;
     out += `Sources: ${(a.sourceIntegrations ?? []).join(", ") || "capture"}\n`;
     out += `Status: ${a.isResolved ? "resolved" : "open"}\n`;
-    out += `Time: ${a.createdAt.toISOString()}\n\n`;
+    out += `Time: ${a.createdAt.toISOString()}\n`;
+    if (a.correlationData) out += formatContext(a.correlationData as Record<string, unknown>);
+    out += "\n";
   }
   return out;
 }

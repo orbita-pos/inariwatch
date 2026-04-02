@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { McpUser } from "../auth";
 import { userCanAccessProject } from "../helpers";
 import { diagnoseAlert, DIAGNOSIS_PROMPT, buildAnalyzePrompt } from "@/lib/services/diagnosis.service";
+import { formatContext } from "../format-context";
 
 export async function execute(
   args: Record<string, unknown>,
@@ -12,7 +13,7 @@ export async function execute(
   if (!alertId) return "Error: alert_id is required.";
 
   const [alert] = await db
-    .select({ id: alerts.id, projectId: alerts.projectId, title: alerts.title, severity: alerts.severity, body: alerts.body, sourceIntegrations: alerts.sourceIntegrations })
+    .select({ id: alerts.id, projectId: alerts.projectId, title: alerts.title, severity: alerts.severity, body: alerts.body, sourceIntegrations: alerts.sourceIntegrations, correlationData: alerts.correlationData })
     .from(alerts)
     .where(eq(alerts.id, alertId))
     .limit(1);
@@ -46,11 +47,16 @@ export async function execute(
     }, null, 2);
   }
 
+  const contextStr = alert.correlationData
+    ? formatContext(alert.correlationData as Record<string, unknown>)
+    : "";
+
   return JSON.stringify({
     alert_id: alertId,
     title: alert.title,
     severity: alert.severity,
     root_cause_analysis: result.analysis,
     source: result.source,
+    ...(contextStr ? { context: contextStr } : {}),
   }, null, 2);
 }

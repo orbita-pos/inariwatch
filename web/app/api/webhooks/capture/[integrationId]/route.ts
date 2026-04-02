@@ -94,6 +94,15 @@ export async function POST(
     event.release ? `Release: ${event.release}` : "",
   ].filter(Boolean).join("\n");
 
+  // Build structured context from SDK payload (git, breadcrumbs, env, user, tags)
+  const correlationData: Record<string, unknown> = {};
+  if (event.git) correlationData.git = event.git;
+  if (event.breadcrumbs) correlationData.breadcrumbs = event.breadcrumbs;
+  if (event.env) correlationData.env = event.env;
+  if (event.user) correlationData.user = event.user;
+  if (event.tags) correlationData.tags = event.tags;
+  if (event.request) correlationData.request = event.request;
+
   const result = await createAlertIfNew(
     {
       severity,
@@ -101,6 +110,7 @@ export async function POST(
       body: bodyParts.trim(),
       sourceIntegrations: ["capture"],
       fingerprint,
+      correlationData: Object.keys(correlationData).length > 0 ? correlationData : undefined,
       isRead: false,
       isResolved: false,
     },
