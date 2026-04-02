@@ -70,6 +70,7 @@ const NAV = [
       { id: "ai-claude",     label: "Claude (Anthropic)" },
       { id: "ai-openai",     label: "OpenAI" },
       { id: "ai-grok",       label: "Grok (xAI)" },
+      { id: "ai-groq",       label: "Groq (Llama)" },
       { id: "ai-deepseek",   label: "DeepSeek" },
       { id: "ai-gemini",     label: "Gemini (Google)" },
     ],
@@ -438,7 +439,7 @@ cargo build --release
                 ["inariwatch watch",                   "Main loop — polls every 60s, sends alerts, runs AI correlation"],
                 ["inariwatch status",                  "Show integration health and last poll times"],
                 ["inariwatch logs",                    "Show recent alerts from the local SQLite database"],
-                ["inariwatch config --ai-key <key>",        "Set AI key (Claude, OpenAI, Grok, DeepSeek, or Gemini)"],
+                ["inariwatch config --ai-key <key>",        "Set AI key (Claude, OpenAI, Groq, Grok, DeepSeek, or Gemini)"],
                 ["inariwatch config --model <model>",       "Set the AI model"],
                 ["inariwatch config --auto-fix true",       "Enable autonomous AI fix pipeline on critical alerts"],
                 ["inariwatch config --auto-merge true",     "Auto-merge generated PRs when all safety gates pass"],
@@ -1216,6 +1217,24 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Grok." },
             ]} />
             <CodeBlock label="CLI">{`inariwatch config --ai-key xai-... --model grok-beta`}</CodeBlock>
+
+            <SectionHeading id="ai-groq">AI — Groq (Llama)</SectionHeading>
+            <P>
+              Groq runs Llama 3.1 at ~800 tokens/second — 5-10x faster than other providers.
+              Best for ultra-fast diagnostics (&lt;500ms response time).
+            </P>
+            <StepList steps={[
+              {
+                title: "Create an API key",
+                body: <><a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">console.groq.com/keys <ExternalLink className="h-3 w-3" /></a></>,
+              },
+              {
+                title: "Copy the key",
+                body: <>Starts with <InlineCode>gsk_...</InlineCode></>,
+              },
+              { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Groq (Llama)." },
+            ]} />
+            <CodeBlock label="CLI">{`inariwatch config --ai-key gsk_... --model llama-3.1-70b-versatile`}</CodeBlock>
 
             <SectionHeading id="ai-deepseek">AI — DeepSeek</SectionHeading>
             <StepList steps={[

@@ -167,7 +167,7 @@ function StatsBar() {
     { value: "9", label: "integrations monitored" },
     { value: "18", label: "MCP tools" },
     { value: "3×", label: "CI retry loop" },
-    { value: "5", label: "AI providers supported" },
+    { value: "6", label: "AI providers supported" },
   ];
 
   return (
@@ -695,7 +695,7 @@ function AIFeatures() {
             Not just monitoring. Automated fixing.
           </h2>
           <p className="mt-3 text-fg-base max-w-lg mx-auto">
-            AI analysis included free. Bring your own key (Claude, OpenAI, Grok, DeepSeek, Gemini) for auto-fix.
+            AI analysis included free. Bring your own key (Claude, OpenAI, Groq, Grok, DeepSeek, Gemini) for auto-fix.
           </p>
         </div>
 
