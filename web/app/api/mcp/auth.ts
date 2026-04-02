@@ -1,7 +1,8 @@
-import { db, mcpTokens, auditLogs } from "@/lib/db";
+import { db, mcpTokens, auditLogs, apiKeys } from "@/lib/db";
 import { eq, and, or, gt, isNull } from "drizzle-orm";
 import { rateLimit } from "@/lib/auth-rate-limit";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
+import { decrypt } from "@/lib/crypto";
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -75,23 +76,27 @@ export async function authenticateMcp(
   }
 
   // Fallback: check apiKeys (for CLI/mobile/desktop tokens)
-  const { apiKeys } = await import("@/lib/db");
-  const { decrypt } = await import("@/lib/crypto");
-  const { timingSafeEqual } = await import("crypto");
+  try {
+    const keys = await db.select().from(apiKeys).where(
+      or(eq(apiKeys.service, "cli"), eq(apiKeys.service, "mobile"), eq(apiKeys.service, "desktop"))
+    );
 
-  const keys = await db.select().from(apiKeys).where(
-    or(eq(apiKeys.service, "cli"), eq(apiKeys.service, "mobile"), eq(apiKeys.service, "desktop"))
-  );
-
-  for (const key of keys) {
-    const decrypted = decrypt(key.keyEncrypted);
-    if (decrypted.length === token.length) {
-      const a = Buffer.from(decrypted);
-      const b = Buffer.from(token);
-      if (timingSafeEqual(a, b)) {
-        return { userId: key.userId, tokenId: key.id, scopes: ["execute"] };
+    for (const key of keys) {
+      try {
+        const decrypted = decrypt(key.keyEncrypted);
+        if (decrypted.length === token.length) {
+          const a = Buffer.from(decrypted);
+          const b = Buffer.from(token);
+          if (timingSafeEqual(a, b)) {
+            return { userId: key.userId, tokenId: key.id, scopes: ["execute"] };
+          }
+        }
+      } catch {
+        // Skip keys that fail to decrypt
       }
     }
+  } catch {
+    // apiKeys fallback failed — return null
   }
 
   return null;
