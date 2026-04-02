@@ -1,8 +1,9 @@
 import { useState, useRef } from "react";
 import {
-  View, Text, TextInput, Pressable, FlatList, KeyboardAvoidingView,
-  Platform, StyleSheet, ActivityIndicator,
+  View, Text, TextInput, Pressable, FlatList,
+  StyleSheet, ActivityIndicator,
 } from "react-native";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { Ionicons } from "@expo/vector-icons";
 import { askInari } from "../../lib/api";
 import { colors, spacing, fontSize } from "../../lib/theme";
@@ -58,11 +59,7 @@ export default function AskScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={90}
-    >
+    <View style={styles.container}>
       {messages.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyEmoji}>🧠</Text>
@@ -92,6 +89,7 @@ export default function AskScreen() {
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          keyboardShouldPersistTaps="handled"
         />
       )}
 
@@ -102,27 +100,29 @@ export default function AskScreen() {
         </View>
       )}
 
-      <View style={styles.inputBar}>
-        <TextInput
-          style={styles.input}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Ask a question..."
-          placeholderTextColor={colors.fgMuted}
-          multiline
-          maxLength={500}
-          onSubmitEditing={send}
-          returnKeyType="send"
-        />
-        <Pressable
-          onPress={send}
-          disabled={!input.trim() || loading}
-          style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
-        >
-          <Ionicons name="send" size={18} color={colors.fgStrong} />
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+      <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
+        <View style={styles.inputBar}>
+          <TextInput
+            style={styles.input}
+            value={input}
+            onChangeText={setInput}
+            placeholder="Ask a question..."
+            placeholderTextColor={colors.fgMuted}
+            multiline
+            maxLength={500}
+            onSubmitEditing={send}
+            returnKeyType="send"
+          />
+          <Pressable
+            onPress={send}
+            disabled={!input.trim() || loading}
+            style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
+          >
+            <Ionicons name="send" size={18} color={colors.fgStrong} />
+          </Pressable>
+        </View>
+      </KeyboardStickyView>
+    </View>
   );
 }
 

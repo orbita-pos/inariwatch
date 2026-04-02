@@ -14,6 +14,7 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.fgMuted,
+        tabBarHideOnKeyboard: true,
       }}
     >
       <Tabs.Screen

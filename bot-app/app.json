@@ -22,7 +22,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.inariwatch.bot"
+      "package": "com.inariwatch.bot",
+      "softwareKeyboardLayoutMode": "pan"
     },
     "plugins": [
       "expo-router",

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { StatusBar, View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { isLoggedIn } from "../lib/auth";
 import { setupNotificationHandler, setupPush } from "../lib/push";
 import { colors, spacing, fontSize } from "../lib/theme";
@@ -59,6 +60,7 @@ export default function RootLayout() {
   if (authed === null) return null;
 
   return (
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
     <QueryClientProvider client={queryClient}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <Stack
@@ -85,6 +87,7 @@ export default function RootLayout() {
         )}
       </Stack>
     </QueryClientProvider>
+    </KeyboardProvider>
   );
 }
 
