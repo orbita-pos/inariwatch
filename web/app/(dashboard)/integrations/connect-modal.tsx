@@ -77,6 +77,16 @@ const SERVICE_CONFIG: Record<string, {
     note: "We'll validate your keys and generate a Webhook URL for you to configure in Datadog → Integrations → Webhooks.",
     mode: "datadog",
   },
+  expo: {
+    tokenUrl: "https://expo.dev/settings/access-tokens",
+    tokenLabel: "Personal Access Token",
+    placeholder: "expo_...",
+    permissions: [
+      { label: "Projects", scope: "Read" },
+      { label: "Builds",   scope: "Read" },
+    ],
+    note: "We'll auto-detect your Expo username and projects.",
+  },
 };
 
 // ── Component ──────────────────────────────────────────────────────────────────

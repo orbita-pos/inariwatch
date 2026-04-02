@@ -79,6 +79,17 @@ async function resolveConfig(
     return { config: { apiKey: token } };
   }
 
+  if (service === "expo") {
+    const res = await fetch("https://api.expo.dev/v2/users/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) return { config: {}, error: "Invalid Expo token — generate one at expo.dev/settings/api-tokens." };
+    if (!res.ok) return { config: {}, error: `Expo API error (${res.status}).` };
+    const data = await res.json();
+    const username = data.data?.username ?? "";
+    return { config: { token, username } };
+  }
+
   // Unknown service — just store the token
   return { config: { token } };
 }

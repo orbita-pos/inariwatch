@@ -27,6 +27,7 @@ export type CronRoute =
   | "poll_uptime"
   | "poll_postgres"
   | "poll_npm"
+  | "poll_expo"
   | "escalate"
   | "uptime"
   | "digest";

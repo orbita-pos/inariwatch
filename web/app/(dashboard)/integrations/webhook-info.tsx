@@ -33,6 +33,7 @@ export function WebhookInfo({
     github: "GitHub → Repo Settings → Webhooks → Add webhook. Set Content type to application/json. Select events: Check runs, Workflow runs, Pull requests.",
     vercel: "Vercel → Project Settings → Git → Deploy Hooks, or Vercel Integration → Webhooks. Select deployment events.",
     sentry: "Sentry → Settings → Developer Settings → Webhooks. Select Issue events.",
+    expo: "Expo → Project Settings → Webhooks → Add webhook. Paste the URL below and set the secret. Select Build and Update events.",
   };
 
   return (

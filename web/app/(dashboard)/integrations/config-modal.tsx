@@ -44,6 +44,10 @@ const SERVICE_ALERTS: Record<
     { key: "critical_cves", label: "Critical CVEs", description: "Alert on critical-severity vulnerabilities in your dependencies" },
     { key: "high_cves",     label: "High CVEs",     description: "Alert on high-severity vulnerabilities in your dependencies" },
   ],
+  expo: [
+    { key: "build_failure",  label: "Build failures",    description: "Alert when an EAS Build fails or is canceled" },
+    { key: "update_failure", label: "Update rollbacks",  description: "Alert when an EAS OTA Update is rolled back" },
+  ],
 };
 
 const DEFAULT_ENABLED: Record<string, Record<string, boolean>> = {
@@ -53,6 +57,7 @@ const DEFAULT_ENABLED: Record<string, Record<string, boolean>> = {
   uptime:   { downtime: true, slow_response: true },
   postgres: { connection_failed: true, high_connections: true, long_queries: true },
   npm:      { critical_cves: true, high_cves: true },
+  expo:     { build_failure: true, update_failure: true },
 };
 
 const HAS_FILTER = ["github", "vercel", "sentry"];

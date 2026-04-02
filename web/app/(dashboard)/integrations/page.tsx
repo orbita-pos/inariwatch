@@ -9,7 +9,7 @@ import {
   Terminal, Settings2, Unplug,
 } from "lucide-react";
 import {
-  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon,
+  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon, ExpoIcon,
 } from "@/components/brand-icons";
 import type { ElementType } from "react";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,13 @@ const CATALOG = [
     label:   "Datadog",
     desc:    "Monitor alerts, log anomalies, infrastructure spikes",
     icon:    DatadogIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "expo",
+    label:   "Expo",
+    desc:    "EAS Build failures, OTA update rollbacks, app crashes",
+    icon:    ExpoIcon,
     mode:    "web" as const,
   },
 ];

@@ -67,3 +67,11 @@ export function DatadogIcon({ className, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function ExpoIcon({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-label="Expo" {...props}>
+      <path d="M12 1.5C6.202 1.5 1.5 6.202 1.5 12S6.202 22.5 12 22.5 22.5 17.798 22.5 12 17.798 1.5 12 1.5zm-.5 4h1l4.5 8.5h-1.2L12 6.8 8.2 14h-1.2l4.5-8.5zm-4.3 10h9.6v1H7.2v-1z" />
+    </svg>
+  );
+}

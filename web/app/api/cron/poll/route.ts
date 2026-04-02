@@ -20,6 +20,7 @@ const SUB_ROUTES = [
   "uptime",
   "postgres",
   "npm",
+  "expo",
 ] as const;
 
 type SubRouteResult = { ok: boolean; created: number; errors: string[] };
