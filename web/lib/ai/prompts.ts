@@ -84,6 +84,10 @@ export type RemediationContext = {
   eapReceipt: EapReceiptContext | null;
   /** Files changed in the most recent deploy — likely cause of the error. */
   deployContext: string | null;
+  /** Relevant code chunks from the indexed codebase (Code RAG). */
+  codebaseContext: string | null;
+  /** Past successful fixes for similar errors (fix replay via embeddings). */
+  fixReplayContext: string | null;
 };
 
 export type EapReceiptContext = {
@@ -238,6 +242,8 @@ export function buildDiagnosePrompt(
   if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1500)}`);
   if (context?.substrateContext) contextSections.push(`SUBSTRATE RECORDING (full I/O trace):\n${context.substrateContext.slice(0, 4000)}`);
   if (context?.deployContext) contextSections.push(`RECENT DEPLOY (likely cause of the error):\n${context.deployContext.slice(0, 1500)}`);
+  if (context?.codebaseContext) contextSections.push(`CODEBASE CONTEXT (relevant code patterns from this repository — follow these conventions):\n${context.codebaseContext.slice(0, 8000)}`);
+  if (context?.fixReplayContext) contextSections.push(`PAST SUCCESSFUL FIXES (similar errors that were fixed before — use as strong hints):\n${context.fixReplayContext.slice(0, 2000)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";
@@ -291,7 +297,8 @@ export function buildFixPrompt(
   diagnosis: string,
   files: { path: string; content: string }[],
   errorDetails: string,
-  previousAttempt?: { files: { path: string; content: string }[]; ciError: string }
+  previousAttempt?: { files: { path: string; content: string }[]; ciError: string },
+  codebaseContext?: string | null
 ): string {
   const fileContents = files
     .map((f) => `--- ${f.path} ---\n${f.content.slice(0, 10000)}`)
@@ -311,13 +318,17 @@ The previous approach did NOT work. You MUST try a DIFFERENT approach.
 Analyze the CI error carefully to understand why the previous fix failed.`;
   }
 
+  const codebaseSection = codebaseContext
+    ? `\n\nCODEBASE PATTERNS (from the user's repository — your fix MUST follow these conventions):\n${codebaseContext.slice(0, 8000)}`
+    : "";
+
   return `Fix the following error by modifying the source code.
 
 DIAGNOSIS: ${diagnosis}
 
 ERROR DETAILS:
 ${errorDetails.slice(0, 2000)}
-${retryContext}
+${retryContext}${codebaseSection}
 
 SOURCE FILES:
 ${fileContents}
@@ -384,4 +395,72 @@ Specifically check for:
 - Are there any type errors, missing imports, or syntax issues?
 - Is the change minimal, or does it modify unrelated code?
 - Could it break any existing tests?`;
+}
+
+// ── Regression test generation prompt ───────────────────────────────────────
+
+export const SYSTEM_TEST_GENERATOR = `You are a senior test engineer. You write precise regression tests that:
+1. Reproduce the exact bug scenario described in the diagnosis
+2. Verify the fix resolves it
+3. Follow the project's existing test conventions exactly
+4. Use the same test framework, assertion style, and file structure as the project
+
+You respond ONLY in valid JSON. No markdown, no explanation outside the JSON.`;
+
+export function buildTestPrompt(
+  diagnosis: string,
+  originalFiles: { path: string; content: string }[],
+  fixedFiles: { path: string; content: string }[],
+  errorDetails: string,
+  existingTests?: { path: string; content: string }[],
+  codebaseContext?: string | null
+): string {
+  const fixSummary = fixedFiles
+    .map((f) => `--- ${f.path} ---\n${f.content.slice(0, 3000)}`)
+    .join("\n\n");
+
+  let conventionSection = "";
+  if (existingTests?.length) {
+    conventionSection = `\nEXISTING TEST CONVENTIONS (follow these exactly):\n${existingTests
+      .map((t) => `--- ${t.path} ---\n${t.content.slice(0, 2000)}`)
+      .join("\n\n")}`;
+  }
+
+  const codebaseSection = codebaseContext
+    ? `\nCODEBASE PATTERNS:\n${codebaseContext.slice(0, 2000)}`
+    : "";
+
+  return `Generate a regression test for this bug fix.
+
+BUG DIAGNOSIS:
+${diagnosis}
+
+ERROR DETAILS:
+${errorDetails.slice(0, 1000)}
+
+FIX APPLIED:
+${fixSummary}
+${conventionSection}${codebaseSection}
+
+Respond in JSON:
+{
+  "files": [
+    {
+      "path": "path/to/__tests__/file.test.ts",
+      "content": "complete test file content"
+    }
+  ],
+  "description": "What these tests verify (1 sentence)"
+}
+
+RULES:
+- Generate 1-3 focused test cases that specifically cover the bug scenario.
+- The test MUST fail if the fix is reverted (this proves it's a real regression test).
+- Use the SAME test framework visible in the existing tests (vitest, jest, pytest, go test, etc.).
+- If no existing tests are found, use the most common framework for the language.
+- Place test files next to the source file or in the project's standard test directory.
+- Import from relative paths matching the project structure.
+- Do NOT mock the database or external services unless the existing tests do.
+- Keep tests minimal — test the specific bug scenario, not every edge case.
+- Return COMPLETE file content, not snippets.`;
 }

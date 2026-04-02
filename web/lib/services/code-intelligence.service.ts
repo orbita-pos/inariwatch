@@ -1,0 +1,108 @@
+/**
+ * Code Intelligence service — single source of truth.
+ * Used by: MCP tools, remediation pipeline, dashboard, Slack bot.
+ */
+
+import { db, codeRepositories, codeChunks } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { searchCodeByProject, type CodeSearchResult, type SearchOptions } from "@/lib/code-intelligence/search";
+import { indexRepository, type IndexOptions, type IndexProgress } from "@/lib/code-intelligence/indexer";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type CodeIndexStatus = {
+  repoId: string;
+  owner: string;
+  repo: string;
+  status: string;
+  totalChunks: number;
+  lastIndexedAt: Date | null;
+  lastIndexedCommit: string | null;
+};
+
+export type SearchParams = {
+  projectId: string;
+  query: string;
+  limit?: number;
+  includeGraph?: boolean;
+  fileFilter?: string[];
+  openaiKey?: string;
+};
+
+// ── Search ───────────────────────────────────────────────────────────────────
+
+export async function searchCode(params: SearchParams): Promise<CodeSearchResult[]> {
+  return searchCodeByProject(params.query, params.projectId, {
+    limit: params.limit,
+    includeGraph: params.includeGraph,
+    fileFilter: params.fileFilter,
+    openaiKey: params.openaiKey,
+  });
+}
+
+// ── Index status ─────────────────────────────────────────────────────────────
+
+export async function getIndexStatus(projectId: string): Promise<CodeIndexStatus[]> {
+  const repos = await db
+    .select({
+      repoId: codeRepositories.id,
+      owner: codeRepositories.githubOwner,
+      repo: codeRepositories.githubRepo,
+      status: codeRepositories.status,
+      totalChunks: codeRepositories.totalChunks,
+      lastIndexedAt: codeRepositories.lastIndexedAt,
+      lastIndexedCommit: codeRepositories.lastIndexedCommit,
+    })
+    .from(codeRepositories)
+    .where(eq(codeRepositories.projectId, projectId));
+
+  return repos.map((r) => ({
+    repoId: r.repoId,
+    owner: r.owner,
+    repo: r.repo,
+    status: r.status,
+    totalChunks: r.totalChunks,
+    lastIndexedAt: r.lastIndexedAt,
+    lastIndexedCommit: r.lastIndexedCommit,
+  }));
+}
+
+// ── Trigger re-index ─────────────────────────────────────────────────────────
+
+export async function triggerReindex(opts: IndexOptions): Promise<{ repoId: string; chunksIndexed: number }> {
+  return indexRepository(opts);
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+
+export async function getCodeStats(projectId: string): Promise<{
+  totalRepos: number;
+  totalChunks: number;
+  languages: { language: string; count: number }[];
+}> {
+  const repos = await db
+    .select({ id: codeRepositories.id, totalChunks: codeRepositories.totalChunks })
+    .from(codeRepositories)
+    .where(and(eq(codeRepositories.projectId, projectId), eq(codeRepositories.status, "ready")));
+
+  if (repos.length === 0) {
+    return { totalRepos: 0, totalChunks: 0, languages: [] };
+  }
+
+  const repoIds = repos.map((r) => r.id);
+  const totalChunks = repos.reduce((sum, r) => sum + r.totalChunks, 0);
+
+  const languages = await db.execute<{ language: string; count: number }>(sql`
+    SELECT language, count(*)::int as count
+    FROM code_chunks
+    WHERE repo_id = ANY(${repoIds})
+    GROUP BY language
+    ORDER BY count DESC
+  `);
+
+  return {
+    totalRepos: repos.length,
+    totalChunks,
+    languages: languages.rows,
+  };
+}

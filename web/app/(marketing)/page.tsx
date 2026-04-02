@@ -27,6 +27,7 @@ import {
   Hash,
   Monitor,
   Film,
+  TestTube2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
@@ -165,8 +166,8 @@ function DemoVideo() {
 function StatsBar() {
   const stats = [
     { value: "9", label: "integrations monitored" },
-    { value: "21", label: "MCP tools" },
-    { value: "3×", label: "CI retry loop" },
+    { value: "23", label: "MCP tools" },
+    { value: "11", label: "safety gates" },
     { value: "6", label: "AI providers supported" },
   ];
 
@@ -312,28 +313,33 @@ function AutoMergeSafety() {
   const gates = [
     {
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "CI required",
-      detail: "All tests must pass before any merge is considered",
+      label: "CI + regression tests pass",
+      detail: "Existing tests + AI-generated regression test must all pass",
     },
     {
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "Confidence ≥ 90%",
+      label: "Confidence ≥ threshold",
       detail: "Diagnosis must be clear — low-confidence fixes become draft PRs",
     },
     {
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
       label: "AI self-review ≥ 70/100",
-      detail: "A second AI call reviews the fix like a senior engineer before it ships",
+      detail: "A second AI reviews the fix like a senior engineer",
     },
     {
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "≤ 50 lines changed",
-      detail: "Large or complex changes are always sent as draft PRs for human review",
+      label: "Security scan clean",
+      detail: "ESLint + pattern scan — zero HIGH severity findings",
     },
     {
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "Auto-merge enabled",
-      detail: "You activate this per project — off by default, always in your control",
+      label: "Substrate replay verified",
+      detail: "Fix verified against the recorded I/O that caused the crash",
+    },
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      label: "E2E staging passed",
+      detail: "Playwright tests pass against the app running with the fix",
     },
   ];
 
@@ -349,7 +355,7 @@ function AutoMergeSafety() {
             <span className="text-inari-accent">Safely.</span>
           </h2>
           <p className="mt-4 text-fg-base leading-relaxed">
-            5 safety gates — CI, confidence ≥ 90%, self-review ≥ 70/100, ≤ 50 lines, auto-merge enabled — all must pass. Off by default.
+            11 safety gates — CI, regression tests, confidence, self-review, security scan, Substrate replay, E2E staging, and more — all must pass. Off by default.
           </p>
         </div>
 
@@ -571,11 +577,12 @@ function WhyNotNative() {
             ))}
           </div>
           {[
-            { cap: "Writes code fix automatically", dd: false, us: true },
-            { cap: "Pushes branch + waits for CI (3× retry)", dd: false, us: true },
-            { cap: "Pre-deploy PR risk scoring", dd: false, us: true },
+            { cap: "Writes code fix + regression test", dd: false, us: true },
+            { cap: "Code Intelligence (AST + embeddings + dependency graph)", dd: false, us: true },
+            { cap: "11 safety gates + E2E staging verification", dd: false, us: true },
+            { cap: "Substrate I/O replay verification", dd: false, us: true },
             { cap: "Community fix network (crowdsourced)", dd: false, us: true },
-            { cap: "MCP server (21 tools for AI editors)", dd: false, us: true },
+            { cap: "MCP server (23 tools for AI editors)", dd: false, us: true },
             { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
             { cap: "Fully open source (MIT)", dd: false, us: true },
           ].map((row, idx) => (
@@ -651,8 +658,20 @@ function AIFeatures() {
     {
       icon: <Wrench className="h-5 w-5" />,
       title: "AI Code Remediation",
-      body: "Reads your repo, writes the fix, pushes a branch, waits for CI, retries up to 3×. Opens the PR only when it passes.",
+      body: "Reads your repo, writes the fix + regression test, pushes a branch, waits for CI, retries up to 3x. 11 safety gates before auto-merge.",
       tag: "Unique",
+    },
+    {
+      icon: <Brain className="h-5 w-5" />,
+      title: "Code Intelligence",
+      body: "Tree-sitter AST + Voyage Code 3 embeddings + dependency graph. The AI knows your codebase — fixes match your conventions, not generic patterns.",
+      tag: "Code RAG",
+    },
+    {
+      icon: <TestTube2 className="h-5 w-5" />,
+      title: "Regression Test Generation",
+      body: "Every fix ships with an AI-generated test that reproduces the bug. If the test fails, the fix is bad — retry automatically.",
+      tag: "Verification",
     },
     {
       icon: <Zap className="h-5 w-5" />,
@@ -662,8 +681,8 @@ function AIFeatures() {
     },
     {
       icon: <Shield className="h-5 w-5" />,
-      title: "Auto-Heal",
-      body: "Site goes down? Rollback in 30 seconds, then AI fixes the bug in the background. ~90s total downtime.",
+      title: "Auto-Heal + E2E Staging",
+      body: "Site goes down? Rollback in 30s, fix in background. E2E tests run against the fix in GitHub Actions before merge.",
       tag: "Self-healing",
     },
     {
@@ -786,7 +805,7 @@ function McpSection() {
             </h2>
             <p className="mt-4 text-fg-base max-w-md">
               One command connects InariWatch to any AI coding tool.
-              21 tools, 4 live data resources, 7 prompt workflows — your AI gets
+              23 tools, 4 live data resources, 7 prompt workflows — your AI gets
               full production context before you even ask.
             </p>
           </div>
@@ -869,7 +888,7 @@ function McpSection() {
 
         <div className="mt-8 flex items-center gap-4">
           <Link href="/docs#mcp-overview" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
-            MCP docs — all 21 tools
+            MCP docs — all 23 tools
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
           <span className="text-zinc-700 text-sm">·</span>

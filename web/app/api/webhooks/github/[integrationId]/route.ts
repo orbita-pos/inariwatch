@@ -207,7 +207,69 @@ export async function POST(
     }
   }
 
+  // ── push (trigger incremental code indexing) ───────────────────────
+  if (event === "push") {
+    const repo = payload.repository as Record<string, unknown> | undefined;
+    const repoName = (repo?.name ?? "") as string;
+    const owner = config.owner as string;
+    if (owner && repoName) {
+      // Fire-and-forget: trigger incremental re-indexation
+      triggerCodeIndex(integ.projectId, owner, repoName).catch(() => {});
+    }
+  }
+
   await markIntegrationSuccess(integrationId);
 
   return NextResponse.json({ ok: true, created });
+}
+
+// ── Code Intelligence re-indexation (fire-and-forget, direct call) ────────────
+
+async function triggerCodeIndex(projectId: string, owner: string, repo: string) {
+  try {
+    const { db, projectIntegrations, codeRepositories } = await import("@/lib/db");
+    const { eq, and } = await import("drizzle-orm");
+    const { decryptConfig } = await import("@/lib/crypto");
+
+    // Only trigger if this repo is already indexed (don't auto-index on first push)
+    const [existing] = await db
+      .select({ id: codeRepositories.id })
+      .from(codeRepositories)
+      .where(
+        and(
+          eq(codeRepositories.projectId, projectId),
+          eq(codeRepositories.githubOwner, owner),
+          eq(codeRepositories.githubRepo, repo)
+        )
+      )
+      .limit(1);
+
+    if (!existing) return;
+
+    // Get GitHub token from the project's integration
+    const [integ] = await db
+      .select({ configEncrypted: projectIntegrations.configEncrypted })
+      .from(projectIntegrations)
+      .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.service, "github")))
+      .limit(1);
+    if (!integ) return;
+
+    const cfg = decryptConfig(integ.configEncrypted);
+    const ghToken = cfg.token as string;
+    if (!ghToken) return;
+
+    // Get OpenAI key (optional — for docstrings/embeddings)
+    let openaiKey: string | undefined;
+    try {
+      const { getProjectOwnerAIKey } = await import("@/lib/ai/get-key");
+      const aiKey = await getProjectOwnerAIKey(projectId);
+      if (aiKey && aiKey.provider === "openai") openaiKey = aiKey.key;
+    } catch { /* optional */ }
+
+    // Call indexer directly — no HTTP, no auth issues
+    const { indexRepository } = await import("@/lib/code-intelligence/indexer");
+    await indexRepository({ ghToken, owner, repo, projectId, openaiKey });
+  } catch (err) {
+    console.error(`[webhook] Code re-indexation failed for ${owner}/${repo}:`, err);
+  }
 }

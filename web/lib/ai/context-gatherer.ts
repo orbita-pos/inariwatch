@@ -196,6 +196,8 @@ export async function gatherRemediationContext(
     substrateContext: null,
     eapReceipt: null,
     deployContext: null,
+    codebaseContext: null,
+    fixReplayContext: null,
   };
 
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, projectId));
@@ -372,6 +374,61 @@ export async function gatherRemediationContext(
       }
     })());
   }
+
+  // Code Intelligence — search indexed codebase for relevant patterns
+  tasks.push((async () => {
+    emit("context", { source: "codebase", status: "fetching" });
+    try {
+      const { searchCodeByProject } = await import("@/lib/code-intelligence/search");
+      // Search for code related to the error
+      const query = `${alert.title} ${alert.body.slice(0, 200)}`;
+      const results = await searchCodeByProject(query, projectId, { limit: 8, includeGraph: true });
+      if (results.length > 0) {
+        const sections = results.map((r) => {
+          let section = `## ${r.language} ${r.chunkType} "${r.name}" in ${r.filePath}:${r.startLine}\n`;
+          if (r.docstring) section += `Purpose: ${r.docstring}\n`;
+          section += `\`\`\`${r.language}\n${r.code.slice(0, 1500)}\n\`\`\``;
+          if (r.callers?.length) section += `\nCalled by: ${r.callers.map((c) => `${c.name} (${c.filePath})`).join(", ")}`;
+          if (r.callees?.length) section += `\nCalls: ${r.callees.map((c) => `${c.name} (${c.filePath})`).join(", ")}`;
+          return section;
+        });
+        result.codebaseContext = sections.join("\n\n");
+        emit("context", { source: "codebase", status: "found" });
+      } else {
+        emit("context", { source: "codebase", status: "empty" });
+      }
+    } catch {
+      emit("context", { source: "codebase", status: "empty" });
+    }
+  })());
+
+  // Fix replay — search past successful fixes by embedding similarity
+  tasks.push((async () => {
+    emit("context", { source: "fix-replay", status: "fetching" });
+    try {
+      const { searchFixReplay } = await import("@/lib/code-intelligence/fix-replay");
+      // We need an embedding key — try to get one from the project owner
+      const { getProjectOwnerAIKey } = await import("@/lib/ai/get-key");
+      const aiKey = await getProjectOwnerAIKey(projectId);
+      if (aiKey && (aiKey.provider === "openai" || aiKey.provider === "deepseek")) {
+        const query = `${alert.title} ${alert.body.slice(0, 300)}`;
+        const hints = await searchFixReplay(query, projectId, aiKey.key, 3);
+        if (hints.length > 0) {
+          const sections = hints.map((h, i) =>
+            `${i + 1}. (${Math.round(h.similarity * 100)}% similar) ${h.diagnosis}\n   Files: ${h.filesFixed.join(", ")}\n   Confidence: ${h.confidence}%`
+          );
+          result.fixReplayContext = sections.join("\n\n");
+          emit("context", { source: "fix-replay", status: "found" });
+        } else {
+          emit("context", { source: "fix-replay", status: "empty" });
+        }
+      } else {
+        emit("context", { source: "fix-replay", status: "empty" });
+      }
+    } catch {
+      emit("context", { source: "fix-replay", status: "empty" });
+    }
+  })());
 
   // Run all in parallel
   await Promise.allSettled(tasks);

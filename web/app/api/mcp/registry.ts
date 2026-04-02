@@ -391,4 +391,44 @@ export const TOOLS: ToolDef[] = [
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "moderate",
   },
+
+  // ── Code Intelligence ───────────────────────────────────────────────────────
+  {
+    name: "search_codebase",
+    description:
+      "Search the user's indexed codebase using hybrid vector + keyword search. Returns relevant code chunks with descriptions, dependency graph, and file locations. The codebase must be indexed first (happens automatically when GitHub is connected).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "What to search for — error message, function name, concept, or pattern.",
+        },
+        project: { type: "string", description: "Project slug (optional, searches all if omitted)." },
+        limit: {
+          type: "number",
+          description: "Max results to return (default: 5, max: 10).",
+        },
+      },
+      required: ["query"],
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    costTier: "moderate",
+  },
+  {
+    name: "reindex_codebase",
+    description:
+      "Trigger a re-indexation of the project's codebase. Uses incremental indexing (only changed files). Rate limited to once per 5 minutes per repo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug." },
+      },
+      required: ["project"],
+    },
+    scope: "execute",
+    annotations: { idempotentHint: false },
+    costTier: "moderate",
+  },
 ];

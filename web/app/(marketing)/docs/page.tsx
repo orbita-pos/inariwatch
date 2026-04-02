@@ -153,11 +153,26 @@ const NAV = [
     ],
   },
   {
+    group: "Code Intelligence",
+    items: [
+      { id: "code-intel-overview",   label: "Overview" },
+      { id: "code-intel-indexing",   label: "Codebase Indexing" },
+      { id: "code-intel-search",     label: "Hybrid Search" },
+      { id: "code-intel-embeddings", label: "Embeddings (Voyage Code 3)" },
+      { id: "code-intel-tree-sitter", label: "AST Parsing (Tree-sitter)" },
+      { id: "code-intel-fix-replay", label: "Fix Replay" },
+      { id: "code-intel-test-gen",   label: "Regression Test Generation" },
+      { id: "code-intel-substrate-replay", label: "Substrate Replay" },
+      { id: "code-intel-e2e",        label: "E2E Staging Verification" },
+      { id: "code-intel-gates",      label: "Safety Gates (11)" },
+    ],
+  },
+  {
     group: "MCP Server",
     items: [
       { id: "mcp-overview",   label: "Overview" },
       { id: "mcp-setup",      label: "Setup" },
-      { id: "mcp-tools",      label: "Tools (21)" },
+      { id: "mcp-tools",      label: "Tools (23)" },
       { id: "mcp-resources",  label: "Resources (4)" },
       { id: "mcp-prompts",    label: "Prompts (7)" },
       { id: "mcp-auth",       label: "Auth & scopes" },
@@ -1913,6 +1928,253 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
             </Callout>
 
             {/* ────────────────────────────────────────────────────────────────
+                CODE INTELLIGENCE
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="code-intel-overview">Code Intelligence</SectionHeading>
+            <P>
+              Code Intelligence is InariWatch{"'"}s built-in Code RAG system. It indexes your entire codebase so the AI
+              understands your conventions, patterns, and architecture — generating fixes that look like they were written
+              by someone on your team, not a stranger.
+            </P>
+            <P>
+              The system combines <strong>tree-sitter AST parsing</strong>, <strong>Voyage Code 3 embeddings</strong>,
+              {" "}<strong>hybrid search (vector + BM25)</strong>, and a <strong>dependency graph</strong> to give the AI
+              deep understanding of your code.
+            </P>
+
+            <Table
+              head={["Capability", "What it does", "Status"]}
+              rows={[
+                ["Codebase Indexing", "Parse every function, class, and type in your repo via tree-sitter AST", "Automatic"],
+                ["Hybrid Search", "Vector similarity + full-text search with AI re-ranking", "Automatic"],
+                ["Dependency Graph", "Knows who calls what — if you change function A, it knows B and C are affected", "Automatic"],
+                ["Fix Replay", "Embeds past successful fixes — \"this was fixed 3 times, here's what worked\"", "Automatic"],
+                ["Regression Tests", "AI generates tests that reproduce the bug and verify the fix", "Automatic"],
+                ["Substrate Replay", "Verifies fix against recorded I/O that caused the crash", "When Substrate active"],
+                ["E2E Staging", "Spins up staging via GitHub Actions and runs Playwright tests against the fix", "When E2E detected"],
+              ]}
+            />
+
+            <Callout type="info">
+              Code Intelligence activates automatically when you connect a GitHub integration. No configuration needed —
+              it detects your language, framework, and test setup.
+            </Callout>
+
+            <SubHeading id="code-intel-indexing">Codebase Indexing</SubHeading>
+            <P>
+              When you connect GitHub, InariWatch automatically indexes your repository. The pipeline:
+            </P>
+            <StepList steps={[
+              {
+                title: "Fetch repo files via GitHub API",
+                body: <>Respects blocklists — skips <InlineCode>.env</InlineCode>, <InlineCode>node_modules</InlineCode>, lock files, binaries, build output.</>
+              },
+              {
+                title: "Parse AST with tree-sitter WASM",
+                body: <>Extracts every function, class, method, type, and interface with precise line numbers. Supports TypeScript, JavaScript, Python, Go, Rust, and Java.</>
+              },
+              {
+                title: "Generate docstrings with AI",
+                body: <>GPT-4o-mini generates natural language descriptions for each code chunk in batches of 15. These descriptions power the semantic search.</>
+              },
+              {
+                title: "Generate embeddings",
+                body: <>Voyage Code 3 (primary) or OpenAI text-embedding-3-small (fallback) creates 1024-dimensional vectors for each chunk. Stored in pgvector with HNSW index.</>
+              },
+              {
+                title: "Build dependency graph",
+                body: <>From the AST, extracts which functions call which, what imports each file has. Stored as edges in <InlineCode>code_dependencies</InlineCode>.</>
+              },
+            ]} />
+
+            <P>
+              <strong>Incremental indexing:</strong> After the first full index, subsequent pushes only re-index changed
+              files (via <InlineCode>git diff</InlineCode>). Rate limited to 1 re-index per repo per 5 minutes.
+            </P>
+
+            <SubHeading id="code-intel-search">Hybrid Search</SubHeading>
+            <P>
+              When the AI needs to find relevant code (during remediation or via the <InlineCode>search_codebase</InlineCode> MCP tool),
+              it uses a three-stage retrieval pipeline:
+            </P>
+
+            <Table
+              head={["Stage", "Method", "What it does"]}
+              rows={[
+                ["1. Vector search", "pgvector cosine similarity", "Finds semantically similar code using Voyage Code 3 embeddings of docstrings"],
+                ["2. Keyword search", "PostgreSQL tsvector (BM25)", "Finds exact matches on function names, variable names, error messages via full-text search"],
+                ["3. RRF Fusion", "Reciprocal Rank Fusion (k=60)", "Combines both result sets — chunks that appear in both get boosted"],
+                ["4. AI Re-ranking", "GPT-4o-mini", "From top 50 fused results, AI selects the 5-10 most relevant for the specific error"],
+                ["5. Graph enrichment", "Dependency graph", "For each result, attaches callers (who calls it) and callees (what it calls)"],
+              ]}
+            />
+
+            <P>
+              The final context (up to 8,000 tokens) is injected into both the diagnosis and fix generation prompts
+              with the instruction: <em>{'"'}your fix MUST follow these patterns.{'"'}</em>
+            </P>
+
+            <SubHeading id="code-intel-embeddings">Embeddings — Voyage Code 3</SubHeading>
+            <P>
+              InariWatch uses <strong>Voyage Code 3</strong> as the primary embedding model for code — it achieves
+              12-15% better similarity on code retrieval benchmarks compared to OpenAI{"'"}s text-embedding-3-small.
+            </P>
+
+            <Table
+              head={["Feature", "Voyage Code 3", "OpenAI (fallback)"]}
+              rows={[
+                ["Dimensions", "1024", "1024 (truncated from 1536)"],
+                ["Input types", "document / query (asymmetric)", "Single type"],
+                ["Code optimized", "Yes — trained on code retrieval", "General purpose"],
+                ["Detection", "API key starts with pa-", "API key starts with sk-"],
+                ["Cost", "~$0.06 / 1M tokens", "~$0.02 / 1M tokens"],
+              ]}
+            />
+
+            <Callout type="tip">
+              Set <InlineCode>VOYAGE_API_KEY</InlineCode> in your environment to use Voyage Code 3.
+              If not set, InariWatch falls back to your OpenAI key automatically.
+            </Callout>
+
+            <SubHeading id="code-intel-tree-sitter">AST Parsing — Tree-sitter WASM</SubHeading>
+            <P>
+              InariWatch uses <strong>web-tree-sitter</strong> (WebAssembly) for precise AST parsing.
+              Unlike regex-based parsing, tree-sitter understands the actual grammar of each language —
+              zero missed functions, correct handling of nested classes, decorators, generics, and macros.
+            </P>
+
+            <Table
+              head={["Language", "What it extracts"]}
+              rows={[
+                ["TypeScript / JavaScript", "Functions, arrow functions, classes, methods, types, interfaces, imports"],
+                ["Python", "Functions, classes, methods, imports (from/import)"],
+                ["Go", "Functions, methods (with receiver), types (struct/interface), imports"],
+                ["Rust", "Functions, impl blocks, structs, enums, traits, use declarations"],
+                ["Java", "Classes, methods, constructors, interfaces, enums, imports"],
+              ]}
+            />
+
+            <P>
+              If tree-sitter WASM fails to load (rare edge case), a regex-based fallback parser activates automatically.
+            </P>
+
+            <SubHeading id="code-intel-fix-replay">Fix Replay</SubHeading>
+            <P>
+              When a fix completes successfully, InariWatch embeds the entire fix context (diagnosis + files changed + result)
+              as a vector. When a similar error arrives later, it searches past fixes by embedding similarity.
+            </P>
+            <P>
+              This means the AI gets context like: <em>{'"'}This function was fixed 3 times before. The first time, the fix was X
+              (confidence 85%). The second time, it was Y (confidence 92%).{'"'}</em> — turning past experience into future accuracy.
+            </P>
+
+            <Callout type="info">
+              Fix Replay builds up automatically over time. The more fixes InariWatch completes for your project,
+              the better it gets at fixing similar errors.
+            </Callout>
+
+            <SubHeading id="code-intel-test-gen">Regression Test Generation</SubHeading>
+            <P>
+              After generating a fix, the AI also generates 1-3 regression tests that:
+            </P>
+            <StepList steps={[
+              {
+                title: "Reproduce the bug",
+                body: <>Creates a test case with the exact input that causes the crash.</>
+              },
+              {
+                title: "Verify the fix",
+                body: <>Asserts that with the fix applied, the same input no longer crashes.</>
+              },
+              {
+                title: "Follow your conventions",
+                body: <>Reads up to 3 existing test files from your repo to learn your framework (vitest, jest, pytest, go test), assertion style, and file structure.</>
+              },
+            ]} />
+            <P>
+              The test files are pushed alongside the fix. Your CI runs them automatically.
+              If the regression test fails, the fix is bad — InariWatch retries with a different approach.
+            </P>
+
+            <SubHeading id="code-intel-substrate-replay">Substrate Replay Verification</SubHeading>
+            <P>
+              If your app uses <InlineCode>@inariwatch/capture</InlineCode> with <InlineCode>substrate: true</InlineCode>,
+              InariWatch records all I/O (HTTP requests, DB queries, file operations) before a crash.
+              Substrate Replay takes that recording and verifies the fix against it:
+            </P>
+
+            <Table
+              head={["Mode", "How it works", "When it runs"]}
+              rows={[
+                ["AI Analysis", "AI reads the I/O recording + fix and predicts if the fix prevents the crash", "Always (when recording exists)"],
+                ["GitHub Action Replay", "Generates a workflow that replays the recorded HTTP requests against the fixed app", "Optional (generates workflow file)"],
+              ]}
+            />
+
+            <P>
+              The AI Analysis produces a <strong>risk score (0-100)</strong>. If the score is {"<="} 40, the
+              {" "}<InlineCode>substrate_replay</InlineCode> gate passes. This is an optional gate — if no
+              Substrate recording exists, it{"'"}s skipped.
+            </P>
+
+            <SubHeading id="code-intel-e2e">E2E Staging Verification</SubHeading>
+            <P>
+              InariWatch auto-detects your E2E test framework (Playwright, Cypress) and generates a GitHub Actions
+              workflow that builds the app with the fix, starts it, and runs your E2E tests against it.
+            </P>
+            <StepList steps={[
+              {
+                title: "Detect framework",
+                body: <>Reads <InlineCode>package.json</InlineCode> to find Playwright, Cypress, or other E2E frameworks. Detects Next.js, Express, etc.</>
+              },
+              {
+                title: "Generate workflow",
+                body: <>Creates <InlineCode>.github/workflows/inariwatch-e2e-staging.yml</InlineCode> tailored to your stack.</>
+              },
+              {
+                title: "Push and wait",
+                body: <>Pushes the workflow to the fix branch. GitHub Actions runs it automatically. InariWatch polls every 20 seconds for results (max 10 min).</>
+              },
+              {
+                title: "Gate evaluation",
+                body: <>If E2E tests pass, the <InlineCode>e2e_staging</InlineCode> gate passes. If they fail, the fix likely introduces regressions.</>
+              },
+            ]} />
+
+            <Callout type="tip">
+              E2E staging uses your existing GitHub Actions minutes — zero additional cost.
+              If no E2E framework is detected in your project, this step is skipped automatically.
+            </Callout>
+
+            <SubHeading id="code-intel-gates">Safety Gates (11)</SubHeading>
+            <P>
+              Every fix must pass through 11 safety gates before auto-merge. All gates are data-driven — no guessing.
+            </P>
+
+            <Table
+              head={["#", "Gate", "Pass condition", "Required"]}
+              rows={[
+                ["0", "auto_merge_enabled", "Enabled in project settings", "Yes"],
+                ["1", "ci_passed", "All CI checks pass (including regression tests)", "Yes"],
+                ["2", "confidence", "AI diagnosis confidence >= configured threshold", "Yes"],
+                ["3", "lines_changed", "Total lines changed <= configured max", "Yes"],
+                ["4", "self_review", "AI self-review score >= 70, not rejected", "If enabled"],
+                ["5", "substrate_simulate", "Substrate simulate risk score <= 40", "If recording exists"],
+                ["6", "eap_chain_verified", "EAP cryptographic proof chain verified", "If receipt exists"],
+                ["7", "prediction_safe", "Prediction engine risk score <= 40", "If prediction ran"],
+                ["8", "security_scan", "0 HIGH severity security findings (ESLint + patterns)", "If scan ran"],
+                ["9", "substrate_replay", "Substrate I/O replay confirms fix prevents crash", "If recording exists"],
+                ["10", "e2e_staging", "E2E staging tests pass in GitHub Actions", "If E2E framework detected"],
+              ]}
+            />
+
+            <P>
+              If all gates pass → <strong>auto-merge</strong>. If any gate fails → <strong>draft PR</strong> for human review.
+              Optional gates (5-10) only activate when their data is available — they never block if there{"'"}s nothing to check.
+            </P>
+
+            {/* ────────────────────────────────────────────────────────────────
                 MCP SERVER
             ──────────────────────────────────────────────────────────────── */}
 
@@ -1960,7 +2222,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               Click &quot;Connect&quot; in your tool, approve in the browser, done. PKCE (S256) enforced.
             </p>
 
-            <SubHeading id="mcp-tools">Tools (21)</SubHeading>
+            <SubHeading id="mcp-tools">Tools (23)</SubHeading>
             <p>Once connected, your AI can call these tools:</p>
 
             <Table
@@ -1987,6 +2249,8 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["reproduce_bug", "Replay I/O timeline before a crash (HTTP, DB, file ops) via Substrate recording", "read", "30/min"],
                 ["simulate_fix", "AI simulates whether a proposed fix would resolve the bug based on I/O recording", "read", "5/min"],
                 ["verify_remediation", "Full verification chain: fix → CI → merge → monitoring → recurrence check", "read", "30/min"],
+                ["search_codebase", "Hybrid search (vector + BM25) across indexed codebase with dependency graph", "read", "30/min"],
+                ["reindex_codebase", "Trigger incremental re-indexation of a project's codebase", "execute", "30/min"],
               ]}
             />
 

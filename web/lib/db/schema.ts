@@ -7,8 +7,34 @@ import {
   boolean,
   jsonb,
   integer,
+  index,
+  customType,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+// ── Custom types ─────────────────────────────────────────────────────────────
+
+const vector = customType<{ data: number[]; driverParam: string }>({
+  dataType() {
+    return "vector(1024)";
+  },
+  toDriver(value: number[]) {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: unknown) {
+    const str = value as string;
+    return str
+      .slice(1, -1)
+      .split(",")
+      .map(Number);
+  },
+});
+
+const tsvector = customType<{ data: string; driverParam: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -438,6 +464,8 @@ export const remediationSessions = pgTable("remediation_sessions", {
   context: jsonb("context"),
   /** Substrate simulate risk score (0-100). NULL if no recording available. */
   simulateRiskScore: integer("simulate_risk_score"),
+  /** Embedding of the fix context (diagnosis + files + result) for vector replay. */
+  fixEmbedding: vector("fix_embedding"),
   /** When the fix was proposed to the human (status → proposing). Used to compute time-to-decide. */
   proposedAt: timestamp("proposed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -803,3 +831,98 @@ export const deployMonitors = pgTable("deploy_monitors", {
   status: text("status").default("pending").notNull(), // 'pending' | 'checked'
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// ── Code Intelligence (Code RAG) ────────────────────────────────────────────
+
+export const codeRepoStatusEnum = pgEnum("code_repo_status", [
+  "pending",
+  "indexing",
+  "ready",
+  "failed",
+]);
+
+export const chunkTypeEnum = pgEnum("chunk_type", [
+  "function",
+  "class",
+  "method",
+  "module",
+  "type",
+]);
+
+export const depTypeEnum = pgEnum("dep_type", [
+  "calls",
+  "imports",
+  "extends",
+  "implements",
+]);
+
+export const codeRepositories = pgTable("code_repositories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  githubOwner: text("github_owner").notNull(),
+  githubRepo: text("github_repo").notNull(),
+  defaultBranch: text("default_branch").notNull().default("main"),
+  lastIndexedCommit: text("last_indexed_commit"),
+  lastIndexedAt: timestamp("last_indexed_at"),
+  totalChunks: integer("total_chunks").notNull().default(0),
+  status: codeRepoStatusEnum("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type CodeRepository = typeof codeRepositories.$inferSelect;
+export type NewCodeRepository = typeof codeRepositories.$inferInsert;
+
+export const codeChunks = pgTable(
+  "code_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    filePath: text("file_path").notNull(),
+    chunkType: chunkTypeEnum("chunk_type").notNull(),
+    name: text("name").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    code: text("code").notNull(),
+    docstring: text("docstring"),
+    embedding: vector("embedding"),
+    language: text("language").notNull(),
+    dependencies: text("dependencies").array().notNull().default([]),
+    tsv: tsvector("tsv"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_chunks_repo").on(table.repoId),
+    index("idx_code_chunks_file").on(table.repoId, table.filePath),
+  ]
+);
+
+export type CodeChunk = typeof codeChunks.$inferSelect;
+export type NewCodeChunk = typeof codeChunks.$inferInsert;
+
+export const codeDependencies = pgTable(
+  "code_dependencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceChunkId: uuid("source_chunk_id")
+      .notNull()
+      .references(() => codeChunks.id, { onDelete: "cascade" }),
+    targetChunkId: uuid("target_chunk_id")
+      .notNull()
+      .references(() => codeChunks.id, { onDelete: "cascade" }),
+    dependencyType: depTypeEnum("dependency_type").notNull(),
+  },
+  (table) => [
+    index("idx_code_deps_source").on(table.sourceChunkId),
+    index("idx_code_deps_target").on(table.targetChunkId),
+  ]
+);
+
+export type CodeDependency = typeof codeDependencies.$inferSelect;
+export type NewCodeDependency = typeof codeDependencies.$inferInsert;

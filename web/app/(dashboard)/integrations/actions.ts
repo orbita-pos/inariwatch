@@ -277,6 +277,12 @@ export async function connectIntegration(
     }
 
     logAudit({ userId, action: "integration.connect", resource: "integration", metadata: { service } });
+
+    // Trigger first code indexation when GitHub is connected
+    if (service === "github" && config && typeof config === "object" && "owner" in config) {
+      triggerFirstCodeIndex(projectId, config.owner as string).catch(() => {});
+    }
+
     revalidatePath("/integrations");
     revalidatePath("/dashboard");
     return {};
@@ -403,4 +409,53 @@ export async function fetchIntegrationOptions(
     }
   } catch { /* ignore */ }
   return [];
+}
+
+// ── Code Intelligence: trigger first indexation when GitHub is connected ──────
+
+async function triggerFirstCodeIndex(projectId: string, owner: string) {
+  try {
+    // List repos for this owner to auto-detect the main repo
+    const [integ] = await db
+      .select({ configEncrypted: projectIntegrations.configEncrypted })
+      .from(projectIntegrations)
+      .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.service, "github")))
+      .limit(1);
+    if (!integ) return;
+
+    const cfg = decryptConfig(integ.configEncrypted);
+    const token = cfg.token as string;
+    const repo = cfg.repo as string | undefined;
+
+    if (!token || !owner) return;
+
+    // If repo is already configured, use it. Otherwise pick the most recently pushed one.
+    let targetRepo = repo;
+    if (!targetRepo) {
+      const res = await fetch(
+        `https://api.github.com/users/${owner}/repos?per_page=1&sort=pushed`,
+        { headers: { Authorization: `Bearer ${token}`, "User-Agent": "InariWatch-CodeIntel/1.0" } }
+      );
+      if (res.ok) {
+        const repos = await res.json();
+        targetRepo = repos[0]?.name;
+      }
+    }
+
+    if (!targetRepo) return;
+
+    // Fire-and-forget indexation
+    const { indexRepository } = await import("@/lib/code-intelligence/indexer");
+
+    let openaiKey: string | undefined;
+    try {
+      const { getProjectOwnerAIKey } = await import("@/lib/ai/get-key");
+      const aiKey = await getProjectOwnerAIKey(projectId);
+      if (aiKey && aiKey.provider === "openai") openaiKey = aiKey.key;
+    } catch { /* optional */ }
+
+    await indexRepository({ ghToken: token, owner, repo: targetRepo, projectId, openaiKey });
+  } catch {
+    // Non-critical
+  }
 }

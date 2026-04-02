@@ -12,7 +12,7 @@
 import { db, remediationSessions, alerts, projectIntegrations, projects, errorPatterns, communityFixes, substrateRecordings } from "@/lib/db";
 import { eq, and, desc } from "drizzle-orm";
 import { callAI } from "./client";
-import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, type MemoryHint } from "./prompts";
+import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, SYSTEM_TEST_GENERATOR, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, buildTestPrompt, type MemoryHint } from "./prompts";
 import { computeErrorFingerprint } from "./fingerprint";
 import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
@@ -265,6 +265,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       remediationContext.vercelBuildLogs ? "Vercel build logs" : null,
       remediationContext.githubCILogs ? "GitHub CI logs" : null,
       remediationContext.datadogMetrics ? "Datadog metrics" : null,
+      remediationContext.codebaseContext ? "Codebase patterns (Code RAG)" : null,
     ].filter(Boolean);
 
     steps = await resolveStep(sessionId, steps, "completed",
@@ -481,7 +482,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           : "AI is generating a code fix..."), emit);
 
       const fixRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
-        { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt) },
+        { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext) },
       ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
 
       let fix: { explanation: string; files: { path: string; content: string }[] };
@@ -526,6 +527,57 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
       steps = await resolveStep(sessionId, steps, "completed",
         `Fix: ${fix.explanation}`, emit);
+
+      // ── REGRESSION TEST GENERATION ─────────────────────────────────
+      steps = await pushStep(sessionId, steps,
+        makeStep("test_gen", "Generating regression test for the fix..."), emit);
+
+      try {
+        // Find existing test files in the repo to learn conventions
+        const testFiles: { path: string; content: string }[] = [];
+        const testPatterns = [/__tests__\//, /\.test\.[tj]sx?$/, /\.spec\.[tj]sx?$/, /_test\.go$/, /_test\.py$/];
+        const candidateTestFiles = repoFiles
+          .filter((f) => testPatterns.some((p) => p.test(f)))
+          .slice(0, 3);
+
+        for (const tf of candidateTestFiles) {
+          const testContent = await gh.getFileContent(token, owner, repo, tf, defaultBranch);
+          if (testContent) testFiles.push({ path: tf, content: testContent });
+        }
+
+        const testRaw = await callAI(aiKey.key, SYSTEM_TEST_GENERATOR, [
+          {
+            role: "user",
+            content: buildTestPrompt(
+              diagnosis.diagnosis,
+              fileContents,
+              fix.files,
+              alert.body,
+              testFiles.length > 0 ? testFiles : undefined,
+              remediationContext?.codebaseContext
+            ),
+          },
+        ], { maxTokens: 2048, timeout: 45000, model: remModel, provider: aiKey.provider });
+
+        const testResult: { files: { path: string; content: string }[]; description: string } = JSON.parse(cleanJSON(testRaw));
+
+        if (testResult.files?.length > 0) {
+          // Validate test file paths through the same safety check as fix files
+          const safeTestFiles = testResult.files.filter((f) => isSafeFilePath(f.path));
+          // Merge safe test files with fix files (CI will run them)
+          fix.files = [...fix.files, ...safeTestFiles];
+          await updateSession(sessionId, { fileChanges: fix.files });
+          steps = await resolveStep(sessionId, steps, "completed",
+            `Generated ${testResult.files.length} regression test(s): ${testResult.description}`, emit);
+        } else {
+          steps = await resolveStep(sessionId, steps, "completed",
+            "No regression test generated (fix may not benefit from one)", emit);
+        }
+      } catch {
+        // Non-blocking — fix still works without tests
+        steps = await resolveStep(sessionId, steps, "completed",
+          "Regression test generation skipped (non-blocking)", emit);
+      }
 
       // ── SECURITY SCAN ────────────────────────────────────────────────
       steps = await pushStep(sessionId, steps,
@@ -759,6 +811,94 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           // Non-blocking — simulate is optional
         }
 
+        // ── SUBSTRATE REPLAY VERIFICATION ─────────────────────────────
+        let replayResult: { passed: boolean; riskScore: number; analysis: string } | null = null;
+        try {
+          const { analyzeReplay } = await import("./substrate-replay");
+          steps = await pushStep(sessionId, steps,
+            makeStep("substrate_replay", "Analyzing Substrate I/O recording against fix..."), emit);
+
+          const replay = await analyzeReplay(
+            session.projectId, alert.id,
+            diagnosis.diagnosis, fix.files,
+            aiKey.key, aiKey.provider, remModel
+          );
+
+          if (replay) {
+            replayResult = { passed: replay.passed, riskScore: replay.riskScore, analysis: replay.analysis };
+            emit("substrate_replay", {
+              status: "completed",
+              passed: replay.passed,
+              confidence: replay.confidence,
+              riskScore: replay.riskScore,
+              analysis: replay.analysis,
+              replayedEvents: replay.replayedEvents,
+              mode: replay.mode,
+            });
+            steps = await resolveStep(sessionId, steps,
+              replay.passed ? "completed" : "failed",
+              `Substrate replay: ${replay.analysis} (risk ${replay.riskScore}/100)`, emit);
+          } else {
+            steps = await resolveStep(sessionId, steps, "completed",
+              "No Substrate recording available — replay skipped", emit);
+          }
+        } catch {
+          steps = await resolveStep(sessionId, steps, "completed",
+            "Substrate replay skipped (non-blocking)", emit);
+        }
+
+        // ── E2E STAGING VERIFICATION ──────────────────────────────────
+        let e2eStagingPassed: boolean | null = null;
+        try {
+          const { detectE2EConfig, pushE2EWorkflow, waitForE2EResult } = await import("./staging-e2e");
+
+          steps = await pushStep(sessionId, steps,
+            makeStep("e2e_staging", "Detecting E2E test configuration..."), emit);
+
+          const e2eConfig = await detectE2EConfig(token, owner, repo, defaultBranch);
+
+          if (e2eConfig) {
+            emit("e2e_staging", { status: "detected", framework: e2eConfig.framework, testCommand: e2eConfig.testCommand });
+
+            // Push the E2E workflow to the fix branch
+            const pushed = await pushE2EWorkflow(token, owner, repo, branchName, e2eConfig);
+
+            if (pushed) {
+              steps = await resolveStep(sessionId, steps, "completed",
+                `E2E staging: ${e2eConfig.framework} detected, running ${e2eConfig.testCommand}...`, emit);
+
+              // Wait for the E2E check to complete (polls every 20s, max 10 min)
+              steps = await pushStep(sessionId, steps,
+                makeStep("e2e_wait", "Waiting for E2E staging results..."), emit);
+
+              const headSha = await gh.getBranchSha(token, owner, repo, branchName);
+              const e2eResult = await waitForE2EResult(token, owner, repo, headSha);
+
+              if (e2eResult) {
+                e2eStagingPassed = e2eResult.passed;
+                emit("e2e_staging", { status: "completed", passed: e2eResult.passed, duration: e2eResult.duration });
+                steps = await resolveStep(sessionId, steps,
+                  e2eResult.passed ? "completed" : "failed",
+                  e2eResult.passed
+                    ? `E2E staging passed (${e2eResult.duration}s)`
+                    : `E2E staging failed: ${e2eResult.logs}`, emit);
+              } else {
+                steps = await resolveStep(sessionId, steps, "completed",
+                  "E2E staging timed out (non-blocking)", emit);
+              }
+            } else {
+              steps = await resolveStep(sessionId, steps, "completed",
+                "Could not push E2E workflow — skipped", emit);
+            }
+          } else {
+            steps = await resolveStep(sessionId, steps, "completed",
+              "No E2E test framework detected — staging skipped", emit);
+          }
+        } catch {
+          steps = await resolveStep(sessionId, steps, "completed",
+            "E2E staging skipped (non-blocking)", emit);
+        }
+
         // ── EVALUATE AUTO-MERGE GATES ──────────────────────────────────
         const autoMergeConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
         const totalLinesChanged = fix.files.reduce((sum, f) => sum + f.content.split("\n").length, 0);
@@ -773,6 +913,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           linesChanged: totalLinesChanged,
           ciPassed: true,
           simulateRiskScore,
+          substrateReplayPassed: replayResult?.passed ?? null,
+          e2eStagingPassed,
           eapChainVerified,
         });
 
@@ -901,6 +1043,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 return; // post-merge monitor handles emit("done")
               } else {
                 await updateSession(sessionId, { status: "completed" });
+                // Record fix embedding for future replay
+                try {
+                  const { recordFixEmbedding } = await import("@/lib/code-intelligence/fix-replay");
+                  if (aiKey.provider === "openai" || aiKey.provider === "deepseek") {
+                    recordFixEmbedding(sessionId, aiKey.key).catch(() => {});
+                  }
+                } catch { /* non-blocking */ }
                 // Generate postmortem and resolve status page incident
                 try {
                   await generatePostmortemInternal(alert.id);

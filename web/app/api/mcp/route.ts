@@ -35,6 +35,8 @@ import * as runHealthCheck from "./tools/run-health-check";
 import * as reproduceBug from "./tools/reproduce-bug";
 import * as simulateFix from "./tools/simulate-fix";
 import * as verifyRemediation from "./tools/verify-remediation";
+import * as searchCodebase from "./tools/search-codebase";
+import * as reindexCodebase from "./tools/reindex-codebase";
 
 type ToolHandler = {
   execute: (args: Record<string, unknown>, user: McpUser) => Promise<string>;
@@ -63,6 +65,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   reproduce_bug: reproduceBug,
   simulate_fix: simulateFix,
   verify_remediation: verifyRemediation,
+  search_codebase: searchCodebase,
+  reindex_codebase: reindexCodebase,
 };
 
 const PROTOCOL_VERSION = "2024-11-05";

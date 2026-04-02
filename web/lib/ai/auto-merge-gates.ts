@@ -33,8 +33,10 @@ export function evaluateAutoMergeGates(params: {
   eapChainVerified?: boolean | null;
   predictionRiskScore?: number | null;
   securityScanHighCount?: number | null;
+  substrateReplayPassed?: boolean | null;
+  e2eStagingPassed?: boolean | null;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, e2eStagingPassed } = params;
   const gates: GateResult["gates"] = [];
 
   // Gate 0: Auto-merge must be enabled
@@ -129,6 +131,28 @@ export function evaluateAutoMergeGates(params: {
       reason: securityPassed
         ? "Security scan passed — no HIGH severity findings"
         : `Security scan found ${securityScanHighCount} HIGH severity finding(s)`,
+    });
+  }
+
+  // Gate 9: Substrate replay verification (if replay ran)
+  if (substrateReplayPassed != null) {
+    gates.push({
+      name: "substrate_replay",
+      passed: substrateReplayPassed,
+      reason: substrateReplayPassed
+        ? "Substrate I/O replay verified — fix prevents the recorded crash"
+        : "Substrate I/O replay indicates fix may not prevent the recorded crash",
+    });
+  }
+
+  // Gate 10: E2E staging verification (if staging tests ran)
+  if (e2eStagingPassed != null) {
+    gates.push({
+      name: "e2e_staging",
+      passed: e2eStagingPassed,
+      reason: e2eStagingPassed
+        ? "E2E staging tests passed — fix verified in staging environment"
+        : "E2E staging tests failed — fix may introduce regressions",
     });
   }
 
