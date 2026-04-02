@@ -1,4 +1,5 @@
 Contact: mailto:security@inariwatch.com
+Expires: 2027-04-02T00:00:00.000Z
 Preferred-Languages: en, es
 Canonical: https://app.inariwatch.com/.well-known/security.txt
 Policy: https://inariwatch.com/trust
