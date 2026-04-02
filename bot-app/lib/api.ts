@@ -2,7 +2,7 @@ import { getToken } from "./auth";
 import type { Alert, AlertDetail } from "./types";
 
 const API_BASE = "https://app.inariwatch.com";
-const MCP_BASE = "https://mcp.inariwatch.com";
+const MCP_BASE = "https://app.inariwatch.com/api/mcp";
 
 async function authHeaders(): Promise<Record<string, string>> {
   const token = await getToken();

@@ -28,15 +28,6 @@ const config: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  async rewrites() {
-    return [
-      {
-        source: "/:path*",
-        has: [{ type: "host", value: "mcp.inariwatch.com" }],
-        destination: "/api/mcp",
-      },
-    ];
-  },
 };
 
 export default config;

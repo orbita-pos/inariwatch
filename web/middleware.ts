@@ -42,6 +42,13 @@ export function middleware(req: NextRequest) {
   const host = req.headers.get("host") ?? "";
   const { pathname } = req.nextUrl;
 
+  // MCP subdomain rewrite — mcp.inariwatch.com → /api/mcp
+  if (host.startsWith("mcp.")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/api/mcp";
+    return NextResponse.rewrite(url);
+  }
+
   if (isAlwaysAllowed(pathname)) return NextResponse.next();
 
   // ── Local development ──────────────────────────────────────────────────────
