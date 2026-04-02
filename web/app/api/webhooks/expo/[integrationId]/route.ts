@@ -15,6 +15,11 @@ export async function POST(
 ) {
   const { integrationId } = await params;
 
+  // Validate UUID format
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId)) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
   // Rate limit
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const rl = await rateLimit("webhook-expo", ip, { windowMs: 60_000, max: 60 });
@@ -27,18 +32,22 @@ export async function POST(
   if (!integ) return NextResponse.json({ error: "Integration not found" }, { status: 404 });
   if (integ.service !== "expo") return NextResponse.json({ error: "Not an Expo integration" }, { status: 400 });
 
-  // Size limit
+  // Require webhook secret — reject if not configured
+  const secret = integ.webhookSecret;
+  if (!secret) return NextResponse.json({ error: "Webhook not configured" }, { status: 403 });
+
+  // Size limit (check Content-Length first to avoid reading large payloads)
+  const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (contentLength > 1_000_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+
   const body = await req.text();
   if (body.length > 1_000_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
 
-  // Verify signature (Expo uses shared secret — we use our webhookSecret as HMAC-SHA256)
-  const secret = integ.webhookSecret;
-  if (secret) {
-    const sig = req.headers.get("expo-signature") ?? req.headers.get("x-expo-signature") ?? "";
-    const expected = `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
-    if (!sig || sig !== expected) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
+  // Verify HMAC-SHA256 signature (timing-safe)
+  const sig = req.headers.get("expo-signature") ?? req.headers.get("x-expo-signature") ?? "";
+  const expected = `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
+  if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   // Parse payload

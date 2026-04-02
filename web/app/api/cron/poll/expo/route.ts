@@ -98,5 +98,5 @@ export async function GET(req: Request) {
   cronLog("poll_expo", { created, integrations: integrations.length, errors: errors.length, duration_ms });
   await pingCronHealth("poll_expo", errors.length === 0);
 
-  return NextResponse.json({ ok: true, created, errors });
+  return NextResponse.json({ ok: true, created, errorCount: errors.length });
 }
