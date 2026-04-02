@@ -51,36 +51,50 @@ export async function authenticateMcp(
   if (!auth?.startsWith("Bearer ")) return null;
 
   const token = auth.slice(7).trim();
-  if (!token || !token.startsWith("inari_")) return null;
+  if (!token) return null;
 
-  const hash = hashToken(token);
+  // Try MCP tokens first (inari_ prefix, hashed)
+  if (token.startsWith("inari_")) {
+    const hash = hashToken(token);
 
-  const [row] = await db
-    .select()
-    .from(mcpTokens)
-    .where(
-      and(
-        eq(mcpTokens.tokenHash, hash),
-        // Check expiration: allow if no expiry or not yet expired
-        or(isNull(mcpTokens.expiresAt), gt(mcpTokens.expiresAt, new Date()))
+    const [row] = await db
+      .select()
+      .from(mcpTokens)
+      .where(
+        and(
+          eq(mcpTokens.tokenHash, hash),
+          or(isNull(mcpTokens.expiresAt), gt(mcpTokens.expiresAt, new Date()))
+        )
       )
-    )
-    .limit(1);
+      .limit(1);
 
-  if (!row) return null;
+    if (row) {
+      db.update(mcpTokens).set({ lastUsedAt: new Date() }).where(eq(mcpTokens.id, row.id)).then(() => {}).catch(() => {});
+      return { userId: row.userId, tokenId: row.id, scopes: row.scopes ?? ["read"] };
+    }
+  }
 
-  // Fire-and-forget: update lastUsedAt
-  db.update(mcpTokens)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(mcpTokens.id, row.id))
-    .then(() => {})
-    .catch(() => {});
+  // Fallback: check apiKeys (for CLI/mobile/desktop tokens)
+  const { apiKeys } = await import("@/lib/db");
+  const { decrypt } = await import("@/lib/crypto");
+  const { timingSafeEqual } = await import("crypto");
 
-  return {
-    userId: row.userId,
-    tokenId: row.id,
-    scopes: row.scopes ?? ["read"],
-  };
+  const keys = await db.select().from(apiKeys).where(
+    or(eq(apiKeys.service, "cli"), eq(apiKeys.service, "mobile"), eq(apiKeys.service, "desktop"))
+  );
+
+  for (const key of keys) {
+    const decrypted = decrypt(key.keyEncrypted);
+    if (decrypted.length === token.length) {
+      const a = Buffer.from(decrypted);
+      const b = Buffer.from(token);
+      if (timingSafeEqual(a, b)) {
+        return { userId: key.userId, tokenId: key.id, scopes: ["execute"] };
+      }
+    }
+  }
+
+  return null;
 }
 
 // ── Rate limiting ───────────────────────────────────────────────────────────
