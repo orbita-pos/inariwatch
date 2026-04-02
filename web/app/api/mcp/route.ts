@@ -32,6 +32,9 @@ import * as askInari from "./tools/ask-inari";
 import * as getErrorTrends from "./tools/get-error-trends";
 import * as createUptimeMonitor from "./tools/create-uptime-monitor";
 import * as runHealthCheck from "./tools/run-health-check";
+import * as reproduceBug from "./tools/reproduce-bug";
+import * as simulateFix from "./tools/simulate-fix";
+import * as verifyRemediation from "./tools/verify-remediation";
 
 type ToolHandler = {
   execute: (args: Record<string, unknown>, user: McpUser) => Promise<string>;
@@ -57,6 +60,9 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   get_error_trends: getErrorTrends,
   create_uptime_monitor: createUptimeMonitor,
   run_health_check: runHealthCheck,
+  reproduce_bug: reproduceBug,
+  simulate_fix: simulateFix,
+  verify_remediation: verifyRemediation,
 };
 
 const PROTOCOL_VERSION = "2024-11-05";

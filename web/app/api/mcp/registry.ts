@@ -339,4 +339,53 @@ export const TOOLS: ToolDef[] = [
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     costTier: "moderate",
   },
+
+  // ── Substrate + Verification tools ─────────────────────────────────────────
+  {
+    name: "reproduce_bug",
+    description:
+      "Reproduce a production bug using Substrate I/O recording. Shows the exact timeline of HTTP calls, DB queries, and file operations that happened before the crash — in chronological order.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: { type: "string", description: "The alert ID to reproduce." },
+        verbose: { type: "boolean", description: "If true, show full request/response bodies. Default: false." },
+      },
+      required: ["alert_id"],
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    costTier: "moderate",
+  },
+  {
+    name: "simulate_fix",
+    description:
+      "Simulate whether a proposed fix would resolve a bug, based on the Substrate I/O recording. AI analyzes the recording + fix description and returns probability of success, risks, and side effects.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: { type: "string", description: "The alert ID with a Substrate recording." },
+        fix_description: { type: "string", description: "Description of the proposed fix (what changes, why)." },
+      },
+      required: ["alert_id", "fix_description"],
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    costTier: "expensive",
+  },
+  {
+    name: "verify_remediation",
+    description:
+      "Verify the full remediation chain for an alert: fix generated, self-reviewed, CI passed, PR created, merged, post-merge monitoring, error stopped recurring. Returns a structured verification report.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: { type: "string", description: "The alert ID to verify remediation for." },
+      },
+      required: ["alert_id"],
+    },
+    scope: "read",
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    costTier: "moderate",
+  },
 ];
