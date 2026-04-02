@@ -56,6 +56,7 @@ const NAV = [
       { id: "int-vercel",    label: "Vercel" },
       { id: "int-sentry",    label: "Sentry" },
       { id: "int-datadog",   label: "Datadog" },
+      { id: "int-expo",      label: "Expo" },
       { id: "int-uptime",    label: "Uptime" },
       { id: "int-postgres",  label: "PostgreSQL" },
       { id: "int-npm",       label: "npm / Cargo" },
@@ -841,6 +842,42 @@ Rolling back…
                 ["Regression (re-opened)",  "Critical", "Last 10 min"],
               ]}
             />
+
+            <SectionHeading id="int-expo">Integration — Expo</SectionHeading>
+            <P>
+              Monitor EAS Build failures and OTA Update rollbacks. InariWatch polls the Expo API
+              and receives webhooks for real-time alerts with AI diagnosis.
+            </P>
+
+            <SubHeading id="int-expo-setup">Connect Expo</SubHeading>
+            <StepList steps={[
+              { title: "Create an access token", body: <>Go to <strong>expo.dev/settings/access-tokens</strong> and generate a Personal Access Token with project read access.</> },
+              { title: "Connect in InariWatch", body: "Integrations → Connect Expo → Paste your token. InariWatch validates it and detects your username." },
+              { title: "Configure alerts", body: "Choose which alerts to enable: build failures, update rollbacks. Both enabled by default." },
+            ]} />
+
+            <SubHeading id="int-expo-webhook">Webhook setup (optional)</SubHeading>
+            <P>
+              For real-time alerts (instead of polling every 5 minutes), set up a webhook in Expo:
+            </P>
+            <StepList steps={[
+              { title: "Copy the webhook URL", body: "After connecting, InariWatch shows a webhook URL and a signing secret." },
+              { title: "Add in Expo", body: <>Go to your Expo project → <strong>Settings → Webhooks → Add webhook</strong>. Paste the URL and secret. Select Build and Update events.</> },
+            ]} />
+
+            <SubHeading id="int-expo-alerts">What InariWatch monitors</SubHeading>
+            <Table
+              head={["Alert", "Severity", "Trigger"]}
+              rows={[
+                ["Build failure", "Critical", "EAS Build status = errored or canceled"],
+                ["Update rollback", "Warning", "EAS OTA Update rolled back to embedded"],
+              ]}
+            />
+            <P>
+              Each alert includes the app name, platform, build ID, and error message.
+              The AI diagnosis analyzes the build log to suggest fixes — including monorepo issues,
+              dependency conflicts, and configuration errors.
+            </P>
 
             <SectionHeading id="int-uptime">Integration — Uptime</SectionHeading>
             <P>
