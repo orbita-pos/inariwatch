@@ -161,7 +161,7 @@ function DemoVideo() {
 
 function StatsBar() {
   const stats = [
-    { value: "8", label: "integrations monitored" },
+    { value: "9", label: "integrations monitored" },
     { value: "17", label: "MCP tools" },
     { value: "3×", label: "CI retry loop" },
     { value: "5", label: "AI providers supported" },
@@ -681,6 +681,11 @@ function Integrations() {
     {
       name: "Datadog",
       alerts: ["Log anomalies", "Infrastructure spikes", "APM Traces"],
+      status: "live",
+    },
+    {
+      name: "Expo",
+      alerts: ["EAS Build failures", "OTA Update rollbacks"],
       status: "live",
     },
     {
