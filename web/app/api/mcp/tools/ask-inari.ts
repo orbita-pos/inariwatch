@@ -1,7 +1,6 @@
-import { db, apiKeys } from "@/lib/db";
-import { eq } from "drizzle-orm";
-import { decrypt } from "@/lib/crypto";
 import { callAI } from "@/lib/ai/client";
+import { getUserAIKey } from "@/lib/ai/get-key";
+import { resolveModel } from "@/lib/ai/models";
 import type { McpUser } from "../auth";
 import { getUserProjectIds } from "../helpers";
 import { gatherChatContext, buildContextString, SYSTEM_OPS } from "@/lib/services/chat.service";
@@ -13,12 +12,9 @@ export async function execute(
   const question = args.question as string;
   if (!question) return "Error: question is required.";
 
-  // Get AI key
-  const AI_SERVICES = ["claude", "openai", "grok", "deepseek", "gemini"];
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.userId, user.userId));
-  const aiKey = keys.find((k) => AI_SERVICES.includes(k.service));
+  const aiKey = await getUserAIKey(user.userId);
 
-  if (!aiKey) {
+  if (!aiKey || aiKey.isPlatformKey) {
     return JSON.stringify({
       error: "Ask Inari requires an AI API key. Add one in Settings → AI analysis.",
       _sampling_request: {
@@ -37,10 +33,10 @@ export async function execute(
   const context = buildContextString(ctx);
 
   try {
-    const decryptedKey = decrypt(aiKey.keyEncrypted);
-    return await callAI(decryptedKey, SYSTEM_OPS, [
+    const chatModel = resolveModel("chat", aiKey.provider, aiKey.modelPrefs);
+    return await callAI(aiKey.key, SYSTEM_OPS, [
       { role: "user", content: `${context}\n\n---\n\nUser question: ${question}` },
-    ]);
+    ], { provider: aiKey.provider, model: chatModel });
   } catch (e) {
     return `Error calling AI: ${e instanceof Error ? e.message : "unknown"}`;
   }
