@@ -32,8 +32,9 @@ export function evaluateAutoMergeGates(params: {
   simulateRiskScore?: number | null;
   eapChainVerified?: boolean | null;
   predictionRiskScore?: number | null;
+  securityScanHighCount?: number | null;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount } = params;
   const gates: GateResult["gates"] = [];
 
   // Gate 0: Auto-merge must be enabled
@@ -116,6 +117,18 @@ export function evaluateAutoMergeGates(params: {
       reason: predictionSafe
         ? `Prediction risk score ${predictionRiskScore}/100 — within safe threshold`
         : `Prediction risk score ${predictionRiskScore}/100 — exceeds safe threshold (max 40)`,
+    });
+  }
+
+  // Gate 8: Security scan (if scan was run)
+  if (securityScanHighCount != null) {
+    const securityPassed = securityScanHighCount === 0;
+    gates.push({
+      name: "security_scan",
+      passed: securityPassed,
+      reason: securityPassed
+        ? "Security scan passed — no HIGH severity findings"
+        : `Security scan found ${securityScanHighCount} HIGH severity finding(s)`,
     });
   }
 
