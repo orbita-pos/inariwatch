@@ -6,11 +6,11 @@ import {
   logMcpCall,
   type McpUser,
 } from "./auth";
-import { TOOLS, COST_TIER_LIMITS } from "./registry";
+import { TOOLS, COST_TIER_LIMITS, PLAN_HIERARCHY, PLAN_RATE_LIMITS, type PlanTier } from "./registry";
 import { RESOURCES, readResource } from "./resources";
 import { PROMPTS, expandPrompt } from "./prompts";
 import { subscribe, unsubscribe } from "./subscriptions";
-import { db, alerts, projects } from "@/lib/db";
+import { db, alerts, projects, users } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 
 // Tool implementations
@@ -304,6 +304,43 @@ export async function POST(request: Request) {
         }),
         { headers: CORS_HEADERS }
       );
+    }
+
+    // ── Plan tier check ──
+    if (toolDef) {
+      const [userRow] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, user.userId)).limit(1);
+      const userPlan = (userRow?.plan ?? "free") as PlanTier;
+      const toolPlanLevel = PLAN_HIERARCHY[toolDef.planTier] ?? 0;
+      const userPlanLevel = PLAN_HIERARCHY[userPlan] ?? 0;
+
+      if (userPlanLevel < toolPlanLevel) {
+        return NextResponse.json(
+          jsonrpc(id, {
+            content: [{
+              type: "text",
+              text: `${toolName} requires the ${toolDef.planTier} plan. Your plan: ${userPlan}. Upgrade at app.inariwatch.com/settings`,
+            }],
+            isError: true,
+          }),
+          { headers: CORS_HEADERS }
+        );
+      }
+
+      // ── Per-plan rate limiting ──
+      const planLimits = PLAN_RATE_LIMITS[userPlan];
+      const planRl = await checkMcpRateLimit(`${user.tokenId}:plan`, planLimits);
+      if (!planRl.allowed) {
+        return NextResponse.json(
+          jsonrpc(id, {
+            content: [{
+              type: "text",
+              text: `Rate limited (${userPlan} plan: ${planLimits.max} calls/hour). Retry in ${planRl.retryAfterSeconds}s.${userPlan === "free" ? " Upgrade at app.inariwatch.com/settings" : ""}`,
+            }],
+            isError: true,
+          }),
+          { status: 429, headers: { ...CORS_HEADERS, "Retry-After": String(planRl.retryAfterSeconds ?? 60) } }
+        );
+      }
     }
 
     // ── Per-tool rate limiting ──

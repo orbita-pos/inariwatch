@@ -44,6 +44,16 @@ export const PROMPTS = [
     description: "Summarize the past 7 days: alert trends, MTTR, top error patterns, active remediations.",
     arguments: [],
   },
+  {
+    name: "production-health-check",
+    description: "Scheduled: automated production health check. Designed to run every hour via Claude Code scheduled tasks. Returns concise status with action items.",
+    arguments: [],
+  },
+  {
+    name: "daily-report",
+    description: "Scheduled: daily operations report. New alerts, resolved alerts, error trends, integration health, action items. Designed to run once per day.",
+    arguments: [],
+  },
 ];
 
 /**
@@ -139,6 +149,50 @@ export function expandPrompt(
 2. Call get_status for project overview.
 3. Call get_uptime for current health.
 4. Summarize: total alerts by severity, most frequent errors, any patterns, current system health. Keep it concise — 5-10 bullet points.`,
+            },
+          },
+        ],
+      };
+
+    case "production-health-check":
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: `Run an automated production health check using InariWatch MCP tools. This is a scheduled check — be concise:
+1. Call run_health_check for system diagnostics.
+2. Call query_alerts with severity "critical" and limit 5 to check for recent critical issues.
+3. Call get_error_trends with days 1 for today's trend.
+4. Call get_uptime for current monitor status.
+5. Summarize in 3-5 lines: critical alerts, error rate trend (up/down), uptime status, anything that needs attention.
+6. If something is critical, say: "ACTION REQUIRED: call get_root_cause(alert_id: X) for details"`,
+            },
+          },
+        ],
+      };
+
+    case "daily-report":
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: `Generate a daily operations report using InariWatch MCP tools:
+1. Call get_error_trends with days 1 for today's data and days 7 for weekly context.
+2. Call query_alerts with limit 20 to get today's alerts.
+3. Call get_status for project and integration health.
+4. Call get_uptime for monitor status.
+5. Report:
+   - New alerts today (count by severity)
+   - Alerts resolved today
+   - Error rate: improving or worsening vs 7-day average?
+   - Any active remediations in progress?
+   - Integration health: any degraded?
+   - Action items: unresolved critical alerts, integrations with errors
+Keep it under 15 lines. Use bullet points.`,
             },
           },
         ],

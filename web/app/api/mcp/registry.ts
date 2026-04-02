@@ -6,6 +6,7 @@ export type ToolAnnotations = {
 };
 
 export type CostTier = "cheap" | "moderate" | "expensive";
+export type PlanTier = "free" | "pro" | "enterprise";
 
 export type ToolDef = {
   name: string;
@@ -14,7 +15,16 @@ export type ToolDef = {
   scope: "read" | "write" | "execute";
   annotations?: ToolAnnotations;
   costTier: CostTier;
+  planTier: PlanTier;
 };
+
+export const PLAN_RATE_LIMITS: Record<PlanTier, { windowMs: number; max: number }> = {
+  free:       { windowMs: 3_600_000, max: 100 },    // 100/hour
+  pro:        { windowMs: 3_600_000, max: 1000 },   // 1000/hour
+  enterprise: { windowMs: 3_600_000, max: 10000 },  // 10000/hour
+};
+
+export const PLAN_HIERARCHY: Record<PlanTier, number> = { free: 0, pro: 1, enterprise: 2 };
 
 export const COST_TIER_LIMITS: Record<CostTier, { windowMs: number; max: number }> = {
   cheap:    { windowMs: 60_000, max: 200 },
@@ -46,6 +56,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "cheap",
+    planTier: "free",
   },
   {
     name: "get_status",
@@ -55,6 +66,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "cheap",
+    planTier: "free",
   },
   {
     name: "get_uptime",
@@ -69,6 +81,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "cheap",
+    planTier: "free",
   },
   {
     name: "get_build_logs",
@@ -87,6 +100,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     costTier: "cheap",
+    planTier: "pro",
   },
   {
     name: "get_substrate_context",
@@ -102,6 +116,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "cheap",
+    planTier: "pro",
   },
 
   // ── Reasoning (AI calls, may cache results) ───────────────────────────────
@@ -119,6 +134,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
     costTier: "moderate",
+    planTier: "pro",
   },
   {
     name: "assess_risk",
@@ -135,6 +151,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     costTier: "moderate",
+    planTier: "pro",
   },
   {
     name: "get_postmortem",
@@ -150,6 +167,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "cheap",
+    planTier: "pro",
   },
   {
     name: "search_community_fixes",
@@ -172,6 +190,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     costTier: "moderate",
+    planTier: "free",
   },
 
   // ── Execution (mutates state) ──────────────────────────────────────────────
@@ -198,6 +217,7 @@ export const TOOLS: ToolDef[] = [
     scope: "execute",
     annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     costTier: "expensive",
+    planTier: "pro",
   },
   {
     name: "rollback_vercel",
@@ -217,6 +237,7 @@ export const TOOLS: ToolDef[] = [
     scope: "execute",
     annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
     costTier: "expensive",
+    planTier: "pro",
   },
   {
     name: "silence_alert",
@@ -236,6 +257,7 @@ export const TOOLS: ToolDef[] = [
     scope: "write",
     annotations: { idempotentHint: true },
     costTier: "cheap",
+    planTier: "pro",
   },
   {
     name: "submit_feedback",
@@ -258,6 +280,7 @@ export const TOOLS: ToolDef[] = [
     scope: "write",
     annotations: { idempotentHint: true },
     costTier: "cheap",
+    planTier: "pro",
   },
   {
     name: "run_check",
@@ -272,6 +295,7 @@ export const TOOLS: ToolDef[] = [
     scope: "execute",
     annotations: { idempotentHint: false, openWorldHint: true },
     costTier: "moderate",
+    planTier: "free",
   },
 
   // ── New tools (post-audit) ─────────────────────────────────────────────────
@@ -292,6 +316,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, openWorldHint: true },
     costTier: "moderate",
+    planTier: "pro",
   },
   {
     name: "get_error_trends",
@@ -307,6 +332,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "cheap",
+    planTier: "free",
   },
   {
     name: "create_uptime_monitor",
@@ -326,6 +352,7 @@ export const TOOLS: ToolDef[] = [
     scope: "execute",
     annotations: { idempotentHint: false },
     costTier: "cheap",
+    planTier: "free",
   },
   {
     name: "run_health_check",
@@ -338,6 +365,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     costTier: "moderate",
+    planTier: "free",
   },
 
   // ── Substrate + Verification tools ─────────────────────────────────────────
@@ -356,6 +384,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "moderate",
+    planTier: "enterprise",
   },
   {
     name: "simulate_fix",
@@ -372,6 +401,7 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, openWorldHint: true },
     costTier: "expensive",
+    planTier: "enterprise",
   },
   {
     name: "verify_remediation",
@@ -387,5 +417,6 @@ export const TOOLS: ToolDef[] = [
     scope: "read",
     annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "moderate",
+    planTier: "enterprise",
   },
 ];
