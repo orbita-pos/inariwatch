@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
-import { StatusBar, AppState, View, Text, Pressable, Linking, StyleSheet } from "react-native";
+import { StatusBar, AppState, LogBox, View, Text, Pressable, Linking, StyleSheet } from "react-native";
+
+// expo-notifications shows a console.error in Expo Go (SDK 53+) — not a crash, just a dev warning
+LogBox.ignoreLogs(["expo-notifications"]);
 import { ThemeProvider, DarkTheme } from "@react-navigation/native";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { KeyboardProvider } from "react-native-keyboard-controller";
