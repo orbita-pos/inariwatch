@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { ArrowRight, Activity, TrendingUp, CheckCircle2, Zap } from "lucide-react";
+import { ArrowRight, Activity, TrendingUp, CheckCircle2, Zap, Shield, Code2, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarketingNav } from "../marketing-nav";
-import { db, errorPatterns, communityFixes } from "@/lib/db";
+import { db, errorPatterns, communityFixes, fixRatings } from "@/lib/db";
 import { eq, desc, sql, gt } from "drizzle-orm";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Network — InariWatch",
-  description: "The InariWatch Network: collective software intelligence. Every fix makes every project stronger.",
+  description: "The InariWatch Network: collective software intelligence. Every fix makes every project stronger. Crowdsourced fixes, anonymized contributions, public APIs.",
 };
 
 export const revalidate = 300; // refresh every 5 min
@@ -23,6 +23,7 @@ async function getNetworkStats() {
       totalFixes: sql<number>`count(*)`,
       totalApplications: sql<number>`coalesce(sum(${communityFixes.totalApplications}), 0)`,
       totalSuccess: sql<number>`coalesce(sum(${communityFixes.successCount}), 0)`,
+      totalFailures: sql<number>`coalesce(sum(${communityFixes.failureCount}), 0)`,
       avgConfidence: sql<number>`coalesce(avg(${communityFixes.avgConfidence}), 0)`,
     })
     .from(communityFixes);
@@ -31,6 +32,10 @@ async function getNetworkStats() {
     ? Math.round((fixStats.totalSuccess / fixStats.totalApplications) * 100)
     : 0;
 
+  const [ratingStats] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(fixRatings);
+
   const topPatterns = await db
     .select({
       patternText: errorPatterns.patternText,
@@ -38,6 +43,7 @@ async function getNetworkStats() {
       occurrenceCount: errorPatterns.occurrenceCount,
       fixApproach: communityFixes.fixApproach,
       successCount: communityFixes.successCount,
+      failureCount: communityFixes.failureCount,
       totalApplications: communityFixes.totalApplications,
     })
     .from(communityFixes)
@@ -59,12 +65,20 @@ async function getNetworkStats() {
     .orderBy(desc(communityFixes.updatedAt))
     .limit(15);
 
+  // Count distinct patterns with multiple fix approaches
+  const [multiFixCount] = await db
+    .select({ count: sql<number>`count(distinct ${communityFixes.patternId})` })
+    .from(communityFixes);
+
   return {
     totalPatterns: patternCount.count,
     totalFixes: fixStats.totalFixes,
     totalApplications: fixStats.totalApplications,
+    totalFailures: fixStats.totalFailures,
     successRate,
     avgConfidence: Math.round(fixStats.avgConfidence),
+    totalRatings: ratingStats.count,
+    patternsWithMultipleFixes: multiFixCount.count,
     topPatterns,
     recentActivity,
   };
@@ -110,7 +124,7 @@ export default async function NetworkPage() {
           </h1>
 
           <p className="mt-6 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
-            When InariWatch fixes an error, the pattern is shared across the network.
+            When InariWatch fixes an error, the pattern is anonymized and shared across the network.
             The next project with the same error gets an instant fix — because someone already solved it.
           </p>
         </div>
@@ -118,13 +132,14 @@ export default async function NetworkPage() {
 
       {/* Stats bar */}
       <div className="border-y border-inari-border bg-inari-card/40">
-        <div className="mx-auto max-w-4xl px-6 py-5">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mx-auto max-w-5xl px-6 py-5">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             {[
               { value: stats.totalPatterns.toString(), label: "error patterns" },
+              { value: stats.totalFixes.toString(), label: "fix approaches" },
               { value: stats.totalApplications.toString(), label: "fixes applied" },
               { value: `${stats.successRate}%`, label: "success rate" },
-              { value: `${stats.avgConfidence}%`, label: "avg confidence" },
+              { value: stats.totalRatings.toString(), label: "community ratings" },
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <p className="text-2xl font-bold text-fg-strong font-mono">{s.value}</p>
@@ -134,6 +149,42 @@ export default async function NetworkPage() {
           </div>
         </div>
       </div>
+
+      {/* How it works */}
+      <section className="py-16 border-b border-inari-border">
+        <div className="mx-auto max-w-4xl px-6">
+          <h2 className="text-xl font-bold text-fg-strong mb-8 text-center">How the network works</h2>
+          <div className="grid gap-6 sm:grid-cols-3">
+            <div className="rounded-xl border border-inari-border bg-inari-card p-5">
+              <div className="h-8 w-8 rounded-lg bg-inari-accent/10 flex items-center justify-center mb-3">
+                <Zap className="h-4 w-4 text-inari-accent" />
+              </div>
+              <p className="text-sm font-semibold text-fg-strong">Auto-contribution</p>
+              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                When a fix passes CI and gets approved, the pattern is automatically contributed to the network. No manual action needed.
+              </p>
+            </div>
+            <div className="rounded-xl border border-inari-border bg-inari-card p-5">
+              <div className="h-8 w-8 rounded-lg bg-inari-accent/10 flex items-center justify-center mb-3">
+                <Shield className="h-4 w-4 text-inari-accent" />
+              </div>
+              <p className="text-sm font-semibold text-fg-strong">Anonymized by default</p>
+              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                Emails, tokens, IPs, URLs, and file paths are stripped before sharing. No contributor identity, no repo names, no secrets. Only the fix approach and error pattern.
+              </p>
+            </div>
+            <div className="rounded-xl border border-inari-border bg-inari-card p-5">
+              <div className="h-8 w-8 rounded-lg bg-inari-accent/10 flex items-center justify-center mb-3">
+                <CheckCircle2 className="h-4 w-4 text-inari-accent" />
+              </div>
+              <p className="text-sm font-semibold text-fg-strong">60% threshold</p>
+              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                Fixes are only recommended to other projects if they have a 60%+ success rate. Low-quality fixes are tracked but never suggested.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Top patterns */}
       <section className="py-16">
@@ -170,7 +221,9 @@ export default async function NetworkPage() {
                           {p.category.replace("_", " ")}
                         </span>
                         <span className="text-xs text-zinc-500 font-mono">{p.totalApplications} applied</span>
-                        <span className="text-xs font-mono text-green-400">{successRate}%</span>
+                        <span className={`text-xs font-mono ${successRate >= 60 ? "text-green-400" : "text-zinc-500"}`}>
+                          {successRate}%
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -209,13 +262,57 @@ export default async function NetworkPage() {
                     <span className={`text-xs font-mono px-2 py-0.5 rounded-full border ${colorClass} shrink-0`}>
                       {a.category.replace("_", " ")}
                     </span>
-                    <span className="text-xs text-green-400 font-mono shrink-0">{a.successRate}%</span>
+                    <span className={`text-xs font-mono shrink-0 ${a.successRate >= 60 ? "text-green-400" : "text-zinc-500"}`}>
+                      {a.successRate}%
+                    </span>
                     <span className="text-xs text-zinc-600 shrink-0">{formatTimeAgo(a.updatedAt)}</span>
                   </div>
                 );
               })}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* API access */}
+      <section className="py-16 border-t border-inari-border">
+        <div className="mx-auto max-w-4xl px-6">
+          <div className="flex items-center gap-3 mb-8">
+            <Terminal className="h-5 w-5 text-inari-accent" />
+            <h2 className="text-xl font-bold text-fg-strong">Programmatic Access</h2>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-inari-border bg-inari-card p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Code2 className="h-4 w-4 text-inari-accent" />
+                <p className="text-sm font-semibold text-fg-strong">Public REST API</p>
+              </div>
+              <div className="space-y-2 text-xs font-mono text-zinc-500">
+                <p><span className="text-green-400">GET</span> /api/community/fixes</p>
+                <p><span className="text-green-400">GET</span> /api/community/fixes/:id</p>
+                <p><span className="text-green-400">GET</span> /api/patterns/search?q=...</p>
+                <p><span className="text-green-400">GET</span> /api/patterns/trending</p>
+                <p><span className="text-amber-400">POST</span> /api/community/fixes/:id/report</p>
+              </div>
+              <p className="text-[11px] text-zinc-600 mt-3">CORS-enabled. No auth required for reads.</p>
+            </div>
+            <div className="rounded-xl border border-inari-border bg-inari-card p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="h-4 w-4 text-inari-accent" />
+                <p className="text-sm font-semibold text-fg-strong">MCP Tool</p>
+              </div>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                AI coding tools (Claude Code, Cursor, Windsurf) can search the network via the{" "}
+                <span className="font-mono text-inari-accent">search_community_fixes</span> MCP tool.
+                Connect at <span className="font-mono text-zinc-400">mcp.inariwatch.com</span>.
+              </p>
+              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
+                When you view an alert in the dashboard, matching community fixes appear automatically
+                with success rates and one-click apply.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -226,8 +323,8 @@ export default async function NetworkPage() {
             Your fixes strengthen the network.
           </h2>
           <p className="mt-4 text-fg-base max-w-lg mx-auto">
-            Connect your project. Every error you fix becomes a pattern that helps
-            the next developer with the same problem.
+            Connect your project. Every approved fix is automatically anonymized and contributed.
+            Every error you fix becomes a pattern that helps the next developer with the same problem.
           </p>
           <div className="mt-8">
             <Link href="/register">
