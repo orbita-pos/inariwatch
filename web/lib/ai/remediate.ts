@@ -580,12 +580,33 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       }
 
       // ── SECURITY SCAN ────────────────────────────────────────────────
+      let securityHighCount: number | null = null;
       steps = await pushStep(sessionId, steps,
         makeStep("security_scan", "Running security scan on generated fix..."), emit);
 
       try {
-        const { scanFiles } = await import("./security-scan");
+        const { scanFiles, aiSecurityReview } = await import("./security-scan");
         const scanResult = scanFiles(fix.files);
+
+        // AI security review — async, non-blocking enhancement
+        try {
+          const aiFindings = await aiSecurityReview(fix.files, callAI, aiKey.key);
+          for (const f of aiFindings) {
+            const exists = scanResult.findings.some(
+              (e) => e.file === f.file && e.line === f.line && e.rule === f.rule
+            );
+            if (!exists) scanResult.findings.push(f);
+          }
+          // Recalculate counts after merging AI findings
+          scanResult.highCount = scanResult.findings.filter(f => f.severity === "HIGH").length;
+          scanResult.mediumCount = scanResult.findings.filter(f => f.severity === "MEDIUM").length;
+          scanResult.lowCount = scanResult.findings.filter(f => f.severity === "LOW").length;
+          scanResult.passed = scanResult.highCount === 0;
+        } catch {
+          // AI review failure is non-blocking
+        }
+
+        securityHighCount = scanResult.highCount;
 
         if (scanResult.highCount > 0) {
           steps = await resolveStep(sessionId, steps, "failed",
@@ -916,6 +937,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           substrateReplayPassed: replayResult?.passed ?? null,
           e2eStagingPassed,
           eapChainVerified,
+          securityScanHighCount: securityHighCount,
         });
 
         emit("gates", { gates: gateResult.gates, strategy: gateResult.strategy });

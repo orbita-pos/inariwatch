@@ -1,0 +1,9 @@
+{
+  "BASE_URL": "https://app.inariwatch.com",
+  "CRON_SECRET": "",
+  "API_TOKEN": "",
+  "INTEGRATION_ID": "",
+  "WEBHOOK_SECRET": "",
+  "CAPTURE_SECRET": "",
+  "SESSION_COOKIE": ""
+}

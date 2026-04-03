@@ -43,7 +43,8 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 ├── action/       # GitHub Action — AI risk assessment on PRs
 ├── cli/          # Rust CLI (local monitoring: dev, watch, simulate — serve-mcp deprecated)
 ├── bot-app/      # Expo React Native mobile app (push notifications, alert management)
-└── desktop/      # Tauri desktop app (native alert viewer)
+├── desktop/      # Tauri desktop app (native alert viewer)
+└── k6/           # Stress test suite (10 scenarios, all passing)
 ```
 
 ## Stack
@@ -63,6 +64,8 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 - **Cortex:** External execution data plane — serves EAP verification chain (optional, via EAP_SERVER_URL)
 - **EAP:** Cryptographic proof chain for AI fix verification (Merkle trees, Ed25519)
 - **Code Intelligence:** pgvector (1024D HNSW) + BM25 full-text search for semantic code search
+- **Vulnerability Intelligence:** OSV.dev (primary, 17+ databases, no auth) + GitHub Advisory (fallback); lockfile parsing (package-lock.json, yarn.lock, Cargo.lock)
+- **Security Scanning:** eslint-plugin-security (17 rules) + 19 regex patterns + AI review — runs in-memory on Vercel serverless, no CLI
 
 ## Key features
 
@@ -74,7 +77,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 - **Autonomous mode** — `autoRemediate: true` auto-triggers remediation on critical alerts without human click; all 11 safety gates still apply
 - **Auto-heal** — `autoHeal: true` when uptime detects site down (3 consecutive failures): rollback to last good Vercel deploy + start AI remediation; 10-min cooldown prevents loops
 - **Prediction engine** — pre-deployment error detection with 3 layers: pattern matching against historical alerts, AI prediction on PR diffs, shadow replay of Substrate recordings against PR code; self-improving via community pattern feedback loop
-- **Security scanning** — ESLint + AI security review built into remediation pipeline; 12+ dangerous patterns (eval, SQL injection, XSS, hardcoded secrets, etc.); no external API, runs serverless
+- **Security scanning** — 3-layer scan built into remediation pipeline: (1) 17 ESLint rules via eslint-plugin-security (unsafe regex, child_process, CSRF, timing attacks, bidi chars, etc.), (2) 19 Semgrep-inspired regex patterns (SSRF, hardcoded secrets, prototype pollution, SQL injection, XSS, open redirect, insecure crypto, CORS wildcard), (3) AI security review (10 vulnerability categories via Claude); all 3 layers merge with dedup; no external API, runs serverless
 - **Code Intelligence** — semantic code search via pgvector + BM25; indexes repos on GitHub connection; call graph tracking (callers/callees); hybrid vector + keyword search; 2 MCP tools (search_codebase, reindex_codebase)
 - **Staging E2E verification** — auto-detects framework (Next.js, Express, generic); generates GitHub Actions E2E workflows to verify fix branches before merge
 - **Substrate replay** — two modes: AI analysis (fast, serverless) + GitHub Action replay (real I/O verification); replays production recordings against fix code; confidence + risk scoring
@@ -118,7 +121,7 @@ All AI modules live in `web/lib/ai/`. Key files:
 | Prediction feedback | `prediction-feedback.ts` | Accuracy tracking, self-improvement |
 | Shadow replay | `shadow-replay.ts` | Replay recordings against PR code |
 | Substrate replay | `substrate-replay.ts` | I/O replay verification (AI + Action) |
-| Security scan | `security-scan.ts` | ESLint + AI security review (12+ patterns) |
+| Security scan | `security-scan.ts` | 3-layer scan: 17 ESLint rules (eslint-plugin-security) + 19 regex patterns + AI review |
 | Staging E2E | `staging-e2e.ts` | Generate E2E workflows for fix verification |
 | Post-merge monitor | `post-merge-monitor.ts` | Watch for regressions after merge |
 | Escalation engine | `escalation-engine.ts` | Smart escalation to on-call |
@@ -169,7 +172,7 @@ All pollers live in `web/lib/pollers/`. Cron-triggered via `/api/cron/poll/*`.
 | Vercel | `vercel-api.ts` | Deployment failures, build errors |
 | GitHub | `github.ts` | Repository events |
 | Expo | `expo.ts` | EAS build failures, deploy errors, update failures |
-| npm/Cargo audit | `npm-audit.ts` | CVEs in dependencies (GitHub Advisory API) |
+| npm/Cargo audit | `npm-audit.ts` | CVEs in dependencies (OSV.dev primary, GitHub Advisory fallback); lockfile parsing for transitive deps; version range matching |
 | Postgres | `postgres.ts` | Database health monitoring |
 | Uptime | `uptime.ts` | Site availability (triggers auto-heal) |
 | Anomaly | `anomaly.ts` | Anomaly detection and trend analysis |
@@ -258,6 +261,25 @@ See `web/.env.example`. Key vars:
 - API routes handle their own auth (allows public webhooks)
 - MCP OAuth: CSRF protection via HTTP-only cookie + token validation
 - Encryption: API keys encrypted at rest via ENCRYPTION_KEY
+
+## Stress testing (k6)
+
+10-scenario k6 stress test suite in `k6/`. All 10 passed (2026-04-03):
+
+| # | Scenario | What it validates | Result |
+|---|----------|------------------|--------|
+| 1 | `webhook-storm` | Capture webhook ingestion under burst load, rate limiting | p95: 358ms, 0% error |
+| 2 | `mcp-rate-limits` | 3 MCP rate limit tiers (cheap/moderate/expensive) | All tiers enforced |
+| 3 | `sse-streaming` | 50 concurrent SSE connections, reconnection | Connections stable |
+| 4 | `alert-dedup` | Fingerprinting, dedup accuracy, storm detection | Dedup working |
+| 5 | `auth-bruteforce` | Login brute force protection, device flow rate limits | Rate limiting enforced |
+| 6 | `cron-fanout` | 7 sub-pollers in parallel, overlap handling | No race conditions |
+| 7 | `neon-saturation` | DB concurrency: webhooks + MCP + cron simultaneously | Neon stable under load |
+| 8 | `push-serialization` | Push notification pipeline under burst | Pipeline stable |
+| 9 | `auto-heal` | 3 failures → auto-heal, cooldown, race conditions | Single heal, cooldown works |
+| 10 | `full-incident` | Complete incident lifecycle end-to-end (deploy fail → error burst → uptime → auto-heal → MCP verify → recovery) | 10/10 phases, 100% checks |
+
+Run: `bash k6/run-all.sh` (requires k6 installed + `k6/.env` with secrets)
 
 ## Demo recording
 

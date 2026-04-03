@@ -168,7 +168,7 @@ function StatsBar() {
     { value: "9", label: "integrations monitored" },
     { value: "23", label: "MCP tools" },
     { value: "11", label: "safety gates" },
-    { value: "6", label: "AI providers supported" },
+    { value: "10/10", label: "stress tests passing" },
   ];
 
   return (

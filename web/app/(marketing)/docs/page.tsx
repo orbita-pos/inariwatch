@@ -188,8 +188,9 @@ const NAV = [
   {
     group: "Reference",
     items: [
-      { id: "ref-alerts",     label: "Alert types & severity" },
-      { id: "ref-api",        label: "REST API" },
+      { id: "ref-alerts",       label: "Alert types & severity" },
+      { id: "ref-api",          label: "REST API" },
+      { id: "ref-stress-tests", label: "Stress testing" },
     ],
   },
 ];
@@ -943,7 +944,9 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO inariwatch;`}</CodeBlock>
             <SectionHeading id="int-npm">Integration — npm / Cargo</SectionHeading>
             <P>
               InariWatch audits your <InlineCode>package.json</InlineCode> or <InlineCode>Cargo.toml</InlineCode> for known vulnerabilities
-              using the npm and RustSec advisory databases.
+              using <strong>OSV.dev</strong> (17+ vulnerability databases including NVD, GitHub Advisory, PyPA, RustSec, Go) as the primary source,
+              with GitHub Advisory as automatic fallback. Lockfiles (<InlineCode>package-lock.json</InlineCode>, <InlineCode>yarn.lock</InlineCode>, <InlineCode>Cargo.lock</InlineCode>) are
+              auto-detected for transitive dependency scanning with exact version matching.
             </P>
             <P>
               Provide a public URL to your manifest file. For private repos, use a raw GitHub URL with a
@@ -1435,7 +1438,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               { title: "Analyzing repository", body: "The AI connects to your GitHub repo and reads the codebase." },
               { title: "Diagnosing root cause", body: "AI analyzes the error with context from Sentry, Vercel, Substrate recordings, and past fixes." },
               { title: "Generating fix", body: "Code changes are generated and pushed to a new branch." },
-              { title: "Security scan", body: "ESLint + AI review scans the fix for vulnerabilities (SQL injection, XSS, command injection, etc.). HIGH findings block auto-merge." },
+              { title: "Security scan", body: "3-layer security scan: 17 ESLint rules (eslint-plugin-security), 19 pattern detectors (SSRF, prototype pollution, hardcoded secrets, SQL injection, XSS, open redirect, etc.), and AI security review. HIGH findings block auto-merge." },
               { title: "Self-review", body: "A second AI call reviews the fix like a senior engineer — score, concerns, recommendation." },
               { title: "Waiting for CI", body: "The bot waits for GitHub Actions to pass (retries up to 3 times on failure)." },
               { title: "PR created", body: <>A PR appears in the thread with confidence score and EAP verification. Click <strong>Approve &amp; Merge</strong> to merge from Slack.</> },
@@ -2163,7 +2166,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["5", "substrate_simulate", "Substrate simulate risk score <= 40", "If recording exists"],
                 ["6", "eap_chain_verified", "EAP cryptographic proof chain verified", "If receipt exists"],
                 ["7", "prediction_safe", "Prediction engine risk score <= 40", "If prediction ran"],
-                ["8", "security_scan", "0 HIGH severity security findings (ESLint + patterns)", "If scan ran"],
+                ["8", "security_scan", "0 HIGH severity findings (17 ESLint rules + 19 patterns + AI review)", "If scan ran"],
                 ["9", "substrate_replay", "Substrate I/O replay confirms fix prevents crash", "If recording exists"],
                 ["10", "e2e_staging", "E2E staging tests pass in GitHub Actions", "If E2E framework detected"],
               ]}
@@ -2504,6 +2507,32 @@ Authorization: Bearer rdr_your_token_here`}</CodeBlock>
                 ["403", "Token exists but account is not Pro"],
               ]}
             />
+
+            <SectionHeading id="ref-stress-tests">Reference — Stress Testing</SectionHeading>
+            <P>
+              InariWatch infrastructure is validated with a 10-scenario k6 stress test suite that runs against
+              the production stack. All scenarios pass as of April 2026.
+            </P>
+            <Table
+              head={["#", "Scenario", "What it validates", "Result"]}
+              rows={[
+                ["1", "Webhook Storm", "Capture webhook ingestion under burst load, rate limiting", "p95 <400ms, 0% error"],
+                ["2", "MCP Rate Limits", "3 rate limit tiers enforced (cheap 200/min, moderate 30/min, expensive 5/min)", "All tiers enforced"],
+                ["3", "SSE Streaming", "50 concurrent Server-Sent Event connections, reconnection", "Connections stable"],
+                ["4", "Alert Dedup", "Fingerprinting accuracy, deduplication under concurrent writes, storm detection", "Dedup working"],
+                ["5", "Auth Brute Force", "Login rate limiting (5/60s), device flow poll protection", "Rate limiting enforced"],
+                ["6", "Cron Fan-out", "7 sub-pollers in parallel, overlap handling, no race conditions", "No race conditions"],
+                ["7", "Neon Saturation", "DB concurrency: webhooks + MCP + cron simultaneously (~400 queries/s)", "Neon stable under load"],
+                ["8", "Push Serialization", "Push notification pipeline under critical alert burst", "Pipeline stable"],
+                ["9", "Auto-Heal", "3 consecutive failures trigger single heal, 10-min cooldown, race condition safety", "Single heal, cooldown works"],
+                ["10", "Full Incident", "End-to-end: deploy failure \u2192 error burst \u2192 uptime down \u2192 auto-heal \u2192 MCP verify \u2192 recovery", "10/10 phases, 100% checks"],
+              ]}
+            />
+            <P>
+              The stress test suite lives in <InlineCode>k6/</InlineCode> and can be re-run with{" "}
+              <InlineCode>bash k6/run-all.sh</InlineCode>. Individual scenarios can be run with{" "}
+              <InlineCode>bash k6/run-all.sh webhook-storm</InlineCode>.
+            </P>
 
             {/* Bottom nav */}
             <div className="mt-16 flex items-center justify-between border-t border-line pt-8 text-sm text-zinc-500">
