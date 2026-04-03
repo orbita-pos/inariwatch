@@ -1,41 +1,29 @@
-import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { router } from "expo-router";
 import { registerPushToken, ackAlert, resolveAlert } from "./api";
 
+// Lazy import — expo-notifications crashes on top-level import in Expo Go (SDK 53+)
+let _Notifications: typeof import("expo-notifications") | null = null;
+
+async function N() {
+  if (_Notifications) return _Notifications;
+  try {
+    _Notifications = await import("expo-notifications");
+    return _Notifications;
+  } catch {
+    return null;
+  }
+}
+
 // ── Notification channels (Android) ─────────────────────────────────────────
 
 const CHANNELS = [
-  {
-    id: "critical-alerts",
-    name: "Alertas Criticas",
-    importance: 5, // MAX
-    sound: "critical",
-    vibrationPattern: [0, 500, 200, 500],
-    lightColor: "#ef4444",
-    bypassDnd: true,
-  },
-  {
-    id: "warning-alerts",
-    name: "Alertas Warning",
-    importance: 4, // HIGH
-    sound: "default",
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: "#f59e0b",
-    bypassDnd: false,
-  },
-  {
-    id: "info-alerts",
-    name: "Alertas Info",
-    importance: 2, // LOW
-    sound: null,
-    vibrationPattern: undefined,
-    lightColor: "#3b82f6",
-    bypassDnd: false,
-  },
-] as const;
+  { id: "critical-alerts", name: "Alertas Criticas", importance: 5, sound: "critical", vibrationPattern: [0, 500, 200, 500], lightColor: "#ef4444", bypassDnd: true },
+  { id: "warning-alerts", name: "Alertas Warning", importance: 4, sound: "default", vibrationPattern: [0, 250, 250, 250], lightColor: "#f59e0b", bypassDnd: false },
+  { id: "info-alerts", name: "Alertas Info", importance: 2, sound: null as string | null, vibrationPattern: undefined as number[] | undefined, lightColor: "#3b82f6", bypassDnd: false },
+];
 
 // ── Notification categories (action buttons) ────────────────────────────────
 
@@ -53,25 +41,15 @@ const CATEGORIES = [
       { identifier: "ACK", title: "Reconocer", options: { isDestructive: false, isAuthenticationRequired: false } },
     ],
   },
-  {
-    identifier: "INFO_ALERT",
-    actions: [],
-  },
 ];
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
 export async function setupPush(): Promise<string | null> {
-  if (!Device.isDevice) {
-    console.log("Push requires physical device");
-    return null;
-  }
+  if (!Device.isDevice) return null;
 
-  // expo-notifications not available in Expo Go (SDK 53+)
-  if (!Notifications.getPermissionsAsync) {
-    console.log("Push not available in Expo Go — use a dev build");
-    return null;
-  }
+  const Notifications = await N();
+  if (!Notifications) return null;
 
   // Request permission
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -87,14 +65,13 @@ export async function setupPush(): Promise<string | null> {
     for (const ch of CHANNELS) {
       await Notifications.setNotificationChannelAsync(ch.id, {
         name: ch.name,
-        importance: ch.importance as Notifications.AndroidImportance,
-        vibrationPattern: ch.vibrationPattern as number[] | undefined,
+        importance: ch.importance as number,
+        vibrationPattern: ch.vibrationPattern,
         lightColor: ch.lightColor,
         bypassDnd: ch.bypassDnd,
         ...(ch.sound ? { sound: ch.sound } : {}),
       });
     }
-    // Remove old single channel
     await Notifications.deleteNotificationChannelAsync("alerts").catch(() => {});
   }
 
@@ -106,10 +83,7 @@ export async function setupPush(): Promise<string | null> {
         cat.actions.map((a) => ({
           identifier: a.identifier,
           buttonTitle: a.title,
-          options: {
-            isDestructive: a.options.isDestructive,
-            isAuthenticationRequired: a.options.isAuthenticationRequired,
-          },
+          options: { isDestructive: a.options.isDestructive, isAuthenticationRequired: a.options.isAuthenticationRequired },
         }))
       );
     }
@@ -119,14 +93,11 @@ export async function setupPush(): Promise<string | null> {
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ??
     Constants.easConfig?.projectId;
-  if (!projectId) {
-    console.error("Missing EAS projectId — push tokens unavailable");
-    return null;
-  }
+  if (!projectId) return null;
+
   const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
   const token = tokenData.data;
 
-  // Register with backend
   try {
     await registerPushToken(token);
   } catch (e) {
@@ -138,11 +109,10 @@ export async function setupPush(): Promise<string | null> {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-export function setupNotificationHandler(): void {
-  // expo-notifications not available in Expo Go (SDK 53+)
-  if (!Notifications.setNotificationHandler) return;
+export async function setupNotificationHandler(): Promise<void> {
+  const Notifications = await N();
+  if (!Notifications?.setNotificationHandler) return;
 
-  // Foreground: show as banner
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const severity = notification.request.content.data?.severity as string | undefined;
@@ -156,7 +126,6 @@ export function setupNotificationHandler(): void {
     },
   });
 
-  // Tap handler: deep link to alert
   if (!Notifications.addNotificationResponseReceivedListener) return;
   Notifications.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data;
@@ -164,18 +133,9 @@ export function setupNotificationHandler(): void {
     if (!alertId) return;
 
     const actionId = response.actionIdentifier;
+    if (actionId === "ACK") { ackAlert(alertId).catch(() => {}); return; }
+    if (actionId === "RESOLVE") { resolveAlert(alertId).catch(() => {}); return; }
 
-    // Quick actions (without opening alert detail)
-    if (actionId === "ACK") {
-      ackAlert(alertId).catch(() => {});
-      return;
-    }
-    if (actionId === "RESOLVE") {
-      resolveAlert(alertId).catch(() => {});
-      return;
-    }
-
-    // Default tap → open alert detail
     router.push(`/alert/${alertId}`);
   });
 }
@@ -183,10 +143,9 @@ export function setupNotificationHandler(): void {
 // ── Badge count ─────────────────────────────────────────────────────────────
 
 export async function updateBadgeCount(unreadCount: number): Promise<void> {
-  if (!Notifications.setBadgeCountAsync) return;
-  try {
-    await Notifications.setBadgeCountAsync(unreadCount);
-  } catch {}
+  const Notifications = await N();
+  if (!Notifications?.setBadgeCountAsync) return;
+  try { await Notifications.setBadgeCountAsync(unreadCount); } catch {}
 }
 
 export async function clearBadge(): Promise<void> {

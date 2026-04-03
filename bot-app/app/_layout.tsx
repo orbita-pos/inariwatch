@@ -45,7 +45,7 @@ export default function RootLayout() {
         }
       }
     });
-    try { setupNotificationHandler(); } catch {}
+    setupNotificationHandler().catch(() => {});
     checkVersion();
 
     // Clear badge when app comes to foreground
