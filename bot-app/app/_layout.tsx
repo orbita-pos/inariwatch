@@ -88,7 +88,7 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-    <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+    <KeyboardProvider>
     <QueryClientProvider client={queryClient}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <OfflineBanner />

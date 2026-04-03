@@ -19,23 +19,11 @@ type Message = {
 const STORAGE_KEY = "inari_chat_history";
 const MAX_STORED_MESSAGES = 50;
 
-const EXAMPLES: { category: string; questions: string[] }[] = [
-  {
-    category: "Diagnostico",
-    questions: ["Que se rompio hoy?", "Por que falla el endpoint de pagos?"],
-  },
-  {
-    category: "Estado",
-    questions: ["Como esta produccion ahora?", "Hay algun servicio caido?"],
-  },
-  {
-    category: "Tendencias",
-    questions: ["Cuantas alertas criticas esta semana?", "Cual es el MTTR actual?"],
-  },
-  {
-    category: "Acciones",
-    questions: ["Resumeme los incidentes de anoche", "Que proyectos tienen mas errores?"],
-  },
+const EXAMPLES = [
+  "Que se rompio hoy?",
+  "Como esta produccion?",
+  "Cuantas alertas criticas esta semana?",
+  "Resumeme los incidentes de anoche",
 ];
 
 export default function AskScreen() {
@@ -119,16 +107,11 @@ export default function AskScreen() {
             Inari tiene contexto completo — alertas, remediaciones, integraciones, uptime.
           </Text>
           <View style={styles.examples}>
-            {EXAMPLES.map((group) => (
-              <View key={group.category} style={styles.exampleGroup}>
-                <Text style={styles.exampleCategory}>{group.category}</Text>
-                {group.questions.map((q) => (
-                  <Pressable key={q} onPress={() => send(q)} style={styles.example}>
-                    <Text style={styles.exampleText}>{q}</Text>
-                    <Ionicons name="arrow-forward" size={14} color={colors.fgMuted} />
-                  </Pressable>
-                ))}
-              </View>
+            {EXAMPLES.map((q) => (
+              <Pressable key={q} onPress={() => send(q)} style={styles.example}>
+                <Text style={styles.exampleText}>{q}</Text>
+                <Ionicons name="arrow-forward" size={14} color={colors.fgMuted} />
+              </Pressable>
             ))}
           </View>
         </View>
@@ -190,9 +173,7 @@ const styles = StyleSheet.create({
   empty: { flex: 1, justifyContent: "center", padding: spacing.xl, paddingTop: spacing.xxl },
   emptyTitle: { color: colors.fgStrong, fontSize: fontSize.xxl, fontWeight: "700", marginBottom: spacing.sm, textAlign: "center" },
   emptyText: { color: colors.fgDim, fontSize: fontSize.md, textAlign: "center", lineHeight: 22, marginBottom: spacing.xl },
-  examples: { gap: spacing.lg },
-  exampleGroup: { gap: spacing.xs },
-  exampleCategory: { color: colors.fgMuted, fontSize: fontSize.xs, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 },
+  examples: { gap: spacing.sm },
   example: {
     backgroundColor: colors.surfaceInner, borderRadius: 10, borderWidth: 1,
     borderColor: colors.border, paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
