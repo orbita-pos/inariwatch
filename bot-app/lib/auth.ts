@@ -1,8 +1,18 @@
 import * as SecureStore from "expo-secure-store";
 import * as Linking from "expo-linking";
+import { AppState } from "react-native";
 
 const API_BASE = "https://app.inariwatch.com";
 const TOKEN_KEY = "inariwatch_token";
+
+// Auth state listeners — lets _layout.tsx react when login/logout happens
+type AuthListener = (loggedIn: boolean) => void;
+const listeners = new Set<AuthListener>();
+
+export function onAuthChange(listener: AuthListener): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync(TOKEN_KEY);
@@ -10,10 +20,12 @@ export async function getToken(): Promise<string | null> {
 
 export async function setToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(TOKEN_KEY, token);
+  listeners.forEach((l) => l(true));
 }
 
 export async function clearToken(): Promise<void> {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
+  listeners.forEach((l) => l(false));
 }
 
 export async function isLoggedIn(): Promise<boolean> {
@@ -43,13 +55,30 @@ export async function openVerifyPage(verifyUrl: string): Promise<void> {
   await Linking.openURL(verifyUrl);
 }
 
+/**
+ * Wait until the app is in the foreground.
+ * When the user switches to the browser to approve, the app goes to background
+ * and setTimeout timers fire all at once — burning through poll attempts.
+ * This pauses the loop until the user comes back.
+ */
+function waitForForeground(): Promise<void> {
+  if (AppState.currentState === "active") return Promise.resolve();
+  return new Promise((resolve) => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") { sub.remove(); resolve(); }
+    });
+  });
+}
+
 export async function pollForToken(
   code: string,
   onStatus?: (status: string) => void
 ): Promise<string | null> {
-  const maxAttempts = 60; // 5 minutes at 5s intervals
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(5000);
+  const deadline = Date.now() + 10 * 60 * 1000; // 10 min (matches backend code expiry)
+
+  while (Date.now() < deadline) {
+    await sleep(3000);
+    await waitForForeground();
     onStatus?.("waiting");
 
     try {

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { View, Text, Image, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { router } from "expo-router";
 import { startDeviceFlow, openVerifyPage, pollForToken } from "../lib/auth";
-import { setupPush } from "../lib/push";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 export default function LoginScreen() {
@@ -20,7 +19,6 @@ export default function LoginScreen() {
 
       const token = await pollForToken(authCode, () => setStatus("waiting"));
       if (token) {
-        await setupPush();
         router.replace("/(tabs)");
       } else {
         setStatus("error");
@@ -69,7 +67,7 @@ export default function LoginScreen() {
 
         {status === "error" && (
           <View>
-            <Text style={styles.error}>Authentication failed or timed out.</Text>
+            <Text style={styles.error}>Authentication failed or timed out. (beta)</Text>
             <Pressable onPress={handleLogin} style={[styles.button, { marginTop: spacing.lg }]}>
               <Text style={styles.buttonText}>Try again</Text>
             </Pressable>

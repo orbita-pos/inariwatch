@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar, AppState, LogBox, View, Text, Pressable, Linking, StyleSheet } from "react-native";
 
 // expo-notifications shows a console.error in Expo Go (SDK 53+) — not a crash, just a dev warning
@@ -7,7 +7,7 @@ LogBox.ignoreLogs(["expo-notifications"]);
 import { ThemeProvider, DarkTheme } from "@react-navigation/native";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { isLoggedIn } from "../lib/auth";
+import { isLoggedIn, onAuthChange } from "../lib/auth";
 import { setupNotificationHandler, setupPush, clearBadge } from "../lib/push";
 import { isBiometricEnabled, authenticateBiometric } from "../lib/biometric";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -34,12 +34,14 @@ export default function RootLayout() {
   const [locked, setLocked] = useState(false);
   const [updateRequired, setUpdateRequired] = useState(false);
 
+  const router = useRouter();
+  const segments = useSegments();
+
   useEffect(() => {
     isLoggedIn().then(async (loggedIn) => {
       setAuthed(loggedIn);
       if (loggedIn) {
         setupPush().catch(() => {});
-        // Biometric gate
         const bioEnabled = await isBiometricEnabled();
         if (bioEnabled) {
           setLocked(true);
@@ -51,12 +53,27 @@ export default function RootLayout() {
     setupNotificationHandler().catch(() => {});
     checkVersion();
 
-    // Clear badge when app comes to foreground
+    const unsubAuth = onAuthChange((loggedIn) => {
+      setAuthed(loggedIn);
+      if (loggedIn) setupPush().catch(() => {});
+    });
+
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") clearBadge().catch(() => {});
     });
-    return () => sub.remove();
+    return () => { sub.remove(); unsubAuth(); };
   }, []);
+
+  // Auth guard — redirect when auth state changes
+  useEffect(() => {
+    if (authed === null) return;
+    const onLoginScreen = segments[0] === "login";
+    if (authed && onLoginScreen) {
+      router.replace("/(tabs)");
+    } else if (!authed && !onLoginScreen) {
+      router.replace("/login");
+    }
+  }, [authed, segments]);
 
   async function checkVersion() {
     try {
@@ -118,22 +135,17 @@ export default function RootLayout() {
           headerShadowVisible: false,
         }}
       >
-        {!authed ? (
-          <Stack.Screen name="login" />
-        ) : (
-          <>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="alert/[id]" />
-            <Stack.Screen name="fix/[id]" />
-            <Stack.Screen name="settings" />
-            <Stack.Screen name="search" />
-            <Stack.Screen name="code-search" />
-            <Stack.Screen name="analytics" />
-            <Stack.Screen name="pr-risk" />
-            <Stack.Screen name="create-monitor" />
-            <Stack.Screen name="status" />
-          </>
-        )}
+        <Stack.Screen name="login" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="alert/[id]" />
+        <Stack.Screen name="fix/[id]" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="search" />
+        <Stack.Screen name="code-search" />
+        <Stack.Screen name="analytics" />
+        <Stack.Screen name="pr-risk" />
+        <Stack.Screen name="create-monitor" />
+        <Stack.Screen name="status" />
       </Stack>
     </QueryClientProvider>
     </KeyboardProvider>
