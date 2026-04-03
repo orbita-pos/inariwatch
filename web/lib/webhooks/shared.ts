@@ -87,20 +87,43 @@ export async function createAlertIfNew(
 
   if (activeMaintenance) return null;
 
+  // Compute fingerprint early — used for dedup (matches CLI behavior)
+  let fingerprint: string | null = null;
+  try {
+    const { computeErrorFingerprint } = await import("@/lib/ai/fingerprint");
+    fingerprint = computeErrorFingerprint(alert.title ?? "", alert.body ?? "");
+  } catch {
+    // Non-blocking
+  }
+
   const dedupeWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [dup] = await db
-    .select({ id: alerts.id })
-    .from(alerts)
-    .where(
-      and(
-        eq(alerts.projectId, projectId),
-        eq(alerts.title, alert.title!),
-        eq(alerts.isResolved, false),
-        gt(alerts.createdAt, dedupeWindow)
-      )
-    )
-    .limit(1);
+  // Dedup by fingerprint (preferred, matches CLI) with title fallback
+  const [dup] = fingerprint
+    ? await db
+        .select({ id: alerts.id })
+        .from(alerts)
+        .where(
+          and(
+            eq(alerts.projectId, projectId),
+            eq(alerts.fingerprint, fingerprint),
+            eq(alerts.isResolved, false),
+            gt(alerts.createdAt, dedupeWindow)
+          )
+        )
+        .limit(1)
+    : await db
+        .select({ id: alerts.id })
+        .from(alerts)
+        .where(
+          and(
+            eq(alerts.projectId, projectId),
+            eq(alerts.title, alert.title!),
+            eq(alerts.isResolved, false),
+            gt(alerts.createdAt, dedupeWindow)
+          )
+        )
+        .limit(1);
 
   if (dup) return null;
 
@@ -142,15 +165,6 @@ export async function createAlertIfNew(
       stormId = newStorm.id;
       isTriggeringStorm = true;
     }
-  }
-
-  // Compute fingerprint for pattern matching
-  let fingerprint: string | null = null;
-  try {
-    const { computeErrorFingerprint } = await import("@/lib/ai/fingerprint");
-    fingerprint = computeErrorFingerprint(alert.title ?? "", alert.body ?? "");
-  } catch {
-    // Non-blocking
   }
 
   const [inserted] = await db
