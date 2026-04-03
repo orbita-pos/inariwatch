@@ -97,6 +97,10 @@ export default function RootLayout() {
           headerShown: false,
           contentStyle: { backgroundColor: colors.bg },
           animation: "slide_from_right",
+          navigationBarColor: colors.bg,
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.fgStrong,
+          headerShadowVisible: false,
         }}
       >
         {!authed ? (
@@ -104,38 +108,15 @@ export default function RootLayout() {
         ) : (
           <>
             <Stack.Screen name="(tabs)" />
-            <Stack.Screen
-              name="alert/[id]"
-              options={{ headerShown: true, headerTitle: "Alerta", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="fix/[id]"
-              options={{ headerShown: true, headerTitle: "Progreso del Fix", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="settings"
-              options={{ headerShown: true, headerTitle: "Configuracion", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="search"
-              options={{ headerShown: true, headerTitle: "Buscar", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="code-search"
-              options={{ headerShown: true, headerTitle: "Buscar Codigo", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="analytics"
-              options={{ headerShown: true, headerTitle: "Analytics", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="pr-risk"
-              options={{ headerShown: true, headerTitle: "Riesgo de PR", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
-            <Stack.Screen
-              name="create-monitor"
-              options={{ headerShown: true, headerTitle: "Crear Monitor", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
-            />
+            <Stack.Screen name="alert/[id]" options={{ headerShown: true, headerTitle: "Alerta" }} />
+            <Stack.Screen name="fix/[id]" options={{ headerShown: true, headerTitle: "Progreso del Fix" }} />
+            <Stack.Screen name="settings" options={{ headerShown: true, headerTitle: "Configuracion" }} />
+            <Stack.Screen name="search" options={{ headerShown: true, headerTitle: "Buscar" }} />
+            <Stack.Screen name="code-search" options={{ headerShown: true, headerTitle: "Buscar Codigo" }} />
+            <Stack.Screen name="analytics" options={{ headerShown: true, headerTitle: "Analytics" }} />
+            <Stack.Screen name="pr-risk" options={{ headerShown: true, headerTitle: "Riesgo de PR" }} />
+            <Stack.Screen name="create-monitor" options={{ headerShown: true, headerTitle: "Crear Monitor" }} />
+            <Stack.Screen name="status" options={{ headerShown: true, headerTitle: "Status" }} />
           </>
         )}
       </Stack>

@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { View, Text, ScrollView, RefreshControl, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { getStatus, getUptime, getErrorTrends, runHealthCheck, runCheck } from "../../lib/api";
-import { getToken, clearToken } from "../../lib/auth";
+import { getStatus, getUptime, getErrorTrends, runHealthCheck, runCheck } from "../lib/api";
+import { getToken, clearToken } from "../lib/auth";
 import { router } from "expo-router";
-import { queryClient } from "../../lib/query-client";
-import { SkeletonSection } from "../../components/Skeleton";
-import { useAppStatePolling } from "../../lib/use-app-state-polling";
-import { colors, spacing, fontSize } from "../../lib/theme";
+import { queryClient } from "../lib/query-client";
+import { SkeletonSection } from "../components/Skeleton";
+import { useAppStatePolling } from "../lib/use-app-state-polling";
+import { colors, spacing, fontSize } from "../lib/theme";
 
 export default function StatusScreen() {
   const [token, setTokenState] = useState<string | null>(null);

@@ -187,7 +187,7 @@ export default function AskScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  empty: { flex: 1, justifyContent: "center", padding: spacing.xl },
+  empty: { flex: 1, justifyContent: "center", padding: spacing.xl, paddingTop: spacing.xxl },
   emptyTitle: { color: colors.fgStrong, fontSize: fontSize.xxl, fontWeight: "700", marginBottom: spacing.sm, textAlign: "center" },
   emptyText: { color: colors.fgDim, fontSize: fontSize.md, textAlign: "center", lineHeight: 22, marginBottom: spacing.xl },
   examples: { gap: spacing.lg },
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   exampleText: { color: colors.fgDim, fontSize: fontSize.sm, flex: 1 },
   clearBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-end", paddingHorizontal: spacing.lg, paddingVertical: spacing.xs },
   clearText: { color: colors.fgMuted, fontSize: fontSize.xs },
-  messageList: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  messageList: { padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xxl },
   bubble: { maxWidth: "85%", borderRadius: 16, padding: spacing.md, marginBottom: spacing.sm },
   bubbleUser: { backgroundColor: colors.accent, alignSelf: "flex-end", borderBottomRightRadius: 4 },
   bubbleAI: { backgroundColor: colors.surface, alignSelf: "flex-start", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: colors.border },

@@ -5,9 +5,11 @@ import { colors } from "../../lib/theme";
 export default function TabLayout() {
   return (
     <Tabs
+      sceneContainerStyle={{ backgroundColor: colors.bg }}
       screenOptions={{
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.fgStrong,
+        headerShadowVisible: false,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
@@ -53,8 +55,6 @@ export default function TabLayout() {
           ),
         }}
       />
-      {/* Hide status from tabs — accessible from More */}
-      <Tabs.Screen name="status" options={{ href: null }} />
     </Tabs>
   );
 }
