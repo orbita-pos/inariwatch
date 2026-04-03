@@ -17,10 +17,10 @@ const LAYERS = [
     n: "01",
     gate: "CONFIDENCE GATE",
     headline: "If the AI isn't sure, it stops.",
-    metric: "< 30%",
-    metricLabel: "confidence = abort",
+    metric: "70\u201390%",
+    metricLabel: "threshold by trust level",
     detail:
-      "Every diagnosis comes with a confidence score derived from the actual logs, stack traces, and build output. Below 30%, the pipeline halts and escalates to on-call. No guessing.",
+      "Every diagnosis comes with a confidence score derived from the actual logs, stack traces, and build output. The threshold adapts to trust level: Apprentice requires 90%, Trusted 80%, Expert 70%. Below threshold, the fix becomes a draft PR for human review. Rookies never auto-merge.",
   },
   {
     n: "02",
@@ -29,7 +29,7 @@ const LAYERS = [
     metric: "36",
     metricLabel: "security checks",
     detail:
-      "Every AI-generated fix is scanned by 3 layers: 17 ESLint rules from eslint-plugin-security, 19 Semgrep-inspired pattern detectors (SSRF, SQL injection, XSS, prototype pollution, hardcoded secrets, open redirect), and an AI security review. Any HIGH finding blocks auto-merge.",
+      "Every AI-generated fix is scanned by 3 layers: 17 ESLint rules (3 built-in + 14 from eslint-plugin-security), 19 Semgrep-inspired pattern detectors (SSRF, SQL injection, XSS, prototype pollution, hardcoded secrets, open redirect), and an AI security review. Any HIGH finding blocks auto-merge.",
   },
   {
     n: "03",
