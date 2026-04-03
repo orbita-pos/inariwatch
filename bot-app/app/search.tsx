@@ -6,6 +6,7 @@ import { fetchAlerts } from "../lib/api";
 import { AlertCard } from "../components/AlertCard";
 import { FilterChips } from "../components/FilterChips";
 import { SkeletonAlertList } from "../components/Skeleton";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 import type { Alert } from "../lib/types";
 
@@ -53,6 +54,7 @@ export default function SearchScreen() {
   );
 
   return (
+    <ScreenWrapper>
     <View style={styles.container}>
       <View style={styles.searchRow}>
         <TextInput
@@ -104,6 +106,7 @@ export default function SearchScreen() {
         }
       />
     </View>
+    </ScreenWrapper>
   );
 }
 

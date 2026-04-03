@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { searchCodebase, reindexCodebase } from "../lib/api";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 export default function CodeSearchScreen() {
@@ -22,6 +23,7 @@ export default function CodeSearchScreen() {
   };
 
   return (
+    <ScreenWrapper>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Buscar en codigo</Text>
       <Text style={styles.subtitle}>
@@ -102,6 +104,7 @@ export default function CodeSearchScreen() {
         </View>
       )}
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

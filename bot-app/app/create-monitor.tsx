@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { createUptimeMonitor } from "../lib/api";
 import { queryClient } from "../lib/query-client";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 export default function CreateMonitorScreen() {
@@ -31,6 +32,7 @@ export default function CreateMonitorScreen() {
   const canSubmit = url.trim().startsWith("http") && project.trim();
 
   return (
+    <ScreenWrapper>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Crear monitor de uptime</Text>
       <Text style={styles.subtitle}>
@@ -96,6 +98,7 @@ export default function CreateMonitorScreen() {
         </View>
       )}
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { View, Text, ScrollView, Switch, Pressable, Linking, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from "../lib/biometric";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 const PREFS_KEY = "inari_notification_prefs";
@@ -29,6 +30,7 @@ export default function SettingsScreen() {
   };
 
   return (
+    <ScreenWrapper>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Notifications */}
       <Text style={styles.sectionTitle}>NOTIFICACIONES</Text>
@@ -86,6 +88,7 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

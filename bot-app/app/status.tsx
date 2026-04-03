@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import { queryClient } from "../lib/query-client";
 import { SkeletonSection } from "../components/Skeleton";
 import { useAppStatePolling } from "../lib/use-app-state-polling";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 export default function StatusScreen() {
@@ -64,6 +65,7 @@ export default function StatusScreen() {
   const allUp = uptimeText?.includes("All systems operational") || uptimeText?.includes("All");
 
   return (
+    <ScreenWrapper>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -185,6 +187,7 @@ export default function StatusScreen() {
         )}
       </Section>
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

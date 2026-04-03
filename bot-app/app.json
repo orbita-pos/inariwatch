@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
+    "backgroundColor": "#0a0a0a",
     "scheme": "inariwatch",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +16,8 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.inariwatch.bot"
+      "bundleIdentifier": "com.inariwatch.bot",
+      "backgroundColor": "#0a0a0a"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +25,8 @@
         "backgroundColor": "#0a0a0a"
       },
       "package": "com.inariwatch.bot",
-      "softwareKeyboardLayoutMode": "pan"
+      "softwareKeyboardLayoutMode": "pan",
+      "backgroundColor": "#0a0a0a"
     },
     "plugins": [
       "expo-router",

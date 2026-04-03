@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TextInput, Pressable, ActivityIndicator, StyleS
 import { useMutation } from "@tanstack/react-query";
 import { assessRisk } from "../lib/api";
 import { MarkdownText } from "../components/MarkdownText";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 export default function PRRiskScreen() {
@@ -16,6 +17,7 @@ export default function PRRiskScreen() {
   const canSubmit = project.trim() && prNumber.trim() && !isNaN(parseInt(prNumber));
 
   return (
+    <ScreenWrapper>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Riesgo de PR</Text>
       <Text style={styles.subtitle}>
@@ -71,6 +73,7 @@ export default function PRRiskScreen() {
         </View>
       )}
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

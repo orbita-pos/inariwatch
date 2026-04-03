@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { getErrorTrends } from "../lib/api";
 import { SkeletonSection } from "../components/Skeleton";
+import { ScreenWrapper } from "../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 const PERIODS = [
@@ -24,6 +25,7 @@ export default function AnalyticsScreen() {
   const maxCount = Math.max(...bars.map((b) => b.total), 1);
 
   return (
+    <ScreenWrapper>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Analytics</Text>
       <Text style={styles.subtitle}>Tendencias de errores y metricas</Text>
@@ -95,6 +97,7 @@ export default function AnalyticsScreen() {
         </>
       )}
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 
