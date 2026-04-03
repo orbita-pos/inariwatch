@@ -921,8 +921,17 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         }
 
         // ── EVALUATE AUTO-MERGE GATES ──────────────────────────────────
-        const autoMergeConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+        const baseConfig = (proj?.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
         const totalLinesChanged = fix.files.reduce((sum, f) => sum + f.content.split("\n").length, 0);
+
+        // Apply trust level — tightens thresholds based on project's track record
+        const { getProjectTrustLevel, applyTrustLevel } = await import("./trust-level");
+        const trackRecord = await getProjectTrustLevel(session.projectId);
+        const autoMergeConfig = {
+          ...baseConfig,
+          ...applyTrustLevel(baseConfig, trackRecord.trustLevel),
+        };
+        emit("trust_level", { name: trackRecord.trustLevel.name, level: trackRecord.trustLevel.level, total: trackRecord.total, successRate: trackRecord.successRate, fixesToNextLevel: trackRecord.fixesToNextLevel });
 
         // Extract EAP verification from gathered context
         const eapChainVerified = remediationContext.eapReceipt?.verified ?? null;

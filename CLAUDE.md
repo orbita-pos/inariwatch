@@ -128,6 +128,7 @@ All AI modules live in `web/lib/ai/`. Key files:
 | Status page automation | `status-page-automation.ts` | Auto incident lifecycle management |
 | Context gatherer | `context-gatherer.ts` | Gather Vercel/Sentry/GitHub context |
 | Fingerprint | `fingerprint.ts` | Error fingerprinting for dedup |
+| Trust level | `trust-level.ts` | Compute trust level from track record (Rookie → Expert), apply to gate thresholds |
 
 ## Service layer — single source of truth
 
