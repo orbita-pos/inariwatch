@@ -1,34 +1,45 @@
 import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
-import { StatusBar, View, Text, Pressable, Linking, StyleSheet } from "react-native";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StatusBar, AppState, View, Text, Pressable, Linking, StyleSheet } from "react-native";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { isLoggedIn } from "../lib/auth";
-import { setupNotificationHandler, setupPush } from "../lib/push";
+import { setupNotificationHandler, setupPush, clearBadge } from "../lib/push";
+import { isBiometricEnabled, authenticateBiometric } from "../lib/biometric";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { OfflineBanner } from "../components/OfflineBanner";
+import { queryClient } from "../lib/query-client";
 import { colors, spacing, fontSize } from "../lib/theme";
 
 const APP_VERSION = "1.0.0";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 10_000,
-      retry: 2,
-    },
-  },
-});
-
 export default function RootLayout() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [locked, setLocked] = useState(false);
   const [updateRequired, setUpdateRequired] = useState(false);
 
   useEffect(() => {
-    isLoggedIn().then((loggedIn) => {
+    isLoggedIn().then(async (loggedIn) => {
       setAuthed(loggedIn);
-      if (loggedIn) setupPush();
+      if (loggedIn) {
+        setupPush().catch(() => {});
+        // Biometric gate
+        const bioEnabled = await isBiometricEnabled();
+        if (bioEnabled) {
+          setLocked(true);
+          const ok = await authenticateBiometric();
+          setLocked(!ok);
+        }
+      }
     });
-    setupNotificationHandler();
+    try { setupNotificationHandler(); } catch {}
     checkVersion();
+
+    // Clear badge when app comes to foreground
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") clearBadge().catch(() => {});
+    });
+    return () => sub.remove();
   }, []);
 
   async function checkVersion() {
@@ -59,10 +70,28 @@ export default function RootLayout() {
 
   if (authed === null) return null;
 
+  if (locked) {
+    return (
+      <View style={updateStyles.container}>
+        <Text style={updateStyles.emoji}>🔒</Text>
+        <Text style={updateStyles.title}>InariWatch</Text>
+        <Text style={updateStyles.subtitle}>Autenticacion biometrica requerida</Text>
+        <Pressable
+          onPress={async () => { const ok = await authenticateBiometric(); setLocked(!ok); }}
+          style={updateStyles.button}
+        >
+          <Text style={updateStyles.buttonText}>Desbloquear</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
+    <ErrorBoundary>
     <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
     <QueryClientProvider client={queryClient}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+      <OfflineBanner />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -77,17 +106,42 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen
               name="alert/[id]"
-              options={{ headerShown: true, headerTitle: "Alert", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+              options={{ headerShown: true, headerTitle: "Alerta", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
             />
             <Stack.Screen
               name="fix/[id]"
-              options={{ headerShown: true, headerTitle: "Fix Progress", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+              options={{ headerShown: true, headerTitle: "Progreso del Fix", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+            />
+            <Stack.Screen
+              name="settings"
+              options={{ headerShown: true, headerTitle: "Configuracion", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+            />
+            <Stack.Screen
+              name="search"
+              options={{ headerShown: true, headerTitle: "Buscar", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+            />
+            <Stack.Screen
+              name="code-search"
+              options={{ headerShown: true, headerTitle: "Buscar Codigo", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+            />
+            <Stack.Screen
+              name="analytics"
+              options={{ headerShown: true, headerTitle: "Analytics", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+            />
+            <Stack.Screen
+              name="pr-risk"
+              options={{ headerShown: true, headerTitle: "Riesgo de PR", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
+            />
+            <Stack.Screen
+              name="create-monitor"
+              options={{ headerShown: true, headerTitle: "Crear Monitor", headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.fgStrong }}
             />
           </>
         )}
       </Stack>
     </QueryClientProvider>
     </KeyboardProvider>
+    </ErrorBoundary>
   );
 }
 

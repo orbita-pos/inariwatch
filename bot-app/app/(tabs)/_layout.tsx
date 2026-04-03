@@ -20,9 +20,18 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Alerts",
+          title: "Alertas",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="notifications" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="projects"
+        options={{
+          title: "Proyectos",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="grid" size={size} color={color} />
           ),
         }}
       />
@@ -36,14 +45,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="status"
+        name="more"
         options={{
-          title: "Status",
+          title: "Mas",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="pulse" size={size} color={color} />
+            <Ionicons name="ellipsis-horizontal" size={size} color={color} />
           ),
         }}
       />
+      {/* Hide status from tabs — accessible from More */}
+      <Tabs.Screen name="status" options={{ href: null }} />
     </Tabs>
   );
 }

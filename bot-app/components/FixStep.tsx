@@ -8,7 +8,11 @@ export function FixStep({ step, isLast }: { step: RemediationStep; isLast: boole
     step.status === "failed" ? "❌" : null;
 
   return (
-    <View style={styles.row}>
+    <View
+      style={styles.row}
+      accessible
+      accessibilityLabel={`Paso ${step.type}: ${step.message}, estado ${step.status}`}
+    >
       <View style={styles.timeline}>
         <View style={[styles.dot, step.status === "running" && styles.dotRunning]}>
           {step.status === "running" ? (

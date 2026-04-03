@@ -28,7 +28,16 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      ["expo-notifications", { "sounds": ["./assets/sounds/critical.wav"] }]
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/critical.wav"
+          ],
+          "color": "#7c3aed",
+          "defaultChannel": "warning-alerts"
+        }
+      ]
     ],
     "extra": {
       "router": {},
@@ -36,6 +45,12 @@
         "projectId": "168bb99e-3e42-4485-b428-7437e451809d"
       }
     },
-    "owner": "jesusdev21"
+    "owner": "jesusdev21",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/168bb99e-3e42-4485-b428-7437e451809d"
+    }
   }
 }

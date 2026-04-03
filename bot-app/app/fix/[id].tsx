@@ -1,7 +1,7 @@
-import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { View, Text, ScrollView, Pressable, Alert as RNAlert, StyleSheet, ActivityIndicator, Linking } from "react-native";
+import { useLocalSearchParams, router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchRemediation, callMcpTool } from "../../lib/api";
+import { fetchRemediation, submitFeedback, verifyRemediation, triggerFix } from "../../lib/api";
 import { FixStep } from "../../components/FixStep";
 import { DiffView } from "../../components/DiffView";
 import { colors, spacing, fontSize } from "../../lib/theme";
@@ -19,13 +19,72 @@ export default function FixProgressScreen() {
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status && TERMINAL_STATUSES.includes(status)) return false;
-      return 3000; // Poll every 3s while active
+      return 3000;
     },
   });
 
-  const approveMutation = useMutation({
-    mutationFn: () => callMcpTool("silence_alert", { alert_id: session?.alertId, resolve: true }),
+  // Approve — open PR in browser for review
+  const handleApprove = () => {
+    if (!session?.prUrl) {
+      RNAlert.alert("Sin PR", "Aun no se ha creado el Pull Request.");
+      return;
+    }
+    RNAlert.alert(
+      "Revisar PR",
+      "Se abrira el Pull Request en tu navegador para revisar y aprobar.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Abrir PR", onPress: () => Linking.openURL(session.prUrl) },
+      ]
+    );
+  };
+
+  // Cancel — submit negative feedback + navigate back
+  const cancelMutation = useMutation({
+    mutationFn: () => submitFeedback(id, false),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["remediation", id] });
+      router.back();
+    },
+  });
+
+  const handleCancel = () => {
+    RNAlert.alert(
+      "Cancelar remediacion",
+      "Esto marcara la remediacion como fallida. Continuar?",
+      [
+        { text: "No", style: "cancel" },
+        { text: "Si, cancelar", style: "destructive", onPress: () => cancelMutation.mutate() },
+      ]
+    );
+  };
+
+  // Retry — trigger fix again for same alert
+  const retryMutation = useMutation({
+    mutationFn: () => triggerFix(session?.alertId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["remediation", id] }),
+  });
+
+  const handleRetry = () => {
+    RNAlert.alert(
+      "Reintentar",
+      "Esto iniciara una nueva remediacion para esta alerta.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Reintentar", onPress: () => retryMutation.mutate() },
+      ]
+    );
+  };
+
+  // Feedback — did the fix work?
+  const feedbackMutation = useMutation({
+    mutationFn: (worked: boolean) => submitFeedback(id, worked),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["remediation", id] }),
+  });
+
+  // Verify remediation chain
+  const verifyMutation = useMutation({
+    mutationFn: () => verifyRemediation(session?.alertId),
   });
 
   if (isLoading || !session) {
@@ -40,6 +99,7 @@ export default function FixProgressScreen() {
   const isTerminal = TERMINAL_STATUSES.includes(session.status);
   const isProposing = session.status === "proposing";
   const isFailed = session.status === "failed";
+  const isCompleted = session.status === "completed";
 
   const confColor = (session.confidenceScore ?? 0) >= 80 ? colors.success
     : (session.confidenceScore ?? 0) >= 50 ? colors.warning : colors.critical;
@@ -66,10 +126,10 @@ export default function FixProgressScreen() {
 
       {/* PR Link */}
       {session.prUrl && (
-        <View style={styles.prBox}>
+        <Pressable style={styles.prBox} onPress={() => Linking.openURL(session.prUrl)}>
           <Text style={styles.prLabel}>Pull Request</Text>
           <Text style={styles.prUrl}>{session.prUrl}</Text>
-        </View>
+        </Pressable>
       )}
 
       {/* Timeline */}
@@ -106,28 +166,90 @@ export default function FixProgressScreen() {
         </View>
       )}
 
-      {/* Actions */}
+      {/* Actions: Proposing */}
       {isProposing && (
         <View style={styles.actions}>
           <Pressable
-            onPress={() => approveMutation.mutate()}
+            onPress={handleApprove}
             style={[styles.actionBtn, { backgroundColor: colors.successDim, borderColor: colors.success }]}
           >
-            <Text style={[styles.actionText, { color: colors.success }]}>
-              {approveMutation.isPending ? "..." : "✅ Approve & Merge"}
-            </Text>
+            <Text style={[styles.actionText, { color: colors.success }]}>Revisar PR</Text>
           </Pressable>
-          <Pressable style={[styles.actionBtn, { borderColor: colors.critical }]}>
-            <Text style={[styles.actionText, { color: colors.critical }]}>❌ Cancel</Text>
+          <Pressable
+            onPress={handleCancel}
+            disabled={cancelMutation.isPending}
+            style={[styles.actionBtn, { borderColor: colors.critical }]}
+          >
+            <Text style={[styles.actionText, { color: colors.critical }]}>
+              {cancelMutation.isPending ? "..." : "Cancelar"}
+            </Text>
           </Pressable>
         </View>
       )}
 
+      {/* Actions: Failed */}
       {isFailed && (
         <View style={styles.actions}>
-          <Pressable style={[styles.actionBtn, { borderColor: colors.accent, backgroundColor: colors.accentDim }]}>
-            <Text style={[styles.actionText, { color: colors.accent }]}>🔄 Retry</Text>
+          <Pressable
+            onPress={handleRetry}
+            disabled={retryMutation.isPending}
+            style={[styles.actionBtn, { borderColor: colors.accent, backgroundColor: colors.accentDim }]}
+          >
+            <Text style={[styles.actionText, { color: colors.accent }]}>
+              {retryMutation.isPending ? "Reintentando..." : "Reintentar"}
+            </Text>
           </Pressable>
+        </View>
+      )}
+
+      {/* Feedback: Completed */}
+      {isCompleted && !feedbackMutation.isSuccess && (
+        <View style={styles.feedbackBox}>
+          <Text style={styles.feedbackTitle}>El fix funciono?</Text>
+          <View style={styles.actions}>
+            <Pressable
+              onPress={() => feedbackMutation.mutate(true)}
+              disabled={feedbackMutation.isPending}
+              style={[styles.actionBtn, { backgroundColor: colors.successDim, borderColor: colors.success }]}
+            >
+              <Text style={[styles.actionText, { color: colors.success }]}>Si, funciono</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => feedbackMutation.mutate(false)}
+              disabled={feedbackMutation.isPending}
+              style={[styles.actionBtn, { borderColor: colors.critical }]}
+            >
+              <Text style={[styles.actionText, { color: colors.critical }]}>No funciono</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {feedbackMutation.isSuccess && (
+        <View style={[styles.feedbackBox, { backgroundColor: colors.successDim }]}>
+          <Text style={{ color: colors.success, fontSize: fontSize.sm, fontWeight: "600" }}>
+            Feedback enviado. Gracias!
+          </Text>
+        </View>
+      )}
+
+      {/* Verify chain */}
+      {isCompleted && (
+        <Pressable
+          onPress={() => verifyMutation.mutate()}
+          disabled={verifyMutation.isPending}
+          style={[styles.verifyBtn, verifyMutation.isPending && { opacity: 0.5 }]}
+        >
+          <Text style={styles.verifyText}>
+            {verifyMutation.isPending ? "Verificando..." : "Verificar cadena de remediacion"}
+          </Text>
+        </Pressable>
+      )}
+
+      {verifyMutation.data && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Verificacion</Text>
+          <Text style={styles.body}>{verifyMutation.data}</Text>
         </View>
       )}
 
@@ -165,6 +287,10 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg },
   actionBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flex: 1, alignItems: "center" },
   actionText: { fontSize: fontSize.sm, fontWeight: "600" },
+  feedbackBox: { backgroundColor: colors.surfaceInner, borderRadius: 10, padding: spacing.md, marginTop: spacing.xl },
+  feedbackTitle: { color: colors.fgStrong, fontSize: fontSize.md, fontWeight: "600", marginBottom: spacing.xs },
+  verifyBtn: { backgroundColor: colors.surfaceInner, borderRadius: 10, padding: spacing.md, marginTop: spacing.lg, alignItems: "center", borderWidth: 1, borderColor: colors.border },
+  verifyText: { color: colors.accent, fontSize: fontSize.sm, fontWeight: "600" },
   errorBox: { backgroundColor: colors.criticalDim, borderRadius: 10, padding: spacing.md, marginTop: spacing.lg },
   errorText: { color: colors.critical, fontSize: fontSize.sm },
 });

@@ -32,8 +32,14 @@ export function CommunityFixCard({
         <Text style={styles.description}>{fix.fixDescription}</Text>
       )}
 
-      <Pressable onPress={onApply} style={styles.applyBtn}>
-        <Text style={styles.applyText}>Apply This Fix</Text>
+      <Pressable
+        onPress={onApply}
+        style={styles.applyBtn}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`Aplicar fix: ${fix.fixApproach}, ${fix.successRate}% de exito`}
+      >
+        <Text style={styles.applyText}>Aplicar Fix</Text>
       </Pressable>
     </View>
   );

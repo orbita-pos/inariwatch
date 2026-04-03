@@ -1,6 +1,7 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { router } from "expo-router";
 import { colors, spacing, fontSize, severityColor, severityBg } from "../lib/theme";
+import { hapticLight } from "../lib/haptics";
 import type { Alert } from "../lib/types";
 
 function timeAgo(dateStr: string): string {
@@ -19,8 +20,13 @@ export function AlertCard({ alert }: { alert: Alert }) {
 
   return (
     <Pressable
-      onPress={() => router.push(`/alert/${alert.id}`)}
+      onPress={() => { hapticLight(); router.push(`/alert/${alert.id}`); }}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`Alerta ${alert.severity}: ${alert.title}`}
+      accessibilityHint="Toca para ver detalles"
+      accessibilityState={{ selected: !alert.isRead }}
     >
       <View style={styles.row}>
         <View style={[styles.badge, { backgroundColor: bg }]}>

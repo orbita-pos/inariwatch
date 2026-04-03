@@ -36,12 +36,18 @@ export default function LoginScreen() {
         <Image source={require("../assets/icon.png")} style={styles.logo} />
         <Text style={styles.title}>InariWatch Bot</Text>
         <Text style={styles.subtitle}>
-          Your production alerts, fixes, and AI diagnosis — right here.
+          Tus alertas de produccion, fixes y diagnostico AI — aqui.
         </Text>
 
         {status === "idle" && (
-          <Pressable onPress={handleLogin} style={styles.button}>
-            <Text style={styles.buttonText}>Sign in with InariWatch</Text>
+          <Pressable
+            onPress={handleLogin}
+            style={styles.button}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Iniciar sesion con InariWatch"
+          >
+            <Text style={styles.buttonText}>Iniciar sesion con InariWatch</Text>
           </Pressable>
         )}
 

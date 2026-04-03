@@ -24,6 +24,10 @@ export function FilterChips({
           key={f.key}
           onPress={() => onSelect(f.key)}
           style={[styles.chip, selected === f.key && styles.chipActive]}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={`Filtrar por ${f.label}`}
+          accessibilityState={{ selected: selected === f.key }}
         >
           <Text
             style={[styles.label, selected === f.key && styles.labelActive]}
