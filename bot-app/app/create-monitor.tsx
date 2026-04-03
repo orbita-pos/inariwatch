@@ -32,12 +32,8 @@ export default function CreateMonitorScreen() {
   const canSubmit = url.trim().startsWith("http") && project.trim();
 
   return (
-    <ScreenWrapper>
+    <ScreenWrapper title="Crear Monitor">
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Crear monitor de uptime</Text>
-      <Text style={styles.subtitle}>
-        InariWatch verificara la URL en el intervalo configurado y alertara cuando este caida
-      </Text>
 
       <Text style={styles.label}>URL *</Text>
       <TextInput

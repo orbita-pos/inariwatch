@@ -14,6 +14,7 @@ import { colors, spacing, fontSize, severityColor, severityBg } from "../../lib/
 import { SubstrateView } from "../../components/SubstrateView";
 import { CommunityFixCard } from "../../components/CommunityFixCard";
 import { SkeletonSection } from "../../components/Skeleton";
+import { ScreenWrapper } from "../../components/ScreenWrapper";
 
 export default function AlertDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -67,11 +68,13 @@ export default function AlertDetailScreen() {
 
   if (isLoading || !alert) {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <SkeletonSection lines={2} />
-        <SkeletonSection lines={4} />
-        <SkeletonSection lines={3} />
-      </ScrollView>
+      <ScreenWrapper title="Alerta">
+        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+          <SkeletonSection lines={2} />
+          <SkeletonSection lines={4} />
+          <SkeletonSection lines={3} />
+        </ScrollView>
+      </ScreenWrapper>
     );
   }
 
@@ -80,6 +83,7 @@ export default function AlertDetailScreen() {
   );
 
   return (
+    <ScreenWrapper title="Alerta">
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
       <View style={[styles.badge, { backgroundColor: severityBg(alert.severity) }]}>
@@ -249,6 +253,7 @@ export default function AlertDetailScreen() {
         <ActionBtn label="Fix It" color={colors.accent} filled loading={fixMutation.isPending} onPress={() => fixMutation.mutate()} />
       </View>
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

@@ -17,12 +17,8 @@ export default function PRRiskScreen() {
   const canSubmit = project.trim() && prNumber.trim() && !isNaN(parseInt(prNumber));
 
   return (
-    <ScreenWrapper>
+    <ScreenWrapper title="Riesgo de PR">
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Riesgo de PR</Text>
-      <Text style={styles.subtitle}>
-        Analisis de riesgo pre-deploy basado en el diff vs historial de incidentes
-      </Text>
 
       <Text style={styles.label}>Proyecto</Text>
       <TextInput

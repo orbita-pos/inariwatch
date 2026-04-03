@@ -30,7 +30,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScreenWrapper>
+    <ScreenWrapper title="Configuracion">
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Notifications */}
       <Text style={styles.sectionTitle}>NOTIFICACIONES</Text>

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchRemediation, submitFeedback, verifyRemediation, triggerFix } from "../../lib/api";
 import { FixStep } from "../../components/FixStep";
 import { DiffView } from "../../components/DiffView";
+import { ScreenWrapper } from "../../components/ScreenWrapper";
 import { colors, spacing, fontSize } from "../../lib/theme";
 import type { RemediationStep } from "../../lib/types";
 
@@ -89,9 +90,11 @@ export default function FixProgressScreen() {
 
   if (isLoading || !session) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={colors.accent} size="large" />
-      </View>
+      <ScreenWrapper title="Progreso del Fix">
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.accent} size="large" />
+        </View>
+      </ScreenWrapper>
     );
   }
 
@@ -105,6 +108,7 @@ export default function FixProgressScreen() {
     : (session.confidenceScore ?? 0) >= 50 ? colors.warning : colors.critical;
 
   return (
+    <ScreenWrapper title="Progreso del Fix">
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
       <View style={styles.header}>
@@ -259,6 +263,7 @@ export default function FixProgressScreen() {
         </View>
       )}
     </ScrollView>
+    </ScreenWrapper>
   );
 }
 

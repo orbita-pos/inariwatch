@@ -54,7 +54,7 @@ export default function SearchScreen() {
   );
 
   return (
-    <ScreenWrapper>
+    <ScreenWrapper title="Buscar">
     <View style={styles.container}>
       <View style={styles.searchRow}>
         <TextInput

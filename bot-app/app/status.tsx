@@ -65,7 +65,7 @@ export default function StatusScreen() {
   const allUp = uptimeText?.includes("All systems operational") || uptimeText?.includes("All");
 
   return (
-    <ScreenWrapper>
+    <ScreenWrapper title="Status">
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}

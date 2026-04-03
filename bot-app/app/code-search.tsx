@@ -23,12 +23,8 @@ export default function CodeSearchScreen() {
   };
 
   return (
-    <ScreenWrapper>
+    <ScreenWrapper title="Buscar Codigo">
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Buscar en codigo</Text>
-      <Text style={styles.subtitle}>
-        Busqueda hibrida (vector + keyword) en el codebase indexado
-      </Text>
 
       {/* Query input */}
       <TextInput
