@@ -65,7 +65,7 @@ const LEVELS: Record<TrustLevelName, TrustLevel> = {
     name: "Expert",
     level: 3,
     minConfidence: 70,
-    minReviewScore: 60,
+    minReviewScore: 70,
     maxLinesChanged: 200,
   },
 };

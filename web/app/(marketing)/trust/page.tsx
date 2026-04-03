@@ -152,7 +152,7 @@ const TRUST_LEVELS = [
     border: "border-green-900/50",
     bg: "bg-green-950/20",
     auto: "Full auto-merge",
-    gates: "Confidence \u2265 70% \u00b7 Review \u2265 60 \u00b7 \u2264 200 lines",
+    gates: "Confidence \u2265 70% \u00b7 Review \u2265 70 \u00b7 \u2264 200 lines",
     requirement: "\u2265 10 fixes, \u2265 85% success rate",
   },
 ];
