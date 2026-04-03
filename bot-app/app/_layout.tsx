@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { StatusBar, AppState, View, Text, Pressable, Linking, StyleSheet } from "react-native";
+import { ThemeProvider, DarkTheme } from "@react-navigation/native";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { isLoggedIn } from "../lib/auth";
@@ -10,6 +11,18 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { OfflineBanner } from "../components/OfflineBanner";
 import { queryClient } from "../lib/query-client";
 import { colors, spacing, fontSize } from "../lib/theme";
+
+const NAV_THEME = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: colors.bg,
+    card: colors.surface,
+    text: colors.fgStrong,
+    border: colors.border,
+    primary: colors.accent,
+  },
+};
 
 const APP_VERSION = "1.0.0";
 
@@ -87,6 +100,7 @@ export default function RootLayout() {
   }
 
   return (
+    <ThemeProvider value={NAV_THEME}>
     <ErrorBoundary>
     <KeyboardProvider>
     <QueryClientProvider client={queryClient}>
@@ -98,8 +112,6 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.bg },
           animation: "slide_from_right",
           navigationBarColor: colors.bg,
-          headerStyle: { backgroundColor: colors.surface },
-          headerTintColor: colors.fgStrong,
           headerShadowVisible: false,
         }}
       >
@@ -123,6 +135,7 @@ export default function RootLayout() {
     </QueryClientProvider>
     </KeyboardProvider>
     </ErrorBoundary>
+    </ThemeProvider>
   );
 }
 
