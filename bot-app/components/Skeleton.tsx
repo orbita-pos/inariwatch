@@ -31,12 +31,12 @@ export function SkeletonAlertCard() {
   return (
     <Animated.View style={[styles.card, { opacity }]}>
       <View style={styles.cardRow}>
-        <View style={[styles.line, { width: 60, height: 20, borderRadius: 4 }]} />
-        <View style={[styles.line, { width: 40, height: 12, borderRadius: 4 }]} />
+        <View style={[styles.line, { width: 70, height: 22, borderRadius: 6 }]} />
+        <View style={[styles.line, { width: 30, height: 10, borderRadius: 5 }]} />
       </View>
-      <View style={[styles.line, { width: "85%", height: 16, borderRadius: 4, marginTop: 10 }]} />
-      <View style={[styles.line, { width: "60%", height: 12, borderRadius: 4, marginTop: 8 }]} />
-      <View style={[styles.line, { width: "95%", height: 12, borderRadius: 4, marginTop: 8 }]} />
+      <View style={[styles.line, { width: "90%", height: 18, borderRadius: 4, marginTop: 12 }]} />
+      <View style={[styles.line, { width: "65%", height: 14, borderRadius: 4, marginTop: 10 }]} />
+      <View style={[styles.line, { width: "100%", height: 14, borderRadius: 4, marginTop: 10 }]} />
     </Animated.View>
   );
 }
@@ -51,10 +51,10 @@ export function SkeletonSection({ lines = 3 }: { lines?: number }) {
           style={[
             styles.line,
             {
-              width: i === lines - 1 ? "60%" : "100%",
-              height: 14,
+              width: i === lines - 1 ? "50%" : i === 0 ? "40%" : "100%",
+              height: 16,
               borderRadius: 4,
-              marginBottom: 8,
+              marginBottom: 10,
             },
           ]}
         />
@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.lg,
     marginBottom: spacing.sm,
   },
   cardRow: {
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.lg,
     marginBottom: spacing.md,
   },
   list: {
