@@ -166,7 +166,7 @@ function DemoVideo() {
 function StatsBar() {
   const stats = [
     { value: "9", label: "integrations monitored" },
-    { value: "23", label: "MCP tools" },
+    { value: "25", label: "MCP tools" },
     { value: "11", label: "safety gates" },
     { value: "10/10", label: "stress tests passing" },
   ];
@@ -582,7 +582,7 @@ function WhyNotNative() {
             { cap: "11 safety gates + E2E staging verification", dd: false, us: true },
             { cap: "Substrate I/O replay verification", dd: false, us: true },
             { cap: "Community fix network (crowdsourced)", dd: false, us: true },
-            { cap: "MCP server (23 tools for AI editors)", dd: false, us: true },
+            { cap: "MCP server (25 tools for AI editors)", dd: false, us: true },
             { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
             { cap: "Fully open source (MIT)", dd: false, us: true },
           ].map((row, idx) => (
@@ -805,7 +805,7 @@ function McpSection() {
             </h2>
             <p className="mt-4 text-fg-base max-w-md">
               One command connects InariWatch to any AI coding tool.
-              23 tools, 4 live data resources, 7 prompt workflows — your AI gets
+              25 tools, 4 live data resources, 7 prompt workflows — your AI gets
               full production context before you even ask.
             </p>
           </div>
@@ -888,7 +888,7 @@ function McpSection() {
 
         <div className="mt-8 flex items-center gap-4">
           <Link href="/docs#mcp-overview" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
-            MCP docs — all 23 tools
+            MCP docs — all 25 tools
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
           <span className="text-zinc-700 text-sm">·</span>

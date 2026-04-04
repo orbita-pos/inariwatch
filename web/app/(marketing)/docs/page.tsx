@@ -172,7 +172,7 @@ const NAV = [
     items: [
       { id: "mcp-overview",   label: "Overview" },
       { id: "mcp-setup",      label: "Setup" },
-      { id: "mcp-tools",      label: "Tools (23)" },
+      { id: "mcp-tools",      label: "Tools (25)" },
       { id: "mcp-resources",  label: "Resources (4)" },
       { id: "mcp-prompts",    label: "Prompts (7)" },
       { id: "mcp-auth",       label: "Auth & scopes" },
@@ -2225,7 +2225,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               Click &quot;Connect&quot; in your tool, approve in the browser, done. PKCE (S256) enforced.
             </p>
 
-            <SubHeading id="mcp-tools">Tools (23)</SubHeading>
+            <SubHeading id="mcp-tools">Tools (25)</SubHeading>
             <p>Once connected, your AI can call these tools:</p>
 
             <Table
@@ -2243,6 +2243,8 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["trigger_fix", "Start AI remediation pipeline (SSE streaming)", "execute", "5/min"],
                 ["rollback_vercel", "Roll back to previous deployment ⚠️", "execute", "5/min"],
                 ["silence_alert", "Mark alert as read/resolved", "write", "200/min"],
+                ["acknowledge_alert", "Mark alert as read (acknowledged)", "write", "200/min"],
+                ["reopen_alert", "Reopen a resolved alert", "write", "200/min"],
                 ["submit_feedback", "Report if an AI fix worked", "write", "200/min"],
                 ["run_check", "Trigger an immediate monitoring check", "execute", "30/min"],
                 ["ask_inari", "Ask natural language questions about your infrastructure", "read", "30/min"],
