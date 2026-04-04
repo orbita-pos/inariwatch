@@ -241,6 +241,36 @@ export const TOOLS: ToolDef[] = [
     costTier: "cheap",
   },
   {
+    name: "acknowledge_alert",
+    description:
+      "Mark an alert as read (acknowledged) without resolving it. Use when you've seen the alert but it still needs action.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: { type: "string", description: "The alert ID to acknowledge." },
+      },
+      required: ["alert_id"],
+    },
+    scope: "write",
+    annotations: { idempotentHint: true },
+    costTier: "cheap",
+  },
+  {
+    name: "reopen_alert",
+    description:
+      "Reopen a previously resolved alert. Use when an issue recurs or was prematurely closed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: { type: "string", description: "The alert ID to reopen." },
+      },
+      required: ["alert_id"],
+    },
+    scope: "write",
+    annotations: { idempotentHint: true },
+    costTier: "cheap",
+  },
+  {
     name: "submit_feedback",
     description:
       "Submit feedback on an AI fix — whether it worked or not. Closes the learning loop for future diagnosis accuracy.",

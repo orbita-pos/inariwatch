@@ -23,7 +23,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 │   │   ├── status/       # Public status page
 │   │   ├── cli/          # CLI verification flow
 │   │   └── download/     # Download page
-│   │   └── api/mcp/      # Hosted MCP server (23 tools, 4 resources, 7 prompts)
+│   │   └── api/mcp/      # Hosted MCP server (25 tools, 4 resources, 7 prompts)
 │   ├── lib/
 │   │   ├── ai/           # AI layer (14+ modules — see AI layer section below)
 │   │   ├── db/           # Drizzle ORM schema + migrations (Neon PostgreSQL)
@@ -152,11 +152,12 @@ All business logic lives in `web/lib/services/`. Every surface (MCP, Slack, dash
 - When adding a new operation, add it to the service first, then wire it to each surface
 
 **Surfaces that consume services:**
-- MCP web tools (`web/app/api/mcp/tools/*.ts`) — 23 tools
+- MCP web tools (`web/app/api/mcp/tools/*.ts`) — 25 tools
 - Slack bot (`web/lib/slack/actions.ts`) — acknowledgeAlertCore, resolveAlertCore
 - Dashboard (`web/app/(dashboard)/alerts/[id]/ai-actions.ts`)
 - Mobile API (`web/app/api/mobile/`)
 - Desktop API (`web/app/api/desktop/`)
+- Extension API (`web/app/api/extension/`) — alerts, read, resolve, SSE stream
 
 **Not yet extracted (acceptable — no duplication):**
 - Remediation: all surfaces already call `runRemediation()` from `lib/ai/remediate.ts`
@@ -182,7 +183,7 @@ All pollers live in `web/lib/pollers/`. Cron-triggered via `/api/cron/poll/*`.
 
 Hosted at `mcp.inariwatch.com` (middleware rewrite → `POST /api/mcp`). Streamable HTTP, JSON-RPC 2.0.
 
-- **23 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor, run_health_check, reproduce_bug, simulate_fix, verify_remediation, search_codebase, reindex_codebase
+- **25 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, acknowledge_alert, reopen_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor, run_health_check, reproduce_bug, simulate_fix, verify_remediation, search_codebase, reindex_codebase
 - **4 resources** — alerts/critical, alerts/recent, status/overview, remediations/active
 - **7 prompts** — diagnose, status-report, fix-this, post-deploy-check, weekly-summary, production-health-check, daily-report
 - **Auth:** Bearer tokens (SHA-256 hashed), OAuth 2.0 + PKCE, granular scopes (read/write/execute)
@@ -208,6 +209,7 @@ CLI Rust `serve-mcp` is deprecated — web MCP is the source of truth. CLI keeps
 | MCP | route, events, oauth/authorize, oauth/token, .well-known | 23 tool implementations |
 | Mobile | alerts, alerts/[id], push, version, remediation/[id] | Expo mobile app backend |
 | Desktop | alerts | Tauri desktop backend |
+| Extension | alerts, alerts/[id]/resolve, alerts/stream | VS Code extension backend (Bearer token auth) |
 | Actions | ack, resolve | Quick alert actions |
 | Alerts | export, stream | SSE streaming + CSV export |
 | Patterns/Community | patterns/search, trending, fleet, contribute, rate; community/fixes, fixes/[id], fixes/[id]/report | Community fix network |

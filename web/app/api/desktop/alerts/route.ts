@@ -46,13 +46,20 @@ export async function GET(req: NextRequest) {
     .orderBy(desc(alerts.createdAt))
     .limit(20);
 
+  const projectMap = Object.fromEntries(userProjects.map((p) => [p.id, p.name]));
+
   const unread = rows
     .filter((a) => !a.isRead && (a.severity === "critical" || a.severity === "warning"))
     .map((a) => ({
-      id:       a.id,
-      title:    a.title,
-      body:     a.body,
-      severity: a.severity,
+      id:                 a.id,
+      title:              a.title,
+      body:               a.body,
+      severity:           a.severity,
+      aiReasoning:        a.aiReasoning ?? null,
+      sourceIntegrations: a.sourceIntegrations,
+      projectName:        projectMap[a.projectId] ?? "?",
+      fingerprint:        a.fingerprint ?? null,
+      createdAt:          a.createdAt.toISOString(),
     }));
 
   return NextResponse.json(unread);
