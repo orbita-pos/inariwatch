@@ -41,7 +41,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 ├── capture/      # @inariwatch/capture — npm SDK (zero deps, zero config)
 ├── vscode/       # VS Code extension — inline diagnostics, AI hover, sidebar
 ├── action/       # GitHub Action — AI risk assessment on PRs
-├── cli/          # Rust CLI (local monitoring: dev, watch, simulate — serve-mcp deprecated)
+├── cli/          # Rust CLI (local monitoring: dev, watch, simulate — serve-mcp deprecated, WhatsApp stub)
 ├── bot-app/      # Expo React Native mobile app (push notifications, alert management)
 ├── desktop/      # Tauri desktop app (native alert viewer)
 └── k6/           # Stress test suite (10 scenarios, all passing)
@@ -85,13 +85,14 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 - **Escalation engine** — smart escalation to on-call when remediation fails; triggers: low confidence, fix failed, max retries, self-review rejected, regression detected
 - **Status page automation** — auto-creates incidents on critical alerts, updates during remediation, resolves on fix; links to public status pages
 - **Post-merge monitoring** — watches merged fixes for regressions (15-min health check); auto-reverts if regression detected
-- **Slack bot** — full control surface: alert delivery with AI diagnosis, [Fix It] button triggers remediation in-thread, 10 slash commands (status, alerts, fix, oncall, link, help, trends, maintenance, rollback, search-fix), Ask Inari AI chat via @mention, deploy monitoring with 15-min health check, incident storm threads with postmortem generation
+- **Slack bot** — full control surface: alert delivery with AI diagnosis, [Fix It] button triggers remediation in-thread, 14 slash commands (status, alerts, fix, oncall, oncall swap, trends, ask, uptime, rollback, maintenance, maintenance list, search, integrations, link, help), 10 interactive button actions, Ask Inari AI chat via @mention, deploy monitoring with 15-min health check, incident storm threads with postmortem generation
+- **Telegram bot** — 15 commands (/start, /help, /link, /status, /alerts, /trends, /uptime, /oncall, /oncall swap, /ask, /rollback, /maintenance, /maintenance list, /search, /integrations, /fix_ID), 13 inline button callbacks, on-call tagging for critical alerts, auto-attached substrate recordings and community fixes
 - **VS Code extension** — inline diagnostics (squiggly lines from stack traces), AI diagnosis on hover, sidebar alert list grouped by file, status bar unread count, local mode (port 9222, no cloud needed)
 - **Capture SDK** — `@inariwatch/capture` on npm, zero deps, zero config; `npx @inariwatch/capture` auto-detects framework; env var driven (INARIWATCH_DSN); `/auto` import, `/next` plugin; optional Substrate I/O recording with `substrate: true`
 - **Dev mode** — `inariwatch dev` catches local errors, diagnoses with AI, applies fixes directly to disk
 - **GitHub Action** — AI risk assessment posted on every PR as a comment
 - **Analytics** — alert trends, MTTR, severity breakdowns, AI analytics dashboard
-- **Blog** — markdown-based, admin editor, newsletter subscriptions
+- **Blog** — markdown-based, admin editor (`web/app/admin/blog/` — create, edit, delete posts), newsletter subscriptions via `blogSubscribers` table
 - **Workspaces** — multi-tenant, invite system, role-based access
 - **Admin panel** — internal user/workspace management
 - **Mobile app** — Expo React Native (bot-app/): push notifications, alert list, remediation streaming
@@ -205,7 +206,7 @@ CLI Rust `serve-mcp` is deprecated — web MCP is the source of truth. CLI keeps
 | CLI | auth/start, auth/poll, link | Device flow auth for Rust CLI |
 | Chat | chat | Ask Inari AI chat |
 | Notifications | push/subscribe, ses-webhook, track/open, track/click, unsubscribe | |
-| Slack | events, commands, interactions, oauth, oauth/callback | 10 slash commands |
+| Slack | events, commands, interactions, oauth, oauth/callback | 14 slash commands, 10 button actions |
 | MCP | route, events, oauth/authorize, oauth/token, .well-known | 23 tool implementations |
 | Mobile | alerts, alerts/[id], push, version, remediation/[id] | Expo mobile app backend |
 | Desktop | alerts | Tauri desktop backend |
