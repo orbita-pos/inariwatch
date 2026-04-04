@@ -10,6 +10,7 @@ import { db, projectIntegrations, substrateRecordings } from "@/lib/db";
 import { eq, and, desc } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import type { RemediationContext } from "./prompts";
+import { aiLog } from "./logger";
 import * as gh from "@/lib/services/github-api";
 import { getDeploymentBuildLogs, getLatestFailedDeployment } from "@/lib/services/vercel-api";
 
@@ -44,7 +45,7 @@ async function fetchSentryContext(
         const issues = await searchRes.json();
         if (issues.length > 0) issueId = issues[0].id;
       }
-    } catch { /* skip search failures */ }
+    } catch (e) { aiLog.warn("sentry_search_failed", { error: e instanceof Error ? e.message : String(e) }); }
   }
 
   if (!issueId) return { stackTrace: null, issueDetails: null };
@@ -104,7 +105,7 @@ async function fetchSentryContext(
         }
       }
     }
-  } catch { /* skip event fetch failures */ }
+  } catch (e) { aiLog.warn("sentry_event_fetch_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
   return { stackTrace, issueDetails };
 }
@@ -272,7 +273,7 @@ export async function gatherRemediationContext(
             result.deployContext = `Last deploy: ${commit.sha.slice(0, 8)} "${commit.message.split("\n")[0]}"\nFiles changed:\n${fileList}`;
           }
         }
-      } catch { /* non-blocking */ }
+      } catch (e) { aiLog.warn("deploy_context_failed", { error: e instanceof Error ? e.message : String(e) }); }
     })());
   }
 

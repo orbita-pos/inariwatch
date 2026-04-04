@@ -12,7 +12,18 @@ export const metadata: Metadata = {
 
 // ── Layer data ──────────────────────────────────────────────────────────────
 
-const LAYERS = [
+type Layer = {
+  n: string;
+  gate: string;
+  headline: string;
+  metric: string;
+  metricLabel: string;
+  detail: string;
+  /** Gate runs on every remediation — no extra setup. */
+  alwaysOn: boolean;
+};
+
+const LAYERS: readonly Layer[] = [
   {
     n: "01",
     gate: "CONFIDENCE GATE",
@@ -21,6 +32,7 @@ const LAYERS = [
     metricLabel: "threshold by trust level",
     detail:
       "Every diagnosis comes with a confidence score derived from the actual logs, stack traces, and build output. The threshold adapts to trust level: Apprentice requires 90%, Trusted 80%, Expert 70%. Below threshold, the fix becomes a draft PR for human review. Rookies never auto-merge.",
+    alwaysOn: true,
   },
   {
     n: "02",
@@ -30,6 +42,7 @@ const LAYERS = [
     metricLabel: "security checks",
     detail:
       "Every AI-generated fix is scanned by 3 layers: 17 ESLint rules (3 built-in + 14 from eslint-plugin-security), 19 Semgrep-inspired pattern detectors (SSRF, SQL injection, XSS, prototype pollution, hardcoded secrets, open redirect), and an AI security review. Any HIGH finding blocks auto-merge.",
+    alwaysOn: true,
   },
   {
     n: "03",
@@ -39,6 +52,7 @@ const LAYERS = [
     metricLabel: "score or 'reject' = blocked",
     detail:
       "A second AI pass acts as a code reviewer. It checks for regressions, type errors, missing imports, and unnecessary changes. Score below 70 or explicit 'reject' recommendation? The fix is blocked before it ever touches a branch.",
+    alwaysOn: true,
   },
   {
     n: "04",
@@ -48,6 +62,7 @@ const LAYERS = [
     metricLabel: "blocked patterns",
     detail:
       ".env, lock files, CI configs, migrations, Dockerfiles, Terraform, secrets, certificates — 14 hardcoded patterns. No override, no flag to bypass. The AI physically cannot generate changes to these paths.",
+    alwaysOn: true,
   },
   {
     n: "05",
@@ -57,6 +72,7 @@ const LAYERS = [
     metricLabel: "retry with different approach",
     detail:
       "The fix runs through your full CI pipeline. If it fails, the AI analyzes the CI error and tries a completely different approach — up to 3 times. Three failures? Escalates to your on-call. No PR is created.",
+    alwaysOn: true,
   },
   {
     n: "06",
@@ -66,6 +82,7 @@ const LAYERS = [
     metricLabel: "prediction layers",
     detail:
       "Before merge, the prediction engine runs 3 layers: pattern matching against historical alerts, AI prediction on the diff, and shadow replay of production I/O recordings against the fix code. Risk score above 40? Blocked.",
+    alwaysOn: true,
   },
   {
     n: "07",
@@ -74,7 +91,8 @@ const LAYERS = [
     metric: "\u2264 40",
     metricLabel: "risk score to pass",
     detail:
-      "If Substrate recordings exist, InariWatch replays real HTTP calls, DB queries, and file operations from before the crash against the fixed code. Two modes: fast AI analysis or real GitHub Action replay. Confirms the fix actually prevents the crash.",
+      "If Substrate recordings exist, InariWatch replays real HTTP calls, DB queries, and file operations from before the crash against the fixed code. Two modes: fast AI analysis or real GitHub Action replay. Activates automatically when Substrate recordings are available for the project.",
+    alwaysOn: false,
   },
   {
     n: "08",
@@ -83,7 +101,8 @@ const LAYERS = [
     metric: "\u2713",
     metricLabel: "chain verified",
     detail:
-      "The Execution Analysis Platform creates a Merkle tree of every step in the remediation pipeline, signed with Ed25519. Each fix has a cryptographic receipt chain proving it passed every gate. Tamper-proof audit trail.",
+      "The Execution Attestation Protocol creates a Merkle tree of every step in the remediation pipeline, signed with Ed25519. Each fix gets a cryptographic receipt chain proving it passed every gate. Activates when a Cortex server is connected — the infrastructure is built and ready, deployed on demand.",
+    alwaysOn: false,
   },
   {
     n: "09",
@@ -93,6 +112,7 @@ const LAYERS = [
     metricLabel: "clearance levels",
     detail:
       "Every project starts at Rookie — draft PRs only, human must approve every merge. The system earns trust through successful fixes with passing CI and no regressions. Computed from actual remediation history, not configured.",
+    alwaysOn: true,
   },
   {
     n: "10",
@@ -102,6 +122,7 @@ const LAYERS = [
     metricLabel: "active monitoring",
     detail:
       "After merge, InariWatch monitors for 10 minutes. New errors detected? Automatic revert. The branch is rolled back, the incident is re-opened, and your on-call is notified. No human intervention needed.",
+    alwaysOn: true,
   },
   {
     n: "11",
@@ -111,8 +132,9 @@ const LAYERS = [
     metricLabel: "escalation triggers",
     detail:
       "Low confidence, fix failed, max retries exhausted, self-review rejected, or regression detected — any of these triggers smart escalation to your on-call team via Slack, Telegram, email, or push notification.",
+    alwaysOn: true,
   },
-] as const;
+];
 
 const TRUST_LEVELS = [
   {
@@ -200,8 +222,8 @@ export default function TrustPage() {
 
           <p className="mt-6 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
             Auto-generated fixes on a misdiagnosed alert? That&apos;s what these
-            gates prevent. Every fix must survive all eleven — or a human
-            decides.
+            gates prevent. 9 gates run on every fix out of the box. 2 more
+            activate when you connect Substrate and Cortex infrastructure.
           </p>
 
           {/* Pipeline visualization */}
@@ -209,8 +231,14 @@ export default function TrustPage() {
             {LAYERS.map((l, i) => (
               <div key={l.n} className="flex items-center">
                 <div className="flex flex-col items-center gap-1.5">
-                  <div className="h-9 w-9 sm:h-11 sm:w-11 rounded-full border border-inari-accent/40 bg-inari-accent/5 flex items-center justify-center">
-                    <span className="font-mono text-[10px] sm:text-xs text-inari-accent font-bold">
+                  <div className={`h-9 w-9 sm:h-11 sm:w-11 rounded-full border flex items-center justify-center ${
+                    l.alwaysOn
+                      ? "border-inari-accent/40 bg-inari-accent/5"
+                      : "border-dashed border-zinc-600 bg-zinc-800/30"
+                  }`}>
+                    <span className={`font-mono text-[10px] sm:text-xs font-bold ${
+                      l.alwaysOn ? "text-inari-accent" : "text-zinc-500"
+                    }`}>
                       {l.n}
                     </span>
                   </div>
@@ -223,6 +251,16 @@ export default function TrustPage() {
                 )}
               </div>
             ))}
+          </div>
+          <div className="mt-6 flex items-center justify-center gap-6 text-[10px] text-zinc-600 font-mono">
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full border border-inari-accent/40 bg-inari-accent/5" />
+              Always on
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full border border-dashed border-zinc-600 bg-zinc-800/30" />
+              Activates with infrastructure
+            </span>
           </div>
         </div>
       </section>
@@ -257,6 +295,15 @@ export default function TrustPage() {
                   {layer.headline}
                 </h2>
 
+                {!layer.alwaysOn && (
+                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-dashed border-zinc-700 bg-zinc-800/30 px-3 py-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+                    <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                      Activates with infrastructure
+                    </span>
+                  </div>
+                )}
+
                 <p className="mt-4 text-sm text-fg-base leading-relaxed max-w-md">
                   {layer.detail}
                 </p>
@@ -267,7 +314,7 @@ export default function TrustPage() {
                 {layer.gate === "TRUST LEVELS" ? (
                   <TrustLevelVisual />
                 ) : (
-                  <MetricCard metric={layer.metric} label={layer.metricLabel} gate={layer.gate} />
+                  <MetricCard metric={layer.metric} label={layer.metricLabel} gate={layer.gate} alwaysOn={layer.alwaysOn} />
                 )}
               </div>
             </div>
@@ -448,22 +495,30 @@ function MetricCard({
   metric,
   label,
   gate,
+  alwaysOn = true,
 }: {
   metric: string;
   label: string;
   gate: string;
+  alwaysOn?: boolean;
 }) {
   return (
     <div className="relative w-full max-w-[280px]">
-      <div className="aspect-square rounded-2xl border border-line bg-surface-dim p-6 flex flex-col items-center justify-center text-center">
-        <p className="font-mono text-5xl sm:text-6xl font-bold text-fg-strong tracking-tight">
+      <div className={`aspect-square rounded-2xl border p-6 flex flex-col items-center justify-center text-center ${
+        alwaysOn ? "border-line bg-surface-dim" : "border-dashed border-zinc-700 bg-zinc-900/30"
+      }`}>
+        <p className={`font-mono text-5xl sm:text-6xl font-bold tracking-tight ${
+          alwaysOn ? "text-fg-strong" : "text-zinc-500"
+        }`}>
           {metric}
         </p>
         <p className="mt-2 font-mono text-xs text-zinc-500 uppercase tracking-wider">
           {label}
         </p>
-        <div className="mt-4 h-px w-12 bg-inari-accent/30" />
-        <p className="mt-3 font-mono text-[10px] text-inari-accent/50 uppercase tracking-[0.15em]">
+        <div className={`mt-4 h-px w-12 ${alwaysOn ? "bg-inari-accent/30" : "bg-zinc-700"}`} />
+        <p className={`mt-3 font-mono text-[10px] uppercase tracking-[0.15em] ${
+          alwaysOn ? "text-inari-accent/50" : "text-zinc-600"
+        }`}>
           {gate}
         </p>
       </div>

@@ -1356,7 +1356,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               no AI generation needed.
             </P>
             <P>
-              Example: {'"'}47 teams hit this error. Fix success rate: 96% (44/46 deployments).{'"'}
+              Example: {'"'}12 teams hit this error. Community fix available — one click to apply.{'"'}
             </P>
             <P>
               Click <strong>Apply Community Fix</strong> to use the proven fix instead of generating a new one.

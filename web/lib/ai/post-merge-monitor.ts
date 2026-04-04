@@ -12,6 +12,7 @@ import * as gh from "@/lib/services/github-api";
 import { createAlertIfNew } from "@/lib/webhooks/shared";
 import { resolveIncident, regressIncident } from "./status-page-automation";
 import { triggerEscalation } from "./escalation-engine";
+import { createSessionLogger } from "./logger";
 
 type Emit = (event: string, data: unknown) => void;
 
@@ -54,7 +55,7 @@ async function checkSentryForRegression(
         return true; // Regression detected
       }
     }
-  } catch { /* ignore */ }
+  } catch (e) { /* Sentry API failure — treat as no regression */ }
 
   return false;
 }
@@ -79,7 +80,7 @@ async function checkUptimeForRegression(projectId: string): Promise<boolean> {
         return true; // Can't reach = regression
       }
     }
-  } catch { /* ignore */ }
+  } catch (e) { /* Uptime DB query failure — treat as no regression */ }
 
   return false;
 }
@@ -97,6 +98,8 @@ export async function startPostMergeMonitoring(params: {
   fingerprint?: string;
 }): Promise<void> {
   const { sessionId, projectId, mergedCommitSha, alertTitle, repo, defaultBranch, ghToken, emit, fingerprint } = params;
+  const log = createSessionLogger(sessionId);
+  log.info("post_merge_monitor_start", { repo, mergedCommitSha: mergedCommitSha.slice(0, 8) });
   const [owner, repoName] = repo.split("/");
   const mergeTime = new Date();
   const monitorUntil = new Date(Date.now() + MONITOR_DURATION_MS);
@@ -132,7 +135,7 @@ export async function startPostMergeMonitoring(params: {
           ))
           .limit(1);
         fingerprintRegression = recurred.length > 0;
-      } catch { /* ignore */ }
+      } catch (e) { log.warn("fingerprint_check_failed", { error: e instanceof Error ? e.message : String(e) }); }
     }
 
     emit("monitoring_poll", {
@@ -172,7 +175,7 @@ export async function startPostMergeMonitoring(params: {
         // Try to merge the revert PR immediately
         try {
           await gh.mergePR(ghToken, owner, repoName, revertPr.number);
-        } catch { /* if merge fails, at least the revert PR exists */ }
+        } catch (e) { log.warn("revert_merge_failed", { error: e instanceof Error ? e.message : String(e), note: "revert PR exists for manual merge" }); }
 
         await db.update(remediationSessions).set({
           monitoringStatus: "reverted",
@@ -198,7 +201,7 @@ export async function startPostMergeMonitoring(params: {
             remediationSessionId: sessionId,
             reason: sentryRegression ? "Same error pattern reappeared in Sentry" : "Service uptime dropped",
           });
-        } catch { /* non-blocking */ }
+        } catch (e) { log.warn("regress_incident_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
         // Escalate: regression after merge
         try {
@@ -208,7 +211,7 @@ export async function startPostMergeMonitoring(params: {
             reason: "regression_after_merge",
             diagnosis: sentryRegression ? "Same error pattern reappeared in Sentry after merge" : "Service uptime dropped after merge",
           });
-        } catch { /* non-blocking */ }
+        } catch (e) { log.warn("escalation_regression_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
         emit("auto_revert", {
           reason: sentryRegression ? "Sentry regression" : "Uptime regression",
@@ -249,9 +252,7 @@ export async function startPostMergeMonitoring(params: {
         falsePositive: predResults.falsePositive,
       });
     }
-  } catch {
-    // Non-blocking
-  }
+  } catch (e) { log.warn("prediction_verification_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
   // Report success to community patterns (boost the fix's success count)
   if (fingerprint) {
@@ -270,11 +271,11 @@ export async function startPostMergeMonitoring(params: {
           }).where(eq(communityFixes.id, topFix[0].id));
         }
       }
-    } catch { /* non-blocking */ }
+    } catch (e) { log.warn("community_pattern_boost_failed", { error: e instanceof Error ? e.message : String(e) }); }
   }
 
   // Resolve the status page incident
-  try { await resolveIncident({ remediationSessionId: sessionId }); } catch { /* non-blocking */ }
+  try { await resolveIncident({ remediationSessionId: sessionId }); } catch (e) { log.warn("resolve_incident_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
   emit("monitoring_result", { status: "passed", duration: Math.round(MONITOR_DURATION_MS / 1000) });
   emit("done", { status: "completed" });

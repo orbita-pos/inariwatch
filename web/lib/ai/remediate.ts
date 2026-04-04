@@ -26,6 +26,7 @@ import { generatePostmortemInternal } from "./postmortem";
 import { triggerEscalation, type EscalationContext } from "./escalation-engine";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
+import { createSessionLogger } from "./logger";
 
 type Emit = (event: string, data: unknown) => void;
 
@@ -147,6 +148,9 @@ function extractRepo(alertTitle: string): string | null {
 // ── Main engine ──────────────────────────────────────────────────────────────
 
 export async function runRemediation(sessionId: string, emit: Emit): Promise<void> {
+  const log = createSessionLogger(sessionId);
+  log.info("remediation_start");
+
   const [session] = await db.select().from(remediationSessions).where(eq(remediationSessions.id, sessionId)).limit(1);
   if (!session) { emit("error", { error: "Session not found" }); return; }
 
@@ -230,7 +234,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     emit("status", { status: "analyzing" });
 
     // Link this remediation session to any existing status page incident
-    try { await linkRemediationToIncident(alert.id, sessionId); } catch { /* non-blocking */ }
+    try { await linkRemediationToIncident(alert.id, sessionId); } catch (e) { log.warn("link_incident_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
     steps = await pushStep(sessionId, steps,
       makeStep("analyze", "Connecting to repository and analyzing error..."), emit);
@@ -423,7 +427,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           diagnosis: diagnosis.diagnosis,
           confidence: diagnosis.confidence,
         });
-      } catch { /* non-blocking */ }
+      } catch (e) { log.warn("escalation_low_confidence_failed", { error: e instanceof Error ? e.message : String(e) }); }
       return;
     }
 
@@ -443,7 +447,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         status: "identified",
         message: `Root cause identified: ${diagnosis.diagnosis.slice(0, 200)}. Automated fix in progress.`,
       });
-    } catch { /* non-blocking */ }
+    } catch (e) { log.warn("incident_status_update_failed", { phase: "identified", error: e instanceof Error ? e.message : String(e) }); }
 
     // ── READ CODE ──────────────────────────────────────────────────────────
     await updateSession(sessionId, { status: "reading_code" });
@@ -676,7 +680,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             selfReviewScore: selfReview.score,
             selfReviewConcerns: selfReview.concerns,
           });
-        } catch { /* non-blocking */ }
+        } catch (e) { log.warn("escalation_self_review_failed", { error: e instanceof Error ? e.message : String(e) }); }
         return;
       }
 
@@ -783,7 +787,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             confidence: diagnosis.confidence,
             contextSummary: ctxSummary,
           });
-        } catch { /* non-blocking */ }
+        } catch (e) { log.warn("auto_contribute_pattern_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
         // ── SUBSTRATE SIMULATE GATE ────────────────────────────────────
         let simulateRiskScore: number | null = null;
@@ -1030,7 +1034,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 ? `A fix has been deployed and is being verified by CI.`
                 : `A draft fix (PR #${pr.number}) has been created for human review.`,
             });
-          } catch { /* non-blocking */ }
+          } catch (e) { log.warn("incident_status_update_failed", { phase: "pr_created", error: e instanceof Error ? e.message : String(e) }); }
 
           if (isAutoMerge) {
             // Auto-merge the PR
@@ -1053,7 +1057,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                   status: "monitoring",
                   message: `Fix merged successfully. Monitoring for regressions (10 min).`,
                 });
-              } catch { /* non-blocking */ }
+              } catch (e) { log.warn("incident_status_update_failed", { phase: "monitoring", error: e instanceof Error ? e.message : String(e) }); }
 
               // Start post-merge monitoring if enabled
               if (autoMergeConfig.postMergeMonitor) {
@@ -1080,13 +1084,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                   if (aiKey.provider === "openai" || aiKey.provider === "deepseek") {
                     recordFixEmbedding(sessionId, aiKey.key).catch(() => {});
                   }
-                } catch { /* non-blocking */ }
+                } catch (e) { log.warn("fix_embedding_failed", { error: e instanceof Error ? e.message : String(e) }); }
                 // Generate postmortem and resolve status page incident
                 try {
                   await generatePostmortemInternal(alert.id);
                   const postmortemText = (await db.select({ pm: alerts.postmortem }).from(alerts).where(eq(alerts.id, alert.id)).limit(1))[0]?.pm;
                   await resolveStatusIncident({ remediationSessionId: sessionId, postmortem: postmortemText ?? undefined });
-                } catch { /* non-blocking */ }
+                } catch (e) { log.warn("postmortem_or_resolve_failed", { error: e instanceof Error ? e.message : String(e) }); }
                 emit("done", { status: "completed", prUrl: pr.url, prNumber: pr.number, autoMerged: true });
                 return;
               }
@@ -1145,7 +1149,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             branch: branchName,
             filesChanged: fix.files.map((f) => f.path),
           });
-        } catch { /* non-blocking */ }
+        } catch (e) { log.warn("escalation_max_retries_failed", { error: e instanceof Error ? e.message : String(e) }); }
         emit("done", { status: "failed", error: `CI still failing after ${attempt} attempts`, branch: branchName });
         return;
       }

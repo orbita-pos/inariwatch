@@ -676,7 +676,7 @@ function AIFeatures() {
     {
       icon: <Zap className="h-5 w-5" />,
       title: "Community Fix Network",
-      body: "Your error was already fixed by 47 other teams. Success rate: 96%. One click to apply.",
+      body: "When a fix passes CI and gets approved, the pattern joins the network. Next team with the same error gets an instant, proven fix.",
       tag: "Network effect",
     },
     {
