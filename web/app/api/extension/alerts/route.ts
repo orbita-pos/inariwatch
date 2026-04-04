@@ -42,8 +42,6 @@ export async function GET(req: NextRequest) {
       body: a.body,
       severity: a.severity,
       aiReasoning: a.aiReasoning ?? null,
-      postmortem: a.postmortem ?? null,
-      fingerprint: a.fingerprint ?? null,
       isRead: a.isRead,
       isResolved: a.isResolved,
       sourceIntegrations: a.sourceIntegrations,
