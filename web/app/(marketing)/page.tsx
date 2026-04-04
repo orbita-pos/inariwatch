@@ -916,6 +916,7 @@ function Footer() {
           <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
           <Link href="/download" className="hover:text-fg-base transition-colors">Mobile App</Link>
           <Link href="/trust" className="hover:text-fg-base transition-colors">Trust</Link>
+          <Link href="/status" className="hover:text-fg-base transition-colors">Status</Link>
           <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
           <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
           <Link href="/privacy" className="hover:text-fg-base transition-colors">Privacy</Link>

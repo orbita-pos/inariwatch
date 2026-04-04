@@ -284,6 +284,7 @@ export const apiKeys = pgTable("api_keys", {
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   service: text("service").notNull(), // 'claude' | 'openai' | 'github' | 'vercel' etc.
   keyEncrypted: text("key_encrypted").notNull(),
+  keyHash: text("key_hash"), // SHA-256 hash for O(1) auth lookup (cli/mobile/desktop tokens)
   metadata: jsonb("metadata"), // non-sensitive context (org slug, etc.)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

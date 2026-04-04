@@ -14,17 +14,40 @@ function headers(token: string) {
   };
 }
 
+/**
+ * GitHub API fetch with exponential backoff.
+ * Retries on 429 (rate limit) and 5xx (server error) up to 3 times.
+ */
+async function ghFetch(url: string, init?: RequestInit): Promise<Response> {
+  const MAX_RETRIES = 3;
+  let lastResponse: Response | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429 && res.status < 500) return res;
+    lastResponse = res;
+    if (attempt === MAX_RETRIES) break;
+    const retryAfter = res.headers.get("retry-after");
+    const waitMs = retryAfter
+      ? Math.min(parseInt(retryAfter, 10) * 1000, 60_000)
+      : Math.min(1000 * Math.pow(2, attempt), 30_000);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+
+  return lastResponse!;
+}
+
 // ── Repo info ────────────────────────────────────────────────────────────────
 
 export async function getDefaultBranch(token: string, owner: string, repo: string): Promise<string> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
   if (!res.ok) throw new Error(`Failed to get repo info (${res.status})`);
   const data = await res.json();
   return data.default_branch ?? "main";
 }
 
 export async function getBranchSha(token: string, owner: string, repo: string, branch: string): Promise<string> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`, {
     headers: headers(token),
   });
   if (!res.ok) throw new Error(`Failed to get branch SHA (${res.status})`);
@@ -33,7 +56,7 @@ export async function getBranchSha(token: string, owner: string, repo: string, b
 }
 
 export async function getRepoTree(token: string, owner: string, repo: string, ref: string): Promise<string[]> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`, {
     headers: headers(token),
   });
   if (!res.ok) throw new Error(`Failed to get repo tree (${res.status})`);
@@ -54,7 +77,7 @@ export async function getFileContent(
 ): Promise<string | null> {
   let url = `${API}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
   if (ref) url += `?ref=${encodeURIComponent(ref)}`;
-  const res = await fetch(url, { headers: headers(token) });
+  const res = await ghFetch(url, { headers: headers(token) });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to read ${path} (${res.status})`);
   const data = await res.json();
@@ -73,7 +96,7 @@ export async function createBranch(
   name: string,
   sha: string
 ): Promise<void> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/git/refs`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/git/refs`, {
     method: "POST",
     headers: headers(token),
     body: JSON.stringify({ ref: `refs/heads/${name}`, sha }),
@@ -98,7 +121,7 @@ export async function commitFiles(
   const branchSha = await getBranchSha(token, owner, repo, branch);
 
   // 2. Get the base tree
-  const commitRes = await fetch(`${API}/repos/${owner}/${repo}/git/commits/${branchSha}`, { headers: h });
+  const commitRes = await ghFetch(`${API}/repos/${owner}/${repo}/git/commits/${branchSha}`, { headers: h });
   if (!commitRes.ok) throw new Error(`Failed to get commit (${commitRes.status})`);
   const commitData = await commitRes.json();
   const baseTreeSha = commitData.tree.sha;
@@ -106,7 +129,7 @@ export async function commitFiles(
   // 3. Create blobs
   const tree = await Promise.all(
     files.map(async (f) => {
-      const blobRes = await fetch(`${API}/repos/${owner}/${repo}/git/blobs`, {
+      const blobRes = await ghFetch(`${API}/repos/${owner}/${repo}/git/blobs`, {
         method: "POST",
         headers: h,
         body: JSON.stringify({ content: f.content, encoding: "utf-8" }),
@@ -118,7 +141,7 @@ export async function commitFiles(
   );
 
   // 4. Create new tree
-  const treeRes = await fetch(`${API}/repos/${owner}/${repo}/git/trees`, {
+  const treeRes = await ghFetch(`${API}/repos/${owner}/${repo}/git/trees`, {
     method: "POST",
     headers: h,
     body: JSON.stringify({ base_tree: baseTreeSha, tree }),
@@ -127,7 +150,7 @@ export async function commitFiles(
   const treeData = await treeRes.json();
 
   // 5. Create commit
-  const newCommitRes = await fetch(`${API}/repos/${owner}/${repo}/git/commits`, {
+  const newCommitRes = await ghFetch(`${API}/repos/${owner}/${repo}/git/commits`, {
     method: "POST",
     headers: h,
     body: JSON.stringify({ message, tree: treeData.sha, parents: [branchSha] }),
@@ -136,7 +159,7 @@ export async function commitFiles(
   const newCommit = await newCommitRes.json();
 
   // 6. Update branch ref
-  const updateRes = await fetch(`${API}/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
+  const updateRes = await ghFetch(`${API}/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
     method: "PATCH",
     headers: h,
     body: JSON.stringify({ sha: newCommit.sha }),
@@ -158,7 +181,7 @@ export async function createPR(
   base: string,
   draft = true
 ): Promise<{ url: string; number: number }> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/pulls`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/pulls`, {
     method: "POST",
     headers: headers(token),
     body: JSON.stringify({ title, body, head, base, draft }),
@@ -177,7 +200,7 @@ export async function mergePR(
   repo: string,
   prNumber: number
 ): Promise<{ sha: string }> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
     method: "PUT",
     headers: headers(token),
     body: JSON.stringify({ merge_method: "squash" }),
@@ -202,7 +225,7 @@ export async function getCheckRunsStatus(
   repo: string,
   ref: string
 ): Promise<{ status: CIStatus; details: CheckDetail[] }> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, {
     headers: headers(token),
   });
   if (!res.ok) throw new Error(`Failed to get check runs (${res.status})`);
@@ -227,7 +250,7 @@ export async function getFailedCheckLogs(
   branch: string
 ): Promise<string> {
   // Get the most recent workflow run for this branch
-  const runsRes = await fetch(
+  const runsRes = await ghFetch(
     `${API}/repos/${owner}/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=1`,
     { headers: headers(token) }
   );
@@ -238,7 +261,7 @@ export async function getFailedCheckLogs(
   const run = runsData.workflow_runs[0];
 
   // Get jobs
-  const jobsRes = await fetch(
+  const jobsRes = await ghFetch(
     `${API}/repos/${owner}/${repo}/actions/runs/${run.id}/jobs`,
     { headers: headers(token) }
   );
@@ -261,7 +284,7 @@ export async function getFailedCheckLogs(
     }
 
     // Get annotations (contain actual error messages)
-    const annRes = await fetch(
+    const annRes = await ghFetch(
       `${API}/repos/${owner}/${repo}/check-runs/${job.id}/annotations`,
       { headers: headers(token) }
     );
@@ -287,7 +310,7 @@ export async function checkWritePermissions(
   owner: string,
   repo: string
 ): Promise<{ canPush: boolean; canPR: boolean; scopes: string | null }> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
   if (!res.ok) {
     return { canPush: false, canPR: false, scopes: res.headers.get("x-oauth-scopes") };
   }
@@ -311,7 +334,7 @@ export async function getPRDiff(
   repo: string,
   prNumber: number
 ): Promise<string> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}`, {
     headers: {
       ...headers(token),
       Accept: "application/vnd.github.v3.diff",
@@ -330,7 +353,7 @@ export async function getPRFiles(
   repo: string,
   prNumber: number
 ): Promise<{ filename: string; status: string; additions: number; deletions: number; patch?: string }[]> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`, {
     headers: headers(token),
   });
   if (!res.ok) throw new Error(`Failed to get PR files (${res.status})`);
@@ -350,7 +373,7 @@ export async function commentOnPR(
   prNumber: number,
   body: string
 ): Promise<void> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/issues/${prNumber}/comments`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/issues/${prNumber}/comments`, {
     method: "POST",
     headers: headers(token),
     body: JSON.stringify({ body }),
@@ -371,7 +394,7 @@ export async function findBotComment(
   prNumber: number,
   marker: string
 ): Promise<{ id: number } | null> {
-  const res = await fetch(
+  const res = await ghFetch(
     `${API}/repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=100`,
     { headers: headers(token) }
   );
@@ -391,7 +414,7 @@ export async function updatePRComment(
   commentId: number,
   body: string
 ): Promise<void> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/issues/comments/${commentId}`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/issues/comments/${commentId}`, {
     method: "PATCH",
     headers: headers(token),
     body: JSON.stringify({ body }),
@@ -408,7 +431,7 @@ export async function getPRInfo(
   repo: string,
   prNumber: number
 ): Promise<{ title: string; body: string | null; head: string; base: string; user: string }> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+  const res = await ghFetch(`${API}/repos/${owner}/${repo}/pulls/${prNumber}`, {
     headers: headers(token),
   });
   if (!res.ok) throw new Error(`Failed to get PR info (${res.status})`);
@@ -425,7 +448,7 @@ export async function getPRInfo(
 // ── Repo listing (fallback for repo detection) ──────────────────────────────
 
 export async function listOwnerRepos(token: string, owner: string): Promise<string[]> {
-  const res = await fetch(`${API}/users/${owner}/repos?per_page=100&sort=pushed`, {
+  const res = await ghFetch(`${API}/users/${owner}/repos?per_page=100&sort=pushed`, {
     headers: headers(token),
   });
   if (!res.ok) return [];
@@ -443,7 +466,7 @@ export async function getRecentCommitFiles(
 ): Promise<{ sha: string; message: string; files: CommitFile[] } | null> {
   try {
     // Get latest commit on branch
-    const commitsRes = await fetch(
+    const commitsRes = await ghFetch(
       `${API}/repos/${owner}/${repo}/commits?sha=${branch}&per_page=1`,
       { headers: headers(token) }
     );
@@ -455,7 +478,7 @@ export async function getRecentCommitFiles(
     const message = (commits[0].commit?.message ?? "") as string;
 
     // Get files changed in that commit
-    const detailRes = await fetch(
+    const detailRes = await ghFetch(
       `${API}/repos/${owner}/${repo}/commits/${sha}`,
       { headers: headers(token) }
     );

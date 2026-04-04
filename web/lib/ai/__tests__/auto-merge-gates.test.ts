@@ -394,3 +394,83 @@ describe("Overall strategy", () => {
     expect(r.gates.length).toBe(4);
   });
 });
+
+// ── Cross-gate adversarial interactions ─────────────────────────────────────
+
+describe("Cross-gate adversarial", () => {
+  it("evaluates all gates when first gate (enabled) fails — no short-circuit", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      config: { ...baseConfig, enabled: false },
+      securityScanHighCount: 5,
+    });
+    expect(r.gates[0].passed).toBe(false); // enabled fails
+    const secGate = r.gates.find((g) => g.name === "security_scan");
+    expect(secGate).toBeDefined();
+    expect(secGate?.passed).toBe(false); // still evaluated
+  });
+
+  it("all optional gates failing simultaneously", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      config: { ...baseConfig, requireSelfReview: true },
+      selfReviewResult: { score: 40, recommendation: "reject", concerns: ["bad"] },
+      simulateRiskScore: 80,
+      eapChainVerified: false,
+      predictionRiskScore: 90,
+      securityScanHighCount: 10,
+      substrateReplayPassed: false,
+      e2eStagingPassed: false,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.strategy).toBe("draft_pr");
+    const failed = r.gates.filter((g) => !g.passed);
+    expect(failed.length).toBeGreaterThanOrEqual(7); // self_review + 6 optional
+  });
+
+  it("gate evaluation order is deterministic", () => {
+    const r1 = evaluateAutoMergeGates({ ...passingBase, securityScanHighCount: 0 });
+    const r2 = evaluateAutoMergeGates({ ...passingBase, securityScanHighCount: 0 });
+    expect(r1.gates.map((g) => g.name)).toEqual(r2.gates.map((g) => g.name));
+  });
+
+  it("optional gates appear only when provided, not when null", () => {
+    const withAll = evaluateAutoMergeGates({
+      ...passingBase,
+      simulateRiskScore: 10,
+      eapChainVerified: true,
+      predictionRiskScore: 5,
+    });
+    const withNone = evaluateAutoMergeGates(passingBase);
+
+    expect(withAll.gates.map((g) => g.name)).toContain("substrate_simulate");
+    expect(withAll.gates.map((g) => g.name)).toContain("eap_chain_verified");
+    expect(withNone.gates.map((g) => g.name)).not.toContain("substrate_simulate");
+    expect(withNone.gates.map((g) => g.name)).not.toContain("eap_chain_verified");
+  });
+
+  it("handles extreme boundary values without crashing", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      confidenceScore: 0,
+      linesChanged: Number.MAX_SAFE_INTEGER,
+      simulateRiskScore: 100,
+      predictionRiskScore: 100,
+      securityScanHighCount: Number.MAX_SAFE_INTEGER,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.strategy).toBe("draft_pr");
+    expect(r.gates.length).toBeGreaterThan(4);
+  });
+
+  it("confidence at exactly 0 fails gate", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, confidenceScore: 0 });
+    expect(r.gates[2].passed).toBe(false);
+  });
+
+  it("security scan at exactly 0 passes gate", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, securityScanHighCount: 0 });
+    const gate = r.gates.find((g) => g.name === "security_scan")!;
+    expect(gate.passed).toBe(true);
+  });
+});

@@ -103,6 +103,11 @@ const BLOCKED_FILE_PATTERNS = [
 ];
 
 function isSafeFilePath(p: string): boolean {
+  // Strip zero-width characters and normalize Unicode
+  p = p.replace(/[\u200B\u200C\u200D\uFEFF\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+  p = p.normalize("NFC");
+  // Reject non-ASCII path separators and lookalike periods
+  if (/[\u2044\u2215\uFF0F\uFF0E]/.test(p)) return false;
   if (p.includes("..") || p.startsWith("/") || p.includes("\\") || p.startsWith("~")) return false;
   if (BLOCKED_FILE_PATTERNS.some((re) => re.test(p))) return false;
   return true;
@@ -111,7 +116,7 @@ function isSafeFilePath(p: string): boolean {
 function getBlockedReason(p: string): string | null {
   if (p.includes("..") || p.startsWith("/")) return "path traversal";
   if (/^\.env/i.test(p)) return "environment file";
-  if (/lock\.(json|yaml|lockb)$/.test(p)) return "lock file (auto-generated)";
+  if (/package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|bun\.lockb$/.test(p)) return "lock file (auto-generated)";
   if (/^\.github\/workflows\//.test(p)) return "CI workflow file";
   if (/\.(sql)$/i.test(p) || /^migrations?\//.test(p)) return "database migration";
   if (/\.(tf|tfvars)$/.test(p) || /^(terraform|infra)\//.test(p)) return "infrastructure config";
@@ -397,7 +402,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       if (typeof conf === "string") {
         conf = conf === "high" ? 90 : conf === "medium" ? 60 : 25;
       }
-      diagnosis = { ...parsed, confidence: Number(conf) || 50 };
+      const rawConf = Number(conf);
+      diagnosis = { ...parsed, confidence: isFinite(rawConf) ? Math.max(0, Math.min(100, rawConf)) : 50 };
     } catch {
       await fail(sessionId, emit, "AI returned an invalid diagnosis. Try again.");
       return;
@@ -646,7 +652,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
         const parsed = JSON.parse(cleanJSON(reviewRaw));
         selfReview = {
-          score: Number(parsed.score) || 50,
+          score: isFinite(Number(parsed.score)) ? Math.max(0, Math.min(100, Number(parsed.score))) : 50,
           concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
           recommendation: ["approve", "flag", "reject"].includes(parsed.recommendation) ? parsed.recommendation : "flag",
         };

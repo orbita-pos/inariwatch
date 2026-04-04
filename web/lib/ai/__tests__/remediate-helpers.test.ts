@@ -32,6 +32,9 @@ const BLOCKED_FILE_PATTERNS = [
 ];
 
 function isSafeFilePath(p: string): boolean {
+  p = p.replace(/[\u200B\u200C\u200D\uFEFF\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+  p = p.normalize("NFC");
+  if (/[\u2044\u2215\uFF0F\uFF0E]/.test(p)) return false;
   if (p.includes("..") || p.startsWith("/") || p.includes("\\") || p.startsWith("~")) return false;
   if (BLOCKED_FILE_PATTERNS.some((re) => re.test(p))) return false;
   return true;
@@ -40,7 +43,7 @@ function isSafeFilePath(p: string): boolean {
 function getBlockedReason(p: string): string | null {
   if (p.includes("..") || p.startsWith("/")) return "path traversal";
   if (/^\.env/i.test(p)) return "environment file";
-  if (/lock\.(json|yaml|lockb)$/.test(p)) return "lock file (auto-generated)";
+  if (/package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|bun\.lockb$/.test(p)) return "lock file (auto-generated)";
   if (/^\.github\/workflows\//.test(p)) return "CI workflow file";
   if (/\.(sql)$/i.test(p) || /^migrations?\//.test(p)) return "database migration";
   if (/\.(tf|tfvars)$/.test(p) || /^(terraform|infra)\//.test(p)) return "infrastructure config";
@@ -189,7 +192,9 @@ describe("getBlockedReason", () => {
 
   it("detects lock files", () => {
     expect(getBlockedReason("package-lock.json")).toBe("lock file (auto-generated)");
-    expect(getBlockedReason("yarn.lock")).toBeNull(); // Note: lock regex only matches lock.(json|yaml|lockb)
+    expect(getBlockedReason("yarn.lock")).toBe("lock file (auto-generated)");
+    expect(getBlockedReason("pnpm-lock.yaml")).toBe("lock file (auto-generated)");
+    expect(getBlockedReason("bun.lockb")).toBe("lock file (auto-generated)");
   });
 
   it("detects CI workflows", () => {
@@ -301,5 +306,125 @@ describe("extractRepo", () => {
     it("returns null for alerts without repo context", () => {
       expect(extractRepo("TypeError: Cannot read property 'id' of null")).toBeNull();
     });
+  });
+});
+
+// ── Adversarial: Unicode path spoofing ───────��──────────────────────────────
+
+describe("isSafeFilePath — Unicode adversarial", () => {
+  it("strips zero-width space and still validates", () => {
+    expect(isSafeFilePath("src/\u200Bindex.ts")).toBe(true); // safe after strip
+    expect(isSafeFilePath(".\u200Benv")).toBe(false); // .env after strip
+  });
+
+  it("strips zero-width joiner", () => {
+    expect(isSafeFilePath(".env\u200D")).toBe(false);
+  });
+
+  it("strips BOM character", () => {
+    expect(isSafeFilePath("\uFEFF.env")).toBe(false);
+  });
+
+  it("strips RTL override", () => {
+    expect(isSafeFilePath("\u202Esrc/index.ts")).toBe(true); // safe after strip
+    expect(isSafeFilePath("\u202E.env")).toBe(false);
+  });
+
+  it("rejects fullwidth period (lookalike for ..)", () => {
+    expect(isSafeFilePath("src/\uFF0E\uFF0E/etc/passwd")).toBe(false);
+  });
+
+  it("rejects fraction slash", () => {
+    expect(isSafeFilePath("src\u2044etc\u2044passwd")).toBe(false);
+  });
+
+  it("rejects division slash", () => {
+    expect(isSafeFilePath("src\u2215etc")).toBe(false);
+  });
+
+  it("rejects fullwidth solidus", () => {
+    expect(isSafeFilePath("src\uFF0Fetc")).toBe(false);
+  });
+
+  it("handles combined zero-width + blocked pattern", () => {
+    expect(isSafeFilePath(".github/\u200Bworkflows/ci.yml")).toBe(false);
+    expect(isSafeFilePath("package-lock\u200C.json")).toBe(false);
+  });
+});
+
+// ���─ Adversarial: cleanJSON edge cases ─────────────��─────────────────────────
+
+describe("cleanJSON — adversarial", () => {
+  it("greedy regex captures from first { to last } (known behavior)", () => {
+    const input = '{"a":1} some text {"b":2}';
+    const result = cleanJSON(input);
+    // Greedy match: everything from first { to last }
+    expect(result).toBe('{"a":1} some text {"b":2}');
+    expect(() => JSON.parse(result)).toThrow(); // invalid JSON
+  });
+
+  it("handles truncated code fence", () => {
+    const input = '```json\n{"key": "val';
+    const result = cleanJSON(input);
+    // No closing fence → falls through to object regex → partial match
+    expect(() => JSON.parse(result)).toThrow();
+  });
+
+  it("handles empty code fence", () => {
+    const input = "```json\n\n```";
+    const result = cleanJSON(input);
+    expect(result).toBe("");
+  });
+
+  it("handles response with no braces at all", () => {
+    const input = "I cannot generate a fix for this error.";
+    expect(cleanJSON(input)).toBe(input);
+    expect(() => JSON.parse(cleanJSON(input))).toThrow();
+  });
+});
+
+// ── Adversarial: confidence parsing ───���─────────────────────────────────────
+
+describe("confidence parsing — adversarial bounds", () => {
+  // Replicate the clamping logic from remediate.ts
+  function clampConfidence(raw: unknown): number {
+    let conf = raw;
+    if (typeof conf === "string") {
+      conf = conf === "high" ? 90 : conf === "medium" ? 60 : 25;
+    }
+    const num = Number(conf);
+    return isFinite(num) ? Math.max(0, Math.min(100, num)) : 50;
+  }
+
+  it("defaults Infinity to 50 (not finite)", () => {
+    expect(clampConfidence(Infinity)).toBe(50);
+  });
+
+  it("defaults NaN to 50", () => {
+    expect(clampConfidence(NaN)).toBe(50);
+  });
+
+  it("clamps negative to 0", () => {
+    expect(clampConfidence(-50)).toBe(0);
+  });
+
+  it("clamps >100 to 100", () => {
+    expect(clampConfidence(999)).toBe(100);
+  });
+
+  it("clamps null (Number(null)=0) to 0", () => {
+    expect(clampConfidence(null)).toBe(0);
+  });
+
+  it("defaults non-numeric string to 25 (fallback)", () => {
+    expect(clampConfidence("very high")).toBe(25);
+  });
+
+  it("handles string 'high' as 90", () => {
+    expect(clampConfidence("high")).toBe(90);
+  });
+
+  it("handles normal numeric", () => {
+    expect(clampConfidence(85)).toBe(85);
   });
 });

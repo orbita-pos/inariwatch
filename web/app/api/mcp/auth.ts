@@ -75,25 +75,36 @@ export async function authenticateMcp(
     }
   }
 
-  // Fallback: check apiKeys (for CLI/mobile/desktop tokens)
+  // Fallback: check apiKeys by hash (for CLI/mobile/desktop tokens)
   try {
-    const keys = await db.select().from(apiKeys).where(
-      or(eq(apiKeys.service, "cli"), eq(apiKeys.service, "mobile"), eq(apiKeys.service, "desktop"))
-    );
+    const keyHash = hashToken(token);
+    const [keyRow] = await db.select().from(apiKeys).where(
+      and(
+        eq(apiKeys.keyHash, keyHash),
+        or(eq(apiKeys.service, "cli"), eq(apiKeys.service, "mobile"), eq(apiKeys.service, "desktop"))
+      )
+    ).limit(1);
 
-    for (const key of keys) {
+    if (keyRow) {
+      return { userId: keyRow.userId, tokenId: keyRow.id, scopes: ["execute"] };
+    }
+
+    // Legacy fallback for tokens created before keyHash migration (O(n) — remove after backfill)
+    const legacyKeys = await db.select().from(apiKeys).where(
+      and(
+        isNull(apiKeys.keyHash),
+        or(eq(apiKeys.service, "cli"), eq(apiKeys.service, "mobile"), eq(apiKeys.service, "desktop"))
+      )
+    );
+    for (const key of legacyKeys) {
       try {
         const decrypted = decrypt(key.keyEncrypted);
-        if (decrypted.length === token.length) {
-          const a = Buffer.from(decrypted);
-          const b = Buffer.from(token);
-          if (timingSafeEqual(a, b)) {
-            return { userId: key.userId, tokenId: key.id, scopes: ["execute"] };
-          }
+        if (decrypted.length === token.length && timingSafeEqual(Buffer.from(decrypted), Buffer.from(token))) {
+          // Backfill hash for next time
+          db.update(apiKeys).set({ keyHash }).where(eq(apiKeys.id, key.id)).catch(() => {});
+          return { userId: key.userId, tokenId: key.id, scopes: ["execute"] };
         }
-      } catch {
-        // Skip keys that fail to decrypt
-      }
+      } catch { /* skip corrupt keys */ }
     }
   } catch {
     // apiKeys fallback failed — return null

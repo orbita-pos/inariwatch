@@ -26,10 +26,13 @@ export async function generateDesktopToken(): Promise<{ token?: string; error?: 
   // Generate a new random token
   const token = `rdr_${randomBytes(24).toString("hex")}`;
 
+  const keyHash = createHash("sha256").update(token).digest("hex");
+
   await db.insert(apiKeys).values({
     userId,
     service:      "desktop",
     keyEncrypted: encrypt(token),
+    keyHash,
   });
 
   revalidatePath("/settings");
