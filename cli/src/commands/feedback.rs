@@ -52,12 +52,14 @@ pub async fn run(_project_name: Option<String>) -> Result<()> {
                         "rating": if worked { 5 } else { 1 },
                     });
 
-                    match reqwest::Client::new()
+                    let mut req = reqwest::Client::new()
                         .post(&url)
                         .json(&payload)
-                        .timeout(std::time::Duration::from_secs(10))
-                        .send()
-                        .await
+                        .timeout(std::time::Duration::from_secs(10));
+                    if let Some(ref token) = cfg.global.api_token {
+                        req = req.header("Authorization", format!("Bearer {}", token));
+                    }
+                    match req.send().await
                     {
                         Ok(resp) if resp.status().is_success() => {
                             println!("    {} Synced to cloud.", "↑".cyan());

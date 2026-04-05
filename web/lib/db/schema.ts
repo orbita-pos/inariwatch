@@ -465,6 +465,12 @@ export const remediationSessions = pgTable("remediation_sessions", {
   context: jsonb("context"),
   /** Substrate simulate risk score (0-100). NULL if no recording available. */
   simulateRiskScore: integer("simulate_risk_score"),
+  /** Checkpoint phase for crash recovery. Set after each pipeline phase completes. */
+  checkpointPhase: text("checkpoint_phase"),
+  /** Intermediate data for crash recovery — diagnosis, fix files, etc. */
+  checkpointData: jsonb("checkpoint_data"),
+  /** Staging deploy ID for orphan cleanup on crash. */
+  stagingDeployId: text("staging_deploy_id"),
   /** Embedding of the fix context (diagnosis + files + result) for vector replay. */
   fixEmbedding: vector("fix_embedding"),
   /** When the fix was proposed to the human (status → proposing). Used to compute time-to-decide. */
@@ -480,6 +486,62 @@ export type RemediationStep = {
   status: "running" | "completed" | "failed";
   timestamp: string;
 };
+
+// ── Remediation Locks (file-level concurrency control) ──────────────────────
+
+export const remediationLocks = pgTable("remediation_locks", {
+  repoId: text("repo_id").notNull(),
+  filePath: text("file_path").notNull(),
+  sessionId: text("session_id").notNull(),
+  acquiredAt: timestamp("acquired_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [{ primaryKey: [t.repoId, t.filePath] }]);
+
+// ── Gate Telemetry (circuit breaker + dashboard) ────────────────────────────
+
+export const gateTelemetry = pgTable("gate_telemetry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  gateName: text("gate_name").notNull(),
+  result: boolean("result").notNull(),
+  errorReason: text("error_reason"),
+  durationMs: integer("duration_ms"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Failed Fixes (learning from failures) ───────────────────────────────────
+
+export const failedFixes = pgTable("failed_fixes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  errorFingerprint: text("error_fingerprint").notNull(),
+  attemptedFixSummary: text("attempted_fix_summary").notNull(),
+  failureReason: text("failure_reason").notNull(),
+  filesTouched: jsonb("files_touched").$type<string[]>().default([]),
+  failedAt: timestamp("failed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Confidence Calibration ──────────────────────────────────────────────────
+
+export const confidenceCalibration = pgTable("confidence_calibration", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  predictedConfidence: integer("predicted_confidence").notNull(),
+  actualOutcome: boolean("actual_outcome").notNull(),
+  diagnosedAt: timestamp("diagnosed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Remediation Incidents (correlation) ─────────────────────────────────────
+
+export const remediationIncidents = pgTable("remediation_incidents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  sessionIds: jsonb("session_ids").$type<string[]>().notNull().default([]),
+  leadSessionId: text("lead_session_id"),
+  rootCause: text("root_cause"),
+  status: text("status").notNull().default("open"), // open | resolved | resolved_by_leader
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 // ── TypeScript types ──────────────────────────────────────────────────────────
 

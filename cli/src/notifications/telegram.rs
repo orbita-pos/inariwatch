@@ -3,6 +3,16 @@ use serde_json::Value;
 
 use crate::config::TelegramConfig;
 
+/// Maximum message length for Telegram API (4096 chars).
+const MAX_MESSAGE_LEN: usize = 4096;
+
+/// Escape special HTML characters for Telegram's HTML parse mode.
+pub fn esc(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 pub struct TelegramClient {
     client: reqwest::Client,
     token: String,
@@ -25,12 +35,22 @@ impl TelegramClient {
 
     pub async fn send_message(&self, chat_id: &str, text: &str) -> Result<()> {
         let url = format!("https://api.telegram.org/bot{}/sendMessage", self.token);
+        // Truncate to Telegram's max message length (char-boundary safe)
+        let safe_text = if text.len() > MAX_MESSAGE_LEN {
+            let mut end = MAX_MESSAGE_LEN;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            &text[..end]
+        } else {
+            text
+        };
         let resp = self
             .client
             .post(&url)
             .json(&serde_json::json!({
                 "chat_id": chat_id,
-                "text": text,
+                "text": safe_text,
                 "parse_mode": "HTML"
             }))
             .send()

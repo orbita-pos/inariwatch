@@ -303,3 +303,20 @@ Outputs `.webm` to `scripts/demo-output/`. Convert to GIF:
 - **Languages used across projects:** Rust, Go, TypeScript
 - **Style:** Keep it simple, no over-engineering, no unnecessary abstractions
 - **Avoid:** Mocks in tests, unsafe-eval in CSP, in-memory rate limiters on serverless
+
+## CLI vs Web: Intentional Differences
+
+These differences are by design — do not attempt to "fix" them.
+
+| Area | CLI | Web | Why |
+|------|-----|-----|-----|
+| **Default AI model** | `claude-haiku-4-5-20251001` (fast, cheap) | `claude-sonnet-4-6` for remediation, Haiku for analysis | CLI runs locally, cost-sensitive; Web has BYOK so users choose |
+| **Auto-merge gates** | 4 gates + trust levels | 11 gates (includes substrate, EAP, prediction, security scan, e2e) | Gates 5-11 require server-side infrastructure not available in CLI |
+| **Diagnosis context** | Sentry, Vercel, GitHub CI | Same + Datadog, Substrate, Deploy, Codebase RAG, Past Fixes | Extra sources are web-only integrations |
+| **Security scan** | Blocked file patterns only | ESLint + 19 regex patterns + AI review | eslint-plugin-security runs serverless, not portable to Rust |
+| **Dedup window** | Infinite (watch), 60s (dev) | 24h sliding window | CLI uses local SQLite (persistent); Web handles async multi-source ingestion |
+| **Auto-analyze on arrival** | Not implemented — CLI goes straight to remediation | `buildAnalyzePrompt` → plain text, 200 words, stored in `aiReasoning` | Web-only feature: quick AI triage for dashboard/Slack/Telegram display |
+| **Post-merge monitor** | Delegates to background task | Inline (Sentry + Uptime + Fingerprint checks) | Web has direct DB access for regression checks |
+| **Escalation triggers** | 3 (low confidence, CI fail, regression) | 5+ (same + self-review reject, Vercel-without-Sentry) | Web has more integration context to make nuanced decisions |
+| **Notification format** | Raw client, caller handles format | Rich formatter in `lib/telegram/format.ts` | CLI keeps Telegram client minimal; escalation.rs handles its own formatting |
+| **Community patterns auth** | `api_token` in config.toml | Session auth or `CRON_SECRET` Bearer | CLI uses Bearer token matching web's CRON_SECRET |

@@ -73,10 +73,12 @@ const LEVELS: Record<TrustLevelName, TrustLevel> = {
 // ── Core logic ──────────────────────────────────────────────────────────────
 
 /** Compute trust level from track record (mirrors cli/src/db.rs:compute_trust_level) */
-function computeTrustLevel(total: number, successRate: number): TrustLevel {
-  if (total >= 10 && successRate >= 0.85) return LEVELS.Expert;
-  if (total >= 5 && successRate >= 0.70) return LEVELS.Trusted;
-  if (total >= 3 && successRate >= 0.50) return LEVELS.Apprentice;
+function computeTrustLevel(total: number, successRate: number, firstFixDaysAgo?: number): TrustLevel {
+  const age = firstFixDaysAgo ?? 0;
+  // Require minimum age to prevent gaming trust via rapid trivial fixes
+  if (total >= 10 && successRate >= 0.85 && age >= 30) return LEVELS.Expert;
+  if (total >= 5 && successRate >= 0.70 && age >= 14) return LEVELS.Trusted;
+  if (total >= 3 && successRate >= 0.50 && age >= 7) return LEVELS.Apprentice;
   return LEVELS.Rookie;
 }
 
@@ -108,17 +110,21 @@ export async function getProjectTrustLevel(projectId: string): Promise<TrackReco
       total: sql<number>`count(*)::int`,
       succeeded: sql<number>`count(*) filter (where ${remediationSessions.status} = 'completed' and ${remediationSessions.monitoringStatus} != 'reverted')::int`,
       failed: sql<number>`count(*) filter (where ${remediationSessions.status} = 'failed' or ${remediationSessions.monitoringStatus} = 'reverted')::int`,
+      firstFixAt: sql<Date | null>`min(${remediationSessions.createdAt})`,
     })
     .from(remediationSessions)
     .where(eq(remediationSessions.projectId, projectId));
 
-  const row = result[0] ?? { total: 0, succeeded: 0, failed: 0 };
+  const row = result[0] ?? { total: 0, succeeded: 0, failed: 0, firstFixAt: null };
   const total = row.total;
   const succeeded = row.succeeded;
   const failed = row.failed;
   const successRate = total > 0 ? succeeded / total : 0;
+  const firstFixDaysAgo = row.firstFixAt
+    ? Math.floor((Date.now() - new Date(row.firstFixAt).getTime()) / 86_400_000)
+    : 0;
 
-  const trustLevel = computeTrustLevel(total, successRate);
+  const trustLevel = computeTrustLevel(total, successRate, firstFixDaysAgo);
 
   return {
     total,

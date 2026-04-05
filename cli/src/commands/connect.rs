@@ -3,7 +3,7 @@ use colored::Colorize;
 use dialoguer::Input;
 
 use crate::config::{self, TelegramConfig};
-use crate::notifications::telegram::TelegramClient;
+use crate::notifications::telegram::{esc, TelegramClient};
 
 pub async fn run(channel: &str) -> Result<()> {
     match channel.to_lowercase().as_str() {
@@ -85,7 +85,7 @@ async fn connect_telegram() -> Result<()> {
         &chat_id,
         &format!(
             "👁 <b>Kairo is watching <code>{}</code></b>\n\nYou'll get alerts here when something needs your attention.",
-            project_name
+            esc(&project_name)
         ),
     ).await {
         Ok(_) => println!("{}", "✓ sent!".green()),

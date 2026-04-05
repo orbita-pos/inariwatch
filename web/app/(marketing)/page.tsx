@@ -28,6 +28,9 @@ import {
   Monitor,
   Film,
   TestTube2,
+  Eye,
+  Radio,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
@@ -72,7 +75,7 @@ function Hero() {
           <div className="max-w-xl">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-inari-accent/30 bg-inari-accent/10 px-3 py-1">
               <span className="h-1.5 w-1.5 rounded-full bg-inari-accent animate-pulse" />
-              <span className="text-xs font-mono text-inari-accent">AI writes the fix while you sleep</span>
+              <span className="text-xs font-mono text-inari-accent">Now in beta — free full access</span>
             </div>
 
             <h1 className="text-5xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl leading-[1.05]">
@@ -92,7 +95,7 @@ function Hero() {
             <div className="mt-10 flex flex-col gap-3 max-w-md">
               <Link href="/register" className="w-full">
                 <Button variant="primary" className="w-full py-3 text-base">
-                  Start free — no install required
+                  Join the beta — free, no credit card
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -164,120 +167,228 @@ function StatsBar() {
 // ── Remediation walkthrough ───────────────────────────────────────────────────
 
 function RemediationWalkthrough() {
-  const steps = [
+  const stages = [
     {
-      icon: <Activity className="h-4 w-4" />,
+      icon: <Radio className="h-4 w-4" />,
       n: "01",
-      title: "Alert fires",
-      desc: "CI fails, deploy errors, Sentry regression, or your own app via @inariwatch/capture — caught in real time.",
+      title: "Capture",
+      sub: "Your error, in full context",
+      desc: "Catches errors via Sentry, Vercel, GitHub, or our SDK. Captures the exact user session — every click, every request — as a replayable recording.",
+      stat: "7 sources",
+      hero: false,
     },
     {
       icon: <Brain className="h-4 w-4" />,
       n: "02",
-      title: "AI reads your code",
-      desc: "Connects to your repo, fetches relevant files, diagnoses the root cause from the actual stack.",
+      title: "Diagnose",
+      sub: "AI reads the room",
+      desc: "Pulls stack traces, logs, metrics, code, and the user's recorded session. Cross-references against fixes that worked for other teams.",
+      stat: "Learns from every fix",
+      hero: false,
     },
     {
       icon: <Wrench className="h-4 w-4" />,
       n: "03",
-      title: "Fix generated",
-      desc: "AI writes the code change with a plain-English explanation — not a generic suggestion, an actual diff.",
+      title: "Fix",
+      sub: "Targeted, minimal, reviewed",
+      desc: "Generates the smallest possible fix. Runs a 3-layer security scan. Reviews its own code — if it's not good enough, it rewrites it.",
+      stat: "3-layer scan",
+      hero: false,
     },
     {
-      icon: <RefreshCw className="h-4 w-4" />,
+      icon: <Eye className="h-4 w-4" />,
       n: "04",
-      title: "CI validated (with retry)",
-      desc: "Pushes to a branch, monitors CI. If it fails, reads the logs and tries a different fix — up to 3×.",
+      title: "Verify",
+      sub: "Staging, not guessing",
+      desc: "Deploys to ephemeral staging. A browser bot replays the exact user session. Compares API responses field-by-field. AI visually inspects before/after screenshots.",
+      stat: "AI sees the page",
+      hero: true,
     },
     {
-      icon: <GitBranch className="h-4 w-4" />,
+      icon: <Shield className="h-4 w-4" />,
       n: "05",
-      title: "PR opened",
-      desc: "When CI passes, opens a PR with full context. You get a notification. One click to approve.",
+      title: "Ship",
+      sub: "11 gates say yes, or it's a draft",
+      desc: "CI, security scan, self-review, confidence calibration, staging, I/O replay — 11 independent gates. All pass for auto-merge. One fails? Draft PR.",
+      stat: "11 safety gates",
+      hero: false,
+    },
+    {
+      icon: <Activity className="h-4 w-4" />,
+      n: "06",
+      title: "Watch",
+      sub: "10 minutes of paranoia",
+      desc: "Canary monitoring in 3 phases — aggressive in the first 3 minutes, then relaxing. Error rates spike? Automatic revert in under 30 seconds.",
+      stat: "Auto-revert <30s",
+      hero: false,
+    },
+    {
+      icon: <Sparkles className="h-4 w-4" />,
+      n: "07",
+      title: "Learn",
+      sub: "Smarter every cycle",
+      desc: "Records what worked, what failed, and why. Calibrates AI confidence against real outcomes. Next similar error? Faster, more accurate.",
+      stat: "Confidence calibration",
+      hero: false,
     },
   ];
 
   return (
     <section className="py-24 border-t border-inari-border bg-inari-card/20">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14 max-w-xl">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">AI Remediation</p>
+        {/* Header */}
+        <div className="mb-14 text-center max-w-2xl mx-auto">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">How it works</p>
           <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
-            Monitoring tools tell you what broke.
-            <br />
-            <span className="text-inari-accent">InariWatch fixes it.</span>
+            A system that fixes itself.
           </h2>
           <p className="mt-4 text-fg-base">
-            No other monitoring tool closes the loop from alert to merged fix.
-            Here's exactly what happens the moment something breaks.
+            Not a pipeline — a loop. If anything fails at any stage, it retries with what it learned.
+            If a fix ships and regresses, it reverts and starts over.
           </p>
         </div>
 
-        {/* Steps — horizontal breadcrumb */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-10 rounded-xl border border-inari-border bg-inari-card px-6 py-4">
-          {steps.map((step, i) => (
-            <span key={step.n} className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-inari-accent/10 text-inari-accent text-xs font-bold">{step.n}</span>
-              <span className="text-sm font-medium text-fg-strong">{step.title}</span>
-              {i < steps.length - 1 && <ArrowRight className="h-3.5 w-3.5 text-zinc-600 mx-1" />}
-            </span>
-          ))}
+        {/* ── Loop diagram: ring on desktop, vertical on mobile ──────────── */}
+
+        {/* Desktop: circular loop */}
+        <div className="hidden lg:block relative mb-12">
+          {/* Central connector ring — SVG */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true">
+            <svg viewBox="0 0 700 420" className="w-full max-w-[700px] h-auto">
+              {/* Orbit path — a rounded rectangle following the card positions */}
+              <rect
+                x="60" y="40" width="580" height="340" rx="170" ry="170"
+                fill="none"
+                stroke="url(#loopGradient)"
+                strokeWidth="1.5"
+                strokeDasharray="8 6"
+                opacity="0.35"
+              />
+              {/* Animated gradient on the loop line */}
+              <defs>
+                <linearGradient id="loopGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.6" />
+                  <stop offset="50%" stopColor="#9F67FF" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="#7C3AED" stopOpacity="0.6" />
+                </linearGradient>
+              </defs>
+              {/* Loop arrow: Learn → Capture (bottom-left curve) */}
+              <path
+                d="M 130 350 Q 60 300 90 200"
+                fill="none"
+                stroke="#7C3AED"
+                strokeWidth="1.5"
+                opacity="0.4"
+                markerEnd="url(#arrowhead)"
+              />
+              <defs>
+                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#7C3AED" opacity="0.6" />
+                </marker>
+              </defs>
+            </svg>
+          </div>
+
+          {/* Top row: Capture, Diagnose, Fix, Verify */}
+          <div className="relative grid grid-cols-4 gap-4 mb-4">
+            {stages.slice(0, 4).map((s) => (
+              <LoopStageCard key={s.n} stage={s} />
+            ))}
+          </div>
+
+          {/* Bottom row: Ship, Watch, Learn (right-aligned to mirror the loop) */}
+          <div className="relative grid grid-cols-4 gap-4">
+            <div /> {/* empty col to offset */}
+            {stages.slice(4, 7).map((s) => (
+              <LoopStageCard key={s.n} stage={s} />
+            ))}
+          </div>
         </div>
 
-        {/* Terminal showing live remediation */}
-        <div className="rounded-xl border border-inari-accent/25 bg-zinc-950 overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.08)]">
-          <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
-            <div className="flex gap-1.5">
-              <div className="h-3 w-3 rounded-full bg-red-500/80" />
-              <div className="h-3 w-3 rounded-full bg-yellow-500/70" />
-              <div className="h-3 w-3 rounded-full bg-green-500/70" />
+        {/* Mobile: vertical timeline with loop-back arrow */}
+        <div className="lg:hidden mb-12">
+          <div className="relative pl-8 border-l-2 border-dashed border-inari-accent/20 space-y-6">
+            {stages.map((s) => (
+              <div key={s.n} className="relative">
+                {/* Timeline dot */}
+                <div className={`absolute -left-[25px] top-1 flex h-5 w-5 items-center justify-center rounded-full ${
+                  s.hero ? "bg-inari-accent" : "bg-inari-accent/20"
+                }`}>
+                  <span className="text-[9px] font-bold text-white">{s.n.replace("0", "")}</span>
+                </div>
+                <div className={`rounded-xl border p-5 ${
+                  s.hero
+                    ? "border-inari-accent/40 bg-inari-accent/5 shadow-[0_0_30px_rgba(124,58,237,0.08)]"
+                    : "border-inari-border bg-inari-card/40"
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-fg-strong">{s.title}</h3>
+                    <span className="text-[10px] font-mono text-inari-accent bg-inari-accent/10 px-2 py-0.5 rounded-full">{s.stat}</span>
+                  </div>
+                  <p className="text-xs text-zinc-500 font-medium mb-1">{s.sub}</p>
+                  <p className="text-sm text-fg-base leading-relaxed">{s.desc}</p>
+                </div>
+              </div>
+            ))}
+            {/* Loop-back indicator */}
+            <div className="relative">
+              <div className="absolute -left-[25px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-inari-accent/20">
+                <RotateCcw className="h-2.5 w-2.5 text-inari-accent" />
+              </div>
+              <p className="text-sm text-zinc-500 italic pl-1 pt-1">Back to Capture — the loop continues.</p>
             </div>
-            <span className="ml-2 font-mono text-xs text-zinc-500">InariWatch — Live remediation</span>
           </div>
-          <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-inari-border">
-            {/* Left: alert */}
-            <div className="p-5 font-mono text-sm leading-7">
-              <p className="text-zinc-500 text-xs mb-3 uppercase tracking-widest">03:12 — alert received</p>
-              <p>
-                <span className="text-inari-accent">🔴 </span>
-                <span className="text-white font-semibold">CI failing on main</span>
+        </div>
+
+        {/* Verify callout — differentiator */}
+        <div className="rounded-xl border border-inari-accent/30 bg-inari-accent/5 px-6 py-6 mb-6">
+          <div className="flex items-start gap-4 max-w-3xl mx-auto">
+            <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-inari-accent text-white mt-0.5">
+              <Eye className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-fg-strong font-semibold mb-1">Other tools suggest fixes. InariWatch proves they work.</p>
+              <p className="text-sm text-fg-base leading-relaxed">
+                Deploys to staging, replays your users&apos; exact sessions, compares API responses field-by-field,
+                and has AI visually inspect before/after screenshots — before any code reaches production.
               </p>
-              <p className="text-zinc-500">  TypeError: Cannot read 'user' of undefined</p>
-              <p className="text-zinc-500">  auth/session.ts:84 · build #1247</p>
-              <p className="text-zinc-500">  Triggered by: PR #61 merged 4 min ago</p>
-              <br />
-              <p className="text-zinc-600">→ Starting AI remediation...</p>
-              <p className="text-zinc-600">→ Reading auth/session.ts, lib/auth.ts</p>
-              <p className="text-zinc-600">→ Generating fix...</p>
-              <p className="text-zinc-600">→ Pushing branch fix/session-null-check</p>
-              <p className="text-zinc-600">→ Waiting for CI...</p>
-              <p className="text-green-500">→ CI passed ✓</p>
-              <p className="text-inari-accent font-semibold">→ PR #62 opened</p>
-            </div>
-            {/* Right: PR description */}
-            <div className="p-5 font-mono text-sm leading-relaxed">
-              <p className="text-zinc-500 text-xs mb-3 uppercase tracking-widest">03:14 — PR ready for review</p>
-              <p className="text-white font-semibold">fix: add null check for session.user</p>
-              <br />
-              <p className="text-zinc-400">Root cause: PR #61 refactored the session</p>
-              <p className="text-zinc-400">object but auth/session.ts still assumed</p>
-              <p className="text-zinc-400">user was always defined on the response.</p>
-              <br />
-              <p className="text-zinc-400">Changed:</p>
-              <p className="text-red-400/80">  - return session.user.id</p>
-              <p className="text-green-400/80">  + return session.user?.id ?? null</p>
-              <br />
-              <p className="text-zinc-600">CI: ✓ all checks passed</p>
-              <p className="text-inari-accent">Waiting for your approval →</p>
             </div>
           </div>
         </div>
 
-        <p className="mt-5 text-center text-sm text-zinc-600">
-          From alert to ready-to-merge PR in under 2 minutes. While you were sleeping.
+        {/* Failure path note */}
+        <p className="text-center text-sm text-zinc-500">
+          If anything fails at any stage, the system retries with what it learned.
+          If a shipped fix regresses, automatic rollback in under 30 seconds.
         </p>
       </div>
     </section>
+  );
+}
+
+/** A single stage card in the loop diagram */
+function LoopStageCard({ stage }: { stage: { icon: React.ReactNode; n: string; title: string; sub: string; desc: string; stat: string; hero: boolean } }) {
+  return (
+    <div className={`group relative rounded-xl border p-5 transition-colors ${
+      stage.hero
+        ? "border-inari-accent/40 bg-inari-accent/5 shadow-[0_0_30px_rgba(124,58,237,0.08)]"
+        : "border-inari-border bg-inari-card/40 hover:border-inari-accent/20"
+    }`}>
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs ${
+          stage.hero ? "bg-inari-accent text-white" : "bg-inari-accent/10 text-inari-accent"
+        }`}>
+          {stage.icon}
+        </span>
+        <span className="text-xs font-mono text-zinc-500">{stage.n}</span>
+        <span className="ml-auto text-[10px] font-mono text-inari-accent bg-inari-accent/10 px-2 py-0.5 rounded-full">
+          {stage.stat}
+        </span>
+      </div>
+      <h3 className="font-semibold text-fg-strong text-base mb-0.5">{stage.title}</h3>
+      <p className="text-xs text-zinc-500 font-medium mb-2">{stage.sub}</p>
+      <p className="text-sm text-fg-base leading-relaxed">{stage.desc}</p>
+    </div>
   );
 }
 

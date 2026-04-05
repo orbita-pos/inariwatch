@@ -5,6 +5,7 @@
  */
 
 export type AIMessage = { role: "user" | "assistant"; content: string };
+export type AIVisionMessage = { role: "user"; text: string; imageBase64: string; beforeImageBase64?: string };
 
 export type AIProvider = "claude" | "openai" | "grok" | "deepseek" | "gemini" | "groq";
 
@@ -49,6 +50,47 @@ export async function callAI(
   }
 }
 
+/**
+ * Call the AI with a screenshot (base64 PNG) and a text prompt.
+ * Uses the user's BYOK provider. All major providers support vision.
+ * Groq and DeepSeek don't support vision — falls back to text-only with a note.
+ */
+export async function callAIVision(
+  apiKey: string,
+  systemPrompt: string,
+  message: AIVisionMessage,
+  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+): Promise<string> {
+  const provider = opts.provider ?? detectProvider(apiKey);
+
+  switch (provider) {
+    case "claude":
+      return callClaudeVision(apiKey, systemPrompt, message, opts);
+    case "gemini":
+      return callGeminiVision(apiKey, systemPrompt, message, opts);
+    case "groq":
+    case "deepseek":
+      // No vision support — fall back to text-only
+      return callAI(apiKey, systemPrompt, [{ role: "user", content: `${message.text}\n\n(Screenshot was captured but your AI provider does not support vision. Analysis is text-only.)` }], opts);
+    default:
+      // OpenAI, Grok — both support OpenAI-compatible vision
+      return callOpenAICompatVision(apiKey, systemPrompt, message, opts,
+        provider === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1");
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Safe JSON parse that handles HTML error pages and malformed responses */
+async function safeJson(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`API returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
+}
+
 // ── Provider implementations ─────────────────────────────────────────────────
 
 async function callClaude(
@@ -73,10 +115,10 @@ async function callClaude(
     signal: AbortSignal.timeout(opts.timeout ?? 30000),
   });
 
-  if (!res.ok) throw new Error(`Claude API error (${res.status}): ${res.statusText}`);
+  if (!res.ok) throw new Error(`Claude API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
 
-  const data = await res.json();
-  return (data.content?.[0]?.text as string) ?? "";
+  const data = await safeJson(res);
+  return (data.content as { text: string }[])?.[0]?.text ?? "";
 }
 
 /** Shared implementation for OpenAI, Grok (xAI), and DeepSeek (all OpenAI-compatible). */
@@ -101,10 +143,10 @@ async function callOpenAICompat(
     signal: AbortSignal.timeout(opts.timeout ?? 30000),
   });
 
-  if (!res.ok) throw new Error(`API error (${res.status}): ${res.statusText}`);
+  if (!res.ok) throw new Error(`API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
 
-  const data = await res.json();
-  return (data.choices?.[0]?.message?.content as string) ?? "";
+  const data = await safeJson(res);
+  return ((data.choices as { message: { content: string } }[])?.[0]?.message?.content as string) ?? "";
 }
 
 async function callGemini(
@@ -132,8 +174,124 @@ async function callGemini(
     signal: AbortSignal.timeout(opts.timeout ?? 30000),
   });
 
-  if (!res.ok) throw new Error(`Gemini API error (${res.status}): ${res.statusText}`);
+  if (!res.ok) throw new Error(`Gemini API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
 
-  const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? "";
+  const data = await safeJson(res);
+  return ((data.candidates as { content: { parts: { text: string }[] } }[])?.[0]?.content?.parts?.[0]?.text as string) ?? "";
+}
+
+// ── Vision implementations ──────────────────────────────────────────────────
+
+async function callClaudeVision(
+  apiKey: string,
+  system: string,
+  msg: AIVisionMessage,
+  opts: { maxTokens?: number; model?: string; timeout?: number }
+): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: opts.model ?? "claude-sonnet-4-6",
+      max_tokens: opts.maxTokens ?? 512,
+      system,
+      messages: [{
+        role: "user",
+        content: [
+          ...(msg.beforeImageBase64 ? [
+            { type: "text", text: "BEFORE (broken state):" },
+            { type: "image", source: { type: "base64", media_type: "image/png", data: msg.beforeImageBase64 } },
+            { type: "text", text: "AFTER (after fix applied):" },
+          ] : []),
+          { type: "image", source: { type: "base64", media_type: "image/png", data: msg.imageBase64 } },
+          { type: "text", text: msg.text },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(opts.timeout ?? 30000),
+  });
+
+  if (!res.ok) throw new Error(`Claude Vision API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const data = await safeJson(res);
+  return (data.content as { text: string }[])?.[0]?.text ?? "";
+}
+
+async function callOpenAICompatVision(
+  apiKey: string,
+  system: string,
+  msg: AIVisionMessage,
+  opts: { maxTokens?: number; model?: string; timeout?: number },
+  baseUrl: string
+): Promise<string> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: opts.model ?? "gpt-4o-mini",
+      max_tokens: opts.maxTokens ?? 512,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            ...(msg.beforeImageBase64 ? [
+              { type: "text", text: "BEFORE (broken state):" },
+              { type: "image_url", image_url: { url: `data:image/png;base64,${msg.beforeImageBase64}` } },
+              { type: "text", text: "AFTER (after fix applied):" },
+            ] : []),
+            { type: "image_url", image_url: { url: `data:image/png;base64,${msg.imageBase64}` } },
+            { type: "text", text: msg.text },
+          ],
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(opts.timeout ?? 30000),
+  });
+
+  if (!res.ok) throw new Error(`Vision API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const data = await safeJson(res);
+  return ((data.choices as { message: { content: string } }[])?.[0]?.message?.content as string) ?? "";
+}
+
+async function callGeminiVision(
+  apiKey: string,
+  system: string,
+  msg: AIVisionMessage,
+  opts: { maxTokens?: number; model?: string; timeout?: number }
+): Promise<string> {
+  const model = opts.model ?? "gemini-1.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{
+        role: "user",
+        parts: [
+          ...(msg.beforeImageBase64 ? [
+            { text: "BEFORE (broken state):" },
+            { inlineData: { mimeType: "image/png", data: msg.beforeImageBase64 } },
+            { text: "AFTER (after fix applied):" },
+          ] : []),
+          { inlineData: { mimeType: "image/png", data: msg.imageBase64 } },
+          { text: msg.text },
+        ],
+      }],
+      generationConfig: { maxOutputTokens: opts.maxTokens ?? 512 },
+    }),
+    signal: AbortSignal.timeout(opts.timeout ?? 30000),
+  });
+
+  if (!res.ok) throw new Error(`Gemini Vision API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const data = await safeJson(res);
+  return ((data.candidates as { content: { parts: { text: string }[] } }[])?.[0]?.content?.parts?.[0]?.text as string) ?? "";
 }

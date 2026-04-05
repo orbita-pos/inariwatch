@@ -1,6 +1,6 @@
 /// CLI escalation — sends Telegram notification with AI context when trigger_fix fails.
 use crate::config;
-use crate::notifications::telegram::TelegramClient;
+use crate::notifications::telegram::{esc, TelegramClient};
 
 pub struct EscalationContext {
     pub alert_title: String,
@@ -39,14 +39,14 @@ pub async fn escalate(ctx: &EscalationContext) -> anyhow::Result<bool> {
 
 fn build_message(ctx: &EscalationContext) -> String {
     let mut lines = vec![
-        format!("🚨 <b>[AI Escalation]</b> {}", html_escape(&ctx.alert_title)),
+        format!("🚨 <b>[AI Escalation]</b> {}", esc(&ctx.alert_title)),
         String::new(),
-        format!("<b>Project:</b> {}", html_escape(&ctx.project)),
-        format!("<b>Reason:</b> {}", html_escape(&ctx.reason)),
+        format!("<b>Project:</b> {}", esc(&ctx.project)),
+        format!("<b>Reason:</b> {}", esc(&ctx.reason)),
     ];
 
     if let Some(diag) = &ctx.diagnosis {
-        lines.push(format!("<b>Diagnosis:</b> {}", html_escape(&truncate(diag, 200))));
+        lines.push(format!("<b>Diagnosis:</b> {}", esc(&truncate(diag, 200))));
     }
 
     if let Some(conf) = ctx.confidence {
@@ -58,25 +58,21 @@ fn build_message(ctx: &EscalationContext) -> String {
     }
 
     if let Some(ci) = &ctx.ci_error {
-        lines.push(format!("<b>CI error:</b> {}", html_escape(&truncate(ci, 150))));
+        lines.push(format!("<b>CI error:</b> {}", esc(&truncate(ci, 150))));
     }
 
     if let Some(pr) = &ctx.pr_url {
-        lines.push(format!("<b>PR:</b> {}", pr));
+        lines.push(format!("<b>PR:</b> {}", esc(pr)));
     }
 
     if let Some(branch) = &ctx.branch {
-        lines.push(format!("<b>Branch:</b> {}", html_escape(branch)));
+        lines.push(format!("<b>Branch:</b> {}", esc(branch)));
     }
 
     lines.push(String::new());
     lines.push("Manual investigation needed.".to_string());
 
     lines.join("\n")
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 fn truncate(s: &str, max: usize) -> String {

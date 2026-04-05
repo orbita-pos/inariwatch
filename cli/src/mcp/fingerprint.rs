@@ -146,4 +146,42 @@ mod tests {
         let b = compute_error_fingerprint("SyntaxError: unexpected token", "");
         assert_ne!(a, b);
     }
+
+    /// Golden test: verify CLI fingerprints match the shared cross-platform test vectors.
+    /// If this fails, CLI and Web fingerprints have diverged — fix before merging.
+    #[test]
+    fn cross_platform_golden_vectors() {
+        let vectors_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("shared")
+            .join("fingerprint-test-vectors.json");
+
+        let content = std::fs::read_to_string(&vectors_path)
+            .unwrap_or_else(|e| panic!("Cannot read {}: {}", vectors_path.display(), e));
+
+        let data: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let vectors = data["vectors"].as_array().unwrap();
+
+        let mut failures = Vec::new();
+        for v in vectors {
+            let id = v["id"].as_str().unwrap();
+            let title = v["title"].as_str().unwrap();
+            let body = v["body"].as_str().unwrap();
+            let expected = v["expected"].as_str().unwrap();
+            let actual = compute_error_fingerprint(title, body);
+            if actual != expected {
+                failures.push(format!(
+                    "  [{}] expected={} actual={}",
+                    id, expected, actual
+                ));
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "Fingerprint mismatch — CLI and Web have diverged!\n{}",
+            failures.join("\n")
+        );
+    }
 }

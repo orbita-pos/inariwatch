@@ -24,6 +24,8 @@ pub struct PostMergeParams<'a> {
     pub alert_id: Option<String>,
     /// Fix Replay web API URL (for reporting outcomes)
     pub fix_replay_url: Option<String>,
+    /// API token for authenticating with web API (Bearer token)
+    pub api_token: Option<String>,
 }
 
 pub async fn run(params: PostMergeParams<'_>) -> PostMergeResult {
@@ -37,6 +39,7 @@ pub async fn run(params: PostMergeParams<'_>) -> PostMergeResult {
         alert_fingerprint,
         alert_id,
         fix_replay_url,
+        api_token,
     } = params;
 
     let merge_time = Utc::now();
@@ -145,8 +148,9 @@ pub async fn run(params: PostMergeParams<'_>) -> PostMergeResult {
         (memory_id, alert_fingerprint, alert_id)
     {
         let replay_url = fix_replay_url;
+        let token = api_token;
         tokio::spawn(async move {
-            run_extended_monitor(mem_id, fp, a_id, replay_url).await;
+            run_extended_monitor(mem_id, fp, a_id, replay_url, token).await;
         });
     }
 
@@ -161,6 +165,7 @@ async fn run_extended_monitor(
     alert_fingerprint: String,
     alert_id: String,
     fix_replay_url: Option<String>,
+    api_token: Option<String>,
 ) {
     // Wait 20 more minutes (10 already passed in the active monitor)
     tokio::time::sleep(tokio::time::Duration::from_secs(1200)).await;
@@ -179,7 +184,7 @@ async fn run_extended_monitor(
             // Look up community_fix_id before dropping conn
             let cfi = get_community_fix_id(&conn, &memory_id);
             drop(conn);
-            report_outcome(cfi.as_deref(), false, &fix_replay_url).await;
+            report_outcome(cfi.as_deref(), false, &fix_replay_url, api_token.as_deref()).await;
             println!("  \u{26A0} Extended monitor: alert recurred \u{2014} fix marked as failed");
         }
         Ok(false) => {
@@ -187,7 +192,7 @@ async fn run_extended_monitor(
             let _ = db::update_memory_confidence(&conn, &memory_id, 5);
             let cfi = get_community_fix_id(&conn, &memory_id);
             drop(conn);
-            report_outcome(cfi.as_deref(), true, &fix_replay_url).await;
+            report_outcome(cfi.as_deref(), true, &fix_replay_url, api_token.as_deref()).await;
             println!("  \u{2713} Extended monitor: 30 min clean \u{2014} fix confirmed");
         }
         Err(_) => {}
@@ -210,6 +215,7 @@ async fn report_outcome(
     fix_id: Option<&str>,
     worked: bool,
     fix_replay_url: &Option<String>,
+    api_token: Option<&str>,
 ) {
     let base_url = match fix_replay_url {
         Some(url) => url,
@@ -226,13 +232,15 @@ async fn report_outcome(
         return;
     }
     let client = reqwest::Client::new();
-    let _ = client
+    let mut req = client
         .post(&full_url)
         .json(&serde_json::json!({
             "fixId": fix_id,
             "worked": worked,
         }))
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await;
+        .timeout(std::time::Duration::from_secs(10));
+    if let Some(token) = api_token {
+        req = req.header("Authorization", format!("Bearer {}", token));
+    }
+    let _ = req.send().await;
 }

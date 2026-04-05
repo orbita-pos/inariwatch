@@ -17,7 +17,20 @@ import { createSessionLogger } from "./logger";
 type Emit = (event: string, data: unknown) => void;
 
 const MONITOR_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-const POLL_INTERVAL_MS = 60 * 1000;          // 1 minute
+
+// Canary phases: aggressive early, relaxed late
+const PHASES = [
+  { name: "canary_fast", endMs: 3 * 60 * 1000, pollMs: 30_000 },   // 0-3 min: every 30s
+  { name: "canary_normal", endMs: 7 * 60 * 1000, pollMs: 60_000 }, // 3-7 min: every 60s
+  { name: "canary_slow", endMs: 10 * 60 * 1000, pollMs: 120_000 }, // 7-10 min: every 2 min
+];
+
+function getPhase(elapsedMs: number) {
+  for (const p of PHASES) {
+    if (elapsedMs < p.endMs) return p;
+  }
+  return PHASES[PHASES.length - 1];
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -116,8 +129,9 @@ export async function startPostMergeMonitoring(params: {
 
   let elapsed = 0;
   while (elapsed < MONITOR_DURATION_MS) {
-    await sleep(POLL_INTERVAL_MS);
-    elapsed += POLL_INTERVAL_MS;
+    const phase = getPhase(elapsed);
+    await sleep(phase.pollMs);
+    elapsed += phase.pollMs;
 
     // Check for regressions
     const sentryRegression = await checkSentryForRegression(projectId, mergeTime, alertTitle);
@@ -142,6 +156,7 @@ export async function startPostMergeMonitoring(params: {
       elapsed: Math.round(elapsed / 1000),
       total: Math.round(MONITOR_DURATION_MS / 1000),
       status: "watching",
+      phase: phase.name,
       checks: {
         sentry: sentryRegression ? "regression" : "ok",
         uptime: uptimeRegression ? "down" : "ok",

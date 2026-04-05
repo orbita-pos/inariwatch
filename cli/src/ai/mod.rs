@@ -127,24 +127,6 @@ pub async fn call_ai_json(
 
 // ── v2: High-level AI functions ──────────────────────────────────────────────
 
-/// Deep root cause analysis for get_root_cause tool.
-pub async fn deep_analyze(
-    key: &str,
-    model: Option<&str>,
-    alert_title: &str,
-    alert_body: &str,
-    alert_sources: &[String],
-    context: &prompts::RemediationContext,
-) -> Result<serde_json::Value> {
-    let prompt = prompts::build_deep_analyze_prompt(
-        alert_title,
-        alert_body,
-        alert_sources,
-        context,
-    );
-    call_ai_json(key, model, prompts::SYSTEM_DEEP_ANALYZER, &prompt, 800).await
-}
-
 /// Diagnose an alert and identify files to read (step 2 of trigger_fix).
 pub async fn diagnose(
     key: &str,
@@ -202,6 +184,8 @@ pub async fn generate_postmortem(
     alert_title: &str,
     alert_body: &str,
     alert_sources: &[String],
+    alert_severity: &str,
+    alert_created_at: &str,
     diagnosis: &str,
     fix_explanation: &str,
     files_changed: &[String],
@@ -212,21 +196,11 @@ pub async fn generate_postmortem(
 ) -> Result<String> {
     let prompt = prompts::build_postmortem_prompt(
         alert_title, alert_body, alert_sources,
+        alert_severity, alert_created_at,
         diagnosis, fix_explanation, files_changed,
         confidence, pr_url, auto_merged, steps,
     );
     call_ai(key, model, prompts::SYSTEM_POSTMORTEM, &prompt, 2048).await
-}
-
-/// Pre-deploy risk assessment for a pull request.
-/// Returns markdown-formatted risk assessment.
-pub async fn assess_risk(
-    key: &str,
-    model: Option<&str>,
-    ctx: &prompts::RiskContext,
-) -> Result<String> {
-    let prompt = prompts::build_risk_assessment_prompt(ctx);
-    call_ai(key, model, prompts::SYSTEM_RISK_ASSESSOR, &prompt, 1024).await
 }
 
 // ── Prompt builder (v1 — existing) ──────────────────────────────────────────

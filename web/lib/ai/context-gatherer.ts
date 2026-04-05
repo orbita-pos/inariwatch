@@ -39,7 +39,7 @@ async function fetchSentryContext(
       const titleQuery = encodeURIComponent(alert.title.replace(/\[.*?\]\s*/, "").slice(0, 80));
       const searchRes = await fetch(
         `https://sentry.io/api/0/organizations/${org}/issues/?query=${titleQuery}&limit=1`,
-        { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 } }
+        { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 }, signal: AbortSignal.timeout(10_000) }
       );
       if (searchRes.ok) {
         const issues = await searchRes.json();
@@ -57,7 +57,7 @@ async function fetchSentryContext(
   try {
     const eventRes = await fetch(
       `https://sentry.io/api/0/issues/${issueId}/events/latest/`,
-      { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 } }
+      { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 }, signal: AbortSignal.timeout(10_000) }
     );
     if (eventRes.ok) {
       const event = await eventRes.json();
@@ -164,6 +164,7 @@ async function fetchDatadogContext(
           "DD-APPLICATION-KEY": appKey,
         },
         next: { revalidate: 0 },
+        signal: AbortSignal.timeout(10_000),
       }
     );
     if (!res.ok) return null;
@@ -316,7 +317,7 @@ export async function gatherRemediationContext(
 
   // EAP receipt (fetch from EAP server if configured)
   const eapServerUrl = process.env.EAP_SERVER_URL;
-  if (eapServerUrl) {
+  if (eapServerUrl && (eapServerUrl.startsWith("https://") || eapServerUrl.startsWith("http://localhost") || eapServerUrl.startsWith("http://127.0.0.1"))) {
     tasks.push((async () => {
       emit("context", { source: "eap", status: "fetching" });
       try {

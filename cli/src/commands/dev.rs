@@ -412,6 +412,7 @@ async fn handle_capture_event(
                 &changed_paths,
                 confidence,
                 base_url,
+                cfg_reload.global.api_token.as_deref(),
             )
             .await;
             println!("     {} Contributed to network.", "↑".cyan());

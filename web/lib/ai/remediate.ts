@@ -24,6 +24,11 @@ import { startPostMergeMonitoring } from "./post-merge-monitor";
 import { linkRemediationToIncident, updateIncidentStatus, resolveIncident as resolveStatusIncident } from "./status-page-automation";
 import { generatePostmortemInternal } from "./postmortem";
 import { triggerEscalation, type EscalationContext } from "./escalation-engine";
+import { acquireFileLocks, releaseFileLocks, canStartRemediation } from "./concurrency";
+import { recordGateResult, shouldBypassGate } from "./circuit-breaker";
+import { getServiceStatusSummary } from "./service-health";
+import { detectIncident, resolveIncidentFollowers } from "./incident-correlation";
+import { recordFailedFix, getAntiPatterns, buildAntiPatternContext, recordCalibrationPoint, adjustConfidence } from "./fix-learning";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
 import { createSessionLogger } from "./logger";
@@ -152,12 +157,65 @@ function extractRepo(alertTitle: string): string | null {
 
 // ── Main engine ──────────────────────────────────────────────────────────────
 
+// ── Pipeline phases for checkpoint/resume ────────────────────────────────────
+
+type PipelinePhase =
+  | "init" | "gather_context" | "diagnose" | "read_code" | "generate_fix"
+  | "security_scan" | "self_review" | "push" | "ci_wait"
+  | "staging" | "gates" | "create_pr" | "post_merge" | "completed" | "failed";
+
+const CHECKPOINT_TTL_MS = 60 * 60 * 1000; // 1 hour — older checkpoints are stale
+
+async function saveCheckpoint(
+  sessionId: string,
+  phase: PipelinePhase,
+  data?: Record<string, unknown>,
+  stagingDeployId?: string,
+) {
+  await db.update(remediationSessions)
+    .set({
+      checkpointPhase: phase,
+      checkpointData: data ?? null,
+      ...(stagingDeployId !== undefined ? { stagingDeployId } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(remediationSessions.id, sessionId));
+}
+
 export async function runRemediation(sessionId: string, emit: Emit): Promise<void> {
   const log = createSessionLogger(sessionId);
   log.info("remediation_start");
 
   const [session] = await db.select().from(remediationSessions).where(eq(remediationSessions.id, sessionId)).limit(1);
   if (!session) { emit("error", { error: "Session not found" }); return; }
+
+  // Cleanup orphaned staging from a previous crash
+  if (session.stagingDeployId && session.checkpointPhase && session.checkpointPhase !== "completed") {
+    const checkpoint = session.checkpointData as Record<string, unknown> | null;
+    const age = Date.now() - new Date(session.updatedAt).getTime();
+    if (age < CHECKPOINT_TTL_MS) {
+      log.info("resuming_from_checkpoint", { phase: session.checkpointPhase });
+      emit("resumed_from_checkpoint", { phase: session.checkpointPhase });
+    }
+    // Always clean up orphaned staging
+    try {
+      const { destroyStagingEnvironment } = await import("./staging-deploy");
+      await destroyStagingEnvironment(session.stagingDeployId);
+      log.info("orphan_staging_cleaned", { stagingId: session.stagingDeployId });
+    } catch { /* non-blocking */ }
+    await db.update(remediationSessions)
+      .set({ stagingDeployId: null })
+      .where(eq(remediationSessions.id, sessionId));
+  }
+
+  // Concurrency check — max 3 per project, 10 global
+  if (!(await canStartRemediation(session.projectId))) {
+    emit("queued", { reason: "Too many concurrent remediations. Waiting for a slot." });
+    await db.update(remediationSessions)
+      .set({ status: "queued" })
+      .where(eq(remediationSessions.id, sessionId));
+    return; // Caller should retry later
+  }
 
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, session.alertId)).limit(1);
   if (!alert) { await fail(sessionId, emit, "Alert not found"); return; }
@@ -381,6 +439,34 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       }
     }
 
+    // ── INCIDENT CORRELATION ──────────────────────────────────────────
+    try {
+      const correlation = await detectIncident(sessionId, session.projectId, session.alertId, []);
+      if (correlation.shouldWait && correlation.leaderSessionId) {
+        emit("incident_follower", { incidentId: correlation.incidentId, leaderSessionId: correlation.leaderSessionId, relatedCount: correlation.relatedCount });
+        steps = await pushStep(sessionId, steps,
+          makeStep("incident_wait", `Part of incident with ${correlation.relatedCount} related errors — waiting for leader fix...`), emit);
+        // Wait for leader to finish (poll every 30s, max 5 min)
+        const waitDeadline = Date.now() + 5 * 60 * 1000;
+        while (Date.now() < waitDeadline) {
+          await new Promise((r) => setTimeout(r, 30_000));
+          const [leader] = await db.select({ status: remediationSessions.status })
+            .from(remediationSessions)
+            .where(eq(remediationSessions.id, correlation.leaderSessionId!))
+            .limit(1);
+          if (!leader || leader.status === "failed" || leader.status === "cancelled") break; // Leader failed, proceed
+          if (leader.status === "completed") {
+            // Leader succeeded — resolve this session
+            await resolveIncidentFollowers(correlation.incidentId!, true);
+            steps = await resolveStep(sessionId, steps, "completed", "Resolved by incident leader fix", emit);
+            emit("done", { status: "completed", resolvedBy: "incident_leader" });
+            return;
+          }
+        }
+        steps = await resolveStep(sessionId, steps, "completed", "Leader still running — proceeding independently", emit);
+      }
+    } catch (e) { log.warn("incident_correlation_failed", { error: e instanceof Error ? e.message : String(e) }); }
+
     steps = await pushStep(sessionId, steps,
       makeStep("diagnose", `AI is diagnosing with ${hotFiles.size > 0 ? `${hotFiles.size} hot files` : "no history"} + ${deployedFiles.length > 0 ? `${deployedFiles.length} deployed files` : "no deploy context"}...`), emit);
 
@@ -408,6 +494,17 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       await fail(sessionId, emit, "AI returned an invalid diagnosis. Try again.");
       return;
     }
+
+    // ── CONFIDENCE CALIBRATION ─────────────────────────────────────────
+    const rawConfidence = diagnosis.confidence;
+    try {
+      const cal = await adjustConfidence(rawConfidence, session.projectId);
+      if (cal.calibrated) {
+        diagnosis.confidence = cal.adjusted;
+        emit("confidence_calibrated", { raw: rawConfidence, adjusted: cal.adjusted });
+        log.info("confidence_calibrated", { raw: rawConfidence, adjusted: cal.adjusted });
+      }
+    } catch { /* calibration failed — use raw */ }
 
     // ── CONFIDENCE GATING ───────────────────────────────────────────────
     if (diagnosis.confidence < 30 && isVercelAlert && !hasSentry) {
@@ -455,6 +552,21 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       });
     } catch (e) { log.warn("incident_status_update_failed", { phase: "identified", error: e instanceof Error ? e.message : String(e) }); }
 
+    // ── FILE LOCKING ──────────────────────────────────────────────────────
+    try {
+      const lockResult = await acquireFileLocks(`${owner}/${repo}`, diagnosis.filesToRead, sessionId);
+      if (lockResult.conflicted.length > 0) {
+        emit("file_locks", { acquired: lockResult.acquired, conflicted: lockResult.conflicted });
+        if (lockResult.acquired.length === 0) {
+          await fail(sessionId, emit, `All target files are being modified by another remediation. Try again later.\n\nConflicted: ${lockResult.conflicted.join(", ")}`);
+          return;
+        }
+        // Filter filesToRead to only acquired files
+        diagnosis.filesToRead = diagnosis.filesToRead.filter((f) => lockResult.acquired.includes(f));
+        log.info("partial_lock_acquired", { acquired: lockResult.acquired, conflicted: lockResult.conflicted });
+      }
+    } catch (e) { log.warn("file_lock_failed", { error: e instanceof Error ? e.message : String(e) }); }
+
     // ── READ CODE ──────────────────────────────────────────────────────────
     await updateSession(sessionId, { status: "reading_code" });
     emit("status", { status: "reading_code" });
@@ -491,8 +603,18 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           ? `Attempt ${attempt}/${session.maxAttempts}: Generating a different fix based on the CI failure...`
           : "AI is generating a code fix..."), emit);
 
+      // ── ANTI-PATTERN INJECTION ──────────────────────────────────────
+      let antiPatternCtx: string | undefined;
+      try {
+        const patterns = await getAntiPatterns(session.projectId, alertFingerprint, diagnosis.filesToRead);
+        if (patterns.length > 0) {
+          antiPatternCtx = buildAntiPatternContext(patterns);
+          emit("anti_patterns", { count: patterns.length });
+        }
+      } catch { /* non-blocking */ }
+
       const fixRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
-        { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext) },
+        { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx) },
       ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
 
       let fix: { explanation: string; files: { path: string; content: string }[] };
@@ -657,7 +779,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           recommendation: ["approve", "flag", "reject"].includes(parsed.recommendation) ? parsed.recommendation : "flag",
         };
       } catch {
-        selfReview = { score: 50, concerns: ["Self-review could not be completed"], recommendation: "flag" };
+        selfReview = { score: 0, concerns: ["Self-review could not be completed — AI call failed"], recommendation: "reject" };
       }
 
       await updateSession(sessionId, { selfReviewResult: selfReview });
@@ -670,6 +792,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         emit);
 
       if (selfReview.recommendation === "reject" && attempt >= session.maxAttempts) {
+        recordFailedFix({ projectId: session.projectId, errorFingerprint: alertFingerprint, fixSummary: fix.explanation?.slice(0, 500) ?? "fix generation", failureReason: `Self-review rejected (${selfReview.score}/100): ${selfReview.concerns.join("; ")}`, filesTouched: fix.files.map((f) => f.path) }).catch(() => {});
         await fail(sessionId, emit,
           `Self-review rejected the fix (score: ${selfReview.score}/100).\n\nConcerns:\n${selfReview.concerns.map((c) => `• ${c}`).join("\n")}`
         );
@@ -798,12 +921,21 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         // ── SUBSTRATE SIMULATE GATE ────────────────────────────────────
         let simulateRiskScore: number | null = null;
         try {
-          const latestRecording = await db
+          // Prefer recording linked to this specific alert, fall back to latest project recording
+          let latestRecording = await db
             .select({ events: substrateRecordings.events, context: substrateRecordings.context })
             .from(substrateRecordings)
-            .where(eq(substrateRecordings.projectId, session.projectId))
+            .where(eq(substrateRecordings.alertId, session.alertId))
             .orderBy(desc(substrateRecordings.createdAt))
             .limit(1);
+          if (latestRecording.length === 0) {
+            latestRecording = await db
+              .select({ events: substrateRecordings.events, context: substrateRecordings.context })
+              .from(substrateRecordings)
+              .where(eq(substrateRecordings.projectId, session.projectId))
+              .orderBy(desc(substrateRecordings.createdAt))
+              .limit(1);
+          }
 
           if (latestRecording.length > 0 && latestRecording[0].events) {
             // We have a Substrate recording — the AI can compare the fix's expected behavior
@@ -904,6 +1036,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               projectId: session.projectId,
               ttlSeconds: 300,
             });
+            // Save staging ID for orphan cleanup if we crash
+            await saveCheckpoint(sessionId, "staging", undefined, deployId);
             emit("staging_deploy", { status: "deploying", url: deploy.url, id: deployId });
 
             try {
@@ -929,11 +1063,19 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               let replayEvents: { type: string; method: string; path: string; body?: unknown; expectedStatus?: number }[] | undefined;
               let uiActions: { type: string; selector?: string; value?: string; url?: string; timestamp: number }[] | undefined;
               try {
-                const [rec] = await db.select({ events: substrateRecordings.events, uiEvents: substrateRecordings.uiEvents })
+                // Prefer recording linked to this alert, fall back to latest project recording
+                let [rec] = await db.select({ events: substrateRecordings.events, uiEvents: substrateRecordings.uiEvents })
                   .from(substrateRecordings)
-                  .where(eq(substrateRecordings.projectId, session.projectId))
+                  .where(eq(substrateRecordings.alertId, session.alertId))
                   .orderBy(desc(substrateRecordings.createdAt))
                   .limit(1);
+                if (!rec) {
+                  [rec] = await db.select({ events: substrateRecordings.events, uiEvents: substrateRecordings.uiEvents })
+                    .from(substrateRecordings)
+                    .where(eq(substrateRecordings.projectId, session.projectId))
+                    .orderBy(desc(substrateRecordings.createdAt))
+                    .limit(1);
+                }
                 if (rec?.events) {
                   replayEvents = extractReplayEvents(rec as { events: unknown[] });
                 }
@@ -946,24 +1088,91 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               const verification = await verifyStagingWithBot(deployId, replayEvents, uiActions);
               e2eStagingPassed = verification.passed;
 
+              // AI Visual Analysis — send before/after screenshots to user's BYOK AI
+              const finalScreenshot = verification.screenshots?.[verification.screenshots.length - 1];
+              if (finalScreenshot && aiKey) {
+                try {
+                  const { callAIVision } = await import("./client");
+
+                  // Try to extract "before" screenshot from rrweb recording
+                  let beforeScreenshot: string | undefined;
+                  try {
+                    const [recSnap] = await db.select({ uiEvents: substrateRecordings.uiEvents })
+                      .from(substrateRecordings)
+                      .where(eq(substrateRecordings.alertId, session.alertId))
+                      .orderBy(desc(substrateRecordings.createdAt))
+                      .limit(1);
+                    if (recSnap?.uiEvents) {
+                      const events = recSnap.uiEvents as { type: string; data?: { source?: string }; screenshot?: string }[];
+                      // rrweb full snapshot or last screenshot event
+                      const snap = [...events].reverse().find((e) => e.screenshot || (e.type === "snapshot" && e.data?.source));
+                      if (snap?.screenshot) beforeScreenshot = snap.screenshot;
+                    }
+                  } catch { /* before screenshot not available — ok */ }
+
+                  const hasBefore = !!beforeScreenshot;
+                  const prompt = hasBefore
+                    ? `Compare these screenshots. BEFORE shows the broken state (when the error "${alert.title}" occurred). AFTER shows the app after the fix was applied.
+
+Did the fix IMPROVE the page? Check:
+1. If BEFORE was broken and AFTER looks correct → passed: true
+2. If BEFORE was broken and AFTER looks the same or worse → passed: false
+3. If AFTER has NEW visual issues not present in BEFORE → passed: false
+4. Blank pages, error messages, broken layouts, missing content
+
+Respond in JSON: {"passed": true/false, "improved": true/false, "issues": "description or empty", "beforeState": "brief description", "afterState": "brief description"}`
+                    : `This is a screenshot of the app after applying a fix for: "${alert.title}".
+Does the page look correct? Check for blank pages, error messages, broken layouts, missing content.
+
+Respond in JSON: {"passed": true/false, "issues": "description of issues or empty string"}`;
+
+                  const visualResponse = await callAIVision(
+                    aiKey.key,
+                    "You are a QA engineer reviewing screenshots of a web application. Analyze for visual regressions introduced by an automated fix.",
+                    {
+                      role: "user",
+                      text: prompt,
+                      imageBase64: finalScreenshot,
+                      beforeImageBase64: beforeScreenshot,
+                    },
+                    { maxTokens: 300, provider: aiKey.provider }
+                  );
+                  try {
+                    const parsed = JSON.parse(visualResponse.replace(/```json\n?|\n?```/g, "").trim());
+                    if (parsed.passed === false) {
+                      e2eStagingPassed = false;
+                      verification.aiVisual = { passed: false, issues: parsed.issues || "AI detected visual issues" };
+                    } else {
+                      verification.aiVisual = { passed: true, issues: "" };
+                    }
+                  } catch { /* AI response not parseable — keep bot result */ }
+                } catch (e) {
+                  log.warn("ai_visual_analysis_failed", { error: e instanceof Error ? e.message : String(e) });
+                }
+              }
+
               emit("staging_deploy", {
-                status: verification.passed ? "passed" : "failed",
+                status: e2eStagingPassed ? "passed" : "failed",
                 url: ready.url,
                 id: deployId,
                 results: verification.results,
                 consoleErrors: verification.consoleErrors,
                 durationMs: verification.durationMs,
+                aiVisual: verification.aiVisual,
               });
 
               const resultSummary = verification.results
                 .map((r) => `${r.passed ? "✓" : "✗"} ${r.statusCode} (${r.durationMs}ms)`)
                 .join(", ");
+              const visualNote = verification.aiVisual?.passed === false
+                ? ` | AI visual: ${verification.aiVisual.issues.slice(0, 80)}`
+                : "";
 
               steps = await resolveStep(sessionId, steps,
-                verification.passed ? "completed" : "failed",
-                verification.passed
-                  ? `Staging verified: ${resultSummary} | ${verification.consoleErrors.length} console errors`
-                  : `Staging failed: ${resultSummary}`, emit);
+                e2eStagingPassed ? "completed" : "failed",
+                e2eStagingPassed
+                  ? `Staging verified: ${resultSummary}${visualNote}`
+                  : `Staging failed: ${resultSummary}${visualNote}`, emit);
             } finally {
               // Guarantee cleanup even if verification throws
               destroyStagingEnvironment(deployId).catch((e) => log.warn("staging_cleanup_failed", { deployId, error: e instanceof Error ? e.message : String(e) }));
@@ -1044,6 +1253,14 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         // Extract EAP verification from gathered context
         const eapChainVerified = remediationContext.eapReceipt?.verified ?? null;
 
+        // Compute circuit breaker bypasses for this project
+        const bypassableGates = ["substrate_simulate", "eap_chain_verified", "prediction_safe", "substrate_replay", "e2e_staging"];
+        const circuitBreakerBypassed = new Set<string>();
+        for (const g of bypassableGates) {
+          const { bypass } = await shouldBypassGate(session.projectId, g);
+          if (bypass) circuitBreakerBypassed.add(g);
+        }
+
         const gateResult = evaluateAutoMergeGates({
           config: autoMergeConfig,
           confidenceScore: diagnosis.confidence,
@@ -1055,7 +1272,14 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           e2eStagingPassed,
           eapChainVerified,
           securityScanHighCount: securityHighCount,
+          circuitBreakerBypassed,
         });
+
+        // Record gate telemetry for circuit breaker + dashboard
+        for (const gate of gateResult.gates) {
+          recordGateResult(session.projectId, gate.name, gate.passed, gate.passed ? undefined : gate.reason)
+            .catch(() => {}); // non-blocking
+        }
 
         emit("gates", { gates: gateResult.gates, strategy: gateResult.strategy });
 
@@ -1115,9 +1339,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             ...gateResult.gates.map((g) => `- ${g.passed ? "✅" : "❌"} ${g.reason}`),
           ]),
           ``,
+          ``,
+          (() => { try { return `**Context sources:** ${getServiceStatusSummary()}`; } catch { return ""; } })(),
+          ``,
           `---`,
           `*Generated by [Inari AI](https://inariwatch.com)*`,
-        ].join("\n");
+        ].filter(Boolean).join("\n");
 
         try {
           const pr = await gh.createPR(
@@ -1195,6 +1422,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                   const postmortemText = (await db.select({ pm: alerts.postmortem }).from(alerts).where(eq(alerts.id, alert.id)).limit(1))[0]?.pm;
                   await resolveStatusIncident({ remediationSessionId: sessionId, postmortem: postmortemText ?? undefined });
                 } catch (e) { log.warn("postmortem_or_resolve_failed", { error: e instanceof Error ? e.message : String(e) }); }
+                // Record calibration: AI was confident and the fix succeeded
+                recordCalibrationPoint(session.projectId, rawConfidence, true).catch(() => {});
                 emit("done", { status: "completed", prUrl: pr.url, prNumber: pr.number, autoMerged: true });
                 return;
               }
@@ -1239,6 +1468,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             `Tried ${attempt} different approaches but CI still fails. The branch "${branchName}" has the latest attempt — you can review and fix it manually.`,
             "failed"), emit);
         await updateSession(sessionId, { status: "failed", error: `CI still failing after ${attempt} attempts` });
+        // Record failed fix for learning
+        recordFailedFix({ projectId: session.projectId, errorFingerprint: alertFingerprint, fixSummary: fix.explanation?.slice(0, 500) ?? "fix generation", failureReason: `CI failure after ${attempt} attempts: ${failedChecks.join(", ")}`, filesTouched: fix.files.map((f) => f.path) }).catch(() => {});
         // Escalate: max retries exhausted
         try {
           await triggerEscalation({
@@ -1348,6 +1579,8 @@ async function autoContributePattern(params: {
 }
 
 async function fail(sessionId: string, emit: Emit, error: string) {
+  // Release any file locks held by this session
+  releaseFileLocks(sessionId).catch(() => {});
   await updateSession(sessionId, { status: "failed", error });
   emit("done", { status: "failed", error });
 }

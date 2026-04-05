@@ -1,0 +1,125 @@
+{
+  "_comment": "Cross-platform fingerprint test vectors. Both CLI (Rust) and Web (TypeScript) must produce identical hashes. If you change the fingerprint algorithm, regenerate this file and update both test suites.",
+  "vectors": [
+    {
+      "id": "simple_error",
+      "title": "TypeError: Cannot read properties of null",
+      "body": "at Object.handler",
+      "expected": "9de043f7f448738a818ff1fa93c92ab854fa16be50f49ae1108429978bf50ec6"
+    },
+    {
+      "id": "with_uuid",
+      "title": "Error processing request 550e8400-e29b-41d4-a716-446655440000",
+      "body": "User not found",
+      "expected": "1046445d3115d04e352a3ffb9666d1d1a2f6897ff68eed931d77ee3240d494ab"
+    },
+    {
+      "id": "with_iso_timestamp",
+      "title": "Build failed",
+      "body": "Error at 2024-01-15T10:30:00.000Z in pipeline",
+      "expected": "9cc0ee624933cd1941c0c47dae53b16daa443adfc434773d1f2fd0efcc924ee2"
+    },
+    {
+      "id": "with_unix_epoch",
+      "title": "Timeout exceeded",
+      "body": "Request started at 1705312200000 and timed out",
+      "expected": "a7a8579a8d7cb392273f5b6b371663ac5f059bb5d96f514b1563074e4aeae8bd"
+    },
+    {
+      "id": "with_relative_time",
+      "title": "Stale connection detected",
+      "body": "Last seen 5 minutes ago",
+      "expected": "c377086ec47754716d70e7973742ad163750f6ea4c48206e45808cc2f6734f13"
+    },
+    {
+      "id": "with_hex_id",
+      "title": "Transaction failed",
+      "body": "tx 0a1b2c3d4e5f6a7b8 rejected by validator",
+      "expected": "1599369e98b8ab85bd77c88fcb0efeda6c7c49ab9ea3efbcbc269fed7f198043"
+    },
+    {
+      "id": "with_file_path",
+      "title": "Module not found",
+      "body": "Cannot resolve /src/components/Button.tsx",
+      "expected": "6c05be4119f778138c3f88080f287a075fb01f47c050b7971b1e8fa6d00e8308"
+    },
+    {
+      "id": "with_line_number",
+      "title": "Syntax error",
+      "body": "Unexpected token at line 42 in parser",
+      "expected": "e43b613f71b2cf8c06ad87a5620eaf42818a424a6d7cc3439ae7eff11e553dba"
+    },
+    {
+      "id": "with_url",
+      "title": "Fetch failed",
+      "body": "GET https://api.example.com/v1/users returned 500",
+      "expected": "77cedbbe2dffdc1468f70808f3b97a3c0647861767de958da2c4d89f9d772885"
+    },
+    {
+      "id": "with_version",
+      "title": "Incompatible version",
+      "body": "Expected v2.1.0 but got v3.0.0-beta.1",
+      "expected": "45719cc329cadbf4e11f460930a004eac7a834472242f8cc8569cd47c7e98403"
+    },
+    {
+      "id": "empty_strings",
+      "title": "",
+      "body": "",
+      "expected": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "only_whitespace",
+      "title": "   ",
+      "body": "   ",
+      "expected": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "unicode_accents",
+      "title": "Error en módulo de autenticación",
+      "body": "Usuario no válido",
+      "expected": "fd3229aeda9b341dfa2e18ae9dad2a3ca65d00189a6b00216287327853140ae9"
+    },
+    {
+      "id": "multiple_normalizations",
+      "title": "Error 550e8400-e29b-41d4-a716-446655440000 at 2024-01-15T10:30:00Z",
+      "body": "Failed in /src/api/route.ts at line 99 — see https://docs.example.com/errors",
+      "expected": "770b004ee95c2ab6b7233157161088bbbaea6ffc3033c4076ccf51fc50c48a7e"
+    },
+    {
+      "id": "real_sentry_like",
+      "title": "TypeError: Cannot read properties of undefined (reading map)",
+      "body": "at /app/src/components/AlertList.tsx:47:12\nat renderWithHooks (/app/node_modules/react-dom/cjs/react-dom.development.js:14985:18)",
+      "expected": "8fa7d5db51625636edfe3f8c3b68aa0793681164909e40331ad14ad0aeb23f7d"
+    },
+    {
+      "id": "real_vercel_build",
+      "title": "Build failed: Exit code 1",
+      "body": "Type error: Property count does not exist on type AlertStats\n  at /app/web/app/(dashboard)/analytics/page.tsx:32:45",
+      "expected": "77e3ab3259e1de8a86d17a60bb920bb4a8cb4f09e7cb7d967f5c36d78edd3443"
+    },
+    {
+      "id": "real_ci_failure",
+      "title": "CI: test suite failed",
+      "body": "FAIL src/services/alerts.test.ts\n  TypeError: Cannot read properties of null (reading id)\n    at Object.<anonymous> (src/services/alerts.test.ts:15:22)",
+      "expected": "8001aeffb339178bbc2a63d27287134f38c337b19c5380ddaa8bc213190f2a07"
+    },
+    {
+      "id": "duplicate_whitespace",
+      "title": "Error   with   extra    spaces",
+      "body": "body   has    irregular     spacing",
+      "expected": "6a07701a0551a47f937c1c69a9208f6700d80a15a626501c2dfc1c6496a7dcf2"
+    },
+    {
+      "id": "mixed_case",
+      "title": "ERROR: Connection REFUSED",
+      "body": "ECONNREFUSED 127.0.0.1:5432",
+      "expected": "7225413736b4dce47ff4ad68cbdf230ac73bb5edfca7857ef7e76f9e069982be"
+    },
+    {
+      "id": "special_chars",
+      "title": "Error: unexpected <token> in JSON at position 0",
+      "body": "{\"error\": \"invalid_grant\", \"error_description\": \"Token expired\"}",
+      "expected": "1488a3e0688a54a5a8a28ac15cdcf9614527cc9f808c864562de114ddcd32e9c"
+    }
+  ]
+}

@@ -7,6 +7,9 @@ import {
 } from "@/lib/webhooks/shared";
 import { checkWebhookRateLimit } from "@/lib/webhooks/rate-limit";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
+import { db } from "@/lib/db";
+import { substrateRecordings } from "@/lib/db/schema";
+import crypto from "crypto";
 
 /**
  * POST /api/webhooks/capture/[integrationId]
@@ -119,6 +122,23 @@ export async function POST(
 
   if (result) {
     autoAnalyzeAlert(result).catch(() => {});
+
+    // Save inline session recording (rrweb) linked to this specific alert
+    const sessionEvents = event.sessionEvents as unknown[] | undefined;
+    if (sessionEvents?.length) {
+      const recordingId = crypto.randomUUID();
+      db.insert(substrateRecordings)
+        .values({
+          recordingId,
+          alertId: result.id,
+          projectId: integ.projectId,
+          runtime: (event.runtime as string) || "browser",
+          startedAt: new Date(),
+          eventCount: 0,
+          uiEvents: sessionEvents,
+        })
+        .catch(() => {}); // non-blocking
+    }
   }
 
   await markIntegrationSuccess(integrationId);

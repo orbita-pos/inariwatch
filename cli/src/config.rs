@@ -29,6 +29,9 @@ pub struct GlobalConfig {
     pub fix_replay: bool,
     /// InariWatch web API URL for Fix Replay pattern queries (e.g. "https://app.inariwatch.com").
     pub fix_replay_url: Option<String>,
+    /// API token for authenticating with InariWatch web API (patterns contribute/rate).
+    /// This should match the CRON_SECRET on the web side.
+    pub api_token: Option<String>,
 }
 
 impl Default for GlobalConfig {
@@ -40,6 +43,7 @@ impl Default for GlobalConfig {
             auto_merge: false,
             fix_replay: false,
             fix_replay_url: None,
+            api_token: None,
         }
     }
 }

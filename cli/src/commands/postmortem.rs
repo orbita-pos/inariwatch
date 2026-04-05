@@ -57,6 +57,8 @@ pub async fn run(alert_id: &str) -> Result<()> {
         &alert.title,
         &alert.body,
         &alert.source_integrations,
+        &alert.severity,
+        &alert.created_at.to_rfc3339(),
         &diagnosis,
         &fix_explanation,
         &files_changed,

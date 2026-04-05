@@ -678,6 +678,8 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
         &alert.title,
         &alert.body,
         &alert.source_integrations,
+        &alert.severity,
+        &alert.created_at.to_rfc3339(),
         &diagnosis,
         &fix_explanation,
         &files_changed,
@@ -803,6 +805,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             alert_fingerprint: Some(alert_fingerprint.clone()),
             alert_id: Some(alert.id.clone()),
             fix_replay_url: cfg.global.fix_replay_url.clone(),
+            api_token: cfg.global.api_token.clone(),
         }).await;
 
         use crate::mcp::post_merge_monitor::PostMergeResult;
@@ -895,6 +898,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
                 &files_changed,
                 confidence,
                 base_url,
+                cfg.global.api_token.as_deref(),
             ).await {
                 // Store community fix ID for future outcome reporting
                 if let Ok(conn) = db::open() {
@@ -1081,6 +1085,7 @@ pub(crate) async fn contribute_fix_replay(
     files_changed: &[String],
     confidence: u32,
     base_url: &str,
+    api_token: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
     let url = format!(
         "{}/api/patterns/contribute",
@@ -1101,7 +1106,12 @@ pub(crate) async fn contribute_fix_replay(
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
-    let resp = client.post(&url).json(&payload).send().await?;
+    let mut req = client.post(&url).json(&payload);
+    if let Some(token) = api_token {
+        req = req.header("Authorization", format!("Bearer {}", token));
+    }
+
+    let resp = req.send().await?;
     let body: serde_json::Value = resp.json().await.unwrap_or_default();
     let fix_id = body["fixId"].as_str().map(String::from);
     Ok(fix_id)

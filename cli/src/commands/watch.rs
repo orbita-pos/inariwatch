@@ -11,7 +11,7 @@ use crate::integrations::git_local;
 use crate::integrations::github::GitHubClient;
 use crate::integrations::sentry::SentryClient;
 use crate::integrations::vercel::VercelClient;
-use crate::notifications::telegram::TelegramClient;
+use crate::notifications::telegram::{esc, TelegramClient};
 use crate::orchestrator::correlator::group_by_time;
 use crate::orchestrator::RawEvent;
 
@@ -502,7 +502,7 @@ async fn run_cycle(
                     "warning" => "⚠️",
                     _ => "ℹ️",
                 };
-                format!("{} {}", icon, a.title)
+                format!("{} {}", icon, esc(&a.title))
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -510,7 +510,7 @@ async fn run_cycle(
         if let Some(tg) = &project.notifications.telegram {
             let msg = format!(
                 "🌩️ <b>{}</b>\n\n{}\n\n<i>Individual notifications suppressed during storm.</i>\n\n<i>— Kairo</i>",
-                storm_title, storm_body
+                esc(&storm_title), storm_body
             );
             TelegramClient::new(tg).send_message(&tg.chat_id, &msg).await?;
             sent += 1;
@@ -536,7 +536,7 @@ async fn run_cycle(
             if let Some(tg) = &project.notifications.telegram {
                 let msg = format!(
                     "{} <b>{}</b>\n\n{}\n\n<i>— Kairo</i>",
-                    icon, alert.title, alert.body
+                    icon, esc(&alert.title), esc(&alert.body)
                 );
                 TelegramClient::new(tg).send_message(&tg.chat_id, &msg).await?;
                 sent += 1;
