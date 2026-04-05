@@ -17,6 +17,7 @@ export default async function RecordingPage({ params }: { params: Promise<{ id: 
 
   const events = (recording.events as Record<string, unknown>[]) ?? [];
   const categories = (recording.categories as Record<string, number>) ?? {};
+  const uiEvents = (recording.uiEvents as unknown[]) ?? [];
 
   return (
     <div className="min-h-screen bg-page">
@@ -30,6 +31,7 @@ export default async function RecordingPage({ params }: { params: Promise<{ id: 
         events={events}
         categories={categories}
         context={recording.context}
+        uiEvents={uiEvents}
       />
     </div>
   );

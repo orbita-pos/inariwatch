@@ -20,6 +20,10 @@
     "./next": {
       "import": "./dist/plugins/next.js",
       "types": "./dist/plugins/next.d.ts"
+    },
+    "./browser": {
+      "import": "./dist/browser.js",
+      "types": "./dist/browser.d.ts"
     }
   },
   "files": [
@@ -28,7 +32,8 @@
     "README.md"
   ],
   "sideEffects": [
-    "./dist/auto.js"
+    "./dist/auto.js",
+    "./dist/browser.js"
   ],
   "scripts": {
     "build": "tsc",
@@ -54,6 +59,14 @@
     "url": "https://github.com/orbita-pos/inariwatch/issues"
   },
   "license": "MIT",
+  "peerDependencies": {
+    "rrweb": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "rrweb": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^5.5.0"

@@ -887,7 +887,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           try {
             const {
               deployStagingEnvironment, waitForStagingReady,
-              verifyStagingWithBot, destroyStagingEnvironment, extractReplayEvents,
+              verifyStagingWithBot, destroyStagingEnvironment, extractReplayEvents, extractUIReplayActions,
             } = await import("./staging-deploy");
 
             const deployId = `fix-${sessionId.slice(0, 8)}`;
@@ -925,10 +925,11 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 makeStep("staging_verify", "Running browser verification bot..."), emit);
               emit("staging_deploy", { status: "verifying", url: ready.url, id: deployId });
 
-              // Extract HTTP events from Substrate recording for replay
+              // Extract replay events from Substrate recording (HTTP + UI)
               let replayEvents: { type: string; method: string; path: string; body?: unknown; expectedStatus?: number }[] | undefined;
+              let uiActions: { type: string; selector?: string; value?: string; url?: string; timestamp: number }[] | undefined;
               try {
-                const [rec] = await db.select({ events: substrateRecordings.events })
+                const [rec] = await db.select({ events: substrateRecordings.events, uiEvents: substrateRecordings.uiEvents })
                   .from(substrateRecordings)
                   .where(eq(substrateRecordings.projectId, session.projectId))
                   .orderBy(desc(substrateRecordings.createdAt))
@@ -936,9 +937,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 if (rec?.events) {
                   replayEvents = extractReplayEvents(rec as { events: unknown[] });
                 }
+                if (rec?.uiEvents) {
+                  uiActions = extractUIReplayActions(rec.uiEvents as unknown[]);
+                }
               } catch { /* non-blocking */ }
 
-              const verification = await verifyStagingWithBot(deployId, replayEvents);
+              // UI actions take priority over HTTP-only replay
+              const verification = await verifyStagingWithBot(deployId, replayEvents, uiActions);
               e2eStagingPassed = verification.passed;
 
               emit("staging_deploy", {

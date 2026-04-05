@@ -1,4 +1,4 @@
-import type { CaptureConfig, ErrorEvent, SubstrateConfig } from "./types.js"
+import type { CaptureConfig, ErrorEvent, SubstrateConfig, SessionConfig } from "./types.js"
 import { computeErrorFingerprint } from "./fingerprint.js"
 import { parseDSN, createTransport, createLocalTransport, type Transport } from "./transport.js"
 import { getGitContext } from "./git.js"
@@ -10,6 +10,7 @@ let globalTransport: Transport | null = null
 let globalConfig: CaptureConfig | null = null
 let lastReportedRelease: string | null = null
 let substrateFlush: ((dsn?: string) => Promise<unknown>) | null = null
+let sessionFlush: (() => import("./types.js").SessionEvent[]) | null = null
 
 /** Flush all pending events — call this before process exit or serverless return. */
 export async function flush(): Promise<void> {
@@ -44,6 +45,17 @@ export function init(config: CaptureConfig = {}): void {
   if (config.substrate) {
     const subConfig: SubstrateConfig = typeof config.substrate === "object" ? config.substrate : {}
     initSubstrate(subConfig, config)
+  }
+
+  // Activate browser session recording if enabled
+  if (config.session) {
+    const sesConfig: SessionConfig = typeof config.session === "object" ? config.session : {}
+    import("./session.js").then(({ initSession, getSessionEvents }) => {
+      initSession(sesConfig, config)
+      sessionFlush = getSessionEvents
+    }).catch(() => {
+      // session.ts uses dynamic import of rrweb — errors handled there
+    })
   }
 }
 
@@ -127,6 +139,11 @@ export function captureException(
   const config = globalConfig
   computeErrorFingerprint(title, body).then((fp) => {
     const fullEvent = enrichEvent({ ...event, fingerprint: fp })
+
+    // Attach session recording if available (before send)
+    if (sessionFlush) {
+      fullEvent.sessionEvents = sessionFlush()
+    }
 
     if (config.beforeSend) {
       const filtered = config.beforeSend(fullEvent)

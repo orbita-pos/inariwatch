@@ -617,6 +617,7 @@ export const substrateRecordings = pgTable("substrate_recordings", {
   categories: jsonb("categories"),
   context: text("context"),
   events: jsonb("events"),
+  uiEvents: jsonb("ui_events"), // rrweb session recording (clicks, inputs, navigation)
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

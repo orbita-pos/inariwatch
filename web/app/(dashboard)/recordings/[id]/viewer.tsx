@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { SessionPlayer } from "./session-player";
 
 type EventKind = {
   type: string;
@@ -72,6 +73,8 @@ function formatTime(ns: number | undefined, baseNs: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+type ViewerTab = "io" | "session" | "combined";
+
 interface ViewerProps {
   recordingId: string;
   command: string;
@@ -82,12 +85,18 @@ interface ViewerProps {
   events: Record<string, unknown>[];
   categories: Record<string, number>;
   context: string | null;
+  uiEvents?: unknown[];
 }
 
 export function RecordingViewer(props: ViewerProps) {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
+  const hasUI = (props.uiEvents?.length ?? 0) > 0;
+  const [activeTab, setActiveTab] = useState<ViewerTab>(hasUI ? "combined" : "io");
+  const handleTimeChange = useCallback((_timeMs: number) => {
+    // Future: auto-scroll I/O event list to matching timestamp
+  }, []);
 
   const events = props.events as unknown as RecordingEvent[];
   const baseNs = events[0]?.timestamp_ns ?? 0;
@@ -135,8 +144,45 @@ export function RecordingViewer(props: ViewerProps) {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex gap-2 px-8 py-3 bg-surface-inner border-b border-line flex-wrap items-center">
+      {/* Tabs (only show if UI events exist) */}
+      {hasUI && (
+        <div className="flex gap-0 px-8 bg-surface border-b border-line">
+          {([
+            { id: "io" as const, label: "I/O Events" },
+            { id: "session" as const, label: "Session Replay" },
+            { id: "combined" as const, label: "Combined" },
+          ]).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.id
+                  ? "border-inari-accent text-inari-accent"
+                  : "border-transparent text-zinc-500 hover:text-fg-base"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Session Replay (full-width) */}
+      {activeTab === "session" && hasUI && (
+        <div className="px-8 py-4">
+          <SessionPlayer events={props.uiEvents!} onTimeChange={handleTimeChange} />
+        </div>
+      )}
+
+      {/* Combined: Session Replay (top) + I/O Events (bottom) */}
+      {activeTab === "combined" && hasUI && (
+        <div className="px-8 py-4 border-b border-line">
+          <SessionPlayer events={props.uiEvents!} onTimeChange={handleTimeChange} />
+        </div>
+      )}
+
+      {/* Controls (shown for I/O and Combined tabs) */}
+      <div className={`flex gap-2 px-8 py-3 bg-surface-inner border-b border-line flex-wrap items-center ${activeTab === "session" ? "hidden" : ""}`}>
         <input
           type="text"
           placeholder="Search events..."
@@ -161,8 +207,8 @@ export function RecordingViewer(props: ViewerProps) {
         ))}
       </div>
 
-      {/* Stats */}
-      <div className="flex gap-3 px-8 py-3 flex-wrap">
+      {/* Stats (hidden on session-only tab) */}
+      <div className={`flex gap-3 px-8 py-3 flex-wrap ${activeTab === "session" ? "hidden" : ""}`}>
         {Object.entries(statCounts).map(([cat, count]) => (
           <div key={cat} className="bg-surface border border-line rounded-lg px-4 py-2">
             <span className="text-xl font-bold text-fg-strong">{count}</span>
@@ -171,8 +217,8 @@ export function RecordingViewer(props: ViewerProps) {
         ))}
       </div>
 
-      {/* Timeline bar */}
-      <div className="relative mx-8 h-1 bg-zinc-800 rounded-full mb-4">
+      {/* Timeline bar (hidden on session-only tab) */}
+      <div className={`relative mx-8 h-1 bg-zinc-800 rounded-full mb-4 ${activeTab === "session" ? "hidden" : ""}`}>
         {events.map((e) => {
           const ev = e as RecordingEvent;
           const cat = getCategory(ev);
@@ -191,8 +237,8 @@ export function RecordingViewer(props: ViewerProps) {
         })}
       </div>
 
-      {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Content (hidden on session-only tab) */}
+      <div className={`flex flex-1 overflow-hidden ${activeTab === "session" ? "hidden" : ""}`}>
         {/* Event list */}
         <div className="flex-1 overflow-y-auto px-8 pb-8">
           {filteredEvents.length === 0 ? (

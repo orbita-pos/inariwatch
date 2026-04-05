@@ -13,6 +13,8 @@ export interface CaptureConfig {
   beforeSend?: (event: ErrorEvent) => ErrorEvent | null
   /** Enable Substrate I/O recording — requires @inariwatch/substrate-agent installed. */
   substrate?: boolean | SubstrateConfig
+  /** Enable browser session recording — requires rrweb installed. Browser-only. */
+  session?: boolean | SessionConfig
 }
 
 export interface SubstrateConfig {
@@ -20,6 +22,30 @@ export interface SubstrateConfig {
   bufferSeconds?: number
   /** Redaction config for sensitive data */
   redact?: Record<string, unknown>
+}
+
+export interface SessionConfig {
+  /** Max events in ring buffer (default: 200) */
+  maxEvents?: number
+  /** Max seconds to keep in buffer (default: 60) */
+  maxSeconds?: number
+  /** CSS selectors whose text content should be redacted */
+  redactSelectors?: string[]
+  /** Mask all input values (default: false — only passwords are masked) */
+  maskAllInputs?: boolean
+}
+
+export interface SessionEvent {
+  timestamp: number
+  type: "click" | "input" | "navigation" | "scroll"
+  /** CSS selector for the interacted element */
+  selector?: string
+  /** Input value (redacted for passwords) */
+  value?: string
+  /** Page URL for navigation events */
+  url?: string
+  /** Raw rrweb event for the dashboard viewer replay */
+  rrwebEvent: unknown
 }
 
 export interface Breadcrumb {
@@ -83,6 +109,8 @@ export interface ErrorEvent {
   user?: { id?: string; role?: string }
   /** Custom tags */
   tags?: Record<string, string>
+  /** Browser session events (rrweb) — attached on error flush */
+  sessionEvents?: SessionEvent[]
 }
 
 export interface ParsedDSN {

@@ -161,7 +161,8 @@ export async function waitForStagingReady(
 
 export async function verifyStagingWithBot(
   deployId: string,
-  substrateEvents?: { type: string; method: string; path: string; body?: unknown; expectedStatus?: number }[]
+  substrateEvents?: { type: string; method: string; path: string; body?: unknown; expectedStatus?: number }[],
+  uiActions?: { type: string; selector?: string; value?: string; url?: string; timestamp: number }[]
 ): Promise<StagingVerifyResult> {
   const events = substrateEvents ?? [
     // Default: basic health check
@@ -182,6 +183,7 @@ export async function verifyStagingWithBot(
         { type: "no_500_errors" },
         { type: "no_console_errors" },
       ],
+      ui_actions: uiActions ?? [],
     }),
   });
 
@@ -217,6 +219,29 @@ export async function destroyStagingEnvironment(deployId: string): Promise<void>
 }
 
 // ── Extract Substrate Events for Replay ─────────────────────────────────────
+
+/** Extract UI actions (clicks, inputs, navigation) from session recording for bot replay. */
+export function extractUIReplayActions(
+  uiEvents: unknown[] | null
+): { type: string; selector?: string; value?: string; url?: string; timestamp: number }[] {
+  if (!uiEvents?.length) return [];
+
+  const raw = uiEvents as Record<string, unknown>[];
+  const actions: { type: string; selector?: string; value?: string; url?: string; timestamp: number }[] = [];
+
+  for (const e of raw) {
+    if (actions.length >= 50) break;
+    const type = typeof e.type === "string" ? e.type : "";
+    if (type !== "click" && type !== "input" && type !== "navigation") continue;
+    const selector = typeof e.selector === "string" ? e.selector.slice(0, 200) : undefined;
+    const value = type === "input" && typeof e.value === "string" ? e.value : undefined;
+    const url = type === "navigation" && typeof e.url === "string" ? e.url : undefined;
+    const timestamp = typeof e.timestamp === "number" ? e.timestamp : 0;
+    actions.push({ type, selector, value, url, timestamp });
+  }
+
+  return actions;
+}
 
 /** Extract HTTP request events from a Substrate recording for bot replay. */
 export function extractReplayEvents(

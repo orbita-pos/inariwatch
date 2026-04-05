@@ -41,11 +41,20 @@ export async function POST(req: NextRequest) {
       categories,
       context,
       events,
+      uiEvents,
     } = body;
 
     if (!recordingId) {
       return NextResponse.json(
         { error: "recordingId is required" },
+        { status: 400 }
+      );
+    }
+
+    // Size validation for uiEvents (max 5000 events to prevent OOM/DB bloat)
+    if (Array.isArray(uiEvents) && uiEvents.length > 5000) {
+      return NextResponse.json(
+        { error: "uiEvents exceeds max 5000 events" },
         { status: 400 }
       );
     }
@@ -76,6 +85,7 @@ export async function POST(req: NextRequest) {
           projectId: projectId || null,
           context: context || null,
           events: events || null,
+          uiEvents: uiEvents || null,
           eventCount: eventCount || 0,
           durationMs: durationMs || null,
           categories: categories || null,
@@ -105,6 +115,7 @@ export async function POST(req: NextRequest) {
       categories: categories || null,
       context: context || null,
       events: events || null,
+      uiEvents: uiEvents || null,
     });
 
     return NextResponse.json({
