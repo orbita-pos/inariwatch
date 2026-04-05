@@ -28,9 +28,13 @@ async function ghFetch(url: string, init?: RequestInit): Promise<Response> {
     lastResponse = res;
     if (attempt === MAX_RETRIES) break;
     const retryAfter = res.headers.get("retry-after");
-    const waitMs = retryAfter
-      ? Math.min(parseInt(retryAfter, 10) * 1000, 60_000)
-      : Math.min(1000 * Math.pow(2, attempt), 30_000);
+    let waitMs = Math.min(1000 * Math.pow(2, attempt), 30_000);
+    if (retryAfter) {
+      const parsed = parseInt(retryAfter, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        waitMs = Math.min(parsed * 1000, 60_000);
+      }
+    }
     await new Promise((r) => setTimeout(r, waitMs));
   }
 

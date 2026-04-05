@@ -878,56 +878,149 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             "Substrate replay skipped (non-blocking)", emit);
         }
 
-        // ── E2E STAGING VERIFICATION ──────────────────────────────────
+        // ── STAGING VERIFICATION ─────────────────────────────────────
         let e2eStagingPassed: boolean | null = null;
-        try {
-          const { detectE2EConfig, pushE2EWorkflow, waitForE2EResult } = await import("./staging-e2e");
 
-          steps = await pushStep(sessionId, steps,
-            makeStep("e2e_staging", "Detecting E2E test configuration..."), emit);
+        // Primary: InariWatch Staging Server (ephemeral Docker container + Playwright bot)
+        const stagingServerConfigured = !!process.env.STAGING_SERVER_URL;
+        if (stagingServerConfigured) {
+          try {
+            const {
+              deployStagingEnvironment, waitForStagingReady,
+              verifyStagingWithBot, destroyStagingEnvironment, extractReplayEvents,
+            } = await import("./staging-deploy");
 
-          const e2eConfig = await detectE2EConfig(token, owner, repo, defaultBranch);
+            const deployId = `fix-${sessionId.slice(0, 8)}`;
 
-          if (e2eConfig) {
-            emit("e2e_staging", { status: "detected", framework: e2eConfig.framework, testCommand: e2eConfig.testCommand });
+            steps = await pushStep(sessionId, steps,
+              makeStep("staging_deploy", "Deploying to staging environment..."), emit);
 
-            // Push the E2E workflow to the fix branch
-            const pushed = await pushE2EWorkflow(token, owner, repo, branchName, e2eConfig);
+            // Deploy
+            const deploy = await deployStagingEnvironment({
+              deployId,
+              repoUrl: `https://github.com/${fullRepo}.git`,
+              branch: branchName,
+              githubToken: token,
+              projectId: session.projectId,
+              ttlSeconds: 300,
+            });
+            emit("staging_deploy", { status: "deploying", url: deploy.url, id: deployId });
 
-            if (pushed) {
+            try {
+              // Wait for running
               steps = await resolveStep(sessionId, steps, "completed",
-                `E2E staging: ${e2eConfig.framework} detected, running ${e2eConfig.testCommand}...`, emit);
+                `Staging deploying: ${deploy.url}`, emit);
 
-              // Wait for the E2E check to complete (polls every 20s, max 10 min)
               steps = await pushStep(sessionId, steps,
-                makeStep("e2e_wait", "Waiting for E2E staging results..."), emit);
+                makeStep("staging_wait", "Waiting for staging to be ready..."), emit);
 
-              const headSha = await gh.getBranchSha(token, owner, repo, branchName);
-              const e2eResult = await waitForE2EResult(token, owner, repo, headSha);
+              const ready = await waitForStagingReady(deployId, 180_000);
+              emit("staging_deploy", { status: "running", url: ready.url, id: deployId });
 
-              if (e2eResult) {
-                e2eStagingPassed = e2eResult.passed;
-                emit("e2e_staging", { status: "completed", passed: e2eResult.passed, duration: e2eResult.duration });
-                steps = await resolveStep(sessionId, steps,
-                  e2eResult.passed ? "completed" : "failed",
-                  e2eResult.passed
-                    ? `E2E staging passed (${e2eResult.duration}s)`
-                    : `E2E staging failed: ${e2eResult.logs}`, emit);
+              steps = await resolveStep(sessionId, steps, "completed",
+                `Staging ready: ${ready.url}`, emit);
+
+              // Verify with Playwright bot
+              steps = await pushStep(sessionId, steps,
+                makeStep("staging_verify", "Running browser verification bot..."), emit);
+              emit("staging_deploy", { status: "verifying", url: ready.url, id: deployId });
+
+              // Extract HTTP events from Substrate recording for replay
+              let replayEvents: { type: string; method: string; path: string; body?: unknown; expectedStatus?: number }[] | undefined;
+              try {
+                const [rec] = await db.select({ events: substrateRecordings.events })
+                  .from(substrateRecordings)
+                  .where(eq(substrateRecordings.projectId, session.projectId))
+                  .orderBy(desc(substrateRecordings.createdAt))
+                  .limit(1);
+                if (rec?.events) {
+                  replayEvents = extractReplayEvents(rec as { events: unknown[] });
+                }
+              } catch { /* non-blocking */ }
+
+              const verification = await verifyStagingWithBot(deployId, replayEvents);
+              e2eStagingPassed = verification.passed;
+
+              emit("staging_deploy", {
+                status: verification.passed ? "passed" : "failed",
+                url: ready.url,
+                id: deployId,
+                results: verification.results,
+                consoleErrors: verification.consoleErrors,
+                durationMs: verification.durationMs,
+              });
+
+              const resultSummary = verification.results
+                .map((r) => `${r.passed ? "✓" : "✗"} ${r.statusCode} (${r.durationMs}ms)`)
+                .join(", ");
+
+              steps = await resolveStep(sessionId, steps,
+                verification.passed ? "completed" : "failed",
+                verification.passed
+                  ? `Staging verified: ${resultSummary} | ${verification.consoleErrors.length} console errors`
+                  : `Staging failed: ${resultSummary}`, emit);
+            } finally {
+              // Guarantee cleanup even if verification throws
+              destroyStagingEnvironment(deployId).catch((e) => log.warn("staging_cleanup_failed", { deployId, error: e instanceof Error ? e.message : String(e) }));
+            }
+
+          } catch (e) {
+            log.warn("staging_server_failed", { error: e instanceof Error ? e.message : String(e) });
+            steps = await resolveStep(sessionId, steps, "completed",
+              "Staging server unavailable — falling back to E2E", emit);
+            // Fall through to GitHub Actions E2E fallback below
+          }
+        }
+
+        // Fallback: GitHub Actions E2E (when staging server not configured or failed)
+        if (e2eStagingPassed === null) {
+          try {
+            const { detectE2EConfig, pushE2EWorkflow, waitForE2EResult } = await import("./staging-e2e");
+
+            steps = await pushStep(sessionId, steps,
+              makeStep("e2e_staging", "Detecting E2E test configuration..."), emit);
+
+            const e2eConfig = await detectE2EConfig(token, owner, repo, defaultBranch);
+
+            if (e2eConfig) {
+              emit("e2e_staging", { status: "detected", framework: e2eConfig.framework, testCommand: e2eConfig.testCommand });
+
+              const pushed = await pushE2EWorkflow(token, owner, repo, branchName, e2eConfig);
+
+              if (pushed) {
+                steps = await resolveStep(sessionId, steps, "completed",
+                  `E2E staging: ${e2eConfig.framework} detected, running ${e2eConfig.testCommand}...`, emit);
+
+                steps = await pushStep(sessionId, steps,
+                  makeStep("e2e_wait", "Waiting for E2E staging results..."), emit);
+
+                const headSha = await gh.getBranchSha(token, owner, repo, branchName);
+                const e2eResult = await waitForE2EResult(token, owner, repo, headSha);
+
+                if (e2eResult) {
+                  e2eStagingPassed = e2eResult.passed;
+                  emit("e2e_staging", { status: "completed", passed: e2eResult.passed, duration: e2eResult.duration });
+                  steps = await resolveStep(sessionId, steps,
+                    e2eResult.passed ? "completed" : "failed",
+                    e2eResult.passed
+                      ? `E2E staging passed (${e2eResult.duration}s)`
+                      : `E2E staging failed: ${e2eResult.logs}`, emit);
+                } else {
+                  steps = await resolveStep(sessionId, steps, "completed",
+                    "E2E staging timed out (non-blocking)", emit);
+                }
               } else {
                 steps = await resolveStep(sessionId, steps, "completed",
-                  "E2E staging timed out (non-blocking)", emit);
+                  "Could not push E2E workflow — skipped", emit);
               }
             } else {
               steps = await resolveStep(sessionId, steps, "completed",
-                "Could not push E2E workflow — skipped", emit);
+                "No E2E test framework detected — staging skipped", emit);
             }
-          } else {
+          } catch {
             steps = await resolveStep(sessionId, steps, "completed",
-              "No E2E test framework detected — staging skipped", emit);
+              "E2E staging skipped (non-blocking)", emit);
           }
-        } catch {
-          steps = await resolveStep(sessionId, steps, "completed",
-            "E2E staging skipped (non-blocking)", emit);
         }
 
         // ── EVALUATE AUTO-MERGE GATES ──────────────────────────────────
