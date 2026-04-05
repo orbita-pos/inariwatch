@@ -655,9 +655,9 @@ function AIFeatures() {
     },
     {
       icon: <Shield className="h-5 w-5" />,
-      title: "Auto-Heal + E2E Staging",
-      body: "Site goes down? Rollback in 30s, fix in background. E2E tests run against the fix in GitHub Actions before merge.",
-      tag: "Self-healing",
+      title: "Staging Verification",
+      body: "Every fix deploys to an ephemeral staging environment. A Playwright bot replays the exact user session that caused the crash. Fix verified before it touches production.",
+      tag: "Staging",
     },
     {
       icon: <Hash className="h-5 w-5" />,

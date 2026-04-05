@@ -13,6 +13,7 @@ const FREE_FEATURES = [
   "Unlimited alerts",
   "AI auto-analysis on every alert",
   "AI remediation pipeline (BYOK)",
+  "Staging verification (ephemeral environments)",
   "11 safety gates + trust levels",
   "Slack bot (14 commands)",
   "Telegram bot (15 commands)",

@@ -1349,6 +1349,21 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               { title: "Cooldown", body: "10-minute cooldown between auto-heal triggers prevents loops if the issue is not code-related (DB down, DNS, etc.)." },
             ]} />
 
+            <SectionHeading id="staging-verification">Staging Verification</SectionHeading>
+            <P>
+              Before any fix reaches production, InariWatch deploys it to an ephemeral staging environment.
+              A Playwright bot replays the exact HTTP requests from the Substrate recording — the same actions that
+              caused the original crash — against the fixed code. If the error persists, the AI retries with a different
+              approach. If it passes, the fix proceeds to the auto-merge safety gates.
+            </P>
+            <StepList steps={[
+              { title: "Fix generated", body: "AI generates a code fix and pushes it to a branch." },
+              { title: "Staging deploy", body: "The fix branch is deployed to an isolated Docker container with its own URL (e.g. fix-abc.staging.inariwatch.com)." },
+              { title: "Bot verification", body: "A headless Chromium browser replays the recorded user session against the staging URL. Checks for 500 errors, console exceptions, and response correctness." },
+              { title: "Result", body: "If the bot confirms the fix works, it proceeds to the 11 safety gates. If it fails, AI retries with a different approach (up to 2 retries)." },
+              { title: "Cleanup", body: "The staging container is automatically destroyed after verification (5 min TTL). No manual cleanup needed." },
+            ]} />
+
             <SectionHeading id="community-fixes">Autonomous Mode — Community Fixes</SectionHeading>
             <P>
               Every fix that gets approved is automatically and anonymously contributed to the community network.
