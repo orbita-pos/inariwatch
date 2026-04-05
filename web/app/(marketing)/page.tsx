@@ -32,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
+import { DemoVideo } from "./demo-video";
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -132,34 +133,7 @@ function Hero() {
   );
 }
 
-// ── Demo video ───────────────────────────────────────────────────────────────
-
-function DemoVideo() {
-  return (
-    <section className="py-12 bg-inari-bg">
-      <div className="mx-auto max-w-4xl px-6">
-        <div className="rounded-2xl border border-inari-accent/20 overflow-hidden shadow-2xl shadow-purple-500/10">
-          <video
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="w-full"
-            poster="/demo-poster.png"
-          >
-            <source
-              src="/demo.mp4"
-              type="video/mp4"
-            />
-          </video>
-        </div>
-        <p className="text-center text-xs text-zinc-600 mt-3">
-          From error to merged PR in 2 minutes. Fully automated.
-        </p>
-      </div>
-    </section>
-  );
-}
+// ── Demo video (client component — loads video on click, not on page load) ───
 
 // ── Stats bar ─────────────────────────────────────────────────────────────────
 
