@@ -44,3 +44,10 @@ export const timeToHeal = new Trend("time_to_heal", true);
 
 // ── Rate limit metrics (shared) ─────────────────────────────────────────────
 export const rateLimitHit = new Rate("rate_limit_hit");
+
+// ── Chaos L4 metrics ────────────────────────────────────────────────────────
+export const chaosPhasesPassed = new Counter("chaos_phases_passed");
+export const chaosPhasesTotal = new Counter("chaos_phases_total");
+export const chaosLatency = new Trend("chaos_latency", true);
+export const tenantIsolationDelta = new Trend("tenant_isolation_delta_ms", true);
+export const sseLeakedConnections = new Counter("sse_leaked_connections");

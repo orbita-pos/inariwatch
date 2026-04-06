@@ -63,7 +63,9 @@ export async function sendAlertToTelegram(alert: Alert): Promise<void> {
         setTimeout(() => attachSubstrate(config.bot_token!, config.chat_id!, alert.id, msgId).catch(() => {}), 5000);
         setTimeout(() => attachCommunityFix(config.bot_token!, config.chat_id!, alert, msgId).catch(() => {}), 3000);
       }
-    } catch {}
+    } catch (err) {
+      console.error("[telegram] sendAlertToTelegram failed:", err instanceof Error ? err.message : err);
+    }
   }
 
   // Tag on-call user for critical alerts
@@ -77,7 +79,9 @@ export async function sendAlertToTelegram(alert: Alert): Promise<void> {
           await sendMessage(link.botToken, link.chatId, `🚨 <b>Critical alert — you are on-call</b>\n${fmt.esc(alert.title)}\n\n/fix_${alert.id.slice(0, 8)}`);
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error("[telegram] on-call tagging failed:", err instanceof Error ? err.message : err);
+    }
   }
 }
 

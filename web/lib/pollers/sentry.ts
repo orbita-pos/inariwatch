@@ -45,7 +45,10 @@ export async function pollSentry(
       next: { revalidate: 0 },
     }
   );
-  if (!res.ok) return results;
+  if (!res.ok) {
+    console.error(`[sentry-poller] Sentry API error: ${res.status} ${res.statusText}`);
+    return results;
+  }
 
   const issues: SentryIssue[] = await res.json();
 

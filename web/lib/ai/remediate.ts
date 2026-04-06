@@ -11,7 +11,7 @@
 
 import { db, remediationSessions, alerts, projectIntegrations, projects, errorPatterns, communityFixes, substrateRecordings } from "@/lib/db";
 import { eq, and, desc } from "drizzle-orm";
-import { callAI } from "./client";
+import { callAI, callAIWithRetry } from "./client";
 import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, SYSTEM_TEST_GENERATOR, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, buildTestPrompt, type MemoryHint } from "./prompts";
 import { computeErrorFingerprint } from "./fingerprint";
 import { getProjectOwnerAIKey } from "./get-key";
@@ -471,14 +471,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       makeStep("diagnose", `AI is diagnosing with ${hotFiles.size > 0 ? `${hotFiles.size} hot files` : "no history"} + ${deployedFiles.length > 0 ? `${deployedFiles.length} deployed files` : "no deploy context"}...`), emit);
 
     const remModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
-    const diagRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
-      { role: "user", content: buildDiagnosePrompt({
-        title: alert.title,
-        body: alert.body,
-        sourceIntegrations: alert.sourceIntegrations,
-        aiReasoning: alert.aiReasoning,
-      }, repoFiles, remediationContext, pastHints, hotFiles, deployedFiles) },
-    ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
+    let diagRaw: string;
+    try {
+      diagRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
+        { role: "user", content: buildDiagnosePrompt({
+          title: alert.title,
+          body: alert.body,
+          sourceIntegrations: alert.sourceIntegrations,
+          aiReasoning: alert.aiReasoning,
+        }, repoFiles, remediationContext, pastHints, hotFiles, deployedFiles) },
+      ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
+    } catch (err) {
+      await fail(sessionId, emit, `Diagnosis failed: ${err instanceof Error ? err.message : "AI provider error"}`);
+      return;
+    }
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: number };
     try {
@@ -613,9 +619,15 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         }
       } catch { /* non-blocking */ }
 
-      const fixRaw = await callAI(aiKey.key, SYSTEM_REMEDIATOR, [
-        { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx) },
-      ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
+      let fixRaw: string;
+      try {
+        fixRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
+          { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx) },
+        ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
+      } catch (err) {
+        await fail(sessionId, emit, `Fix generation failed: ${err instanceof Error ? err.message : "AI provider error"}`);
+        return;
+      }
 
       let fix: { explanation: string; files: { path: string; content: string }[] };
       try {

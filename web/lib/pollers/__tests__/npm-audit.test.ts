@@ -30,9 +30,24 @@ function makeAdvisory(severity: "critical" | "high" | "medium", pkgName = "lodas
   };
 }
 
+/** OSV batch response format — wraps vulnerabilities per-query */
+function makeOSVBatchResponse(vulns: { severity: string; pkgName?: string }[]) {
+  return {
+    results: vulns.map((v) => ({
+      vulns: [{
+        id: `GHSA-xxxx-${v.severity}`,
+        summary: `${v.severity} vuln in ${v.pkgName ?? "lodash"}`,
+        severity: [{ type: "CVSS_V3", score: v.severity === "critical" ? "9.8" : v.severity === "high" ? "7.5" : "4.0" }],
+        references: [{ type: "ADVISORY", url: `https://github.com/advisories/GHSA-xxxx-${v.severity}` }],
+        affected: [{ ranges: [{ events: [{ introduced: "0" }, { fixed: "4.17.21" }] }] }],
+      }],
+    })),
+  };
+}
+
 const VALID_PACKAGE_JSON = JSON.stringify({
   name: "my-app",
-  dependencies: { lodash: "^4.17.20" },
+  dependencies: { lodash: "4.17.20" },
   devDependencies: {},
 });
 
@@ -82,9 +97,15 @@ describe("pollNpmAudit", () => {
   });
 
   it("creates a critical alert when a critical CVE advisory is returned", async () => {
-    vi.spyOn(global, "fetch")
-      .mockResolvedValueOnce(mockTextResponse(VALID_PACKAGE_JSON))    // package.json
-      .mockResolvedValueOnce(mockJsonResponse([makeAdvisory("critical")])); // advisory API
+    // OSV returns 500 → falls back to GitHub Advisory API
+    vi.spyOn(global, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes("package.json")) return mockTextResponse(VALID_PACKAGE_JSON);
+      if (u.includes("package-lock")) return mockTextResponse("", false);
+      if (u.includes("osv.dev")) return mockTextResponse("", false); // OSV fails → fallback
+      if (u.includes("api.github.com/advisories")) return mockJsonResponse([makeAdvisory("critical")]);
+      return mockTextResponse("", false);
+    });
 
     const alerts = await pollNpmAudit({ packageJsonUrl: PKG_URL });
 
@@ -95,9 +116,14 @@ describe("pollNpmAudit", () => {
   });
 
   it("creates a warning alert when a high CVE advisory is returned", async () => {
-    vi.spyOn(global, "fetch")
-      .mockResolvedValueOnce(mockTextResponse(VALID_PACKAGE_JSON))
-      .mockResolvedValueOnce(mockJsonResponse([makeAdvisory("high")]));
+    vi.spyOn(global, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes("package.json")) return mockTextResponse(VALID_PACKAGE_JSON);
+      if (u.includes("package-lock")) return mockTextResponse("", false);
+      if (u.includes("osv.dev")) return mockTextResponse("", false);
+      if (u.includes("api.github.com/advisories")) return mockJsonResponse([makeAdvisory("high")]);
+      return mockTextResponse("", false);
+    });
 
     const alerts = await pollNpmAudit({ packageJsonUrl: PKG_URL });
 
@@ -136,10 +162,21 @@ describe("pollNpmAudit", () => {
   });
 
   it("creates a critical alert for a Cargo critical CVE", async () => {
-    vi.spyOn(global, "fetch")
-      .mockResolvedValueOnce(mockTextResponse(VALID_CARGO_TOML))         // Cargo.toml
-      .mockResolvedValueOnce(mockJsonResponse([makeAdvisory("critical", "serde")])) // serde advisory
-      .mockResolvedValueOnce(mockJsonResponse([]));                        // tokio advisory
+    const batchResponse = {
+      results: [
+        { vulns: [{ id: "GHSA-cargo-crit", summary: "critical vuln in serde", severity: [{ type: "CVSS_V3", score: "9.8" }], references: [{ type: "ADVISORY", url: "https://example.com" }], affected: [{ ranges: [{ events: [{ introduced: "0" }, { fixed: "1.1" }] }] }] }] },
+        { vulns: [] }, // tokio — clean
+      ],
+    };
+
+    vi.spyOn(global, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes("Cargo.toml")) return mockTextResponse(VALID_CARGO_TOML);
+      if (u.includes("Cargo.lock")) return mockTextResponse("", false);
+      if (u.includes("osv.dev")) return mockTextResponse("", false); // OSV fails → fallback
+      if (u.includes("api.github.com/advisories")) return mockJsonResponse([makeAdvisory("critical", "serde")]);
+      return mockTextResponse("", false);
+    });
 
     const alerts = await pollNpmAudit({ cargoTomlUrl: CARGO_URL });
 

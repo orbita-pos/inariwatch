@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import crypto from "crypto";
 
+// Set NEXTAUTH_SECRET before module import so signValue/verifySignedValue work
+process.env.NEXTAUTH_SECRET = "test-signing-secret-for-vitest";
+
 // ── Mock DB ──────────────────────────────────────────────────────────────────
 
 let selectResults: unknown[][] = [];
 let selectIndex = 0;
 const insertedValues: unknown[] = [];
+let insertShouldConflict = false;
 
 function chainable(result: unknown[]) {
   return {
@@ -34,6 +38,9 @@ vi.mock("@/lib/db", () => ({
       values: (v: unknown) => {
         insertedValues.push(v);
         return {
+          onConflictDoNothing: () => ({
+            returning: () => insertShouldConflict ? [] : [{ id: `alert-${insertedValues.length}`, createdAt: new Date(), ...(v as object) }],
+          }),
           returning: () => [{ id: `alert-${insertedValues.length}`, createdAt: new Date(), ...(v as object) }],
         };
       },
@@ -44,7 +51,7 @@ vi.mock("@/lib/db", () => ({
       }),
     }),
   },
-  alerts: { id: "id", projectId: "projectId", title: "title", isResolved: "isResolved", createdAt: "createdAt" },
+  alerts: { id: "id", projectId: "projectId", title: "title", isResolved: "isResolved", createdAt: "createdAt", fingerprint: "fingerprint" },
   incidentStorms: { id: "id", projectId: "projectId", status: "status" },
   projectIntegrations: { id: "id", isActive: "isActive", projectId: "projectId" },
   projects: { id: "id", userId: "userId" },
@@ -86,6 +93,7 @@ beforeEach(() => {
   selectResults = [];
   selectIndex = 0;
   insertedValues.length = 0;
+  insertShouldConflict = false;
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -164,9 +172,9 @@ describe("createAlertIfNew", () => {
   // ── Standard insertion ─────────────────────────────────────────────────
 
   it("inserts a new alert when no duplicates exist", async () => {
+    // New flow: maintenance → storm → recent (no SELECT dedup for fingerprinted alerts)
     selectResults = [
       [], // no active maintenance window
-      [], // no duplicate
       [], // no active storm
       [], // fewer than 4 recent alerts → no storm trigger
     ];
@@ -183,15 +191,17 @@ describe("createAlertIfNew", () => {
   // ── Deduplication ──────────────────────────────────────────────────────
 
   it("returns null when a duplicate alert exists within 24h window", async () => {
+    // With atomic dedup, INSERT ON CONFLICT DO NOTHING returns empty
     selectResults = [
       [], // no maintenance
-      [{ id: "existing-alert" }], // dup found!
+      [], // no active storm
+      [], // recent alerts
     ];
+    insertShouldConflict = true; // Simulate unique index conflict
 
     const result = await createAlertIfNew(baseAlert, "proj-1");
 
     expect(result).toBeNull();
-    expect(insertedValues.length).toBe(0);
     expect(mockEnqueueAlert).not.toHaveBeenCalled();
   });
 
@@ -212,9 +222,9 @@ describe("createAlertIfNew", () => {
   // ── Storm detection ────────────────────────────────────────────────────
 
   it("triggers a storm when 4+ recent alerts exist (this is the 5th)", async () => {
+    // maintenance → storm → recent
     selectResults = [
       [], // no maintenance
-      [], // no duplicate
       [], // no active storm
       [{ id: "a1" }, { id: "a2" }, { id: "a3" }, { id: "a4" }], // 4 recent alerts → storm!
     ];
@@ -227,9 +237,9 @@ describe("createAlertIfNew", () => {
   });
 
   it("attaches to existing storm without re-triggering notifications", async () => {
+    // maintenance → storm (found)
     selectResults = [
       [], // no maintenance
-      [], // no duplicate
       [{ id: "storm-1" }], // existing active storm
     ];
 
@@ -241,9 +251,9 @@ describe("createAlertIfNew", () => {
   });
 
   it("does not trigger storm with fewer than 4 recent alerts", async () => {
+    // maintenance → storm → recent
     selectResults = [
       [], // no maintenance
-      [], // no duplicate
       [], // no active storm
       [{ id: "a1" }, { id: "a2" }], // only 2 recent → no storm
     ];
@@ -258,7 +268,7 @@ describe("createAlertIfNew", () => {
 
   it("still returns the alert even if enqueueAlert throws", async () => {
     mockEnqueueAlert.mockRejectedValueOnce(new Error("Queue failure"));
-    selectResults = [[], [], [], []];
+    selectResults = [[], [], []]; // maintenance → storm → recent
 
     const result = await createAlertIfNew(baseAlert, "proj-1");
 
@@ -268,7 +278,7 @@ describe("createAlertIfNew", () => {
 
   it("still returns the alert even if outgoing webhook dispatch throws", async () => {
     mockDispatchOutgoing.mockRejectedValueOnce(new Error("Webhook failure"));
-    selectResults = [[], [], [], []];
+    selectResults = [[], [], []]; // maintenance → storm → recent
 
     const result = await createAlertIfNew(baseAlert, "proj-1");
 

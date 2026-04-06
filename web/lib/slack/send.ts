@@ -71,12 +71,16 @@ export async function sendAlertToSlack(
 
   // Attach Substrate recording if one exists for this alert
   if (result.ts) {
-    attachSubstrateRecording(alert.id, alert.projectId, slack, result.ts).catch(() => {});
+    attachSubstrateRecording(alert.id, alert.projectId, slack, result.ts).catch((err) => {
+      console.error("[slack] attachSubstrateRecording failed:", err instanceof Error ? err.message : err);
+    });
   }
 
   // Check for community fix and post if available
   if (result.ts && alert.fingerprint) {
-    attachCommunityFix(alert.id, alert.fingerprint, slack, result.ts).catch(() => {});
+    attachCommunityFix(alert.id, alert.fingerprint, slack, result.ts).catch((err) => {
+      console.error("[slack] attachCommunityFix failed:", err instanceof Error ? err.message : err);
+    });
   }
 }
 

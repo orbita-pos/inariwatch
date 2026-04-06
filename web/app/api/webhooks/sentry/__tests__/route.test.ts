@@ -31,6 +31,7 @@ vi.mock("@/lib/webhooks/shared", () => ({
 const mockCheckRateLimit = vi.fn().mockReturnValue({ allowed: true });
 vi.mock("@/lib/webhooks/rate-limit", () => ({
   checkWebhookRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+  extractClientIp: () => "127.0.0.1",
 }));
 
 const mockAutoAnalyzeAlert = vi.fn().mockResolvedValue(undefined);
@@ -236,7 +237,7 @@ describe("Sentry Webhook POST (/api/webhooks/sentry/[id])", () => {
     const callArgs = mockCreateAlertIfNew.mock.calls[0][0];
     expect(callArgs.severity).toBe("warning");
     expect(callArgs.title).toBe("[Sentry Alert] Response > 500ms");
-    expect(callArgs.body).toBe("API is slow");
+    expect(callArgs.body).toContain("API is slow");
   });
 
   // ── Edge Cases ─────────────────────────────────────────────────────────

@@ -146,7 +146,10 @@ async function resolveTargetChannels(
   if (rule.targetType === "on_call_primary" || rule.targetType === "on_call_secondary") {
     const level = rule.targetType === "on_call_secondary" ? 2 : 1;
     const userId = await getCurrentOnCallUserId(projectId, level);
-    if (!userId) return [];
+    if (!userId) {
+      console.warn(`[escalation] No on-call user for project ${projectId} (level ${level}). Skipped.`);
+      return [];
+    }
     const channelId = await getOnCallChannel(userId);
     return channelId ? [channelId] : [];
   }

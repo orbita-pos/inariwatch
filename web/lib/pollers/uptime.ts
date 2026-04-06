@@ -1,4 +1,5 @@
 import type { NewAlert } from "@/lib/db";
+import { isSafeUrl } from "@/lib/services/url-validation";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,12 @@ export async function pollUptime(
   const slowThreshold = alertConfig.slow_response?.thresholdMs ?? 5000;
 
   for (const endpoint of endpoints) {
+    // Re-validate URL at poll time (defense against DNS rebinding)
+    if (!isSafeUrl(endpoint.url)) {
+      console.warn(`[uptime] Blocked unsafe URL: ${endpoint.url}`);
+      continue;
+    }
+
     const timeout = endpoint.timeoutMs || 10000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);

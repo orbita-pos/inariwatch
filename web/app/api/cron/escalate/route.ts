@@ -145,6 +145,8 @@ export async function GET(req: Request) {
               if (onCallChannelId) {
                 targetChannelId = onCallChannelId;
               }
+            } else {
+              console.warn(`[cron/escalate] No on-call user for project ${rule.projectId}. Rule skipped.`);
             }
           }
         } catch {

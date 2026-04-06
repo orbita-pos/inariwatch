@@ -5,7 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
-import { checkWebhookRateLimit } from "@/lib/webhooks/rate-limit";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 import { db } from "@/lib/db";
 import { substrateRecordings } from "@/lib/db/schema";
@@ -41,7 +41,7 @@ export async function POST(
   const { integrationId } = await params;
 
   // Rate limiting
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -64,6 +64,12 @@ export async function POST(
     return NextResponse.json({ error: "Webhook not configured" }, { status: 403 });
   }
 
+  // Pre-check Content-Length header before reading body into memory
+  const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (contentLength > 200_000) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
+
   const body = await req.text();
   if (body.length > 200_000) {
     return NextResponse.json({ error: "Payload too large" }, { status: 413 });
@@ -84,7 +90,10 @@ export async function POST(
   }
 
   const title = (event.title as string) || "Captured error";
-  const severity = (event.severity as "critical" | "warning" | "info") || "critical";
+  const VALID_SEVERITIES = new Set(["critical", "warning", "info"]);
+  const severity = VALID_SEVERITIES.has(event.severity as string)
+    ? (event.severity as "critical" | "warning" | "info")
+    : "critical";
   const fingerprint = (event.fingerprint as string) || undefined;
 
   // Build alert body from event context
@@ -124,7 +133,7 @@ export async function POST(
     autoAnalyzeAlert(result).catch(() => {});
 
     // Save inline session recording (rrweb) linked to this specific alert
-    const sessionEvents = event.sessionEvents as unknown[] | undefined;
+    const sessionEvents = (event.sessionEvents as unknown[] | undefined)?.slice(0, 5000);
     if (sessionEvents?.length) {
       const recordingId = crypto.randomUUID();
       db.insert(substrateRecordings)
@@ -137,7 +146,7 @@ export async function POST(
           eventCount: 0,
           uiEvents: sessionEvents,
         })
-        .catch(() => {}); // non-blocking
+        .catch((err) => console.error("[capture-webhook] recording insert failed:", err));
     }
   }
 

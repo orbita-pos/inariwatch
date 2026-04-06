@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, alerts, projectIntegrations, projects } from "@/lib/db";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { processNotificationQueue, processEmailDigests } from "@/lib/notifications/send";
 import { createAlertIfNew } from "@/lib/webhooks/shared";
 import { correlateProjectAlerts } from "@/lib/ai/correlate";
@@ -37,6 +37,22 @@ export async function GET(req: Request) {
   const actual = Buffer.from(auth);
   if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // ── 0. Advisory lock — prevent concurrent cron invocations ────────────────
+  try {
+    const lockResult = await db.execute(
+      sql`INSERT INTO cron_locks (key, expires_at)
+          VALUES ('poll', now() + interval '120 seconds')
+          ON CONFLICT (key) DO UPDATE SET expires_at = now() + interval '120 seconds'
+          WHERE cron_locks.expires_at < now()
+          RETURNING key`
+    );
+    if (lockResult.rows.length === 0) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "concurrent_cron" });
+    }
+  } catch {
+    // Lock table may not exist yet (pre-migration) — proceed without lock
   }
 
   // ── 1. Fan out to all per-service sub-routes in parallel ──────────────────
@@ -146,6 +162,13 @@ export async function GET(req: Request) {
     duration_ms,
   });
   await pingCronHealth("poll", allErrors.length === 0);
+
+  // ── Release advisory lock ─────────────────────────────────────────────────
+  try {
+    await db.execute(sql`DELETE FROM cron_locks WHERE key = 'poll'`);
+  } catch {
+    // Non-blocking — lock will auto-expire after 120s
+  }
 
   return NextResponse.json({
     ok: true,

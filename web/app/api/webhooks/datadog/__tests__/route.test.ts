@@ -28,6 +28,7 @@ vi.mock("@/lib/webhooks/shared", () => ({
 const mockCheckRateLimit = vi.fn().mockReturnValue({ allowed: true });
 vi.mock("@/lib/webhooks/rate-limit", () => ({
   checkWebhookRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+  extractClientIp: () => "127.0.0.1",
 }));
 
 const mockAutoAnalyzeAlert = vi.fn().mockResolvedValue(undefined);

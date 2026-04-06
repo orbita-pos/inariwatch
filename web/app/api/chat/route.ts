@@ -36,8 +36,10 @@ export async function POST(req: NextRequest) {
   const ctx = await gatherChatContext(projectIds);
   const context = buildContextString(ctx);
 
+  // Limit conversation history to prevent unbounded token accumulation
+  const history = messages.slice(0, -1).slice(-15);
   const aiMessages = [
-    ...messages.slice(0, -1).map((m) => ({
+    ...history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     })),

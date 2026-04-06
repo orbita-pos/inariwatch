@@ -18,6 +18,24 @@ const DEFAULT_MAX_REQUESTS = 60; // per window
  * @returns `{ allowed: true }` or `{ allowed: false, retryAfter }` where
  *          `retryAfter` is the number of seconds until the window resets.
  */
+/**
+ * Extract the real client IP from request headers.
+ * Uses x-real-ip (set by Vercel, cannot be spoofed) with fallback
+ * to rightmost x-forwarded-for (added by trusted proxy).
+ */
+export function extractClientIp(req: Request): string {
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    return parts[parts.length - 1] || "unknown";
+  }
+
+  return "unknown";
+}
+
 export async function checkWebhookRateLimit(
   ip: string,
   windowMs: number = DEFAULT_WINDOW_MS,

@@ -44,6 +44,10 @@ SCENARIOS=(
   "push-serialization"
   "auto-heal"
   "full-incident"
+  "chaos-incident"
+  "chaos-mcp-storm"
+  "chaos-tenant-isolation"
+  "chaos-sse"
 )
 
 # List mode

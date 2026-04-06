@@ -53,6 +53,9 @@ function resetDb() {
   mockUpdate.mockReset();
 
   // Default execute: return empty rows
+  // NOTE: detectAnomalies runs 4 detectors in Promise.all, so mockExecute
+  // calls are concurrent and order is non-deterministic. Use mockResolvedValue
+  // (not mockResolvedValueOnce) for defaults, and mockImplementation for specific tests.
   mockExecute.mockResolvedValue({ rows: [] });
 
   // Default select: return empty array
@@ -63,6 +66,20 @@ function resetDb() {
     set: vi.fn().mockReturnValue({
       where: vi.fn().mockResolvedValue(undefined),
     }),
+  });
+}
+
+/**
+ * Route db.execute calls based on SQL content.
+ * This handles the concurrent Promise.all in detectAnomalies correctly.
+ */
+function mockExecuteRouted(routes: Record<string, { rows: unknown[] }>) {
+  mockExecute.mockImplementation((...args: unknown[]) => {
+    const sqlStr = JSON.stringify(args);
+    for (const [keyword, result] of Object.entries(routes)) {
+      if (sqlStr.includes(keyword)) return Promise.resolve(result);
+    }
+    return Promise.resolve({ rows: [] });
   });
 }
 
@@ -87,11 +104,10 @@ describe("detectAnomalies", () => {
 
   it("detectAlertSpikes: creates a critical anomaly when recent count is ≥5× the hourly baseline", async () => {
     // baseline: avg 2/hr; recent: 12 in 2h → ratio 6× → critical
-    mockExecute
-      .mockResolvedValueOnce({ rows: [{ project_id: "proj-1", avg_per_hour: 2 }] })  // baseline
-      .mockResolvedValueOnce({ rows: [{ project_id: "proj-1", recent_count: 12 }] }) // recent
-      .mockResolvedValueOnce({ rows: [] }) // repeating failures
-      .mockResolvedValueOnce({ rows: [] }); // silent projects
+    mockExecuteRouted({
+      avg_per_hour: { rows: [{ project_id: "proj-1", avg_per_hour: 2 }] },
+      recent_count: { rows: [{ project_id: "proj-1", recent_count: 12 }] },
+    });
 
     const results = await detectAnomalies(["proj-1"]);
 
@@ -103,11 +119,10 @@ describe("detectAnomalies", () => {
 
   it("detectAlertSpikes: creates a warning anomaly when recent count is 3–5× the hourly baseline", async () => {
     // baseline: avg 2/hr; recent: 8 in 2h → ratio 4× → warning
-    mockExecute
-      .mockResolvedValueOnce({ rows: [{ project_id: "proj-1", avg_per_hour: 2 }] })
-      .mockResolvedValueOnce({ rows: [{ project_id: "proj-1", recent_count: 8 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    mockExecuteRouted({
+      avg_per_hour: { rows: [{ project_id: "proj-1", avg_per_hour: 2 }] },
+      recent_count: { rows: [{ project_id: "proj-1", recent_count: 8 }] },
+    });
 
     const results = await detectAnomalies(["proj-1"]);
 
@@ -118,24 +133,19 @@ describe("detectAnomalies", () => {
 
   it("detectAlertSpikes: skips projects with fewer than 3 recent alerts regardless of ratio", async () => {
     // recent_count = 2 → below the minimum of 3
-    mockExecute
-      .mockResolvedValueOnce({ rows: [{ project_id: "proj-1", avg_per_hour: 0.1 }] })
-      .mockResolvedValueOnce({ rows: [{ project_id: "proj-1", recent_count: 2 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    mockExecuteRouted({
+      avg_per_hour: { rows: [{ project_id: "proj-1", avg_per_hour: 0.1 }] },
+      recent_count: { rows: [{ project_id: "proj-1", recent_count: 2 }] },
+    });
 
     const results = await detectAnomalies(["proj-1"]);
     expect(results.some((r) => r.title.startsWith("Anomaly: alert"))).toBe(false);
   });
 
   it("detectRepeatingFailures: creates a warning when an alert title repeats ≥3 times in 24h", async () => {
-    mockExecute
-      .mockResolvedValueOnce({ rows: [] }) // baseline (spikes)
-      .mockResolvedValueOnce({ rows: [] }) // recent (spikes)
-      .mockResolvedValueOnce({             // repeating failures
-        rows: [{ project_id: "proj-1", alert_title: "CI failing on api/main", occurrences: 4 }],
-      })
-      .mockResolvedValueOnce({ rows: [] }); // silent projects
+    mockExecuteRouted({
+      occurrences: { rows: [{ project_id: "proj-1", alert_title: "CI failing on api/main", occurrences: 4 }] },
+    });
 
     const results = await detectAnomalies(["proj-1"]);
 
@@ -168,13 +178,9 @@ describe("detectAnomalies", () => {
   });
 
   it("detectSilentProjects: creates an info anomaly when avgDaily ≥ 2 but last 7d count is 0", async () => {
-    mockExecute
-      .mockResolvedValueOnce({ rows: [] }) // baseline (spikes)
-      .mockResolvedValueOnce({ rows: [] }) // recent (spikes)
-      .mockResolvedValueOnce({ rows: [] }) // repeating failures
-      .mockResolvedValueOnce({             // silent projects
-        rows: [{ project_id: "proj-1", avg_daily: 5, last_7d_count: 0 }],
-      });
+    mockExecuteRouted({
+      avg_daily: { rows: [{ project_id: "proj-1", avg_daily: 5, last_7d_count: 0 }] },
+    });
 
     const results = await detectAnomalies(["proj-1"]);
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAlertIfNew, loadIntegration, markIntegrationSuccess } from "@/lib/webhooks/shared";
 import { rateLimit } from "@/lib/auth-rate-limit";
+import { extractClientIp } from "@/lib/webhooks/rate-limit";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 import crypto from "crypto";
 
@@ -21,7 +22,7 @@ export async function POST(
   }
 
   // Rate limit
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = extractClientIp(req);
   const rl = await rateLimit("webhook-expo", ip, { windowMs: 60_000, max: 60 });
   if (!rl.allowed) {
     return NextResponse.json({ error: "Rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds ?? 60) } });

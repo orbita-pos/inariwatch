@@ -51,6 +51,39 @@ export async function callAI(
 }
 
 /**
+ * Call the AI with retries and exponential backoff.
+ * Retries on 429 (rate limit), 500/502/503 (server error), and network timeouts.
+ * Use this instead of callAI() for critical paths (remediation, diagnosis).
+ */
+export async function callAIWithRetry(
+  apiKey: string,
+  systemPrompt: string,
+  messages: AIMessage[],
+  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider; retries?: number } = {}
+): Promise<string> {
+  const maxRetries = opts.retries ?? 2;
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await callAI(apiKey, systemPrompt, messages, opts);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Don't retry auth errors (401/403) — they won't succeed on retry
+      const msg = lastError.message;
+      if (msg.includes("(401)") || msg.includes("(403)")) throw lastError;
+      if (attempt < maxRetries) {
+        const delayMs = 1000 * (attempt + 1); // 1s, 2s, 3s...
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+
+  const provider = opts.provider ?? detectProvider(apiKey);
+  throw new Error(`AI provider "${provider}" failed after ${maxRetries + 1} attempts: ${lastError!.message}`);
+}
+
+/**
  * Call the AI with a screenshot (base64 PNG) and a text prompt.
  * Uses the user's BYOK provider. All major providers support vision.
  * Groq and DeepSeek don't support vision — falls back to text-only with a note.
@@ -156,6 +189,9 @@ async function callGemini(
   opts: { maxTokens?: number; model?: string; timeout?: number }
 ): Promise<string> {
   const model = opts.model ?? "gemini-1.5-flash";
+  if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid Gemini model name");
+  // Note: Gemini REST API requires the API key as a URL query parameter — this is Google's API design.
+  // Ensure no middleware or logging captures outgoing request URLs containing the key.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const contents = messages.map((m) => ({
@@ -267,6 +303,8 @@ async function callGeminiVision(
   opts: { maxTokens?: number; model?: string; timeout?: number }
 ): Promise<string> {
   const model = opts.model ?? "gemini-1.5-flash";
+  if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid Gemini model name");
+  // Note: Gemini REST API requires the API key as a URL query parameter — this is Google's API design.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {

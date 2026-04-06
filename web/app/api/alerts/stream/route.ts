@@ -19,6 +19,9 @@ export async function GET() {
   const encoder = new TextEncoder();
   let closed = false;
 
+  let interval: ReturnType<typeof setInterval> | undefined;
+  let maxLifetime: ReturnType<typeof setTimeout> | undefined;
+
   const stream = new ReadableStream({
     async start(controller) {
       // Send initial connection event
@@ -27,7 +30,7 @@ export async function GET() {
       // Poll every 10 seconds for new alerts
       let lastCheckTime = new Date();
 
-      const interval = setInterval(async () => {
+      interval = setInterval(async () => {
         if (closed) {
           clearInterval(interval);
           return;
@@ -72,17 +75,17 @@ export async function GET() {
         }
       }, 10000);
 
-      // Cleanup on close
-      const checkClosed = setInterval(() => {
-        if (closed) {
-          clearInterval(interval);
-          clearInterval(checkClosed);
-          try { controller.close(); } catch {}
-        }
-      }, 1000);
+      // Auto-close under Vercel's 60s serverless limit — safety net
+      maxLifetime = setTimeout(() => {
+        closed = true;
+        clearInterval(interval);
+        try { controller.close(); } catch {}
+      }, 55000);
     },
     cancel() {
       closed = true;
+      if (interval) clearInterval(interval);
+      if (maxLifetime) clearTimeout(maxLifetime);
     },
   });
 

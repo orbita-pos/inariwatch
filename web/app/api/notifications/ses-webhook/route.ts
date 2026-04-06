@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { suppressEmail } from "@/lib/notifications/rate-limit";
-import { checkWebhookRateLimit } from "@/lib/webhooks/rate-limit";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import crypto from "crypto";
 
 const SES_WEBHOOK_SECRET = process.env.SES_WEBHOOK_SECRET;
@@ -16,7 +16,7 @@ const SES_WEBHOOK_SECRET = process.env.SES_WEBHOOK_SECRET;
  */
 export async function POST(req: Request) {
   // Rate limiting
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);
   if (!rateLimit.allowed) {
     return NextResponse.json(

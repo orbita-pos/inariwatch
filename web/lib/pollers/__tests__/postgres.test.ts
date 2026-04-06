@@ -8,12 +8,13 @@ let mockQuery: ReturnType<typeof vi.fn>;
 let mockEnd: ReturnType<typeof vi.fn>;
 
 vi.mock("pg", () => {
-  const Client = vi.fn().mockImplementation(() => ({
-    connect: (...args: unknown[]) => mockConnect(...args),
-    query: (...args: unknown[]) => mockQuery(...args),
-    end: (...args: unknown[]) => mockEnd(...args),
-  }));
-  return { Client };
+  return {
+    Client: class MockClient {
+      connect(...args: unknown[]) { return mockConnect(...args); }
+      query(...args: unknown[]) { return mockQuery(...args); }
+      end(...args: unknown[]) { return mockEnd(...args); }
+    },
+  };
 });
 
 // Import AFTER mock is set up
@@ -45,14 +46,15 @@ function emptyResult() {
 
 describe("pollPostgres", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     mockConnect = vi.fn().mockResolvedValue(undefined);
     mockEnd = vi.fn().mockResolvedValue(undefined);
-    // Default: no high connections, no long queries, no db size error
+    // Default: healthy — no high connections, no long queries, no blocking, no idle-in-tx
     mockQuery = vi.fn()
-      .mockResolvedValueOnce(makeConnResult(10, 100))   // connection count query
-      .mockResolvedValueOnce(emptyResult())              // long queries
-      .mockResolvedValueOnce({ rows: [{ size_bytes: 1024 }] }); // db size
+      .mockResolvedValueOnce(makeConnResult(10, 100))             // connection count
+      .mockResolvedValueOnce(emptyResult())                       // long queries
+      .mockResolvedValueOnce(emptyResult())                       // blocking queries
+      .mockResolvedValueOnce(emptyResult());                      // idle-in-transaction
   });
 
   it("creates a critical alert when connection fails", async () => {
@@ -81,8 +83,9 @@ describe("pollPostgres", () => {
   it("creates a warning alert when connections exceed the threshold but are below 95%", async () => {
     mockQuery = vi.fn()
       .mockResolvedValueOnce(makeConnResult(85, 100))  // 85% — above default 80% threshold, below 95%
-      .mockResolvedValueOnce(emptyResult())
-      .mockResolvedValueOnce({ rows: [{ size_bytes: 1024 }] });
+      .mockResolvedValueOnce(emptyResult())             // long queries
+      .mockResolvedValueOnce(emptyResult())             // blocking
+      .mockResolvedValueOnce(emptyResult());            // idle-in-tx
 
     const alerts = await pollPostgres(BASE_CONFIG, { high_connections: { enabled: true, thresholdPercent: 80 } });
 
@@ -95,8 +98,9 @@ describe("pollPostgres", () => {
   it("creates a critical alert when connections are at or above 95%", async () => {
     mockQuery = vi.fn()
       .mockResolvedValueOnce(makeConnResult(96, 100))  // 96%
-      .mockResolvedValueOnce(emptyResult())
-      .mockResolvedValueOnce({ rows: [{ size_bytes: 1024 }] });
+      .mockResolvedValueOnce(emptyResult())             // long queries
+      .mockResolvedValueOnce(emptyResult())             // blocking
+      .mockResolvedValueOnce(emptyResult());            // idle-in-tx
 
     const alerts = await pollPostgres(BASE_CONFIG, { high_connections: { enabled: true, thresholdPercent: 80 } });
 
@@ -107,9 +111,10 @@ describe("pollPostgres", () => {
 
   it("creates a warning alert when long-running queries are detected", async () => {
     mockQuery = vi.fn()
-      .mockResolvedValueOnce(makeConnResult(10, 100))
-      .mockResolvedValueOnce(makeLongQueryResult(2))
-      .mockResolvedValueOnce({ rows: [{ size_bytes: 1024 }] });
+      .mockResolvedValueOnce(makeConnResult(10, 100))   // connections
+      .mockResolvedValueOnce(makeLongQueryResult(2))     // long queries
+      .mockResolvedValueOnce(emptyResult())              // blocking
+      .mockResolvedValueOnce(emptyResult());             // idle-in-tx
 
     const alerts = await pollPostgres(BASE_CONFIG);
 

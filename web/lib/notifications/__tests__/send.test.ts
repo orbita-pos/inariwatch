@@ -69,6 +69,11 @@ vi.mock("@/lib/db", () => ({
   notificationLogs: { id: "id", openedAt: "openedAt", clickedAt: "clickedAt" },
   notificationQueue: { id: "id", status: "status", nextRetry: "nextRetry", priority: "priority", createdAt: "createdAt" },
   alerts: { id: "id", projectId: "projectId" },
+  severityMeetsMinimum: (alertSeverity: string, minSeverity?: string) => {
+    if (!minSeverity || minSeverity === "info") return true;
+    const levels: Record<string, number> = { critical: 3, warning: 2, info: 1 };
+    return (levels[alertSeverity] ?? 0) >= (levels[minSeverity] ?? 0);
+  },
 }));
 
 const { enqueueAlert, notifyAlert } = await import("../send");

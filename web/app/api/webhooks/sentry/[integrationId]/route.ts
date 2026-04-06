@@ -5,7 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
-import { checkWebhookRateLimit } from "@/lib/webhooks/rate-limit";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { decryptConfig } from "@/lib/crypto";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 
@@ -87,7 +87,7 @@ export async function POST(
   const { integrationId } = await params;
 
   // Rate limiting
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);
   if (!rateLimit.allowed) {
     return NextResponse.json(

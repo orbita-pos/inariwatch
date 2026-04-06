@@ -266,24 +266,43 @@ See `web/.env.example`. Key vars:
 - MCP OAuth: CSRF protection via HTTP-only cookie + token validation
 - Encryption: API keys encrypted at rest via ENCRYPTION_KEY
 
-## Stress testing (k6)
+## Chaos engineering & stress testing
 
-10-scenario k6 stress test suite in `k6/`. All 10 passed (2026-04-03):
+### Chaos tests (Vitest) — `web/lib/chaos/`
 
-| # | Scenario | What it validates | Result |
-|---|----------|------------------|--------|
-| 1 | `webhook-storm` | Capture webhook ingestion under burst load, rate limiting | p95: 358ms, 0% error |
-| 2 | `mcp-rate-limits` | 3 MCP rate limit tiers (cheap/moderate/expensive) | All tiers enforced |
-| 3 | `sse-streaming` | 50 concurrent SSE connections, reconnection | Connections stable |
-| 4 | `alert-dedup` | Fingerprinting, dedup accuracy, storm detection | Dedup working |
-| 5 | `auth-bruteforce` | Login brute force protection, device flow rate limits | Rate limiting enforced |
-| 6 | `cron-fanout` | 7 sub-pollers in parallel, overlap handling | No race conditions |
-| 7 | `neon-saturation` | DB concurrency: webhooks + MCP + cron simultaneously | Neon stable under load |
-| 8 | `push-serialization` | Push notification pipeline under burst | Pipeline stable |
-| 9 | `auto-heal` | 3 failures → auto-heal, cooldown, race conditions | Single heal, cooldown works |
-| 10 | `full-incident` | Complete incident lifecycle end-to-end (deploy fail → error burst → uptime → auto-heal → MCP verify → recovery) | 10/10 phases, 100% checks |
+163 fault injection tests across 4 levels. Run: `cd web && npx vitest run lib/chaos/`
 
-Run: `bash k6/run-all.sh` (requires k6 installed + `k6/.env` with secrets)
+| Level | Tests | What it validates |
+|-------|-------|-------------------|
+| **L1 — Unit** (5 files) | 29 | AI provider timeout/retry, notification silent failures, dedup race conditions, cron overlap, SSE memory leaks |
+| **L2 — Integration** (4 files) | 28 | Alert storm lifecycle, escalation without on-call, auto-heal cascade + cooldown, remediation under GitHub API failure |
+| **L3 — Security** (4 files) | 106 | SSRF bypass vectors (46 payloads), X-Forwarded-For spoofing, webhook signature edge cases, XSS injection (14 payloads across Slack/Telegram/JSX) |
+
+Key files:
+- `web/lib/chaos/faults.ts` — `withFaultyFetch()` patches globalThis.fetch with faults by URL pattern
+- `web/lib/chaos/harness.ts` — `chaosTest()` captures console output + timing
+- `web/lib/chaos/__tests__/helpers/mock-db.ts` — shared DB mock factory for integration tests
+
+### Stress tests (k6) — `k6/scenarios/`
+
+14-scenario k6 suite (10 load + 4 chaos). Run: `bash k6/run-all.sh` (requires k6 + `k6/.env`)
+
+| # | Scenario | What it validates |
+|---|----------|-------------------|
+| 1 | `webhook-storm` | Capture webhook ingestion under burst load, rate limiting |
+| 2 | `mcp-rate-limits` | 3 MCP rate limit tiers (cheap/moderate/expensive) |
+| 3 | `sse-streaming` | 50 concurrent SSE connections, reconnection |
+| 4 | `alert-dedup` | Fingerprinting, dedup accuracy, storm detection |
+| 5 | `auth-bruteforce` | Login brute force protection, device flow rate limits |
+| 6 | `cron-fanout` | 7 sub-pollers in parallel, overlap handling |
+| 7 | `neon-saturation` | DB concurrency: webhooks + MCP + cron simultaneously |
+| 8 | `push-serialization` | Push notification pipeline under burst |
+| 9 | `auto-heal` | 3 failures → auto-heal, cooldown, race conditions |
+| 10 | `full-incident` | Complete incident lifecycle end-to-end |
+| 11 | `chaos-incident` | Full incident with mixed valid/malformed payloads + concurrent cron + storm |
+| 12 | `chaos-mcp-storm` | 200 concurrent MCP calls mixing all 3 rate limit tiers |
+| 13 | `chaos-tenant-isolation` | Flood one workspace, verify another's latency stays normal |
+| 14 | `chaos-sse` | 50+ SSE connections with random abrupt disconnects |
 
 ## Demo recording
 

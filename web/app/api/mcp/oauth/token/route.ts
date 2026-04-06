@@ -3,6 +3,7 @@ import { db, mcpOauthCodes, mcpOauthClients, mcpTokens } from "@/lib/db";
 import { eq, and, gt } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { rateLimit } from "@/lib/auth-rate-limit";
+import { extractClientIp } from "@/lib/webhooks/rate-limit";
 
 function base64UrlEncode(buffer: Buffer): string {
   return buffer.toString("base64url");
@@ -13,7 +14,7 @@ function base64UrlEncode(buffer: Buffer): string {
  */
 export async function POST(request: Request) {
   // Rate limit: 20 attempts per minute per IP
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const ip = extractClientIp(request);
   const rl = await rateLimit("mcp_oauth_token", ip, { windowMs: 60_000, max: 20 });
   if (!rl.allowed) {
     return NextResponse.json(

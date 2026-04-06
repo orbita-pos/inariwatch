@@ -36,3 +36,20 @@ export const DB_THRESHOLDS = {
   http_req_duration: ["p(95)<3000", "p(99)<8000"],
   "http_req_failed": ["rate<0.05"],
 };
+
+export const CHAOS_THRESHOLDS = {
+  ...BASE_THRESHOLDS,
+  "chaos_phases_passed": ["count>=1"],
+  "chaos_latency": ["p(95)<10000"],
+};
+
+export const TENANT_THRESHOLDS = {
+  ...BASE_THRESHOLDS,
+  "tenant_isolation_delta_ms": ["p(95)<500"], // victim workspace should not degrade >500ms
+};
+
+export const SSE_CHAOS_THRESHOLDS = {
+  "sse_connection_time": ["p(95)<3000"],
+  "sse_leaked_connections": ["count<1"],
+  checks: ["rate>0.85"],
+};

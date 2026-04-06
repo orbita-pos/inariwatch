@@ -96,36 +96,23 @@ export async function createAlertIfNew(
     // Non-blocking
   }
 
-  const dedupeWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-  // Dedup by fingerprint (preferred, matches CLI) with title fallback
-  const [dup] = fingerprint
-    ? await db
-        .select({ id: alerts.id })
-        .from(alerts)
-        .where(
-          and(
-            eq(alerts.projectId, projectId),
-            eq(alerts.fingerprint, fingerprint),
-            eq(alerts.isResolved, false),
-            gt(alerts.createdAt, dedupeWindow)
-          )
+  // Title-based dedup fallback (when no fingerprint — rare)
+  if (!fingerprint) {
+    const dedupeWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [dup] = await db
+      .select({ id: alerts.id })
+      .from(alerts)
+      .where(
+        and(
+          eq(alerts.projectId, projectId),
+          eq(alerts.title, alert.title!),
+          eq(alerts.isResolved, false),
+          gt(alerts.createdAt, dedupeWindow)
         )
-        .limit(1)
-    : await db
-        .select({ id: alerts.id })
-        .from(alerts)
-        .where(
-          and(
-            eq(alerts.projectId, projectId),
-            eq(alerts.title, alert.title!),
-            eq(alerts.isResolved, false),
-            gt(alerts.createdAt, dedupeWindow)
-          )
-        )
-        .limit(1);
-
-  if (dup) return null;
+      )
+      .limit(1);
+    if (dup) return null;
+  }
 
   let stormId: string | null = null;
   let isTriggeringStorm = false;
@@ -167,10 +154,16 @@ export async function createAlertIfNew(
     }
   }
 
+  // Atomic dedup: INSERT ON CONFLICT DO NOTHING uses the partial unique index
+  // idx_alerts_dedup(project_id, fingerprint) WHERE is_resolved = false AND fingerprint IS NOT NULL
+  // This eliminates the race condition between SELECT and INSERT.
   const [inserted] = await db
     .insert(alerts)
     .values({ ...alert, projectId, stormId, fingerprint })
+    .onConflictDoNothing()
     .returning();
+
+  if (!inserted) return null; // Dedup hit — atomic, no race possible
 
   // Auto-register error pattern for prediction engine
   if (fingerprint) {
@@ -246,9 +239,13 @@ export async function createAlertIfNew(
       }).catch(() => {});
     } else if (!stormId) {
       const { sendAlertToSlack } = await import("@/lib/slack/send");
-      sendAlertToSlack(inserted as Alert).catch(() => {});
+      sendAlertToSlack(inserted as Alert).catch((err) => {
+        console.error("[alert] Slack delivery failed:", err instanceof Error ? err.message : err);
+      });
       const { sendAlertToTelegram } = await import("@/lib/telegram/send");
-      sendAlertToTelegram(inserted as Alert).catch(() => {});
+      sendAlertToTelegram(inserted as Alert).catch((err) => {
+        console.error("[alert] Telegram delivery failed:", err instanceof Error ? err.message : err);
+      });
       const { sendMobilePush } = await import("@/lib/notifications/mobile-push");
       sendMobilePush(inserted as Alert).catch(() => {});
     }
@@ -257,7 +254,10 @@ export async function createAlertIfNew(
   }
 
   // Autonomous mode: auto-trigger remediation on critical alerts
-  if (inserted.severity === "critical" && !stormId) {
+  // Skip auto-remediate for revert alerts — prevents infinite loop:
+  // critical alert → remediate → merge → regression → revert → [Auto-Revert] alert → remediate → ...
+  const isRevertAlert = inserted.title?.startsWith("[Auto-Revert]") ?? false;
+  if (inserted.severity === "critical" && !stormId && !isRevertAlert) {
     try {
       const { projects: projectsTable, remediationSessions, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
       const [proj] = await db

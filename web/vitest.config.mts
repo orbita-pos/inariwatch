@@ -13,5 +13,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    exclude: ["__tests__/**/*.spec.ts", "node_modules/**"],
   },
 });

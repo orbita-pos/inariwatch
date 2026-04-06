@@ -5,7 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
-import { checkWebhookRateLimit } from "@/lib/webhooks/rate-limit";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { db, alerts } from "@/lib/db";
 import { eq, and, like, sql } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
@@ -30,7 +30,7 @@ export async function POST(
   const { integrationId } = await params;
 
   // Rate limiting
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);
   if (!rateLimit.allowed) {
     return NextResponse.json(
