@@ -32,6 +32,7 @@ export async function GET(req: Request) {
   }
 
   let escalated = 0;
+  let errorCount = 0;
 
   // Find all active escalation rules
   const rules = await db
@@ -177,12 +178,13 @@ export async function GET(req: Request) {
 
         escalated++;
       }
-    } catch {
-      // Continue processing other rules even if one fails
+    } catch (err) {
+      errorCount++;
+      console.error("[escalate] rule failed:", rule.id, err);
     }
   }
 
-  cronLog("escalate", { escalated });
+  cronLog("escalate", { escalated, errors: errorCount });
   await pingCronHealth("escalate", true);
 
   return NextResponse.json({ ok: true, escalated });

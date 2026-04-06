@@ -9,6 +9,8 @@
  * so we're ready when it launches. Only adapt the format.
  */
 
+const MCP_URL = process.env.MCP_PUBLIC_URL ?? "https://mcp.inariwatch.com";
+
 export const INARIWATCH_AGENT_CARD = {
   // ── Identity ──────────────────────────────────────────────────────────────
   name: "inariwatch",
@@ -16,7 +18,7 @@ export const INARIWATCH_AGENT_CARD = {
   version: "1.0.0",
   vendor: "InariWatch",
   homepage: "https://inariwatch.com",
-  endpoint: "https://mcp.inariwatch.com",
+  endpoint: MCP_URL,
 
   // ── Capabilities ──────────────────────────────────────────────────────────
   capabilities: {
@@ -103,7 +105,7 @@ export const INARIWATCH_AGENT_CARD = {
   auth: {
     type: "oauth2.1",
     scopes: ["read", "write", "execute"],
-    token_endpoint: "https://mcp.inariwatch.com/api/mcp/oauth/token",
+    token_endpoint: `${MCP_URL}/api/mcp/oauth/token`,
   },
 
   // ── SLA ─────────────────────────────────────────────────────────────────────

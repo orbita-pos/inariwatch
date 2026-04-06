@@ -29,7 +29,7 @@ async function main() {
   console.log(`\n  ${BOLD}InariWatch Setup${RESET}\n`);
 
   // ── 1. Detect AI tools ──
-  console.log("  ${DIM}AI tools${RESET}\n");
+  console.log(`  ${DIM}AI tools${RESET}\n`);
   const tools = detectTools();
   const detected = tools.filter((t) => t.detected);
   const notFound = tools.filter((t) => !t.detected);

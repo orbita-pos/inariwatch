@@ -1,5 +1,5 @@
-import { db, alerts, projects, uptimeMonitors, remediationSessions } from "@/lib/db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { db, alerts, projects, uptimeMonitors, remediationSessions, getUserProjectIds } from "@/lib/db";
+import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import type { McpUser } from "./auth";
 
 // ── Resource definitions ────────────────────────────────────────────────────
@@ -37,18 +37,19 @@ export async function readResource(
   uri: string,
   user: McpUser
 ): Promise<{ contents: Array<{ uri: string; mimeType: string; text: string }> } | null> {
-  const userProjects = await db
-    .select({ id: projects.id, name: projects.name, slug: projects.slug })
-    .from(projects)
-    .where(eq(projects.userId, user.userId));
+  const projectIds = await getUserProjectIds(user.userId);
 
-  if (userProjects.length === 0) {
+  if (projectIds.length === 0) {
     return {
       contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ message: "No projects found." }) }],
     };
   }
 
-  const projectIds = userProjects.map((p) => p.id);
+  const userProjects = await db
+    .select({ id: projects.id, name: projects.name, slug: projects.slug })
+    .from(projects)
+    .where(inArray(projects.id, projectIds));
+
   const projectMap = Object.fromEntries(userProjects.map((p) => [p.id, p.name]));
 
   switch (uri) {

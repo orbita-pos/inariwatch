@@ -182,7 +182,7 @@ export async function adjustConfidence(
   if (inRange.length < 5) return { adjusted: rawConfidence, calibrated: false };
 
   const actualRate = inRange.filter((r) => r.actualOutcome).length / inRange.length;
-  const adjusted = Math.round(actualRate * 100);
+  const adjusted = Math.max(10, Math.round(actualRate * 100));
 
   return { adjusted, calibrated: true };
 }

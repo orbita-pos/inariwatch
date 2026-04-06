@@ -65,7 +65,9 @@ export function activate(context: vscode.ExtensionContext) {
   if (mode === "local" || mode === "both") {
     localServer.start(localPort)
     // Refresh diagnostics when local alerts arrive
-    store.on("change", () => diagnostics.refresh())
+    const refreshListener = () => diagnostics.refresh();
+    store.on("change", refreshListener);
+    context.subscriptions.push({ dispose: () => store.removeListener("change", refreshListener) });
   }
 
   // Start cloud polling if mode is cloud or both
@@ -91,6 +93,7 @@ export function activate(context: vscode.ExtensionContext) {
     treeView,
     hoverProvider,
     { dispose: () => diagnostics.dispose() },
+    { dispose: () => treeProvider.dispose() },
     { dispose: () => statusBar.dispose() },
     { dispose: () => localServer.stop() },
     {

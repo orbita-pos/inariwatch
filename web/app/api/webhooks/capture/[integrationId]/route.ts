@@ -40,6 +40,9 @@ export async function POST(
 ) {
   const { integrationId } = await params;
 
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
+    return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
+
   // Rate limiting
   const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);
@@ -136,7 +139,7 @@ export async function POST(
     const sessionEvents = (event.sessionEvents as unknown[] | undefined)?.slice(0, 5000);
     if (sessionEvents?.length) {
       const recordingId = crypto.randomUUID();
-      db.insert(substrateRecordings)
+      await db.insert(substrateRecordings)
         .values({
           recordingId,
           alertId: result.id,

@@ -84,8 +84,8 @@ export class LocalServer {
 
     this.server.listen(port, "127.0.0.1", () => {
       console.log(`[InariWatch] Local capture server on http://127.0.0.1:${port}`)
-      console.log(`[InariWatch] Local token: ${this.token}`)
-      console.log(`[InariWatch] Set INARIWATCH_LOCAL_TOKEN=${this.token} in your app`)
+      console.log(`[InariWatch] Local capture server ready`)
+      console.log(`[InariWatch] Set INARIWATCH_LOCAL_TOKEN in your app env to connect`)
     })
 
     this.server.on("error", (err: NodeJS.ErrnoException) => {

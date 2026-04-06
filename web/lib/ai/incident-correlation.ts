@@ -32,7 +32,8 @@ export async function detectIncident(
   alertId: string,
   filesToRead: string[],
 ): Promise<CorrelationResult> {
-  const since = new Date(Date.now() - CORRELATION_WINDOW_MS);
+  const now = Date.now();
+  const since = new Date(now - CORRELATION_WINDOW_MS);
 
   // Find other active sessions for this project in the correlation window
   const activeSessions = await db.select({
@@ -73,7 +74,7 @@ export async function detectIncident(
 
   // Also check time proximity — errors within 5 min window are likely correlated
   const timeCorrelated = activeSessions.filter((s) => {
-    const diff = Math.abs(new Date(s.createdAt).getTime() - Date.now());
+    const diff = Math.abs(new Date(s.createdAt).getTime() - now);
     return diff < 5 * 60 * 1000;
   });
 

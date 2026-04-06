@@ -190,6 +190,9 @@ async fn poll_once(
 
 // ── Config reader ─────────────────────────────────────────────────────────────
 
+// SECURITY NOTE: Config file stores api_token in plaintext.
+// On shared systems, ensure ~/.config/inari/desktop.toml has restricted permissions.
+// URL validation: api_url is not validated — ensure it points to a trusted InariWatch instance.
 fn read_desktop_config() -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
 
@@ -207,6 +210,13 @@ fn read_desktop_config() -> std::collections::HashMap<String, String> {
             let key = k.trim().to_string();
             let val = v.trim().trim_matches('"').to_string();
             map.insert(key, val);
+        }
+    }
+
+    // Warn if api_url does not use HTTPS (except localhost for dev)
+    if let Some(url) = map.get("api_url") {
+        if !url.starts_with("https://") && !url.starts_with("http://localhost") {
+            eprintln!("[desktop] WARNING: api_url should use HTTPS");
         }
     }
 

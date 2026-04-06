@@ -24,6 +24,9 @@ export async function POST(
 ) {
   const { integrationId } = await params;
 
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
+    return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
+
   // Rate limiting
   const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);
@@ -53,15 +56,11 @@ export async function POST(
   const secret = integ.webhookSecret;
   if (secret) {
     const authHeader = req.headers.get("authorization") ?? "";
-    const url = new URL(req.url);
-    const tokenParam = url.searchParams.get("token") ?? "";
-    const provided = authHeader.startsWith("Bearer ")
-      ? authHeader.slice(7)
-      : tokenParam;
+    const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
     if (!provided) {
       return NextResponse.json(
-        { error: "Missing authentication token. Set Authorization: Bearer <token> header or ?token= query param." },
+        { error: "Missing authentication token. Set Authorization: Bearer <token> header." },
         { status: 401 }
       );
     }

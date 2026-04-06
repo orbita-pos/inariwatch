@@ -116,7 +116,7 @@ export async function runShadowReplay(input: ReplayInput): Promise<ShadowReplayR
     return aggregateResults(results);
   } catch (err) {
     console.error("[shadow-replay] Error:", err);
-    return null;
+    return { recordings: [], totalRecordings: 0, passed: 0, failed: 0, riskScore: 50, riskLevel: "medium" as const, summary: `Shadow replay failed: ${err instanceof Error ? err.message : "unknown"}` };
   } finally {
     // Cleanup temp dir
     if (tempDir) {

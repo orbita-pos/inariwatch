@@ -108,7 +108,7 @@ const NAV = [
     group: "Telegram Bot",
     items: [
       { id: "telegram-setup",    label: "Setup" },
-      { id: "telegram-commands", label: "Commands (16)" },
+      { id: "telegram-commands", label: "Commands (15)" },
       { id: "telegram-actions",  label: "Button actions (11)" },
       { id: "telegram-auto",     label: "Auto-delivery" },
     ],
@@ -563,8 +563,8 @@ inariwatch daemon uninstall # remove the service`}</CodeBlock>
 inariwatch config --auto-merge true  # also merge PRs when all safety gates pass`}</CodeBlock>
             <P>
               <InlineCode>auto_merge</InlineCode> requires <InlineCode>auto_fix</InlineCode> to be enabled.
-              Even then, a PR is only merged when <strong>all 8 safety gates pass</strong>: auto-merge enabled, CI green, confidence ≥ 90%,
-              self-review score ≥ 70, lines changed ≤ 50, Substrate risk ≤ 40, EAP chain verified, and post-merge monitoring.
+              Even then, a PR is only merged when <strong>all 11 safety gates pass</strong>: auto-merge enabled, CI green, confidence ≥ threshold,
+              self-review score ≥ 70, lines changed ≤ max, Substrate risk ≤ 40, EAP chain verified, prediction safe, security scan clean, Substrate replay pass, and staging E2E pass.
             </P>
             <Callout type="info">
               Use <InlineCode>inariwatch agent-stats</InlineCode> to see the AI&apos;s track record, current trust level,
@@ -1500,7 +1500,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
 
             <SectionHeading id="telegram-setup">Telegram Bot — Setup</SectionHeading>
             <P>
-              The InariWatch Telegram bot has full parity with Slack — 16 commands, 11 inline button actions,
+              The InariWatch Telegram bot has full parity with Slack — 15 commands, 13 inline button callbacks,
               auto-delivery of alerts with AI diagnosis, and all remediation workflows.
             </P>
             <StepList steps={[
@@ -1510,7 +1510,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               { title: "Set webhook", body: <>The webhook URL is <InlineCode>https://app.inariwatch.com/api/telegram/webhook</InlineCode>. Set <InlineCode>TELEGRAM_WEBHOOK_SECRET</InlineCode> in your env.</> },
             ]} />
 
-            <SubHeading id="telegram-commands">Commands (16)</SubHeading>
+            <SubHeading id="telegram-commands">Commands (15)</SubHeading>
             <Table
               head={["Command", "Description"]}
               rows={[
@@ -1696,7 +1696,7 @@ INARIWATCH_DSN=http://localhost:9222/ingest`}</CodeBlock>
 
             <SectionHeading id="notif-telegram">Notifications — Telegram</SectionHeading>
             <P>
-              The Telegram bot has full parity with Slack — 16 commands, 11 inline buttons,
+              The Telegram bot has full parity with Slack — 15 commands, 13 inline button callbacks,
               auto-delivery with AI diagnosis, and all remediation workflows.
               See the <a href="#telegram-setup" className="text-inari-accent underline">Telegram Bot</a> section above for the complete setup and feature guide.
             </P>

@@ -59,6 +59,8 @@ export async function GET(req: NextRequest) {
       sourceIntegrations: a.sourceIntegrations,
       projectName:        projectMap[a.projectId] ?? "?",
       fingerprint:        a.fingerprint ?? null,
+      isRead:             a.isRead,
+      isResolved:         a.isResolved,
       createdAt:          a.createdAt.toISOString(),
     }));
 

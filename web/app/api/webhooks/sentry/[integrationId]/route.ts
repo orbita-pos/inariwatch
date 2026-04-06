@@ -86,6 +86,9 @@ export async function POST(
 ) {
   const { integrationId } = await params;
 
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
+    return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
+
   // Rate limiting
   const ip = extractClientIp(req);
   const rateLimit = await checkWebhookRateLimit(ip);

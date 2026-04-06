@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   }
 
   // Verify the signed token — prevents anyone from unsubscribing arbitrary emails
-  if (!verifySignedValue(email.toLowerCase(), token)) {
+  if (!verifySignedValue(email.toLowerCase(), token, 90 * 24 * 3600)) {
     return new NextResponse(renderPage("Invalid or expired unsubscribe link.", false), {
       headers: { "Content-Type": "text/html" },
       status: 403,

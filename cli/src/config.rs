@@ -266,6 +266,8 @@ pub fn save(config: &Config) -> Result<()> {
     }
     #[cfg(not(unix))]
     {
+        // WARNING: On Windows, config files are written with default permissions.
+        // API tokens stored here may be readable by other users on shared systems.
         std::fs::write(&path, content)?;
     }
     Ok(())

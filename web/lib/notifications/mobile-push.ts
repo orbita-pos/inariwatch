@@ -51,7 +51,7 @@ export async function sendMobilePush(alert: Alert): Promise<void> {
         headers.Authorization = `Bearer ${process.env.EXPO_ACCESS_TOKEN}`;
       }
 
-      await fetch(EXPO_PUSH_URL, {
+      const resp = await fetch(EXPO_PUSH_URL, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -68,8 +68,9 @@ export async function sendMobilePush(alert: Alert): Promise<void> {
           channelId: "alerts",
         }),
       });
-    } catch {
-      // Non-blocking — push failure shouldn't break alert pipeline
+      if (!resp.ok) console.error("[mobile-push] Expo API error:", resp.status, await resp.text().catch(() => ""));
+    } catch (err) {
+      console.error("[mobile-push] failed:", err);
     }
   }
 }

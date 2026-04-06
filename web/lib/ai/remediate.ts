@@ -804,7 +804,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         emit);
 
       if (selfReview.recommendation === "reject" && attempt >= session.maxAttempts) {
-        recordFailedFix({ projectId: session.projectId, errorFingerprint: alertFingerprint, fixSummary: fix.explanation?.slice(0, 500) ?? "fix generation", failureReason: `Self-review rejected (${selfReview.score}/100): ${selfReview.concerns.join("; ")}`, filesTouched: fix.files.map((f) => f.path) }).catch(() => {});
+        recordFailedFix({ projectId: session.projectId, errorFingerprint: alertFingerprint, fixSummary: fix.explanation?.slice(0, 500) ?? "fix generation", failureReason: `Self-review rejected (${selfReview.score}/100): ${selfReview.concerns.join("; ")}`, filesTouched: fix.files.map((f) => f.path) }).catch((e) => console.error("[remediate] recordFailedFix failed:", e));
         await fail(sessionId, emit,
           `Self-review rejected the fix (score: ${selfReview.score}/100).\n\nConcerns:\n${selfReview.concerns.map((c) => `• ${c}`).join("\n")}`
         );

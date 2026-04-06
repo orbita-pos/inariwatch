@@ -8,7 +8,7 @@ import {
   notificationChannels,
   projects,
 } from "@/lib/db";
-import { eq, and, lte, or, isNull } from "drizzle-orm";
+import { eq, and, lte, or, isNull, desc } from "drizzle-orm";
 import crypto from "crypto";
 import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 
@@ -225,7 +225,7 @@ export async function GET(req: Request) {
             .select({ id: alerts.id })
             .from(alerts)
             .where(eq(alerts.projectId, monitor.projectId))
-            .orderBy(alerts.createdAt)
+            .orderBy(desc(alerts.createdAt))
             .limit(1);
 
           if (newAlert) {

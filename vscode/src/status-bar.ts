@@ -3,12 +3,14 @@ import type { AlertStore } from "./store.js"
 
 export class StatusBar {
   private item: vscode.StatusBarItem
+  private changeListener: () => void
 
   constructor(private store: AlertStore) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
     this.item.command = "inariwatch.alerts.focus"
     this.update()
-    store.on("change", () => this.update())
+    this.changeListener = () => this.update()
+    store.on("change", this.changeListener)
   }
 
   private update(): void {
@@ -26,6 +28,7 @@ export class StatusBar {
   }
 
   dispose(): void {
+    this.store.removeListener("change", this.changeListener)
     this.item.dispose()
   }
 }

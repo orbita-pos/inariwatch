@@ -290,7 +290,7 @@ See `web/.env.example`. Key vars:
 
 ### Chaos tests (Vitest) — `web/lib/chaos/`
 
-163 fault injection tests across 4 levels. Run: `cd web && npx vitest run lib/chaos/`
+103 fault injection tests across 4 levels. Run: `cd web && npx vitest run lib/chaos/`
 
 | Level | Tests | What it validates |
 |-------|-------|-------------------|

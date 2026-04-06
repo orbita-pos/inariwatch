@@ -26,13 +26,13 @@ export type AlertSummary = {
   sourceIntegrations: string[];
   isRead: boolean;
   isResolved: boolean;
+  fingerprint: string | null;
   createdAt: Date;
   correlationData: unknown;
 };
 
 export type AlertDetail = AlertSummary & {
   postmortem: string | null;
-  fingerprint: string | null;
   resolvedAt: Date | null;
   sentAt: Date | null;
   correlationData: unknown;
@@ -63,6 +63,7 @@ export async function queryAlerts(params: QueryAlertsParams): Promise<AlertSumma
       sourceIntegrations: alerts.sourceIntegrations,
       isRead: alerts.isRead,
       isResolved: alerts.isResolved,
+      fingerprint: alerts.fingerprint,
       createdAt: alerts.createdAt,
       correlationData: alerts.correlationData,
     })

@@ -15,6 +15,7 @@ export const runtime = "nodejs";
 // Verify Telegram webhook secret
 function verifySecret(req: NextRequest): boolean {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
+  if (!secret || !process.env.TELEGRAM_WEBHOOK_SECRET) return false;
   return secret === process.env.TELEGRAM_WEBHOOK_SECRET;
 }
 

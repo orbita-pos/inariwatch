@@ -1,5 +1,5 @@
 import { db, notificationChannels, notificationLogs, notificationQueue, alerts as alertsTable, projects, severityMeetsMinimum } from "@/lib/db";
-import { eq, and, lte, asc, inArray } from "drizzle-orm";
+import { eq, and, lt, lte, asc, inArray } from "drizzle-orm";
 import { sendTelegram } from "./telegram";
 import { sendSlack } from "./slack";
 import { sendPushNotification } from "./push";
@@ -357,6 +357,7 @@ export async function processNotificationQueue(
         sent++;
       } else {
         error = result.error;
+        console.error("[notify] channel send failed:", "telegram", error);
       }
     } else if (channel.type === "slack") {
       const message = formatSlackMessage(alert, project.name);
@@ -391,6 +392,7 @@ export async function processNotificationQueue(
         sent++;
       } else {
         error = result.error;
+        console.error("[notify] channel send failed:", "slack", error);
       }
     } else if ((channel.type as string) === "push") {
       const pushConfig = channel.config as { endpoint: string; keys: { p256dh: string; auth: string } };
@@ -403,6 +405,7 @@ export async function processNotificationQueue(
         sent++;
       } else {
         error = pushResult.error;
+        console.error("[notify] channel send failed:", "push", error);
       }
     } else if (channel.type === "email") {
       // Check suppression list
@@ -461,6 +464,7 @@ export async function processNotificationQueue(
       } else {
         const attempts = item.attempts + 1;
         if (attempts >= MAX_RETRIES) {
+          console.error("[notify] dead letter:", item.id, error);
           await markQueueItem(item.id, "dead", error);
           failed++;
         } else {
@@ -480,6 +484,7 @@ export async function processNotificationQueue(
     } else {
       const attempts = item.attempts + 1;
       if (attempts >= MAX_RETRIES) {
+        console.error("[notify] dead letter:", item.id, error);
         await markQueueItem(item.id, "dead", error);
         failed++;
       } else {
@@ -498,6 +503,13 @@ export async function processNotificationQueue(
       error,
     });
   }
+
+  // Cleanup dead items older than 7 days
+  try {
+    await db.delete(notificationQueue).where(
+      and(eq(notificationQueue.status, "dead"), lt(notificationQueue.createdAt, new Date(Date.now() - 7 * 86400000)))
+    );
+  } catch {}
 
   return { sent, failed, skipped };
 }

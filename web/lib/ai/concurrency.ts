@@ -28,11 +28,17 @@ export async function acquireFileLocks(
 
   for (const filePath of filePaths) {
     let locked = false;
-    const deadline = Date.now() + LOCK_WAIT_MS;
+    // Reset deadline per-file so cleaning expired locks on file N
+    // doesn't eat into the budget for file N+1.
+    let deadline = Date.now() + LOCK_WAIT_MS;
 
     while (Date.now() < deadline) {
       try {
-        // Try INSERT — if PK exists, it'll fail (lock held)
+        // Try INSERT — if PK exists, it'll fail (lock held).
+        // NOTE: TOCTOU race window — between the expired-lock DELETE below and this
+        // INSERT, another session could grab the same lock. This is acceptable because
+        // the INSERT uses a DB-level unique constraint (repoId + filePath PK), so only
+        // one session wins; the loser catches the error and retries.
         await db.insert(remediationLocks).values({
           repoId,
           filePath,
@@ -62,11 +68,16 @@ export async function acquireFileLocks(
         }
 
         if (new Date(existing.expiresAt) < new Date()) {
-          // Expired — force-release and retry
+          // Expired — force-release and retry.
+          // Race: another session may also delete+insert here; the PK constraint
+          // on the INSERT above ensures only one winner.
           await db.delete(remediationLocks).where(and(
             eq(remediationLocks.repoId, repoId),
             eq(remediationLocks.filePath, filePath),
           ));
+          // Reset deadline after cleaning an expired lock so we get a full
+          // wait window for the retry attempt.
+          deadline = Date.now() + LOCK_WAIT_MS;
           continue;
         }
 

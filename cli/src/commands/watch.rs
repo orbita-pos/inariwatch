@@ -133,7 +133,7 @@ pub async fn poll_once(project_name: Option<String>) -> anyhow::Result<Vec<db::A
         };
 
         for e in &group.events {
-            let _ = db::insert_event(
+            if let Err(e_db) = db::insert_event(
                 &conn,
                 &Uuid::new_v4().to_string(),
                 &project.slug,
@@ -142,7 +142,9 @@ pub async fn poll_once(project_name: Option<String>) -> anyhow::Result<Vec<db::A
                 &e.payload.to_string(),
                 &e.fingerprint,
                 &e.occurred_at.to_rfc3339(),
-            );
+            ) {
+                eprintln!("[watch] db::insert_event failed: {e_db}");
+            }
         }
 
         let source_integrations: Vec<String> = {
@@ -444,7 +446,7 @@ async fn run_cycle(
 
         // 4. Persist events
         for e in &group.events {
-            let _ = db::insert_event(
+            if let Err(e_db) = db::insert_event(
                 conn,
                 &Uuid::new_v4().to_string(),
                 &project.slug,
@@ -453,7 +455,9 @@ async fn run_cycle(
                 &e.payload.to_string(),
                 &e.fingerprint,
                 &e.occurred_at.to_rfc3339(),
-            );
+            ) {
+                eprintln!("[watch] db::insert_event failed: {e_db}");
+            }
         }
 
         let source_integrations: Vec<String> = {
@@ -832,7 +836,10 @@ async fn collect_uptime(cfg: &config::UptimeConfig) -> Vec<RawEvent> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(cfg.timeout_secs))
         .build()
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            eprintln!("[watch] HTTP client build failed: {e}, using default");
+            reqwest::Client::new()
+        });
 
     match client.get(&cfg.url).send().await {
         Ok(resp) => {
@@ -896,7 +903,10 @@ async fn run_cron_tasks(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            eprintln!("[watch] HTTP client build failed: {e}, using default");
+            reqwest::Client::new()
+        });
 
     let cron_url_valid = crate::url_validation::validate_public_url(&cron.url).is_ok();
     if !cron_url_valid {

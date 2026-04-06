@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
       isResolved: a.isResolved,
       sourceIntegrations: a.sourceIntegrations,
       projectName: projectMap[a.projectId] ?? "?",
+      fingerprint: a.fingerprint ?? null,
       createdAt: a.createdAt.toISOString(),
       source: "cloud" as const,
     }))

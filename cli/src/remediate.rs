@@ -248,7 +248,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             confidence, diagnosis
         )).with_score(confidence));
         // Escalate via Telegram
-        let _ = escalation::escalate(&escalation::EscalationContext {
+        if let Err(e) = escalation::escalate(&escalation::EscalationContext {
             alert_title: alert.title.clone(),
             project: project.name.clone(),
             reason: "Confidence too low to proceed".to_string(),
@@ -259,7 +259,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             ci_error: None,
             pr_url: None,
             branch: None,
-        }).await;
+        }).await {
+            eprintln!("[remediate] escalation failed: {e}");
+        }
         return Ok(abort_result(&steps, confidence, &diagnosis));
     }
 
@@ -567,7 +569,7 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
 
                     steps.push(Step::ok("create_pr", format!("Draft PR (CI failed after {} attempts): {}", ci_attempt, pr_url)));
 
-                    let _ = escalation::escalate(&escalation::EscalationContext {
+                    if let Err(e) = escalation::escalate(&escalation::EscalationContext {
                         alert_title: alert.title.clone(),
                         project: project.name.clone(),
                         reason: format!("CI failed after {} fix attempts", ci_attempt),
@@ -578,7 +580,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
                         ci_error: Some(ci_logs[..ci_logs.len().min(200)].to_string()),
                         pr_url: Some(pr_url.clone()),
                         branch: Some(branch_name.clone()),
-                    }).await;
+                    }).await {
+                        eprintln!("[remediate] escalation failed: {e}");
+                    }
 
                     return Ok(serde_json::to_string_pretty(&json!({
                         "status": "failed",
@@ -815,10 +819,12 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             }
             PostMergeResult::Reverted { revert_pr_url } => {
                 if let Ok(conn) = db::open() {
-                    let _ = db::mark_memory_failed(&conn, &memory_id);
+                    if let Err(e) = db::mark_memory_failed(&conn, &memory_id) {
+                        eprintln!("[remediate] db::mark_memory_failed failed: {e}");
+                    }
                 }
                 // Escalate: regression after merge
-                let _ = escalation::escalate(&escalation::EscalationContext {
+                if let Err(e) = escalation::escalate(&escalation::EscalationContext {
                     alert_title: alert.title.clone(),
                     project: project.name.clone(),
                     reason: "Regression detected after auto-merge — fix reverted".to_string(),
@@ -829,12 +835,16 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
                     ci_error: None,
                     pr_url: Some(revert_pr_url.clone()),
                     branch: None,
-                }).await;
+                }).await {
+                    eprintln!("[remediate] escalation failed: {e}");
+                }
                 steps.push(Step::fail("monitor", format!("Regression detected — auto-reverted: {}", revert_pr_url)));
             }
             PostMergeResult::RevertFailed { error } => {
                 if let Ok(conn) = db::open() {
-                    let _ = db::mark_memory_failed(&conn, &memory_id);
+                    if let Err(e) = db::mark_memory_failed(&conn, &memory_id) {
+                        eprintln!("[remediate] db::mark_memory_failed failed: {e}");
+                    }
                 }
                 steps.push(Step::fail("monitor", format!("Regression detected but revert failed: {}", error)));
             }
@@ -859,7 +869,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             postmortem_text: postmortem_text.clone(),
             community_fix_id: None, // set later if fix_replay contribute succeeds
         };
-        let _ = db::save_incident_memory(&mem_conn, &memory);
+        if let Err(e) = db::save_incident_memory(&mem_conn, &memory) {
+            eprintln!("[remediate] db::save_incident_memory failed: {e}");
+        }
 
         // Queue feedback request for later review
         let fb = db::PendingFeedback {
@@ -874,7 +886,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             answer: None,
             community_fix_id: None,
         };
-        let _ = db::save_pending_feedback(&mem_conn, &fb);
+        if let Err(e) = db::save_pending_feedback(&mem_conn, &fb) {
+            eprintln!("[remediate] db::save_pending_feedback failed: {e}");
+        }
     }
 
     // ── Fix Replay: contribute pattern to web API ────────────────────────
@@ -902,7 +916,9 @@ pub async fn execute(args: &Value) -> anyhow::Result<String> {
             ).await {
                 // Store community fix ID for future outcome reporting
                 if let Ok(conn) = db::open() {
-                    let _ = db::set_memory_community_fix_id(&conn, &memory_id, &fix_id);
+                    if let Err(e) = db::set_memory_community_fix_id(&conn, &memory_id, &fix_id) {
+                        eprintln!("[remediate] db::set_memory_community_fix_id failed: {e}");
+                    }
                 }
             }
         }
@@ -1035,7 +1051,9 @@ async fn query_fix_replay(
 
     // Cache the response
     if let Ok(conn) = db::open() {
-        let _ = db::cache_pattern(&conn, fingerprint, &body.to_string());
+        if let Err(e) = db::cache_pattern(&conn, fingerprint, &body.to_string()) {
+            eprintln!("[remediate] db::cache_pattern failed: {e}");
+        }
     }
 
     let hints = parse_fix_replay_response(&body);

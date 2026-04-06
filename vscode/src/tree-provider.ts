@@ -24,9 +24,16 @@ const SEVERITY_ICON: Record<string, vscode.ThemeIcon> = {
 export class AlertsTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private _onDidChange = new vscode.EventEmitter<TreeNode | undefined>()
   readonly onDidChangeTreeData = this._onDidChange.event
+  private changeListener: () => void
 
   constructor(private store: AlertStore) {
-    store.on("change", () => this._onDidChange.fire(undefined))
+    this.changeListener = () => this._onDidChange.fire(undefined)
+    store.on("change", this.changeListener)
+  }
+
+  dispose(): void {
+    this.store.removeListener("change", this.changeListener)
+    this._onDidChange.dispose()
   }
 
   refresh(): void {

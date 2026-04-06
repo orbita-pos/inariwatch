@@ -3,6 +3,7 @@ import { db, outgoingWebhooks, projects } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import type { Alert } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
+import { isSafeUrl } from "@/lib/services/url-validation";
 
 /**
  * Dispatch outgoing webhook calls for a newly created alert.
@@ -49,6 +50,8 @@ export async function dispatchOutgoingWebhooks(
 
   await Promise.allSettled(
     activeWebhooks.map(async (wh) => {
+      if (!isSafeUrl(wh.url)) { console.warn("[outgoing] blocked unsafe webhook URL:", wh.url); return; }
+
       const signature = crypto
         .createHmac("sha256", decrypt(wh.secret))
         .update(payload)

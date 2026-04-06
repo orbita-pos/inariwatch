@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   for (const monitor of pending) {
     try {
       // Count errors in the monitoring window (last 15 minutes)
-      const windowStart = new Date(monitor.createdAt?.getTime() ?? now.getTime() - 15 * 60000);
+      const windowStart = new Date(monitor.createdAt?.getTime() ?? (now.getTime() - 15 * 60000));
       const recentErrors = await db
         .select({ id: alerts.id })
         .from(alerts)

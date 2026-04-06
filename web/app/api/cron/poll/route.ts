@@ -61,6 +61,7 @@ export async function GET(req: Request) {
     SUB_ROUTES.map((service) =>
       fetch(`${APP_URL}/api/cron/poll/${service}`, {
         headers: { Authorization: `Bearer ${CRON_SECRET}` },
+        signal: AbortSignal.timeout(30_000),
       }).then(async (res) => {
         if (!res.ok) {
           const text = await res.text().catch(() => res.statusText);

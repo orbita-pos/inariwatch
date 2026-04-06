@@ -77,7 +77,9 @@ export default function RootLayout() {
 
   async function checkVersion() {
     try {
-      const resp = await fetch("https://app.inariwatch.com/api/mobile/version");
+      const resp = await fetch("https://app.inariwatch.com/api/mobile/version", {
+        signal: AbortSignal.timeout(5000),
+      });
       const data = await resp.json();
       if (data.updateRequired || compareVersions(APP_VERSION, data.minVersion) < 0) {
         setUpdateRequired(true);
