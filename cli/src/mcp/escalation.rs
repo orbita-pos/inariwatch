@@ -76,9 +76,15 @@ fn build_message(ctx: &EscalationContext) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() > max {
-        format!("{}…", &s[..max])
-    } else {
-        s.to_string()
+    if s.len() <= max {
+        return s.to_string();
     }
+    // Find a valid UTF-8 character boundary to avoid panic on multi-byte chars
+    let boundary = s
+        .char_indices()
+        .take_while(|(i, _)| *i < max)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    format!("{}…", &s[..boundary])
 }

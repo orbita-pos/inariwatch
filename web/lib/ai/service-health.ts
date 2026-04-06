@@ -22,7 +22,11 @@ export type ServiceName =
 const DOWN_THRESHOLD = 3; // consecutive failures to mark "down"
 const COOLDOWN_MS = 2 * 60 * 1000; // 2 min before retrying a "down" service
 
-// In-memory registry — resets on cold start (acceptable for serverless)
+// In-memory registry — resets on cold start.
+// NOTE: In a serverless environment (Vercel), each function instance has its own registry.
+// Health state is NOT shared across instances. This is acceptable because the registry is
+// a performance optimization (fast-fail on known-down services), not a safety-critical gate.
+// For cross-instance health tracking, consider backing with Vercel KV or a DB table.
 const registry = new Map<ServiceName, ServiceHealth>();
 
 function getHealth(service: ServiceName): ServiceHealth {

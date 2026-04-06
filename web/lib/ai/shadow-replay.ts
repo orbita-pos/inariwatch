@@ -14,7 +14,7 @@
 
 import { db, substrateRecordings } from "@/lib/db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { execSync, spawn } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -73,18 +73,25 @@ export async function runShadowReplay(input: ReplayInput): Promise<ShadowReplayR
   let tempDir: string | null = null;
   try {
     tempDir = mkdtempSync(join(tmpdir(), "inariwatch-replay-"));
+
+    // Validate inputs to prevent injection via repo metadata
+    const slugRe = /^[a-zA-Z0-9._-]+$/;
+    if (!slugRe.test(owner) || !slugRe.test(repo)) throw new Error("Invalid owner/repo");
+    if (!/^[a-zA-Z0-9._\/-]+$/.test(branch)) throw new Error("Invalid branch name");
+
     const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 
-    execSync(
-      `git clone --depth 1 --branch ${branch} ${cloneUrl} ${tempDir}/repo`,
-      { timeout: 30_000, stdio: "pipe" },
-    );
+    // Use execFileSync (array form) to avoid shell interpretation — prevents command injection
+    execFileSync("git", ["clone", "--depth", "1", "--branch", branch, cloneUrl, join(tempDir, "repo")], {
+      timeout: 30_000,
+      stdio: "pipe",
+    });
 
     // Install deps if package.json exists
     const repoDir = join(tempDir, "repo");
     if (existsSync(join(repoDir, "package.json"))) {
       try {
-        execSync("npm install --production --ignore-scripts", {
+        execFileSync("npm", ["install", "--production", "--ignore-scripts"], {
           cwd: repoDir,
           timeout: 60_000,
           stdio: "pipe",

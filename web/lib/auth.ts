@@ -8,6 +8,7 @@ import * as OTPAuth from "otpauth";
 import { db, users } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/auth-rate-limit";
+import { decrypt } from "@/lib/crypto";
 
 export const authOptions: NextAuthOptions = {
   session: { 
@@ -78,13 +79,14 @@ export const authOptions: NextAuthOptions = {
             throw new Error("2FA_REQUIRED");
           }
 
+          const decryptedSecret = decrypt(user.totpSecret);
           const totp = new OTPAuth.TOTP({
             issuer: "InariWatch",
             label: user.email,
             algorithm: "SHA1",
             digits: 6,
             period: 30,
-            secret: OTPAuth.Secret.fromBase32(user.totpSecret),
+            secret: OTPAuth.Secret.fromBase32(decryptedSecret),
           });
 
           const delta = totp.validate({ token: totpCode, window: 1 });

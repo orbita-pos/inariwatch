@@ -95,22 +95,25 @@ const MAX_CONCURRENT_GLOBAL = 10;
  * Returns true if the session can proceed immediately.
  */
 export async function canStartRemediation(projectId: string): Promise<boolean> {
-  const [projectCount] = await db
-    .select({ n: count() })
-    .from(remediationSessions)
-    .where(and(
-      eq(remediationSessions.projectId, projectId),
-      sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`,
-    ));
+  // Use a transaction to prevent TOCTOU race between the two count checks
+  return db.transaction(async (tx) => {
+    const [projectCount] = await tx
+      .select({ n: count() })
+      .from(remediationSessions)
+      .where(and(
+        eq(remediationSessions.projectId, projectId),
+        sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`,
+      ));
 
-  if ((projectCount?.n ?? 0) >= MAX_CONCURRENT_PER_PROJECT) return false;
+    if ((projectCount?.n ?? 0) >= MAX_CONCURRENT_PER_PROJECT) return false;
 
-  const [globalCount] = await db
-    .select({ n: count() })
-    .from(remediationSessions)
-    .where(
-      sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`,
-    );
+    const [globalCount] = await tx
+      .select({ n: count() })
+      .from(remediationSessions)
+      .where(
+        sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`,
+      );
 
-  return (globalCount?.n ?? 0) < MAX_CONCURRENT_GLOBAL;
+    return (globalCount?.n ?? 0) < MAX_CONCURRENT_GLOBAL;
+  });
 }

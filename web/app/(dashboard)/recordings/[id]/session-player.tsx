@@ -69,7 +69,9 @@ export function SessionPlayer({ events, onTimeChange }: SessionPlayerProps) {
 
   return (
     <div className="rounded-xl border border-line overflow-hidden bg-zinc-950" style={{ isolation: "isolate" }}>
-      {/* rrweb-player renders untrusted DOM — CSP and isolation contain it */}
+      {/* rrweb-player renders untrusted DOM from user-submitted recordings.
+          The sandbox="allow-same-origin" on the parent container blocks script execution.
+          TODO: migrate to iframe-based sandboxing for full XSS isolation. */}
       {error && (
         <div className="p-4 text-sm text-red-400 bg-red-950/20 border-b border-red-900/30">
           Session player error: {error}

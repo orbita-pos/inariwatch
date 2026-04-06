@@ -12,12 +12,28 @@ import { eq, and, gte, desc, sql } from "drizzle-orm";
 
 export type CircuitState = "closed" | "open" | "half_open";
 
+/** All valid gate names — use this type to prevent typos in gate references */
+export type GateName =
+  | "auto_merge_enabled"
+  | "ci_passed"
+  | "confidence"
+  | "lines_changed"
+  | "self_review"
+  | "substrate_simulate"
+  | "eap_chain_verified"
+  | "prediction_safe"
+  | "security_scan"
+  | "substrate_replay"
+  | "e2e_staging";
+
 const FAILURE_THRESHOLD = 5; // consecutive failures to trip
 const LOOKBACK_MS = 2 * 60 * 60 * 1000; // 2 hours
 const RECOVERY_MS = 15 * 60 * 1000; // 15 min cooldown before half_open
+/** Max gates the circuit breaker can bypass simultaneously before forcing draft_pr */
+export const MAX_SIMULTANEOUS_BYPASSES = 2;
 
 /** Gates that NEVER get bypassed by the circuit breaker */
-const NON_BYPASSABLE_GATES = new Set([
+const NON_BYPASSABLE_GATES = new Set<GateName>([
   "ci_passed",
   "security_scan",
   "self_review",
@@ -49,7 +65,7 @@ export async function getCircuitState(
   gateName: string,
 ): Promise<CircuitState> {
   // Non-bypassable gates are always closed
-  if (NON_BYPASSABLE_GATES.has(gateName)) return "closed";
+  if (NON_BYPASSABLE_GATES.has(gateName as GateName)) return "closed";
 
   const since = new Date(Date.now() - LOOKBACK_MS);
 

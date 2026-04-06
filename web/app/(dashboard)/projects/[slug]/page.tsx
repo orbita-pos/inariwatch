@@ -432,11 +432,16 @@ export default async function ProjectDetailPage({
             isActive: r.isActive,
             createdAt: r.createdAt,
           }))}
-          channels={userChannels.map((ch) => ({
-            id: ch.id,
-            type: ch.type,
-            config: ch.config as Record<string, string>,
-          }))}
+          channels={userChannels.map((ch) => {
+            // Strip sensitive secrets before sending to client component
+            const rawConfig = ch.config as Record<string, string>;
+            const safeConfig: Record<string, string> = {};
+            const sensitiveKeys = new Set(["bot_token", "webhook_url", "access_token", "api_key", "secret", "token", "refresh_token"]);
+            for (const [k, v] of Object.entries(rawConfig)) {
+              safeConfig[k] = sensitiveKeys.has(k) ? "••••••" : v;
+            }
+            return { id: ch.id, type: ch.type, config: safeConfig };
+          })}
         />
       </ProGate>
 

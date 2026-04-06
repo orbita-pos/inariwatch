@@ -36,9 +36,10 @@ async function fetchSentryContext(
   // If no explicit ID, search for the issue by title
   if (!issueId) {
     try {
+      if (!/^[a-zA-Z0-9_-]+$/.test(org)) throw new Error("Invalid Sentry org slug");
       const titleQuery = encodeURIComponent(alert.title.replace(/\[.*?\]\s*/, "").slice(0, 80));
       const searchRes = await fetch(
-        `https://sentry.io/api/0/organizations/${org}/issues/?query=${titleQuery}&limit=1`,
+        `https://sentry.io/api/0/organizations/${encodeURIComponent(org)}/issues/?query=${titleQuery}&limit=1`,
         { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 }, signal: AbortSignal.timeout(10_000) }
       );
       if (searchRes.ok) {

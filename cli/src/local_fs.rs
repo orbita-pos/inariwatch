@@ -66,14 +66,18 @@ fn walk_recursive(root: &Path, dir: &Path, files: &mut Vec<String>) {
 }
 
 /// Read a file relative to project root. Returns None if not found or too large (>500KB).
+/// Uses canonicalization to prevent path traversal outside the project root.
 pub fn read_project_file(root: &str, relative_path: &str) -> Option<String> {
-    let full = Path::new(root).join(relative_path);
-    if !full.exists() {
+    let root_canonical = Path::new(root).canonicalize().ok()?;
+    let full = root_canonical.join(relative_path);
+    // Canonicalize resolves symlinks and ".." — then verify containment
+    let full_canonical = full.canonicalize().ok()?;
+    if !full_canonical.starts_with(&root_canonical) {
         return None;
     }
-    let meta = std::fs::metadata(&full).ok()?;
+    let meta = std::fs::metadata(&full_canonical).ok()?;
     if meta.len() > 500_000 {
         return None;
     }
-    std::fs::read_to_string(&full).ok()
+    std::fs::read_to_string(&full_canonical).ok()
 }

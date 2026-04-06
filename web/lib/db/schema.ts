@@ -487,6 +487,13 @@ export type RemediationStep = {
   timestamp: string;
 };
 
+// ── Cron Locks (prevent concurrent cron invocations) ──────────────────────────
+
+export const cronLocks = pgTable("cron_locks", {
+  key: text("key").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
 // ── Remediation Locks (file-level concurrency control) ──────────────────────
 
 export const remediationLocks = pgTable("remediation_locks", {

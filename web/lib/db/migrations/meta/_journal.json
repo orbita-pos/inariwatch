@@ -134,6 +134,139 @@
       "when": 1774594800000,
       "tag": "0017_simulate_risk_score",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1774681200000,
+      "tag": "0018_proposed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1774767600000,
+      "tag": "0019_cli_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1774854000000,
+      "tag": "0020_uptime_and_resolved_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1774940400000,
+      "tag": "0021_missing_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1775026800000,
+      "tag": "0022_mcp_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1775113200000,
+      "tag": "0023_mcp_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1775199600000,
+      "tag": "0024_mcp_token_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1775286000000,
+      "tag": "0025_mcp_oauth_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1775372400000,
+      "tag": "0026_telegram_user_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1775458800000,
+      "tag": "0027_telegram_message_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1775545200000,
+      "tag": "0028_code_intelligence",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1775631600000,
+      "tag": "0029_fix_replay_embedding",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1775718000000,
+      "tag": "0030_missing_enum_values",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1775804400000,
+      "tag": "0031_schema_alignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1775890800000,
+      "tag": "0032_api_key_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1775977200000,
+      "tag": "0033_ui_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1776063600000,
+      "tag": "0034_dedup_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1776150000000,
+      "tag": "0035_cron_locks",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1776236400000,
+      "tag": "0036_remediation_tables",
+      "breakpoints": true
     }
   ]
 }

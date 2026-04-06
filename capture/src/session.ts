@@ -128,13 +128,14 @@ export async function initSession(
         const data = rrwebEvent.data as Record<string, unknown> | undefined
 
         if (eventType === 4) {
-          // Meta event — navigation
+          // Meta event — navigation (scrub sensitive query params from URL)
           const href = (data?.href as string) ?? ""
           if (href) {
+            const { scrubUrl } = await (Function('return import("./breadcrumbs.js")')())
             pushEvent({
               timestamp: Date.now(),
               type: "navigation",
-              url: href,
+              url: scrubUrl ? scrubUrl(href) : href,
               rrwebEvent,
             }, maxEvents, maxSeconds)
           }
@@ -174,8 +175,11 @@ export async function initSession(
             ? computeSelector(targetNode)
             : `[data-rrweb-id="${targetId}"]`
 
-          // Redact password values
-          if (targetNode instanceof HTMLInputElement && targetNode.type === "password") {
+          // Redact password and other sensitive input values (card, cvv, ssn, etc.)
+          if (
+            (targetNode instanceof HTMLInputElement && targetNode.type === "password") ||
+            (targetNode instanceof Element && targetNode.matches(sensitiveSelectors))
+          ) {
             value = "[REDACTED]"
           }
 

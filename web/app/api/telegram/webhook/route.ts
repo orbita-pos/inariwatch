@@ -8,6 +8,7 @@ import { queryAlerts, getErrorTrends, silenceAlert, acknowledgeAlert, reopenAler
 import { rollbackToDeployment } from "@/lib/services/vercel.service";
 import { gatherChatContext, buildContextString, SYSTEM_OPS } from "@/lib/services/chat.service";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
+import { encrypt, decrypt } from "@/lib/crypto";
 
 export const runtime = "nodejs";
 
@@ -209,7 +210,7 @@ async function handleLink(botToken: string, chatId: string, tgUserId: string, em
           userId: user.id,
           telegramUserId: tgUserId,
           chatId,
-          botToken,
+          botToken: encrypt(botToken),
         });
         await db.delete(cliPendingCodes).where(eq(cliPendingCodes.code, `tg_${token}`));
         await sendMessage(botToken, chatId, `✅ Linked! Connected to <b>${fmt.esc(user.name || email)}</b>.`);

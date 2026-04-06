@@ -918,6 +918,10 @@ async fn run_cron_tasks(
         }
 
         let url = format!("{}{}", cron.url, task.path);
+        // Validate the FULL concatenated URL, not just the base
+        if crate::url_validation::validate_public_url(&url).is_err() {
+            continue;
+        }
         let ts = chrono::Local::now().format("%H:%M:%S").to_string();
 
         match client

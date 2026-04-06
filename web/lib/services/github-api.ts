@@ -5,6 +5,11 @@
 
 const API = "https://api.github.com";
 
+/** Build URL-safe repo path with encoded owner/repo */
+function repoPath(owner: string, repo: string): string {
+  return `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
+
 function headers(token: string) {
   return {
     Authorization: `Bearer ${token}`,
@@ -44,7 +49,7 @@ async function ghFetch(url: string, init?: RequestInit): Promise<Response> {
 // ── Repo info ────────────────────────────────────────────────────────────────
 
 export async function getDefaultBranch(token: string, owner: string, repo: string): Promise<string> {
-  const res = await ghFetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
+  const res = await ghFetch(`${repoPath(owner, repo)}`, { headers: headers(token) });
   if (!res.ok) throw new Error(`Failed to get repo info (${res.status})`);
   const data = await res.json();
   return data.default_branch ?? "main";
@@ -314,7 +319,7 @@ export async function checkWritePermissions(
   owner: string,
   repo: string
 ): Promise<{ canPush: boolean; canPR: boolean; scopes: string | null }> {
-  const res = await ghFetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
+  const res = await ghFetch(`${repoPath(owner, repo)}`, { headers: headers(token) });
   if (!res.ok) {
     return { canPush: false, canPR: false, scopes: res.headers.get("x-oauth-scopes") };
   }

@@ -28,7 +28,7 @@ function scrubSecrets(text: string): string {
 }
 
 /** Strip sensitive query params from URLs */
-function scrubUrl(url: string): string {
+export function scrubUrl(url: string): string {
   try {
     const parsed = new URL(url, "http://localhost")
     const sensitiveParams = ["token", "key", "secret", "password", "auth", "credential", "api_key", "apiKey", "access_token"]

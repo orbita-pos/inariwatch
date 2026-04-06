@@ -358,11 +358,23 @@ async fn handle_capture_event(
         return Ok(());
     }
 
-    // Apply fix to disk
+    // Apply fix to disk — verify path containment before writing
     let mut applied = 0;
+    let root_canonical = std::path::Path::new(project_root)
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_root));
     for (path, content) in &fix_files {
-        let full_path = std::path::Path::new(project_root).join(path);
-        match std::fs::write(&full_path, content) {
+        let full_path = root_canonical.join(path);
+        // Create parent dirs so canonicalize can work on existing paths
+        if let Some(parent) = full_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let resolved = full_path.canonicalize().unwrap_or_else(|_| full_path.clone());
+        if !resolved.starts_with(&root_canonical) || !safety::is_safe_file_path(path) {
+            eprintln!("     {} Path escapes project root, skipping: {}", "✗".red(), path);
+            continue;
+        }
+        match std::fs::write(&resolved, content) {
             Ok(_) => {
                 println!("     {} Saved {}", "✓".green(), path);
                 applied += 1;

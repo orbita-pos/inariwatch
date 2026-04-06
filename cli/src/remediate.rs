@@ -1017,6 +1017,11 @@ async fn query_fix_replay(
         encoded_q,
     );
 
+    // Validate URL to prevent SSRF via config-controlled base_url
+    if crate::url_validation::validate_public_url(&url).is_err() {
+        return Ok(None);
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
@@ -1091,6 +1096,11 @@ pub(crate) async fn contribute_fix_replay(
         "{}/api/patterns/contribute",
         base_url.trim_end_matches('/')
     );
+
+    // Validate URL to prevent SSRF via config-controlled base_url
+    if crate::url_validation::validate_public_url(&url).is_err() {
+        return Ok(None);
+    }
 
     let payload = json!({
         "fingerprint": fingerprint,

@@ -51,11 +51,12 @@ async function checkSentryForRegression(
   const token = config.token as string;
   const org = config.org as string;
   if (!token || !org) return false;
+  if (!/^[a-zA-Z0-9_-]+$/.test(org)) return false;
 
   try {
     const since = mergeTime.toISOString();
     const res = await fetch(
-      `https://sentry.io/api/0/organizations/${org}/issues/?query=firstSeen%3A%3E${encodeURIComponent(since)}&limit=10`,
+      `https://sentry.io/api/0/organizations/${encodeURIComponent(org)}/issues/?query=firstSeen%3A%3E${encodeURIComponent(since)}&limit=10`,
       { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 } }
     );
     if (!res.ok) return false;
@@ -163,7 +164,11 @@ export async function startPostMergeMonitoring(params: {
       },
     });
 
-    if (sentryRegression || uptimeRegression || fingerprintRegression) {
+    // Require at least 2 of 3 signals to trigger auto-revert during early canary phase
+    // to reduce false positives. After canary_fast (3 min), a single strong signal suffices.
+    const regressionSignals = [sentryRegression, uptimeRegression, fingerprintRegression].filter(Boolean).length;
+    const needMultipleSignals = phase.name === "canary_fast";
+    if (regressionSignals > 0 && (!needMultipleSignals || regressionSignals >= 2)) {
       // Regression detected — auto-revert
       emit("monitoring_poll", { elapsed: Math.round(elapsed / 1000), total: Math.round(MONITOR_DURATION_MS / 1000), status: "reverting" });
 

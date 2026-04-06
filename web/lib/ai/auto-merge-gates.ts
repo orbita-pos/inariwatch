@@ -46,7 +46,8 @@ export function evaluateAutoMergeGates(params: {
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
-  /** Push gate — if circuit breaker is open for this gate, override to passed */
+  /** Push gate — if circuit breaker is open for this gate, override to passed.
+   *  If too many gates are simultaneously bypassed, the caller should downgrade to draft_pr. */
   function pushGate(name: string, passed: boolean, reason: string) {
     if (bypassed.has(name)) {
       gates.push({ name, passed: true, reason: `${reason} [CIRCUIT BREAKER: gate bypassed — consistently failing]` });

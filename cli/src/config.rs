@@ -250,7 +250,24 @@ pub fn save(config: &Config) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let content = toml::to_string_pretty(config)?;
-    std::fs::write(&path, content)?;
+
+    // On Unix, restrict file permissions to owner-only (0600) since config contains secrets
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)?;
+        file.write_all(content.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, content)?;
+    }
     Ok(())
 }
 

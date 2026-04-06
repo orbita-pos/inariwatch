@@ -9,6 +9,12 @@ export function parseDSN(dsn: string): ParsedDSN {
     return { endpoint: dsn, secretKey: "", isLocal: true }
   }
 
+  // Cloud mode requires HTTPS
+  if (parsedUrl.protocol !== "https:") {
+    console.warn("[@inariwatch/capture] DSN must use HTTPS for non-local endpoints. Events will not be sent.")
+    return { endpoint: "", secretKey: "", isLocal: false }
+  }
+
   // Cloud mode: "https://secret@app.inariwatch.com/capture/integration-id"
   const url = new URL(dsn)
   const secretKey = url.username || url.password || ""

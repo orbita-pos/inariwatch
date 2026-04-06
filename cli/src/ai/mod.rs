@@ -265,8 +265,10 @@ async fn call_claude_raw(
         .await?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Claude API error: {}", body);
+        let preview: String = body.chars().take(200).collect();
+        anyhow::bail!("Claude API error ({}): {}", status, preview);
     }
 
     let raw: ClaudeResponse = resp.json().await?;
@@ -307,8 +309,12 @@ async fn call_openai_compat(
         .await?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("AI API error ({}): {}", api_url, body);
+        let preview: String = body.chars().take(200).collect();
+        // Strip query params from URL to avoid leaking API keys in error messages
+        let safe_url = api_url.split('?').next().unwrap_or(api_url);
+        anyhow::bail!("AI API error ({}, {}): {}", safe_url, status, preview);
     }
 
     let raw: OpenAIResponse = resp.json().await?;

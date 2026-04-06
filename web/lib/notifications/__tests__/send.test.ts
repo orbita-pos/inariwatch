@@ -93,6 +93,7 @@ function makeAlert(overrides = {}) {
     postmortem: null,
     isRead: false,
     isResolved: false,
+    resolvedAt: null,
     fingerprint: null,
     sentAt: null,
     stormId: null,

@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
+import { encrypt, decrypt } from "@/lib/crypto";
 
 export async function enableTwoFactor(): Promise<{
   error?: string;
@@ -30,10 +31,10 @@ export async function enableTwoFactor(): Promise<{
   const secretBase32 = totp.secret.base32;
   const otpauthUri = totp.toString();
 
-  // Store the secret (not yet enabled — user must verify first)
+  // Store the secret encrypted at rest (not yet enabled — user must verify first)
   await db
     .update(users)
-    .set({ totpSecret: secretBase32 })
+    .set({ totpSecret: encrypt(secretBase32) })
     .where(eq(users.id, userId));
 
   // Generate QR code
@@ -61,13 +62,14 @@ export async function verifyTwoFactor(
 
   if (!user?.totpSecret) return { error: "No TOTP secret found. Start setup again." };
 
+  const decryptedSecret = decrypt(user.totpSecret);
   const totp = new OTPAuth.TOTP({
     issuer: "InariWatch",
     label: session?.user?.email ?? "user",
     algorithm: "SHA1",
     digits: 6,
     period: 30,
-    secret: OTPAuth.Secret.fromBase32(user.totpSecret),
+    secret: OTPAuth.Secret.fromBase32(decryptedSecret),
   });
 
   const delta = totp.validate({ token: code, window: 1 });
