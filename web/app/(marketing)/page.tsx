@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
+
+export const metadata: Metadata = {
+  title: "InariWatch — AI Monitoring That Fixes Your Code",
+  description: "Your CI broke. The PR is already open. InariWatch monitors GitHub, Vercel, Sentry and more — then writes the fix autonomously.",
+  alternates: { canonical: "https://inariwatch.com" },
+};
 import {
   GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, UptimeIcon, DatadogIcon, ExpoIcon,
 } from "@/components/brand-icons";

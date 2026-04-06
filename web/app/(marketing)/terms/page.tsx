@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Terms of Service — InariWatch",
   description: "Terms and conditions for using InariWatch.",
+  alternates: { canonical: "https://inariwatch.com/terms" },
 };
 
 export default function TermsPage() {

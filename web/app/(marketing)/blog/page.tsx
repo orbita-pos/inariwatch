@@ -9,6 +9,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Blog — InariWatch",
   description: "Engineering updates, feature announcements, and DevOps insights from the InariWatch team.",
+  alternates: { canonical: "https://inariwatch.com/blog" },
+  openGraph: {
+    title: "Blog — InariWatch",
+    description: "Engineering updates, feature announcements, and DevOps insights from the InariWatch team.",
+    url: "https://inariwatch.com/blog",
+    images: [{ url: "/image-blog.png", width: 1200, height: 630, alt: "InariWatch blog" }],
+  },
+  twitter: { card: "summary_large_image", title: "Blog — InariWatch", images: ["/image-blog.png"] },
 };
 
 function formatDate(d: Date | null): string {

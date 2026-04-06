@@ -7,6 +7,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Pricing — InariWatch",
   description: "InariWatch is free during beta. Full platform access, no credit card required.",
+  alternates: { canonical: "https://inariwatch.com/pricing" },
+  openGraph: {
+    title: "Pricing — InariWatch",
+    description: "InariWatch is free during beta. Full platform access, no credit card required.",
+    url: "https://inariwatch.com/pricing",
+    images: [{ url: "/demo-poster.png", width: 1200, height: 630, alt: "InariWatch pricing" }],
+  },
+  twitter: { card: "summary_large_image", title: "Pricing — InariWatch", images: ["/demo-poster.png"] },
 };
 
 const FREE_FEATURES = [

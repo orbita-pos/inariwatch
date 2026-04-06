@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Privacy Policy — InariWatch",
   description: "How InariWatch collects, uses, and protects your data.",
+  alternates: { canonical: "https://inariwatch.com/privacy" },
 };
 
 export default function PrivacyPage() {

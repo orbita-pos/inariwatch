@@ -54,14 +54,38 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const [post] = await db
-    .select({ title: blogPosts.title, description: blogPosts.description })
+    .select({
+      title: blogPosts.title,
+      description: blogPosts.description,
+      publishedAt: blogPosts.publishedAt,
+      tag: blogPosts.tag,
+    })
     .from(blogPosts)
     .where(and(eq(blogPosts.slug, slug), eq(blogPosts.isPublished, true)))
     .limit(1);
   if (!post) return {};
+
+  const url = `https://inariwatch.com/blog/${slug}`;
+
   return {
     title: `${post.title} — InariWatch Blog`,
     description: post.description,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "article",
+      url,
+      title: post.title,
+      description: post.description,
+      siteName: "InariWatch",
+      images: [{ url: "/image-blog.png", width: 1200, height: 630, alt: post.title }],
+      ...(post.publishedAt && { publishedTime: post.publishedAt.toISOString() }),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description: post.description,
+      images: ["/image-blog.png"],
+    },
   };
 }
 
@@ -81,8 +105,27 @@ export default async function BlogPostPage({
 
   const mins = readingTime(post.content);
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description: post.description,
+    datePublished: post.publishedAt?.toISOString(),
+    dateModified: post.updatedAt?.toISOString(),
+    author: { "@type": "Person", name: "Jesus Bernal", url: "https://jesusbr.com" },
+    publisher: {
+      "@type": "Organization",
+      name: "InariWatch",
+      logo: { "@type": "ImageObject", url: "https://inariwatch.com/logo-inari/favicon-96x96.png" },
+    },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `https://inariwatch.com/blog/${slug}` },
+    image: "https://inariwatch.com/image-blog.png",
+    wordCount: post.content.trim().split(/\s+/).length,
+  };
+
   return (
     <div className="min-h-screen bg-inari-bg">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <MarketingNav opaque />
       <main className="mx-auto max-w-2xl px-6 pt-24 pb-24">
 

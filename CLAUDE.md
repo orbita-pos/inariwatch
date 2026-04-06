@@ -47,6 +47,26 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 └── k6/           # Stress test suite (10 scenarios, all passing)
 ```
 
+## GitHub repositories (open-core model)
+
+The project follows an **open-core** strategy: the monorepo is private, and only user-facing packages are public.
+
+| Repo | Visibility | Contents |
+|------|-----------|----------|
+| `orbita-pos/inariwatch` | **PRIVATE** | This monorepo — web, AI, CLI, desktop, mobile, k6 |
+| `orbita-pos/inariwatch-capture` | PUBLIC | `@inariwatch/capture` SDK (mirror of `capture/`) |
+| `orbita-pos/inariwatch-mcp` | PUBLIC | `@inariwatch/mcp` init tool (mirror of `mcp/`) |
+| `orbita-pos/inariwatch-vscode` | PUBLIC | VS Code extension (mirror of `vscode/`) |
+| `orbita-pos/inariwatch-action` | PUBLIC | GitHub Action for PR risk assessment |
+| `orbita-pos/eap` | **PRIVATE** | EAP: Merkle + Ed25519 cryptographic verification (6 Rust crates) |
+| `orbita-pos/substrate` | **PRIVATE** | Substrate: I/O recording + deterministic replay (10 Rust crates) |
+
+**Rules:**
+- Never make `inariwatch`, `eap`, or `substrate` public — these contain core IP
+- When updating `capture/`, `mcp/`, or `vscode/` in this monorepo, the public mirrors should also be updated
+- Public repos must never reference internal paths, private infra, or secrets
+- npm packages (`@inariwatch/capture`, `@inariwatch/mcp`) publish from the public repos
+
 ## Stack
 
 - **Framework:** Next.js 15 (App Router), TypeScript

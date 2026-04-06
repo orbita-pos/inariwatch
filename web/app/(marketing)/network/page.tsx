@@ -9,6 +9,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Network — InariWatch",
   description: "The InariWatch Network: collective software intelligence. Every fix makes every project stronger. Crowdsourced fixes, anonymized contributions, public APIs.",
+  alternates: { canonical: "https://inariwatch.com/network" },
+  openGraph: {
+    title: "Network — InariWatch",
+    description: "Collective software intelligence. Every fix makes every project stronger.",
+    url: "https://inariwatch.com/network",
+    images: [{ url: "/demo-poster.png", width: 1200, height: 630, alt: "InariWatch network" }],
+  },
+  twitter: { card: "summary_large_image", title: "Network — InariWatch", images: ["/demo-poster.png"] },
 };
 
 export const revalidate = 300; // refresh every 5 min

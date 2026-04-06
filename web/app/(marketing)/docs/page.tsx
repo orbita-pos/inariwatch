@@ -23,6 +23,14 @@ import {
 export const metadata: Metadata = {
   title: "Docs — InariWatch",
   description: "Documentation for InariWatch — CLI, integrations, AI setup, and the web dashboard.",
+  alternates: { canonical: "https://inariwatch.com/docs" },
+  openGraph: {
+    title: "Docs — InariWatch",
+    description: "Documentation for InariWatch — CLI, integrations, AI setup, and the web dashboard.",
+    url: "https://inariwatch.com/docs",
+    images: [{ url: "/demo-poster.png", width: 1200, height: 630, alt: "InariWatch docs" }],
+  },
+  twitter: { card: "summary_large_image", title: "Docs — InariWatch", images: ["/demo-poster.png"] },
 };
 
 // ── Sidebar nav config ─────────────────────────────────────────────────────────

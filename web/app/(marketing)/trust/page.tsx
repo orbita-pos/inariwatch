@@ -8,6 +8,14 @@ export const metadata: Metadata = {
   title: "Trust Architecture — InariWatch",
   description:
     "11 safety gates, 4 trust levels, and 36 security checks between an AI diagnosis and your production code. Zero autonomy by default — earned through a proven track record.",
+  alternates: { canonical: "https://inariwatch.com/trust" },
+  openGraph: {
+    title: "Trust Architecture — InariWatch",
+    description: "11 safety gates, 4 trust levels, and 36 security checks between an AI diagnosis and your production code.",
+    url: "https://inariwatch.com/trust",
+    images: [{ url: "/screenshots/auto-merge-gates.png", width: 1200, height: 630, alt: "InariWatch safety gates" }],
+  },
+  twitter: { card: "summary_large_image", title: "Trust Architecture — InariWatch", images: ["/screenshots/auto-merge-gates.png"] },
 };
 
 // ── Layer data ──────────────────────────────────────────────────────────────
