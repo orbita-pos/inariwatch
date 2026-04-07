@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, apiKeys } from "@/lib/db";
-import { cliPendingCodes } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { apiKeys, cliPendingCodes } from "@/lib/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { randomBytes, createHash } from "crypto";
 
@@ -41,15 +41,11 @@ export async function GET(req: NextRequest) {
   const apiToken = `inari_${service}_${randomBytes(24).toString("hex")}`;
 
   // Revoke any existing token for this user+service, then store the new one
-  await db
-    .delete(apiKeys)
-    .where(and(eq(apiKeys.userId, pending.userId), eq(apiKeys.service, service)));
-  await db.insert(apiKeys).values({
-    userId:       pending.userId,
-    service,
-    keyEncrypted: encrypt(apiToken),
-    keyHash:      createHash("sha256").update(apiToken).digest("hex"),
-  });
+  // Use raw SQL to bypass Drizzle prepared statement cache (Neon pooler issue)
+  const encrypted = encrypt(apiToken);
+  const keyHash = createHash("sha256").update(apiToken).digest("hex");
+  await db.execute(sql`DELETE FROM api_keys WHERE user_id = ${pending.userId} AND service = ${service}`);
+  await db.execute(sql`INSERT INTO api_keys (user_id, service, key_encrypted, key_hash) VALUES (${pending.userId}, ${service}, ${encrypted}, ${keyHash})`);
 
   // Consume the pending code
   await db.delete(cliPendingCodes).where(eq(cliPendingCodes.code, code));
