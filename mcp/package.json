@@ -1,6 +1,6 @@
 {
   "name": "@inariwatch/mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "One command to connect all your AI coding tools to InariWatch — auto-detects Claude, Cursor, Windsurf, VS Code, Codex & Gemini, configures MCP, installs capture SDK",
   "type": "module",
   "bin": {
