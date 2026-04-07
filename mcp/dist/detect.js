@@ -1,13 +1,12 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 function which(cmd) {
     try {
-        return execSync(`which ${cmd} 2>/dev/null || where ${cmd} 2>NUL`, {
-            encoding: "utf8",
-            stdio: ["pipe", "pipe", "pipe"],
-        }).trim().split("\n")[0] || null;
+        const command = process.platform === "win32" ? "where" : "which";
+        const r = spawnSync(command, [cmd], { encoding: "utf8", stdio: "pipe" });
+        return r.status === 0 ? r.stdout.trim().split("\n")[0] : null;
     }
     catch {
         return null;
@@ -15,13 +14,14 @@ function which(cmd) {
 }
 function getVersion(cmd) {
     try {
-        const out = execSync(`${cmd} --version 2>/dev/null || ${cmd} -v 2>NUL`, {
-            encoding: "utf8",
-            stdio: ["pipe", "pipe", "pipe"],
-        }).trim();
-        // Extract version number
-        const match = out.match(/\d+\.\d+[\.\d]*/);
-        return match ? match[0] : out.slice(0, 30);
+        let r = spawnSync(cmd, ["--version"], { encoding: "utf8", stdio: "pipe" });
+        if (r.status !== 0) {
+            r = spawnSync(cmd, ["-v"], { encoding: "utf8", stdio: "pipe" });
+            if (r.status !== 0)
+                return null;
+        }
+        const match = r.stdout.trim().match(/\d+\.\d+[\.\d]*/);
+        return match ? match[0] : r.stdout.trim().slice(0, 30);
     }
     catch {
         return null;
@@ -77,22 +77,16 @@ export function detectGitHub() {
     if (!which("gh"))
         return null;
     try {
-        const status = execSync("gh auth status 2>&1", {
-            encoding: "utf8",
-            stdio: ["pipe", "pipe", "pipe"],
-        });
-        if (!status.includes("Logged in"))
+        const status = spawnSync("gh", ["auth", "status"], { encoding: "utf8", stdio: "pipe" });
+        const statusOut = (status.stdout || "") + (status.stderr || "");
+        if (!statusOut.includes("Logged in"))
             return null;
-        const token = execSync("gh auth token", {
-            encoding: "utf8",
-            stdio: ["pipe", "pipe", "pipe"],
-        }).trim();
+        const tokenResult = spawnSync("gh", ["auth", "token"], { encoding: "utf8", stdio: "pipe" });
+        const token = tokenResult.stdout?.trim();
         if (!token)
             return null;
-        const user = execSync("gh api user --jq .login 2>/dev/null", {
-            encoding: "utf8",
-            stdio: ["pipe", "pipe", "pipe"],
-        }).trim();
+        const userResult = spawnSync("gh", ["api", "user", "--jq", ".login"], { encoding: "utf8", stdio: "pipe" });
+        const user = userResult.stdout?.trim();
         return { token, user: user || "unknown" };
     }
     catch {

@@ -97,16 +97,24 @@ async function main() {
         const consent = await ask(`  Link GitHub (${github.user}) to InariWatch? (y/N) `);
         if (consent.toLowerCase() === "y") {
             try {
-                const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({ service: "github", token: github.token }),
-                });
-                if (resp.ok) {
-                    console.log(`    ${GREEN}✓${RESET} GitHub linked (${github.user})`);
+                const linkController = new AbortController();
+                const linkTimeout = setTimeout(() => linkController.abort(), 15_000);
+                try {
+                    const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ service: "github", token: github.token }),
+                        signal: linkController.signal,
+                    });
+                    if (resp.ok) {
+                        console.log(`    ${GREEN}✓${RESET} GitHub linked (${github.user})`);
+                    }
+                }
+                finally {
+                    clearTimeout(linkTimeout);
                 }
             }
             catch {

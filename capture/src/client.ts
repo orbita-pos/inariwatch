@@ -18,8 +18,9 @@ export async function flush(): Promise<void> {
 }
 
 export function init(config: CaptureConfig = {}): void {
-  const dsn = config.dsn || process.env.INARIWATCH_DSN
-  const environment = config.environment || process.env.INARIWATCH_ENVIRONMENT || process.env.NODE_ENV
+  const env = typeof process !== "undefined" && process.env ? process.env : {} as Record<string, string | undefined>
+  const dsn = config.dsn || env.INARIWATCH_DSN
+  const environment = config.environment || env.INARIWATCH_ENVIRONMENT || env.NODE_ENV
   globalConfig = { ...config, dsn, environment }
 
   if (!dsn) {
@@ -62,7 +63,8 @@ export function init(config: CaptureConfig = {}): void {
 async function initSubstrate(subConfig: SubstrateConfig, config: CaptureConfig): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const agent: any = await import("@inariwatch/substrate-agent")
+    const pkg = "@inariwatch/substrate-agent"
+    const agent: any = await import(/* webpackIgnore: true */ pkg)
     agent.init({
       bufferSeconds: subConfig.bufferSeconds ?? 60,
       ...(subConfig.redact ? { redact: subConfig.redact } : {}),

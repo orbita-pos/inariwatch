@@ -11,10 +11,19 @@ export async function deviceAuth() {
     console.log("\n  Authenticating via browser...");
     try {
         // Start device flow
-        const startResp = await fetch(`${API_BASE}/api/cli/auth/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-        });
+        const startController = new AbortController();
+        const startTimeout = setTimeout(() => startController.abort(), 15_000);
+        let startResp;
+        try {
+            startResp = await fetch(`${API_BASE}/api/cli/auth/start`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: startController.signal,
+            });
+        }
+        finally {
+            clearTimeout(startTimeout);
+        }
         if (!startResp.ok) {
             console.log("  Failed to start auth flow. Use --token instead.");
             return null;
@@ -38,7 +47,17 @@ export async function deviceAuth() {
         for (let i = 0; i < maxAttempts; i++) {
             await sleep(5000);
             process.stdout.write("  Waiting for approval...\r");
-            const pollResp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}`);
+            const pollController = new AbortController();
+            const pollTimeout = setTimeout(() => pollController.abort(), 10_000);
+            let pollResp;
+            try {
+                pollResp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}`, { signal: pollController.signal });
+            }
+            catch {
+                clearTimeout(pollTimeout);
+                continue; // Timeout or network error — retry next iteration
+            }
+            clearTimeout(pollTimeout);
             if (pollResp.ok) {
                 const data = (await pollResp.json());
                 if (data.status === "approved" && data.apiToken) {

@@ -8,14 +8,16 @@ let globalTransport = null;
 let globalConfig = null;
 let lastReportedRelease = null;
 let substrateFlush = null;
+let sessionFlush = null;
 /** Flush all pending events — call this before process exit or serverless return. */
 export async function flush() {
     if (globalTransport)
         await globalTransport.flush();
 }
 export function init(config = {}) {
-    const dsn = config.dsn || process.env.INARIWATCH_DSN;
-    const environment = config.environment || process.env.INARIWATCH_ENVIRONMENT || process.env.NODE_ENV;
+    const env = typeof process !== "undefined" && process.env ? process.env : {};
+    const dsn = config.dsn || env.INARIWATCH_DSN;
+    const environment = config.environment || env.INARIWATCH_ENVIRONMENT || env.NODE_ENV;
     globalConfig = { ...config, dsn, environment };
     if (!dsn) {
         globalTransport = createLocalTransport(globalConfig);
@@ -39,11 +41,22 @@ export function init(config = {}) {
         const subConfig = typeof config.substrate === "object" ? config.substrate : {};
         initSubstrate(subConfig, config);
     }
+    // Activate browser session recording if enabled
+    if (config.session) {
+        const sesConfig = typeof config.session === "object" ? config.session : {};
+        import("./session.js").then(({ initSession, getSessionEvents }) => {
+            initSession(sesConfig, config);
+            sessionFlush = getSessionEvents;
+        }).catch(() => {
+            // session.ts uses dynamic import of rrweb — errors handled there
+        });
+    }
 }
 async function initSubstrate(subConfig, config) {
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const agent = await (Function('return import("@inariwatch/substrate-agent")')());
+        const pkg = "@inariwatch/substrate-agent";
+        const agent = await import(/* webpackIgnore: true */ pkg);
         agent.init({
             bufferSeconds: subConfig.bufferSeconds ?? 60,
             ...(subConfig.redact ? { redact: subConfig.redact } : {}),
@@ -113,6 +126,10 @@ export function captureException(error, context) {
     const config = globalConfig;
     computeErrorFingerprint(title, body).then((fp) => {
         const fullEvent = enrichEvent({ ...event, fingerprint: fp });
+        // Attach session recording if available (before send)
+        if (sessionFlush) {
+            fullEvent.sessionEvents = sessionFlush();
+        }
         if (config.beforeSend) {
             const filtered = config.beforeSend(fullEvent);
             if (!filtered)

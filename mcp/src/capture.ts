@@ -91,32 +91,21 @@ function setupNextjs(cwd: string): { ok: boolean; error?: string } {
     const isMjs = file.endsWith(".mjs");
 
     if (isTs || isMjs) {
-      // ESM: add import at top, wrap default export
-      const importLine = `import { withInariWatch } from "@inariwatch/capture/next"\n`;
-
+      // ESM: extract default export into variable, re-export wrapped
       if (content.includes("export default")) {
-        // Wrap: export default X → export default withInariWatch(X)
-        const wrapped = importLine + content.replace(
-          /export default (.+)/,
-          (_, exported) => {
-            // Handle multiline: export default { ... } or export default nextConfig
-            const trimmed = exported.trim();
-            if (trimmed.endsWith(";")) {
-              return `export default withInariWatch(${trimmed.slice(0, -1)});`;
-            }
-            return `export default withInariWatch(${trimmed})`;
-          }
-        );
+        const importLine = `import { withInariWatch } from "@inariwatch/capture/next"\n`;
+        const wrapped = importLine +
+          content.replace("export default ", "const _nextConfig = ") +
+          "\nexport default withInariWatch(_nextConfig);\n";
         writeFileSync(configPath, wrapped);
       }
     } else {
-      // CJS: add require, wrap module.exports
-      const requireLine = `const { withInariWatch } = require("@inariwatch/capture/next")\n`;
+      // CJS: extract module.exports into variable, re-export wrapped
       if (content.includes("module.exports")) {
-        const wrapped = requireLine + content.replace(
-          /module\.exports\s*=\s*/,
-          "module.exports = withInariWatch("
-        ) + ")";
+        const requireLine = `const { withInariWatch } = require("@inariwatch/capture/next")\n`;
+        const wrapped = requireLine +
+          content.replace(/module\.exports\s*=\s*/, "const _nextConfig = ") +
+          "\nmodule.exports = withInariWatch(_nextConfig);\n";
         writeFileSync(configPath, wrapped);
       }
     }
@@ -157,6 +146,7 @@ export async function promptSubstrate(cwd: string = process.cwd()): Promise<bool
 export function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
+    rl.on("close", () => resolve(""));
     rl.question(question, (answer) => {
       rl.close();
       resolve(answer);
