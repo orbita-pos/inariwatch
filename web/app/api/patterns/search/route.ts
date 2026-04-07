@@ -56,9 +56,9 @@ export async function GET(req: Request) {
     SELECT
       id, fingerprint, pattern_text, category, framework, language,
       occurrence_count, first_seen_at, last_seen_at, created_at,
-      similarity(pattern_text, ${searchText}) AS sim
+      similarity(pattern_text, ${searchText}::text) AS sim
     FROM error_patterns
-    WHERE similarity(pattern_text, ${searchText}) > 0.15
+    WHERE similarity(pattern_text, ${searchText}::text) > 0.15
       ${languageFilter}
     ORDER BY sim DESC, occurrence_count DESC
     LIMIT ${limit}

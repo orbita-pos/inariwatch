@@ -233,7 +233,7 @@ export async function assessPRRisk(
         SELECT ep.id, ep.pattern_text, ep.category, ep.occurrence_count,
           (SELECT cf.fix_approach FROM community_fixes cf WHERE cf.pattern_id = ep.id ORDER BY cf.success_count DESC LIMIT 1) AS top_fix
         FROM error_patterns ep
-        WHERE similarity(ep.pattern_text, ${patternSearch}) > 0.1
+        WHERE similarity(ep.pattern_text, ${patternSearch}::text) > 0.1
         ORDER BY ep.occurrence_count DESC
         LIMIT 5
       `);

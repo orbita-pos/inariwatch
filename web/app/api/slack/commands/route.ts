@@ -520,8 +520,8 @@ async function handleSearch(query: string) {
       cf.fix_approach, cf.success_count, cf.total_applications
     FROM error_patterns p
     LEFT JOIN community_fixes cf ON cf.pattern_id = p.id
-    WHERE similarity(p.pattern_text, ${query}) > 0.1
-    ORDER BY similarity(p.pattern_text, ${query}) DESC, cf.success_count DESC
+    WHERE similarity(p.pattern_text, ${query}::text) > 0.1
+    ORDER BY similarity(p.pattern_text, ${query}::text) DESC, cf.success_count DESC
     LIMIT 15
   `);
 

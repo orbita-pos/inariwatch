@@ -374,8 +374,8 @@ async function cmdSearch(botToken: string, chatId: string, query: string) {
   const raw = await db.execute(sqlTag`
     SELECT p.pattern_text, p.category, cf.fix_approach, cf.success_count, cf.total_applications
     FROM error_patterns p LEFT JOIN community_fixes cf ON cf.pattern_id = p.id
-    WHERE similarity(p.pattern_text, ${query}) > 0.1
-    ORDER BY similarity(p.pattern_text, ${query}) DESC, cf.success_count DESC LIMIT 15
+    WHERE similarity(p.pattern_text, ${query}::text) > 0.1
+    ORDER BY similarity(p.pattern_text, ${query}::text) DESC, cf.success_count DESC LIMIT 15
   `);
 
   const rows = raw.rows as { pattern_text: string; category: string; fix_approach: string | null; success_count: number | null; total_applications: number | null }[];

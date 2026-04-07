@@ -24,11 +24,11 @@ export default async function CommunityPage({
     : sql``;
 
   const textFilter = q && q.length >= 3
-    ? sql`AND similarity(ep.pattern_text, ${q}) > 0.1`
+    ? sql`AND similarity(ep.pattern_text, ${q}::text) > 0.1`
     : sql``;
 
   const orderBy = q && q.length >= 3
-    ? sql`ORDER BY similarity(ep.pattern_text, ${q}) DESC, ep.occurrence_count DESC`
+    ? sql`ORDER BY similarity(ep.pattern_text, ${q}::text) DESC, ep.occurrence_count DESC`
     : sql`ORDER BY ep.occurrence_count DESC, ep.last_seen_at DESC`;
 
   const patterns = await db.execute(sql`
