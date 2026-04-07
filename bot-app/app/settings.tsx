@@ -77,8 +77,8 @@ export default function SettingsScreen() {
       {/* About */}
       <Text style={styles.sectionTitle}>ACERCA DE</Text>
       <View style={styles.section}>
-        <InfoRow label="Version" value="1.0.0" />
-        <InfoRow label="SDK" value="Expo 54" />
+        <InfoRow label="Version" value="1.0.1-beta" />
+        <InfoRow label="Build" value={new Date().toISOString().slice(0, 10)} />
         <Pressable
           style={styles.row}
           onPress={() => Linking.openURL("https://app.inariwatch.com")}

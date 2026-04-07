@@ -20,7 +20,8 @@ export default async function CliVerifyPage({
   const userId  = (session?.user as { id?: string })?.id;
 
   if (!userId) {
-    redirect(`/auth/signin?callbackUrl=/cli/verify?code=${params.code ?? ""}`);
+    redirect(`/auth/signin?callbackUrl=${encodeURIComponent(`/cli/verify?code=${params.code ?? ""}`)}`);
+
   }
 
   if (params.success) {

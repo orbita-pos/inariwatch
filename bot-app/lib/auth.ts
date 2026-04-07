@@ -78,14 +78,18 @@ export async function pollForToken(
 
   while (Date.now() < deadline) {
     await sleep(3000);
-    await waitForForeground();
     onStatus?.("waiting");
 
     try {
-      const resp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}&client=mobile`);
+      const resp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}&client=mobile`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      console.log("[auth-poll] status:", resp.status);
+      if (resp.status === 404) return null; // code consumed or invalid
       if (!resp.ok) continue;
 
       const data = await resp.json();
+      console.log("[auth-poll] data:", JSON.stringify(data));
       if (data.status === "approved" && data.apiToken) {
         await setToken(data.apiToken);
         return data.apiToken;
@@ -93,8 +97,8 @@ export async function pollForToken(
       if (data.status === "expired" || data.status === "invalid") {
         return null;
       }
-    } catch {
-      // Network error, retry
+    } catch (err) {
+      console.log("[auth-poll] error:", err);
     }
   }
   return null;

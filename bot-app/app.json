@@ -17,7 +17,10 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.inariwatch.bot",
-      "backgroundColor": "#0a0a0a"
+      "backgroundColor": "#0a0a0a",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {

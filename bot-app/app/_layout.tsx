@@ -7,6 +7,7 @@ LogBox.ignoreLogs(["expo-notifications"]);
 import { ThemeProvider, DarkTheme } from "@react-navigation/native";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import * as Updates from "expo-updates";
 import { isLoggedIn, onAuthChange } from "../lib/auth";
 import { setupNotificationHandler, setupPush, clearBadge } from "../lib/push";
 import { isBiometricEnabled, authenticateBiometric } from "../lib/biometric";
@@ -52,6 +53,7 @@ export default function RootLayout() {
     });
     setupNotificationHandler().catch(() => {});
     checkVersion();
+    checkOTAUpdate();
 
     const unsubAuth = onAuthChange((loggedIn) => {
       setAuthed(loggedIn);
@@ -74,6 +76,17 @@ export default function RootLayout() {
       router.replace("/login");
     }
   }, [authed, segments]);
+
+  async function checkOTAUpdate() {
+    try {
+      if (!Updates.isEnabled) return;
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        await Updates.reloadAsync();
+      }
+    } catch {}
+  }
 
   async function checkVersion() {
     try {

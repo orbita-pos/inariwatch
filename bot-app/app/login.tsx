@@ -60,7 +60,7 @@ export default function LoginScreen() {
             )}
             <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.md }} />
             <Text style={styles.waitingText}>
-              Approve in your browser...
+              Waiting for approval... (v3-OTA)
             </Text>
           </View>
         )}
