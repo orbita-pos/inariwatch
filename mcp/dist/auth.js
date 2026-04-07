@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.deviceAuth = deviceAuth;
-const child_process_1 = require("child_process");
+import { spawnSync } from "child_process";
 const API_BASE = "https://app.inariwatch.com";
 /**
  * Device flow authentication:
@@ -10,7 +7,7 @@ const API_BASE = "https://app.inariwatch.com";
  * 3. Poll until user approves
  * 4. Return MCP token
  */
-async function deviceAuth() {
+export async function deviceAuth() {
     console.log("\n  Authenticating via browser...");
     try {
         // Start device flow
@@ -31,7 +28,7 @@ async function deviceAuth() {
             const opener = process.platform === "win32" ? "cmd" :
                 process.platform === "darwin" ? "open" : "xdg-open";
             const args = process.platform === "win32" ? ["/c", "start", "", verifyUrl] : [verifyUrl];
-            (0, child_process_1.spawnSync)(opener, args, { stdio: "pipe" });
+            spawnSync(opener, args, { stdio: "pipe" });
         }
         catch {
             console.log(`  Could not open browser. Visit: ${verifyUrl}`);
@@ -44,8 +41,8 @@ async function deviceAuth() {
             const pollResp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}`);
             if (pollResp.ok) {
                 const data = (await pollResp.json());
-                if (data.approved && data.token) {
-                    return data.token;
+                if (data.status === "approved" && data.apiToken) {
+                    return data.apiToken;
                 }
             }
         }

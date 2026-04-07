@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const detect_js_1 = require("./detect.js");
-const configure_js_1 = require("./configure.js");
-const auth_js_1 = require("./auth.js");
-const capture_js_1 = require("./capture.js");
+import { detectTools, detectGitHub } from "./detect.js";
+import { configureTools } from "./configure.js";
+import { deviceAuth } from "./auth.js";
+import { detectProject, installCapture, promptSubstrate, ask } from "./capture.js";
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
@@ -25,8 +23,8 @@ async function main() {
     }
     console.log(`\n  ${BOLD}InariWatch Setup${RESET}\n`);
     // ── 1. Detect AI tools ──
-    console.log("  ${DIM}AI tools${RESET}\n");
-    const tools = (0, detect_js_1.detectTools)();
+    console.log(`  ${DIM}AI tools${RESET}\n`);
+    const tools = detectTools();
     const detected = tools.filter((t) => t.detected);
     const notFound = tools.filter((t) => !t.detected);
     for (const t of detected) {
@@ -37,12 +35,12 @@ async function main() {
         console.log(`    ${DIM}✗ ${t.name}${RESET}`);
     }
     // ── 2. Detect GitHub ──
-    const github = (0, detect_js_1.detectGitHub)();
+    const github = detectGitHub();
     if (github) {
         console.log(`    ${GREEN}✓${RESET} GitHub CLI ${DIM}(${github.user})${RESET}`);
     }
     // ── 3. Detect project ──
-    const project = (0, capture_js_1.detectProject)();
+    const project = detectProject();
     console.log("");
     if (project && !skipCapture) {
         const framework = project.type === "nextjs" ? "Next.js" : "Node.js";
@@ -73,7 +71,7 @@ async function main() {
     }
     else if (detected.length > 0) {
         // Only need auth for MCP tools, not for capture-only install
-        token = await (0, auth_js_1.deviceAuth)();
+        token = await deviceAuth();
     }
     if (detected.length > 0 && !token) {
         console.log(`\n  ${RED}Authentication failed.${RESET} Try: npx @inariwatch/mcp init --token <your-token>\n`);
@@ -83,7 +81,7 @@ async function main() {
     let mcpCount = 0;
     if (detected.length > 0 && token) {
         console.log(`\n  ${DIM}Configuring MCP${RESET}\n`);
-        const results = (0, configure_js_1.configureTools)(detected, token);
+        const results = configureTools(detected, token);
         for (const r of results) {
             if (r.ok) {
                 console.log(`    ${GREEN}✓${RESET} ${r.tool}`);
@@ -96,7 +94,7 @@ async function main() {
     }
     // ── 5. Link GitHub (if detected, with consent) ──
     if (github && token) {
-        const consent = await (0, capture_js_1.ask)(`  Link GitHub (${github.user}) to InariWatch? (y/N) `);
+        const consent = await ask(`  Link GitHub (${github.user}) to InariWatch? (y/N) `);
         if (consent.toLowerCase() === "y") {
             try {
                 const resp = await fetch("https://app.inariwatch.com/api/cli/link", {
@@ -120,7 +118,7 @@ async function main() {
     let captureInstalled = false;
     if (project && !skipCapture && !project.hasCapture) {
         console.log(`\n  ${DIM}Installing @inariwatch/capture${RESET}\n`);
-        const result = (0, capture_js_1.installCapture)(project);
+        const result = installCapture(project);
         if (result.ok) {
             console.log(`    ${GREEN}✓${RESET} @inariwatch/capture installed`);
             if (project.type === "nextjs") {
@@ -137,7 +135,7 @@ async function main() {
     let substrateEnabled = false;
     if (project && !skipCapture && (captureInstalled || project.hasCapture)) {
         console.log("");
-        substrateEnabled = await (0, capture_js_1.promptSubstrate)();
+        substrateEnabled = await promptSubstrate();
         if (substrateEnabled) {
             console.log(`    ${GREEN}✓${RESET} INARIWATCH_SUBSTRATE=true added to .env`);
         }

@@ -54,11 +54,11 @@ export async function deviceAuth(): Promise<string | null> {
 
       if (pollResp.ok) {
         const data = (await pollResp.json()) as {
-          approved?: boolean;
-          token?: string;
+          status?: string;
+          apiToken?: string;
         };
-        if (data.approved && data.token) {
-          return data.token;
+        if (data.status === "approved" && data.apiToken) {
+          return data.apiToken;
         }
       }
     }
