@@ -41,11 +41,26 @@ export async function GET(req: NextRequest) {
   const apiToken = `inari_${service}_${randomBytes(24).toString("hex")}`;
 
   // Revoke any existing token for this user+service, then store the new one
-  // Use raw SQL to bypass Drizzle prepared statement cache (Neon pooler issue)
   const encrypted = encrypt(apiToken);
   const keyHash = createHash("sha256").update(apiToken).digest("hex");
-  await db.execute(sql`DELETE FROM api_keys WHERE user_id = ${pending.userId} AND service = ${service}`);
-  await db.execute(sql`INSERT INTO api_keys (user_id, service, key_encrypted, key_hash) VALUES (${pending.userId}, ${service}, ${encrypted}, ${keyHash})`);
+
+  try {
+    // Diagnose: check what columns Vercel sees
+    const cols = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'api_keys' ORDER BY ordinal_position`);
+    console.log("[poll] api_keys columns:", JSON.stringify(cols.rows));
+
+    await db.execute(sql`DELETE FROM api_keys WHERE user_id = ${pending.userId} AND service = ${service}`);
+    await db.execute(sql`INSERT INTO api_keys (user_id, service, key_encrypted, key_hash) VALUES (${pending.userId}, ${service}, ${encrypted}, ${keyHash})`);
+  } catch (err) {
+    console.error("[poll] insert error:", err);
+    // Fallback: try without key_hash
+    try {
+      await db.execute(sql`INSERT INTO api_keys (user_id, service, key_encrypted) VALUES (${pending.userId}, ${service}, ${encrypted})`);
+    } catch (err2) {
+      console.error("[poll] fallback insert error:", err2);
+      return NextResponse.json({ status: "error" }, { status: 500 });
+    }
+  }
 
   // Consume the pending code
   await db.delete(cliPendingCodes).where(eq(cliPendingCodes.code, code));
