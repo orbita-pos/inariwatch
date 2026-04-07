@@ -6,10 +6,11 @@
  *   import { withInariWatch } from "@inariwatch/capture/next"
  *   export default withInariWatch(nextConfig)
  */
-type NextConfig = Record<string, unknown> & {
+type NextConfig = {
     experimental?: Record<string, unknown>;
     env?: Record<string, string>;
+    [key: string]: unknown;
 };
-export declare function withInariWatch(nextConfig?: NextConfig): NextConfig;
+export declare function withInariWatch<T extends NextConfig>(nextConfig?: T): T;
 export {};
 //# sourceMappingURL=next.d.ts.map
