@@ -51,12 +51,19 @@ export function configureTools(tools: Tool[], token: string): ConfigResult[] {
 }
 
 function configureClaude(token: string): void {
+  // Remove existing server first (ignore errors — may not exist)
+  spawnSync("claude", ["mcp", "remove", "inariwatch"], { stdio: "pipe" });
+
   const result = spawnSync("claude", [
-    "mcp", "add", "inariwatch", MCP_URL,
-    "--transport", "http",
+    "mcp", "add", "--transport", "http",
+    "inariwatch", MCP_URL,
     "-H", `Authorization: Bearer ${token}`,
   ], { stdio: "pipe" });
-  if (result.status !== 0) throw new Error(result.stderr?.toString().trim() || "claude mcp add failed");
+
+  if (result.status !== 0) {
+    const err = result.stderr?.toString().trim() || result.stdout?.toString().trim() || "claude mcp add failed";
+    throw new Error(err);
+  }
 }
 
 function configureCodex(token: string): void {
