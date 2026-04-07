@@ -81,9 +81,12 @@ export async function pollForToken(
     onStatus?.("waiting");
 
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
       const resp = await fetch(`${API_BASE}/api/cli/auth/poll?code=${code}&client=mobile`, {
-        signal: AbortSignal.timeout(10_000),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       console.log("[auth-poll] status:", resp.status);
       if (resp.status === 404) return null; // code consumed or invalid
       if (!resp.ok) continue;
