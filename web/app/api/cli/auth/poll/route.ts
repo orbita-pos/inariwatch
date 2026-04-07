@@ -3,7 +3,7 @@ import { db, apiKeys } from "@/lib/db";
 import { cliPendingCodes } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 
 /**
  * GET /api/cli/auth/poll?code=...
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
     userId:       pending.userId,
     service,
     keyEncrypted: encrypt(apiToken),
+    keyHash:      createHash("sha256").update(apiToken).digest("hex"),
   });
 
   // Consume the pending code
