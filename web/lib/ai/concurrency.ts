@@ -106,25 +106,22 @@ const MAX_CONCURRENT_GLOBAL = 10;
  * Returns true if the session can proceed immediately.
  */
 export async function canStartRemediation(projectId: string): Promise<boolean> {
-  // Use a transaction to prevent TOCTOU race between the two count checks
-  return db.transaction(async (tx) => {
-    const [projectCount] = await tx
-      .select({ n: count() })
-      .from(remediationSessions)
-      .where(and(
-        eq(remediationSessions.projectId, projectId),
-        sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`,
-      ));
+  // Sequential checks — TOCTOU race is acceptable here since this is a
+  // soft concurrency limit, not a critical section. Avoids db.transaction()
+  // which is unsupported by the neon-http driver.
+  const activeStatuses = sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`;
 
-    if ((projectCount?.n ?? 0) >= MAX_CONCURRENT_PER_PROJECT) return false;
+  const [projectCount] = await db
+    .select({ n: count() })
+    .from(remediationSessions)
+    .where(and(eq(remediationSessions.projectId, projectId), activeStatuses));
 
-    const [globalCount] = await tx
-      .select({ n: count() })
-      .from(remediationSessions)
-      .where(
-        sql`${remediationSessions.status} IN ('analyzing', 'reading_code', 'generating_fix', 'pushing', 'awaiting_ci')`,
-      );
+  if ((projectCount?.n ?? 0) >= MAX_CONCURRENT_PER_PROJECT) return false;
 
-    return (globalCount?.n ?? 0) < MAX_CONCURRENT_GLOBAL;
-  });
+  const [globalCount] = await db
+    .select({ n: count() })
+    .from(remediationSessions)
+    .where(activeStatuses);
+
+  return (globalCount?.n ?? 0) < MAX_CONCURRENT_GLOBAL;
 }
