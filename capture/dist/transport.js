@@ -5,6 +5,11 @@ export function parseDSN(dsn) {
     if (parsedUrl.hostname === "localhost" || parsedUrl.hostname === "127.0.0.1") {
         return { endpoint: dsn, secretKey: "", isLocal: true };
     }
+    // Cloud mode requires HTTPS
+    if (parsedUrl.protocol !== "https:") {
+        console.warn("[@inariwatch/capture] DSN must use HTTPS for non-local endpoints. Events will not be sent.");
+        return { endpoint: "", secretKey: "", isLocal: false };
+    }
     // Cloud mode: "https://secret@app.inariwatch.com/capture/integration-id"
     const url = new URL(dsn);
     const secretKey = url.username || url.password || "";
@@ -97,14 +102,15 @@ export function createTransport(config, parsed) {
         if (retryBuffer.length === 0)
             return;
         const batch = retryBuffer.splice(0, retryBuffer.length);
-        for (const event of batch) {
-            const ok = await sendOne(event);
+        for (let i = 0; i < batch.length; i++) {
+            const ok = await sendOne(batch[i]);
             if (!ok) {
-                // Re-buffer failed events (up to limit)
-                if (retryBuffer.length < MAX_RETRY_BUFFER) {
-                    retryBuffer.push(event);
+                const remaining = batch.slice(i);
+                for (const evt of remaining) {
+                    if (retryBuffer.length < MAX_RETRY_BUFFER)
+                        retryBuffer.push(evt);
                 }
-                break; // Stop retrying on first failure
+                break;
             }
         }
     }

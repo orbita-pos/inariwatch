@@ -109,7 +109,11 @@ export async function POST(
     event.release ? `Release: ${event.release}` : "",
   ].filter(Boolean).join("\n");
 
-  // Build structured context from SDK payload (git, breadcrumbs, env, user, tags)
+  // Determine alert type from event (error, security, log)
+  const eventType = event.eventType as string | undefined;
+  const alertType = eventType === "security" ? "security" : eventType === "log" ? "log" : "error";
+
+  // Build structured context from SDK payload (git, breadcrumbs, env, user, tags, securityContext)
   const correlationData: Record<string, unknown> = {};
   if (event.git) correlationData.git = event.git;
   if (event.breadcrumbs) correlationData.breadcrumbs = event.breadcrumbs;
@@ -117,6 +121,8 @@ export async function POST(
   if (event.user) correlationData.user = event.user;
   if (event.tags) correlationData.tags = event.tags;
   if (event.request) correlationData.request = event.request;
+  const ctx = event.context as Record<string, unknown> | undefined;
+  if (ctx?.securityContext) correlationData.securityContext = ctx.securityContext;
 
   const result = await createAlertIfNew(
     {
@@ -124,6 +130,7 @@ export async function POST(
       title,
       body: bodyParts.trim(),
       sourceIntegrations: ["capture"],
+      alertType,
       fingerprint,
       correlationData: Object.keys(correlationData).length > 0 ? correlationData : undefined,
       isRead: false,

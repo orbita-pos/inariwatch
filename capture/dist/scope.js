@@ -106,11 +106,15 @@ export function getRequestContext() {
  * Use in middleware: runWithScope(() => handleRequest(req, res))
  */
 export function runWithScope(fn) {
-    if (asyncStorage) {
+    if (asyncStorage)
         return asyncStorage.run({}, fn);
-    }
-    // Edge runtime: clear global scope for this request
+    const prev = globalScope;
     globalScope = {};
-    return fn();
+    try {
+        return fn();
+    }
+    finally {
+        globalScope = prev;
+    }
 }
 //# sourceMappingURL=scope.js.map

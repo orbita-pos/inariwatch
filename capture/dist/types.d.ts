@@ -13,12 +13,36 @@ export interface CaptureConfig {
     beforeSend?: (event: ErrorEvent) => ErrorEvent | null;
     /** Enable Substrate I/O recording — requires @inariwatch/substrate-agent installed. */
     substrate?: boolean | SubstrateConfig;
+    /** Enable browser session recording — requires rrweb installed. Browser-only. */
+    session?: boolean | SessionConfig;
 }
 export interface SubstrateConfig {
     /** Ring buffer duration in seconds (default: 60) */
     bufferSeconds?: number;
     /** Redaction config for sensitive data */
     redact?: Record<string, unknown>;
+}
+export interface SessionConfig {
+    /** Max events in ring buffer (default: 200) */
+    maxEvents?: number;
+    /** Max seconds to keep in buffer (default: 60) */
+    maxSeconds?: number;
+    /** CSS selectors whose text content should be redacted */
+    redactSelectors?: string[];
+    /** Mask all input values (default: false — only passwords are masked) */
+    maskAllInputs?: boolean;
+}
+export interface SessionEvent {
+    timestamp: number;
+    type: "click" | "input" | "navigation" | "scroll";
+    /** CSS selector for the interacted element */
+    selector?: string;
+    /** Input value (redacted for passwords) */
+    value?: string;
+    /** Page URL for navigation events */
+    url?: string;
+    /** Raw rrweb event for the dashboard viewer replay */
+    rrwebEvent: unknown;
 }
 export interface Breadcrumb {
     timestamp: string;
@@ -65,7 +89,7 @@ export interface ErrorEvent {
     runtime?: "nodejs" | "edge";
     routePath?: string;
     routeType?: string;
-    eventType?: "error" | "log" | "deploy";
+    eventType?: "error" | "log" | "deploy" | "security";
     logLevel?: "debug" | "info" | "warn" | "error" | "fatal";
     metadata?: Record<string, unknown>;
     /** Git context — injected at build time */
@@ -81,6 +105,38 @@ export interface ErrorEvent {
     };
     /** Custom tags */
     tags?: Record<string, string>;
+    /** Browser session events (rrweb) — attached on error flush */
+    sessionEvents?: SessionEvent[];
+}
+export type VulnerabilityType = "sql_injection" | "command_injection" | "path_traversal" | "ssrf" | "nosql_injection" | "prototype_pollution";
+export interface SecurityContext {
+    vulnerability: VulnerabilityType;
+    /** The dangerous function called (e.g. "pg.query", "child_process.exec") */
+    sink: string;
+    /** The module containing the sink (e.g. "pg", "child_process") */
+    sinkModule: string;
+    /** File where the sink was called (from stack trace) */
+    sinkFile?: string;
+    /** Line number where the sink was called */
+    sinkLine?: number;
+    /** Where the tainted input came from (e.g. "req.query.q", "req.body.name") */
+    source: string;
+    /** The actual user input that reached the sink (truncated) */
+    taintedInput: string;
+    /** What was passed to the sink function (truncated) */
+    sinkArgument: string;
+    /** Whether the request was blocked */
+    blocked: boolean;
+}
+export interface ShieldConfig {
+    /** "report" (default) — detect and report. "block" — reject requests with detected threats. */
+    mode?: "report" | "block";
+    /** Custom handler when a request is blocked (only in block mode) */
+    onBlock?: (threat: SecurityContext) => void;
+    /** Disable specific sink hooks */
+    disableSinks?: string[];
+    /** Minimum tainted input length to check (default: 3) */
+    minInputLength?: number;
 }
 export interface ParsedDSN {
     endpoint: string;

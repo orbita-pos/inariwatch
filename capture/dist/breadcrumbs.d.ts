@@ -4,6 +4,8 @@
  * Secrets are scrubbed from messages automatically.
  */
 import type { Breadcrumb } from "./types.js";
+/** Strip sensitive query params from URLs */
+export declare function scrubUrl(url: string): string;
 export declare function addBreadcrumb(crumb: Partial<Breadcrumb> & {
     message: string;
 }): void;
