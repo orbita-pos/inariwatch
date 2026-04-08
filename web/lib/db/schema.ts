@@ -119,6 +119,7 @@ export const projects = pgTable("projects", {
   description: text("description"),
   visibility: text("visibility").default("all").notNull(), // 'all' | 'restricted'
   autoMergeConfig: jsonb("auto_merge_config"), // AutoMergeConfig
+  stagingEnvEncrypted: jsonb("staging_env_encrypted"), // Encrypted env vars for staging deploys
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

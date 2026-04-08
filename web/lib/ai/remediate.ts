@@ -1041,8 +1041,17 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
             // Deploy
             // Detect framework from files read during diagnosis
-            const hasNext = filesToFix.some(f => f.path.includes("next.config") || f.path.includes("app/"));
-            const hasExpress = filesToFix.some(f => f.content?.includes("express"));
+            const hasNext = fileContents.some((f: { path: string }) => f.path.includes("next.config") || f.path.includes("app/"));
+            const hasExpress = fileContents.some((f: { content: string }) => f.content?.includes("express"));
+
+            // Load project staging env vars (encrypted in DB, decrypted here for the container)
+            let stagingEnvVars: Record<string, string> = {};
+            try {
+              const { getDecryptedStagingEnvVars } = await import("@/app/(dashboard)/projects/[slug]/staging-env-actions");
+              stagingEnvVars = await getDecryptedStagingEnvVars(session.projectId);
+            } catch { /* no staging env vars configured */ }
+
+            const hasStagingDb = !!stagingEnvVars.DATABASE_URL;
 
             const deploy = await deployStagingEnvironment({
               deployId,
@@ -1051,7 +1060,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               githubToken: token,
               projectId: session.projectId,
               framework: hasNext ? "nextjs" : hasExpress ? "express" : undefined,
-              needsPostgres: true,
+              needsPostgres: !hasStagingDb, // Skip sidecar if user provides their own DB
+              envVars: stagingEnvVars,
               ttlSeconds: 300,
             });
             // Save staging ID for orphan cleanup if we crash

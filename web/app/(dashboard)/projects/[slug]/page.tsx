@@ -29,11 +29,13 @@ import { StatusPageSection } from "./status-page";
 import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
+import { StagingEnvSection } from "./staging-env";
 import { PostmortemsSection } from "./postmortems";
 import { AutonomousSuggestionBanner } from "./autonomous-suggestion";
 import { ProGate } from "@/components/pro-gate";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
+import { decryptConfig } from "@/lib/crypto";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Project" };
@@ -318,6 +320,11 @@ export default async function ProjectDetailPage({
   }));
 
   const autoMergeConfig = (project.autoMergeConfig as AutoMergeConfig | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+
+  // Staging env var keys (values are never sent to client)
+  const stagingEnvKeys: string[] = project.stagingEnvEncrypted
+    ? Object.keys(decryptConfig(project.stagingEnvEncrypted))
+    : [];
   const showAutonomousBanner = autoMergeConfig.suggestAutonomous === true && !autoMergeConfig.autoRemediate;
 
   // Fetch stats for banner text only when needed
@@ -405,6 +412,12 @@ export default async function ProjectDetailPage({
         projectId={project.id}
         isAdmin={isAdmin}
         config={autoMergeConfig}
+      />
+
+      <StagingEnvSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        existingKeys={stagingEnvKeys}
       />
 
       <OnCallSection
