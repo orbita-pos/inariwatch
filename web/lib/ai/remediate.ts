@@ -467,10 +467,11 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       }
     } catch (e) { log.warn("incident_correlation_failed", { error: e instanceof Error ? e.message : String(e) }); }
 
+    const remModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
+
     steps = await pushStep(sessionId, steps,
       makeStep("diagnose", `AI is diagnosing with ${hotFiles.size > 0 ? `${hotFiles.size} hot files` : "no history"} + ${deployedFiles.length > 0 ? `${deployedFiles.length} deployed files` : "no deploy context"}...`), emit);
 
-    const remModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
     let diagRaw: string;
     try {
       diagRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
@@ -666,43 +667,98 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       emit("status", { status: "generating_fix" });
 
       // ── GENERATE FIX ───────────────────────────────────────────────────
-      steps = await pushStep(sessionId, steps,
-        makeStep("generate_fix", attempt > 1
-          ? `Attempt ${attempt}/${session.maxAttempts}: Generating a different fix based on the CI failure...`
-          : "AI is generating a code fix..."), emit);
 
-      // ── ANTI-PATTERN INJECTION ──────────────────────────────────────
-      let antiPatternCtx: string | undefined;
-      try {
-        const patterns = await getAntiPatterns(session.projectId, alertFingerprint, diagnosis.filesToRead);
-        if (patterns.length > 0) {
-          antiPatternCtx = buildAntiPatternContext(patterns);
-          emit("anti_patterns", { count: patterns.length });
+      let fix: { explanation: string; files: { path: string; content: string }[] } = null!;
+
+      // Try agentic loop on first attempt with Claude — AI explores the repo with tools
+      const useAgentic = attempt === 1 && aiKey.provider === "claude" && !previousAttempt;
+
+      if (useAgentic) {
+        steps = await pushStep(sessionId, steps,
+          makeStep("generate_fix", "AI is exploring the codebase to understand and fix the bug..."), emit);
+
+        try {
+          const { runAgenticLoop } = await import("./agentic-loop");
+
+          const errorContext = [
+            `ERROR: ${alert.title}`,
+            `SEVERITY: ${alert.severity}`,
+            `STACK TRACE:\n${alert.body.slice(0, 3000)}`,
+            remediationContext?.sentryStackTrace ? `\nSENTRY:\n${remediationContext.sentryStackTrace.slice(0, 2000)}` : "",
+            remediationContext?.vercelBuildLogs ? `\nBUILD LOGS:\n${remediationContext.vercelBuildLogs.slice(0, 2000)}` : "",
+            remediationContext?.githubCILogs ? `\nCI LOGS:\n${remediationContext.githubCILogs.slice(0, 2000)}` : "",
+            remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
+          ].filter(Boolean).join("\n\n");
+
+          const agenticResult = await runAgenticLoop({
+            apiKey: aiKey.key,
+            provider: aiKey.provider,
+            model: remModel,
+            systemPrompt: "",
+            errorContext,
+            token,
+            owner,
+            repo,
+            defaultBranch,
+            projectId: session.projectId,
+            repoFiles: repoFiles.slice(0, 500),
+            emit: (event: string, data: Record<string, unknown>) => emit(event, data),
+          });
+
+          fix = { explanation: agenticResult.explanation, files: agenticResult.files };
+        } catch (agenticErr) {
+          // Agentic loop failed — fall back to single-shot for this attempt
+          log.warn("agentic_loop_failed_fallback", { error: agenticErr instanceof Error ? agenticErr.message : String(agenticErr) });
+
+          steps = await resolveStep(sessionId, steps, "completed",
+            "Agentic exploration failed — falling back to standard fix generation", emit);
+          steps = await pushStep(sessionId, steps,
+            makeStep("generate_fix", "AI is generating a code fix (standard mode)..."), emit);
+
+          // Fall through to single-shot below
+          fix = null!;
         }
-      } catch { /* non-blocking */ }
-
-      let fixRaw: string;
-      try {
-        fixRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
-          { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx, stackContext) },
-        ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
-      } catch (err) {
-        await fail(sessionId, emit, `Fix generation failed: ${err instanceof Error ? err.message : "AI provider error"}`);
-        return;
       }
 
-      let fix: { explanation: string; files: { path: string; content: string }[] };
-      try {
-        fix = JSON.parse(cleanJSON(fixRaw));
-      } catch {
-        steps = await resolveStep(sessionId, steps, "failed", "AI returned invalid fix format", emit);
-        if (attempt >= session.maxAttempts) {
-          await fail(sessionId, emit, "AI could not generate a valid fix after all attempts.");
+      // Single-shot fix generation (retries, non-Claude, or agentic fallback)
+      if (!fix) {
+        steps = await pushStep(sessionId, steps,
+          makeStep("generate_fix", attempt > 1
+            ? `Attempt ${attempt}/${session.maxAttempts}: Generating a different fix based on the CI failure...`
+            : "AI is generating a code fix..."), emit);
+
+        // ── ANTI-PATTERN INJECTION ──────────────────────────────────────
+        let antiPatternCtx: string | undefined;
+        try {
+          const patterns = await getAntiPatterns(session.projectId, alertFingerprint, diagnosis.filesToRead);
+          if (patterns.length > 0) {
+            antiPatternCtx = buildAntiPatternContext(patterns);
+            emit("anti_patterns", { count: patterns.length });
+          }
+        } catch { /* non-blocking */ }
+
+        let fixRaw: string;
+        try {
+          fixRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
+            { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx, stackContext) },
+          ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
+        } catch (err) {
+          await fail(sessionId, emit, `Fix generation failed: ${err instanceof Error ? err.message : "AI provider error"}`);
           return;
         }
-        attempt++;
-        continue;
-      }
+
+        try {
+          fix = JSON.parse(cleanJSON(fixRaw));
+        } catch {
+          steps = await resolveStep(sessionId, steps, "failed", "AI returned invalid fix format", emit);
+          if (attempt >= session.maxAttempts) {
+            await fail(sessionId, emit, "AI could not generate a valid fix after all attempts.");
+            return;
+          }
+          attempt++;
+          continue;
+        }
+      } // end if (!fix) — single-shot path
 
       if (!fix.files?.length) {
         await fail(sessionId, emit, "AI could not determine what code to change.");

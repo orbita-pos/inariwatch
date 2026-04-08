@@ -4,10 +4,27 @@
  * Gemini uses its own REST API.
  */
 
-export type AIMessage = { role: "user" | "assistant"; content: string };
+export type AIMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
 export type AIVisionMessage = { role: "user"; text: string; imageBase64: string; beforeImageBase64?: string };
 
 export type AIProvider = "claude" | "openai" | "grok" | "deepseek" | "gemini" | "groq";
+
+// ── Tool Use Types ──────────────────────────────────────────────────────────
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export type ToolUseBlock = { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
+export type ToolResultBlock = { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+export type TextBlock = { type: "text"; text: string };
+export type ContentBlock = ToolUseBlock | ToolResultBlock | TextBlock;
+
+export type ToolUseResponse =
+  | { stopReason: "tool_use"; content: ContentBlock[] }
+  | { stopReason: "end_turn"; text: string };
 
 /**
  * Detect the AI provider from the key prefix.
@@ -110,6 +127,68 @@ export async function callAIVision(
       return callOpenAICompatVision(apiKey, systemPrompt, message, opts,
         provider === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1");
   }
+}
+
+// ── Tool Use (Agentic Loop) ──────────────────────────────────────────────────
+
+/**
+ * Call Claude with tool definitions and return structured content blocks.
+ * Supports the agentic loop: tool_use → execute → tool_result → repeat.
+ *
+ * Only Claude is supported for tool use (other providers use different formats).
+ * For non-Claude providers, falls back to single-shot text-only.
+ */
+export async function callAIWithTools(
+  apiKey: string,
+  systemPrompt: string,
+  messages: AIMessage[],
+  tools: ToolDefinition[],
+  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+): Promise<ToolUseResponse> {
+  const provider = opts.provider ?? detectProvider(apiKey);
+
+  if (provider !== "claude") {
+    // Non-Claude: strip tools, do text-only call, return as end_turn
+    const text = await callAI(apiKey, systemPrompt,
+      messages.map((m) => ({ ...m, content: typeof m.content === "string" ? m.content : m.content.filter((b) => b.type === "text").map((b) => (b as TextBlock).text).join("\n") })),
+      opts);
+    return { stopReason: "end_turn", text };
+  }
+
+  // Claude tool use
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: opts.model ?? "claude-sonnet-4-6",
+      max_tokens: opts.maxTokens ?? 4096,
+      system: systemPrompt,
+      tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    }),
+    signal: AbortSignal.timeout(opts.timeout ?? 60000),
+  });
+
+  if (!res.ok) throw new Error(`Claude API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+
+  const data = await safeJson(res);
+  const stopReason = data.stop_reason as string;
+  const content = data.content as ContentBlock[];
+
+  if (stopReason === "tool_use") {
+    return { stopReason: "tool_use", content };
+  }
+
+  // end_turn — extract text
+  const textBlock = content.find((c) => c.type === "text") as TextBlock | undefined;
+  return { stopReason: "end_turn", text: textBlock?.text ?? "" };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
