@@ -1040,12 +1040,18 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               makeStep("staging_deploy", "Deploying to staging environment..."), emit);
 
             // Deploy
+            // Detect framework from files read during diagnosis
+            const hasNext = filesToFix.some(f => f.path.includes("next.config") || f.path.includes("app/"));
+            const hasExpress = filesToFix.some(f => f.content?.includes("express"));
+
             const deploy = await deployStagingEnvironment({
               deployId,
               repoUrl: `https://github.com/${fullRepo}.git`,
               branch: branchName,
               githubToken: token,
               projectId: session.projectId,
+              framework: hasNext ? "nextjs" : hasExpress ? "express" : undefined,
+              needsPostgres: true,
               ttlSeconds: 300,
             });
             // Save staging ID for orphan cleanup if we crash
