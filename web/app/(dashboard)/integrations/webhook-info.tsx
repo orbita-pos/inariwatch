@@ -23,7 +23,8 @@ export function WebhookInfo({
   const [copiedDsn, setCopiedDsn] = useState(false);
 
   const webhookUrl = `${getAppUrl()}/api/webhooks/${service}/${integrationId}`;
-  const dsn = service === "capture" ? `https://${webhookSecret}@${getAppUrl().replace(/^https?:\/\//, "")}/capture/${integrationId}` : null;
+  const dsnFull = service === "capture" ? `https://${webhookSecret}@${getAppUrl().replace(/^https?:\/\//, "")}/capture/${integrationId}` : null;
+  const dsnMasked = service === "capture" ? `https://${webhookSecret.slice(0, 8)}${"•".repeat(20)}@${getAppUrl().replace(/^https?:\/\//, "")}/capture/${integrationId}` : null;
 
   function copy(text: string, setter: (v: boolean) => void) {
     navigator.clipboard.writeText(text);
@@ -57,19 +58,19 @@ export function WebhookInfo({
 
       {open && (
         <div className="border-t border-line px-3 py-2.5 space-y-2.5">
-          {/* DSN for Capture */}
-          {dsn && (
+          {/* DSN for Capture — secret masked in display, full value only on copy */}
+          {dsnFull && dsnMasked && (
             <div>
-              <p className="text-xs text-zinc-600 mb-1">DSN <span className="text-zinc-700">(add to .env as INARIWATCH_DSN)</span></p>
+              <p className="text-xs text-zinc-600 mb-1">DSN <span className="text-zinc-700">(click copy, then add to .env as INARIWATCH_DSN)</span></p>
               <div className="flex items-center gap-1.5">
                 <code className="flex-1 truncate rounded bg-surface-dim border border-line px-2 py-1 text-xs text-orange-400 font-mono">
-                  {dsn}
+                  {dsnMasked}
                 </code>
                 <button
                   type="button"
-                  onClick={() => copy(dsn, setCopiedDsn)}
+                  onClick={() => copy(dsnFull, setCopiedDsn)}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 hover:text-fg-base hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
-                  title="Copy DSN"
+                  title="Copy full DSN to clipboard"
                 >
                   {copiedDsn ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                 </button>

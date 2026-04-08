@@ -20,6 +20,27 @@ import * as gh from "@/lib/services/github-api";
 const MAX_TURNS = 15;
 const MAX_FILE_SIZE = 15_000; // chars per file read
 
+/** Files the agentic loop must NEVER read — secrets, credentials, env files. */
+const BLOCKED_FILE_PATTERNS = [
+  /^\.env/,           // .env, .env.local, .env.production
+  /\.env$/,           // any file ending in .env
+  /secrets?\./i,      // secrets.json, secret.yaml
+  /credentials?\./i,  // credentials.json
+  /private[_-]?key/i, // private_key.pem
+  /\.pem$/,
+  /\.key$/,
+  /\.cert$/,
+  /\.p12$/,
+  /\.pfx$/,
+  /serviceaccount/i,  // service-account.json
+  /token\.json$/i,
+];
+
+function isBlockedFile(path: string): boolean {
+  const filename = path.split("/").pop() ?? path;
+  return BLOCKED_FILE_PATTERNS.some((p) => p.test(filename) || p.test(path));
+}
+
 // ── Tool Definitions ────────────────────────────────────────────────────────
 
 const TOOLS: ToolDefinition[] = [
@@ -119,6 +140,7 @@ async function executeTool(
     case "read_file": {
       const path = input.path;
       if (!path) return "Error: path is required";
+      if (isBlockedFile(path)) return `Access denied: ${path} is a sensitive file and cannot be read for security reasons.`;
       const content = await gh.getFileContent(token, owner, repo, path, defaultBranch);
       if (content === null) return `File not found: ${path}`;
       return content.slice(0, MAX_FILE_SIZE);

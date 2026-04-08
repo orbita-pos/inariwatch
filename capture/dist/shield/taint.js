@@ -17,6 +17,7 @@ catch {
 }
 // Global fallback for environments without AsyncLocalStorage
 let globalStore = null;
+const MAX_TAINT_ENTRIES = 500; // Prevent unbounded memory growth
 function getStore() {
     if (asyncStorage) {
         const store = asyncStorage.getStore();
@@ -25,6 +26,16 @@ function getStore() {
     }
     if (!globalStore)
         globalStore = new Map();
+    // Evict oldest entries if store exceeds limit (prevents memory leak)
+    if (globalStore.size > MAX_TAINT_ENTRIES) {
+        const toDelete = globalStore.size - MAX_TAINT_ENTRIES;
+        const keys = globalStore.keys();
+        for (let i = 0; i < toDelete; i++) {
+            const next = keys.next();
+            if (!next.done)
+                globalStore.delete(next.value);
+        }
+    }
     return globalStore;
 }
 /** Mark a string as tainted (came from user input). */

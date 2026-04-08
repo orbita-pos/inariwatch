@@ -446,9 +446,7 @@ async function callGemini(
 ): Promise<string> {
   const model = opts.model ?? "gemini-1.5-flash";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid Gemini model name");
-  // Note: Gemini REST API requires the API key as a URL query parameter — this is Google's API design.
-  // Ensure no middleware or logging captures outgoing request URLs containing the key.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
@@ -457,7 +455,7 @@ async function callGemini(
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents,
@@ -560,12 +558,11 @@ async function callGeminiVision(
 ): Promise<string> {
   const model = opts.model ?? "gemini-1.5-flash";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid Gemini model name");
-  // Note: Gemini REST API requires the API key as a URL query parameter — this is Google's API design.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{
