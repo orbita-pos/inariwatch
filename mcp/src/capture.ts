@@ -46,7 +46,7 @@ export function installCapture(project: ProjectInfo, cwd: string = process.cwd()
   if (project.hasCapture) return { ok: true }; // Already installed
 
   // Install the package
-  const pkg = "@inariwatch/capture@^0.5.0";
+  const pkg = "@inariwatch/capture@^0.5.4";
   const installCmd = {
     npm: `npm install ${pkg}`,
     yarn: `yarn add ${pkg}`,
