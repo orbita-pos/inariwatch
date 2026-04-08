@@ -18,7 +18,7 @@ import { CreateProjectModal } from "./create-project-modal";
 import { ConfigModal }        from "./config-modal";
 import { disconnectIntegration } from "./actions";
 import { WebhookInfo } from "./webhook-info";
-import { decryptConfig } from "@/lib/crypto";
+import { decrypt, decryptConfig } from "@/lib/crypto";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Integrations" };
@@ -119,7 +119,11 @@ export default async function IntegrationsPage() {
   const allIntegrations =
     projectIds.length > 0
       ? (await db.select().from(projectIntegrations).where(inArray(projectIntegrations.projectId, projectIds)))
-          .map((r) => ({ ...r, projectName: projectNameMap.get(r.projectId) ?? "" }))
+          .map((r) => ({
+            ...r,
+            projectName: projectNameMap.get(r.projectId) ?? "",
+            webhookSecret: r.webhookSecret ? decrypt(r.webhookSecret) : null,
+          }))
       : [];
 
   const projectOptions = userProjects.map((p) => ({ id: p.id, name: p.name }));
