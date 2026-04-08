@@ -1168,7 +1168,11 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
                   try {
                     const parsed = JSON.parse(visualResponse.replace(/```json\n?|\n?```/g, "").trim());
                     if (parsed.passed === false) {
-                      e2eStagingPassed = false;
+                      // Only override bot result when we have a "before" screenshot to compare
+                      // Without a reference, the AI can't distinguish "blank page = bug" from "no data = normal"
+                      if (hasBefore) {
+                        e2eStagingPassed = false;
+                      }
                       verification.aiVisual = { passed: false, issues: parsed.issues || "AI detected visual issues" };
                     } else {
                       verification.aiVisual = { passed: true, issues: "" };
