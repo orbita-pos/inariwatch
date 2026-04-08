@@ -167,7 +167,10 @@ export async function waitForStagingReady(
     const status = await pollStagingStatus(deployId);
 
     if (status.status === "running") return status;
-    if (status.status === "failed") throw new Error(status.error ?? "staging build failed");
+    if (status.status === "failed") {
+      const logs = status.buildLogs ? `\nBuild logs:\n${status.buildLogs.slice(-2000)}` : "";
+      throw new Error((status.error ?? "staging build failed") + logs);
+    }
 
     await new Promise((r) => setTimeout(r, 5000));
   }

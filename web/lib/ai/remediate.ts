@@ -1211,7 +1211,20 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
             }
 
           } catch (e) {
-            log.warn("staging_server_failed", { error: e instanceof Error ? e.message : String(e) });
+            const stagingError = e instanceof Error ? e.message : String(e);
+            const isBuildFailure = stagingError.includes("build failed") || stagingError.includes("failed to start");
+
+            if (isBuildFailure && attempt < session.maxAttempts) {
+              // Staging build failed — retry with the build error as context
+              log.warn("staging_build_failed_retrying", { error: stagingError, attempt });
+              steps = await resolveStep(sessionId, steps, "failed",
+                `Staging build failed — retrying with build error context...`, emit);
+              previousAttempt = { files: fix.files, ciError: `Staging build error:\n${stagingError}` };
+              attempt++;
+              continue; // Re-enter the while loop → regenerate fix
+            }
+
+            log.warn("staging_server_failed", { error: stagingError });
             steps = await resolveStep(sessionId, steps, "completed",
               "Staging server unavailable — falling back to E2E", emit);
             // Fall through to GitHub Actions E2E fallback below
