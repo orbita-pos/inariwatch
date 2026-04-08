@@ -591,6 +591,68 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       return;
     }
 
+    // ── READ PACKAGE.JSON (stack detection) ─────────────────────────────
+    let projectDeps: string[] = [];
+    let stackContext = "";
+    try {
+      const pkgRaw = await gh.getFileContent(token, owner, repo, "package.json", defaultBranch);
+      if (pkgRaw) {
+        const pkg = JSON.parse(pkgRaw);
+        projectDeps = [
+          ...Object.keys(pkg.dependencies ?? {}),
+          ...Object.keys(pkg.devDependencies ?? {}),
+        ];
+        const { getStackInstructions } = await import("./prompts");
+        stackContext = getStackInstructions(projectDeps);
+        if (projectDeps.length > 0) {
+          stackContext = `Dependencies: ${projectDeps.slice(0, 30).join(", ")}\n${stackContext}`;
+        }
+      }
+    } catch { /* non-blocking — continue without stack detection */ }
+
+    // ── FOLLOW LOCAL IMPORTS (read related files) ───────────────────────
+    try {
+      const importedPaths = new Set<string>();
+      for (const f of fileContents) {
+        const importLines = f.content.match(/^import\s+.*from\s+['"]([^'"]+)['"]/gm) ?? [];
+        for (const line of importLines) {
+          const match = line.match(/from\s+['"]([^'"]+)['"]/);
+          if (!match) continue;
+          const importPath = match[1];
+          // Only follow local imports (@/, ./, ../)
+          if (!importPath.startsWith("@/") && !importPath.startsWith("./") && !importPath.startsWith("../")) continue;
+          // Resolve @/ to project root
+          const resolved = importPath.startsWith("@/") ? importPath.slice(2) : importPath;
+          // Try common extensions
+          for (const ext of ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.js"]) {
+            importedPaths.add(resolved + ext);
+          }
+        }
+      }
+
+      // Read up to 3 imported files, prioritize db/schema/types
+      const priorityKeywords = ["schema", "db", "types", "model", "prisma"];
+      const sorted = [...importedPaths]
+        .filter((p) => !fileContents.some((f) => f.path === p || f.path.endsWith(p)))
+        .sort((a, b) => {
+          const aScore = priorityKeywords.some((k) => a.includes(k)) ? 0 : 1;
+          const bScore = priorityKeywords.some((k) => b.includes(k)) ? 0 : 1;
+          return aScore - bScore;
+        });
+
+      let importedCount = 0;
+      for (const importPath of sorted) {
+        if (importedCount >= 3) break;
+        if (!isSafeFilePath(importPath)) continue;
+        const content = await gh.getFileContent(token, owner, repo, importPath, defaultBranch);
+        if (content !== null) {
+          // Limit imported files to 5000 chars (enough for types/schema, not too much noise)
+          fileContents.push({ path: importPath, content: content.slice(0, 5000) });
+          importedCount++;
+        }
+      }
+    } catch { /* non-blocking — continue without import following */ }
+
     steps = await resolveStep(sessionId, steps, "completed",
       `Read ${fileContents.length} file(s)`, emit);
 
@@ -622,7 +684,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       let fixRaw: string;
       try {
         fixRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
-          { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx) },
+          { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx, stackContext) },
         ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
       } catch (err) {
         await fail(sessionId, emit, `Fix generation failed: ${err instanceof Error ? err.message : "AI provider error"}`);
