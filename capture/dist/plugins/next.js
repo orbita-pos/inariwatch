@@ -15,10 +15,6 @@ export function withInariWatch(nextConfig = {}) {
             ...nextConfig.env,
             ...gitEnv,
         },
-        experimental: {
-            ...nextConfig.experimental,
-            instrumentationHook: true,
-        },
     };
 }
 //# sourceMappingURL=next.js.map
