@@ -671,9 +671,11 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       let fix: { explanation: string; files: { path: string; content: string }[] } = null!;
 
       // Try agentic loop on first attempt — AI explores the repo with tools
-      // Works when user has Claude key OR platform has PLATFORM_ANTHROPIC_KEY
-      const hasClaude = aiKey.provider === "claude" || !!process.env.PLATFORM_ANTHROPIC_KEY;
-      const useAgentic = attempt === 1 && hasClaude && !previousAttempt;
+      // Works with all providers that support tool use (Claude, OpenAI, Grok, DeepSeek, Groq)
+      // Gemini falls back to text-only (no tool use support)
+      // Prefers PLATFORM_ANTHROPIC_KEY (Haiku+Sonnet) when available for best results
+      const supportsToolUse = aiKey.provider !== "gemini";
+      const useAgentic = attempt === 1 && (supportsToolUse || !!process.env.PLATFORM_ANTHROPIC_KEY) && !previousAttempt;
 
       if (useAgentic) {
         steps = await pushStep(sessionId, steps,
@@ -692,16 +694,36 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
           ].filter(Boolean).join("\n\n");
 
-          // Use platform Anthropic key if available, otherwise user's BYOK key
+          // Prefer platform Claude key (Haiku+Sonnet) for best quality+cost
+          // Fall back to user's BYOK key with their provider's models
           const { getPlatformAnthropicKey } = await import("./get-key");
           const platformClaude = getPlatformAnthropicKey();
-          const agenticKey = platformClaude ?? aiKey;
+
+          let agenticApiKey: string;
+          let agenticProvider: typeof aiKey.provider;
+          let agenticExplore: string;
+          let agenticFix: string;
+
+          if (platformClaude) {
+            // Platform pays — Claude Haiku for exploration, Sonnet for fix
+            agenticApiKey = platformClaude.key;
+            agenticProvider = "claude";
+            agenticExplore = "claude-haiku-4-5-20251001";
+            agenticFix = "claude-sonnet-4-6";
+          } else {
+            // User pays — use their provider's models
+            agenticApiKey = aiKey.key;
+            agenticProvider = aiKey.provider;
+            const { resolveModel } = await import("./models");
+            agenticExplore = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);  // Cheap model
+            agenticFix = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);    // Quality model
+          }
 
           const agenticResult = await runAgenticLoop({
-            apiKey: agenticKey.key,
-            provider: "claude",
-            exploreModel: "claude-haiku-4-5-20251001",  // Cheap for exploration
-            fixModel: "claude-sonnet-4-6",               // Quality for fix generation
+            apiKey: agenticApiKey,
+            provider: agenticProvider,
+            exploreModel: agenticExplore,
+            fixModel: agenticFix,
             systemPrompt: "",
             errorContext,
             token,
