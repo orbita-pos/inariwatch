@@ -87,6 +87,12 @@ const SERVICE_CONFIG: Record<string, {
     ],
     note: "We'll auto-detect your Expo username and projects.",
   },
+  capture: {
+    tokenLabel: "",
+    placeholder: "",
+    note: "No token needed. We'll generate a DSN for your app. Install with: npx @inariwatch/mcp init",
+    mode: "capture" as never,
+  },
 };
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -160,7 +166,17 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                   </select>
                 </div>
 
-                {cfg && cfg.mode === "postgres" ? (
+                {cfg && (cfg.mode as string) === "capture" ? (
+                  <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5">
+                    <p className="text-xs text-zinc-500 leading-relaxed">
+                      No token needed. Click Connect and we&apos;ll generate a DSN for your app.
+                    </p>
+                    <p className="mt-2 text-xs text-zinc-600">
+                      Then add it to your <code className="text-zinc-400">.env</code>:
+                    </p>
+                    <pre className="mt-1 text-[11px] text-zinc-500 font-mono">INARIWATCH_DSN=https://...</pre>
+                  </div>
+                ) : cfg && cfg.mode === "postgres" ? (
                   <>
                     <div className="space-y-1.5">
                       <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">

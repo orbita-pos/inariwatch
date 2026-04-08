@@ -17,11 +17,13 @@ export function WebhookInfo({
   service: string;
   webhookSecret: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(service === "capture"); // auto-open for capture
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState(false);
+  const [copiedDsn, setCopiedDsn] = useState(false);
 
   const webhookUrl = `${getAppUrl()}/api/webhooks/${service}/${integrationId}`;
+  const dsn = service === "capture" ? `https://${webhookSecret}@${getAppUrl().replace(/^https?:\/\//, "")}/capture/${integrationId}` : null;
 
   function copy(text: string, setter: (v: boolean) => void) {
     navigator.clipboard.writeText(text);
@@ -34,6 +36,7 @@ export function WebhookInfo({
     vercel: "Vercel → Project Settings → Git → Deploy Hooks, or Vercel Integration → Webhooks. Select deployment events.",
     sentry: "Sentry → Settings → Developer Settings → Webhooks. Select Issue events.",
     expo: "Expo → Project Settings → Webhooks → Add webhook. Paste the URL below and set the secret. Select Build and Update events.",
+    capture: "Copy the DSN above and add it to your .env as INARIWATCH_DSN. Then run: npx @inariwatch/mcp init",
   };
 
   return (
@@ -44,7 +47,7 @@ export function WebhookInfo({
         className="flex w-full items-center gap-2 px-3 py-2 text-xs text-zinc-500 hover:text-fg-base transition-colors"
       >
         <Webhook className="h-3.5 w-3.5" />
-        <span>Webhook (real-time)</span>
+        <span>{service === "capture" ? "Setup" : "Webhook (real-time)"}</span>
         {open ? (
           <ChevronDown className="ml-auto h-3.5 w-3.5" />
         ) : (
@@ -54,6 +57,25 @@ export function WebhookInfo({
 
       {open && (
         <div className="border-t border-line px-3 py-2.5 space-y-2.5">
+          {/* DSN for Capture */}
+          {dsn && (
+            <div>
+              <p className="text-xs text-zinc-600 mb-1">DSN <span className="text-zinc-700">(add to .env as INARIWATCH_DSN)</span></p>
+              <div className="flex items-center gap-1.5">
+                <code className="flex-1 truncate rounded bg-surface-dim border border-line px-2 py-1 text-xs text-orange-400 font-mono">
+                  {dsn}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy(dsn, setCopiedDsn)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 hover:text-fg-base hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
+                  title="Copy DSN"
+                >
+                  {copiedDsn ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          )}
           {/* URL */}
           <div>
             <p className="text-xs text-zinc-600 mb-1">Webhook URL</p>

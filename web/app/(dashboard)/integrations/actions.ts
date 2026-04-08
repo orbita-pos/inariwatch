@@ -214,6 +214,9 @@ export async function connectIntegration(
           high_cves: { enabled: true },
         },
       };
+    } else if (service === "capture") {
+      // Capture SDK — no token needed, just generate webhook secret
+      config = {};
     } else if (service === "datadog") {
       const apiKey = formData.get("token") as string;
       const appKey = formData.get("app_key") as string;
