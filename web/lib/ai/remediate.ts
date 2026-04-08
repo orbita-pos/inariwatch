@@ -670,8 +670,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
       let fix: { explanation: string; files: { path: string; content: string }[] } = null!;
 
-      // Try agentic loop on first attempt with Claude — AI explores the repo with tools
-      const useAgentic = attempt === 1 && aiKey.provider === "claude" && !previousAttempt;
+      // Try agentic loop on first attempt — AI explores the repo with tools
+      // Works when user has Claude key OR platform has PLATFORM_ANTHROPIC_KEY
+      const hasClaude = aiKey.provider === "claude" || !!process.env.PLATFORM_ANTHROPIC_KEY;
+      const useAgentic = attempt === 1 && hasClaude && !previousAttempt;
 
       if (useAgentic) {
         steps = await pushStep(sessionId, steps,
@@ -690,10 +692,16 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
           ].filter(Boolean).join("\n\n");
 
+          // Use platform Anthropic key if available, otherwise user's BYOK key
+          const { getPlatformAnthropicKey } = await import("./get-key");
+          const platformClaude = getPlatformAnthropicKey();
+          const agenticKey = platformClaude ?? aiKey;
+
           const agenticResult = await runAgenticLoop({
-            apiKey: aiKey.key,
-            provider: aiKey.provider,
-            model: remModel,
+            apiKey: agenticKey.key,
+            provider: "claude",
+            exploreModel: "claude-haiku-4-5-20251001",  // Cheap for exploration
+            fixModel: "claude-sonnet-4-6",               // Quality for fix generation
             systemPrompt: "",
             errorContext,
             token,

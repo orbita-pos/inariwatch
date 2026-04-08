@@ -22,9 +22,22 @@ const PRIORITY: Record<AIProvider, number> = {
 const PLATFORM_KEY = process.env.PLATFORM_AI_KEY ?? "";
 export const PLATFORM_MODEL = "gpt-4o-mini";
 
+/** Platform-funded Claude key for agentic exploration (Haiku) + fix generation (Sonnet). */
+const PLATFORM_ANTHROPIC_KEY = process.env.PLATFORM_ANTHROPIC_KEY ?? "";
+
 function getPlatformFallback(): AIKeyResult | null {
   if (!PLATFORM_KEY) return null;
   return { key: PLATFORM_KEY, provider: "openai", modelPrefs: null, isPlatformKey: true };
+}
+
+/**
+ * Get the platform Anthropic key for remediation tasks.
+ * Used when the user doesn't have their own Claude key — InariWatch absorbs the cost.
+ * Returns null if PLATFORM_ANTHROPIC_KEY is not configured.
+ */
+export function getPlatformAnthropicKey(): AIKeyResult | null {
+  if (!PLATFORM_ANTHROPIC_KEY) return null;
+  return { key: PLATFORM_ANTHROPIC_KEY, provider: "claude", modelPrefs: null, isPlatformKey: true };
 }
 
 /**

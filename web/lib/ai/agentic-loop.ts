@@ -85,7 +85,10 @@ const TOOLS: ToolDefinition[] = [
 export interface AgenticLoopParams {
   apiKey: string;
   provider: AIProvider;
-  model: string;
+  /** Model for exploration (reading files, searching). Use Haiku for cost. */
+  exploreModel: string;
+  /** Model for final fix generation (submit_fix). Use Sonnet for quality. */
+  fixModel: string;
   systemPrompt: string;
   errorContext: string;
   token: string;
@@ -193,7 +196,7 @@ Respond ONLY with tool calls. Do not output free text.`;
 // ── Main Loop ───────────────────────────────────────────────────────────────
 
 export async function runAgenticLoop(params: AgenticLoopParams): Promise<AgenticLoopResult> {
-  const { apiKey, provider, model, errorContext, emit } = params;
+  const { apiKey, provider, exploreModel, fixModel, errorContext, emit } = params;
 
   const systemPrompt = buildAgenticSystemPrompt();
 
@@ -205,9 +208,14 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("agentic_turn", { turn, maxTurns: MAX_TURNS });
 
+    // Use explore model (Haiku — cheap) for exploration, fix model (Sonnet — quality) for the last 3 turns
+    // This allows the AI to explore cheaply and generate quality fixes
+    const isNearEnd = turn > MAX_TURNS - 3;
+    const currentModel = isNearEnd ? fixModel : exploreModel;
+
     const response = await callAIWithTools(apiKey, systemPrompt, messages, TOOLS, {
       maxTokens: 4096,
-      model,
+      model: currentModel,
       timeout: 60000,
       provider,
     });
