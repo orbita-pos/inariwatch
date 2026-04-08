@@ -89,6 +89,7 @@ const NAV = [
     items: [
       { id: "auto-remediate",  label: "Auto-Remediate" },
       { id: "auto-heal",       label: "Auto-Heal" },
+      { id: "staging-env",     label: "Staging Env Vars" },
       { id: "community-fixes", label: "Community Fixes" },
       { id: "analytics-mttr",  label: "MTTR comparison" },
     ],
@@ -1445,6 +1446,47 @@ app.use(shield({ mode: "block" })) // block threats`}</CodeBlock>
               { title: "Result", body: "If the bot confirms the fix works, it proceeds to the 11 safety gates. If it fails, AI retries with a different approach (up to 2 retries)." },
               { title: "Cleanup", body: "The staging container is automatically destroyed after verification (5 min TTL). No manual cleanup needed." },
             ]} />
+
+            <SectionHeading id="staging-env">Staging Environment Variables</SectionHeading>
+            <P>
+              When AI remediation verifies a fix, it deploys the code to an ephemeral staging container.
+              If your app needs environment variables to start (database URL, auth secrets, API keys),
+              configure them in <strong>Project Settings → Staging Environment Variables</strong>.
+            </P>
+
+            <SubHeading id="staging-env-setup">Setup</SubHeading>
+            <P>
+              Go to your project settings page (<InlineCode>/projects/your-project-slug</InlineCode>) and
+              find the <strong>Staging Environment Variables</strong> section. Add key-value pairs:
+            </P>
+            <Table
+              head={["Variable", "Example", "Notes"]}
+              rows={[
+                ["DATABASE_URL", "postgresql://user:pass@host/db", "Required if your app uses a database"],
+                ["NEXTAUTH_SECRET", "random-string-here", "Required for Next.js auth"],
+                ["NEXTAUTH_URL", "http://localhost:3000", "Any valid URL — staging overrides it"],
+              ]}
+            />
+
+            <Callout type="tip">
+              Values are encrypted at rest (AES-256-GCM) and never shown after saving — only the key names
+              are visible. The full values are decrypted server-side only when deploying a staging container.
+            </Callout>
+
+            <SubHeading id="staging-env-behavior">How it works</SubHeading>
+            <StepList steps={[
+              { title: "AI generates a fix", body: "The remediation pipeline creates a fix branch and pushes it to GitHub." },
+              { title: "Staging deploys the fix", body: "An ephemeral Docker container is created with your fix branch. Your staging env vars are injected into the container at startup." },
+              { title: "Bot verifies", body: "A headless browser checks that the app starts and responds correctly." },
+              { title: "Container destroyed", body: "After verification (pass or fail), the container and all env vars are destroyed. TTL is 5 minutes." },
+            ]} />
+
+            <SubHeading id="staging-env-without">Without staging env vars</SubHeading>
+            <P>
+              If no staging env vars are configured, the staging gate is <strong>skipped</strong> — not failed.
+              The PR is still created, CI still runs, and all other safety gates still apply. Staging verification
+              is an optional extra layer of confidence.
+            </P>
 
             <SectionHeading id="community-fixes">Autonomous Mode — Community Fixes</SectionHeading>
             <P>
