@@ -69,6 +69,7 @@ const NAV = [
       { id: "int-postgres",  label: "PostgreSQL" },
       { id: "int-npm",       label: "npm / Cargo" },
       { id: "int-capture",   label: "@inariwatch/capture" },
+      { id: "int-shield",    label: "Shield (runtime security)" },
     ],
   },
   {
@@ -1146,12 +1147,85 @@ export const onRequestError = captureRequestError`}</CodeBlock>
                 ["@inariwatch/capture", "SDK — init, captureException, captureLog, flush"],
                 ["@inariwatch/capture/auto", "Auto-init on import — config from env vars"],
                 ["@inariwatch/capture/next", "Next.js plugin — withInariWatch()"],
+                ["@inariwatch/capture/shield", "Runtime security — source-to-sink attack detection"],
               ]}
             />
             <Callout type="tip">
               In serverless environments, call <InlineCode>await flush()</InlineCode> before the function returns
               to ensure events are sent.
             </Callout>
+
+            {/* ────────────────────────────────────────────────────────────────
+                SHIELD — RUNTIME SECURITY
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="int-shield">Shield — Runtime Security</SectionHeading>
+            <P>
+              Shield detects security vulnerabilities <strong>at runtime</strong> by tracking user input
+              from the request to dangerous operations (database queries, shell commands, file reads).
+              Unlike a regex WAF, Shield has near-zero false positives because it detects the <strong>vulnerability</strong>,
+              not the attack attempt.
+            </P>
+
+            <SubHeading id="int-shield-setup">Setup</SubHeading>
+            <P>Add one import to your instrumentation file:</P>
+            <CodeBlock label="instrumentation.ts">{`import "@inariwatch/capture/auto"
+import "@inariwatch/capture/shield"
+import { captureRequestError } from "@inariwatch/capture"
+export const onRequestError = captureRequestError`}</CodeBlock>
+
+            <P>For Express/Fastify, use the middleware:</P>
+            <CodeBlock label="app.ts">{`import { shield } from "@inariwatch/capture/shield"
+
+app.use(shield()) // report-only (default)
+// or
+app.use(shield({ mode: "block" })) // block threats`}</CodeBlock>
+
+            <SubHeading id="int-shield-detects">What it detects</SubHeading>
+            <Table
+              head={["Vulnerability", "Sink hooked", "Example"]}
+              rows={[
+                ["SQL Injection", "pg.query, mysql2.query", "User input in string-concatenated query"],
+                ["Command Injection", "child_process.exec", "User input in shell command"],
+                ["Path Traversal", "fs.readFile, fs.writeFile", "../../etc/passwd in file path"],
+                ["SSRF", "fetch, http.request", "Internal IP in user-controlled URL"],
+                ["NoSQL Injection", "mongodb.find", "$ne operator in user input"],
+                ["Prototype Pollution", "JSON.parse", "__proto__ key in request body"],
+              ]}
+            />
+
+            <SubHeading id="int-shield-flow">How it works</SubHeading>
+            <P>
+              1. User sends <InlineCode>{`'; DROP TABLE users--`}</InlineCode> as a search query.<br />
+              2. Shield marks it as <strong>tainted</strong> (came from user request).<br />
+              3. Your app passes it to <InlineCode>pg.query({"\"SELECT * WHERE name = '\" + input + \"'\""}</InlineCode>.<br />
+              4. Shield detects tainted input inside the SQL string.<br />
+              5. Reports to InariWatch: file, line, sink, source, input.<br />
+              6. InariWatch AI reads the code and creates a PR with a parameterized query fix.
+            </P>
+
+            <SubHeading id="int-shield-modes">Modes</SubHeading>
+            <Table
+              head={["Mode", "Behavior", "Use case"]}
+              rows={[
+                ["report (default)", "Detect and report to dashboard. Request continues.", "Production monitoring"],
+                ["block", "Return 403. Request rejected before sink executes.", "Active protection"],
+              ]}
+            />
+
+            <Callout type="tip">
+              Start with report mode. Review alerts in the dashboard. Enable block mode when confident
+              in the detection accuracy for your app.
+            </Callout>
+
+            <SubHeading id="int-shield-alerts">Security alerts</SubHeading>
+            <P>
+              Shield events appear as <strong>security alerts</strong> in the dashboard with full context:
+              vulnerability type, sink function, source input, file, and line number. The AI auto-analyze
+              prompt is tailored for security — it assesses if the vulnerability is real, what the impact is,
+              and how to fix it. Click <strong>Fix with AI</strong> to auto-generate a parameterized query,
+              input sanitization, or safe API call.
+            </P>
 
             {/* ────────────────────────────────────────────────────────────────
                 AI SETUP
