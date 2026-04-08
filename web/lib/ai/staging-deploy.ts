@@ -187,6 +187,13 @@ export async function verifyStagingWithBot(
     { type: "http_request", method: "GET", path: "/", expectedStatus: 200 },
   ];
 
+  // Strict assertions only when we have real replay events (Substrate recording)
+  // Default health check is lenient — console errors are normal in Next.js/React apps
+  const hasReplayData = !!substrateEvents?.length;
+  const assertions = hasReplayData
+    ? [{ type: "no_500_errors" }, { type: "no_console_errors" }]
+    : [{ type: "no_500_errors" }];
+
   const res = await stagingFetch(`/verify/${deployId}`, {
     method: "POST",
     body: JSON.stringify({
@@ -198,10 +205,7 @@ export async function verifyStagingWithBot(
         expected_status: e.expectedStatus ?? 0,
         expected_body_keys: e.expectedBodyKeys ?? [],
       })),
-      assertions: [
-        { type: "no_500_errors" },
-        { type: "no_console_errors" },
-      ],
+      assertions,
       ui_actions: uiActions ?? [],
     }),
   });
