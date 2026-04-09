@@ -36,9 +36,17 @@ export async function markAlertRead(alertId: string) {
 }
 
 export async function markAlertResolved(alertId: string) {
-  const { userId } = await getAlertWithOwnership(alertId);
+  const { alert, userId } = await getAlertWithOwnership(alertId);
   await db.update(alerts).set({ isResolved: true, isRead: true, resolvedAt: new Date() }).where(eq(alerts.id, alertId));
   logAudit({ userId, action: "alert.resolve", resource: "alert", resourceId: alertId });
+
+  // Clear Redis dedup key so the same error can re-trigger if it recurs
+  if (alert.fingerprint) {
+    import("@/lib/redis").then(({ getRedis }) => {
+      const redis = getRedis();
+      if (redis) redis.del(`dedup:${alert.projectId}:${alert.fingerprint}`).catch(() => {});
+    }).catch(() => {});
+  }
 
   // Fire-and-forget: generate post-mortem in background
   generatePostmortem(alertId, userId).catch(() => {});
@@ -49,9 +57,18 @@ export async function markAlertResolved(alertId: string) {
 }
 
 export async function reopenAlert(alertId: string) {
-  const { userId } = await getAlertWithOwnership(alertId);
+  const { alert, userId } = await getAlertWithOwnership(alertId);
   await db.update(alerts).set({ isResolved: false }).where(eq(alerts.id, alertId));
   logAudit({ userId, action: "alert.reopen", resource: "alert", resourceId: alertId });
+
+  // Clear Redis dedup key so the error can be re-ingested
+  if (alert.fingerprint) {
+    import("@/lib/redis").then(({ getRedis }) => {
+      const redis = getRedis();
+      if (redis) redis.del(`dedup:${alert.projectId}:${alert.fingerprint}`).catch(() => {});
+    }).catch(() => {});
+  }
+
   revalidatePath(`/alerts/${alertId}`);
   revalidatePath("/alerts");
 }
