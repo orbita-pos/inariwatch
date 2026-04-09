@@ -98,7 +98,9 @@ async function agentFetch(apiKey: string, path: string, opts?: RequestInit): Pro
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Managed Agent API error (${res.status}): ${text.slice(0, 300)}`);
+    // Sanitize: strip any echoed auth headers or keys from error body
+    const sanitized = text.slice(0, 300).replace(/(?:authorization|x-api-key|bearer\s+)\S+/gi, "[REDACTED]");
+    throw new Error(`Managed Agent API error (${res.status}): ${sanitized}`);
   }
 
   return res.json();
@@ -282,7 +284,7 @@ export async function runManagedRemediation(params: ManagedAgentParams): Promise
     });
 
     // Process streaming events with timeout
-    const result = await processSessionStream(streamRes.body, sessionId, emit, SESSION_TIMEOUT_MS, fixBranch);
+    const result = await processSessionStream(streamRes.body, sessionId, emit, SESSION_TIMEOUT_MS, fixBranch, apiKey, repositoryUrl, githubToken);
 
     return result;
 
@@ -353,6 +355,9 @@ async function processSessionStream(
   emit: (event: string, data: Record<string, unknown>) => void,
   timeoutMs: number,
   fixBranch: string,
+  apiKey: string,
+  repositoryUrl: string,
+  githubToken: string,
 ): Promise<ManagedAgentResult> {
   const startTime = Date.now();
   let lastText = "";
@@ -419,7 +424,7 @@ async function processSessionStream(
             if (stopReason === "end_turn") {
               reader.cancel();
               emit("managed_agent", { status: "completed", turns });
-              return parseAgentResult(lastText, fixBranch, turns);
+              return parseAndVerifyAgentResult(lastText, fixBranch, turns, apiKey, repositoryUrl, githubToken);
             }
             break;
           }
@@ -451,15 +456,14 @@ async function processSessionStream(
 
 // ── Result Parser ───────────────────────────────────────────────────────────
 
-function parseAgentResult(
+async function parseAndVerifyAgentResult(
   lastText: string,
   fixBranch: string,
   turns: number,
-): ManagedAgentResult {
-  // The agent's final message should describe what it changed.
-  // The actual fix is in the git commit — we don't need file contents here
-  // because the agent already pushed to GitHub.
-
+  apiKey: string,
+  repositoryUrl: string,
+  githubToken: string,
+): Promise<ManagedAgentResult> {
   if (!lastText) {
     return { status: "retriable_error", reason: "Agent produced no output", turns };
   }
@@ -473,6 +477,19 @@ function parseAgentResult(
   );
 
   if (pushSuccess) {
+    // VERIFY: actually check that the branch exists on GitHub
+    try {
+      const [, owner, repo] = repositoryUrl.match(/github\.com\/([^/]+)\/([^/.]+)/) ?? [];
+      if (owner && repo) {
+        const { getBranchSha } = await import("@/lib/services/github-api");
+        await getBranchSha(githubToken, owner, repo, fixBranch);
+        // Branch exists — confirmed push
+      }
+    } catch {
+      // Branch doesn't exist — agent lied or push failed silently
+      return { status: "retriable_error", reason: "Agent reported push success but branch not found on GitHub", turns };
+    }
+
     return {
       status: "success",
       explanation: lastText.slice(0, 500),
@@ -482,7 +499,7 @@ function parseAgentResult(
     };
   }
 
-  // Agent might have failed to push
+  // Agent explicitly mentioned failure
   if (lastText.includes("error") || lastText.includes("failed") || lastText.includes("could not")) {
     return {
       status: "retriable_error",
@@ -491,12 +508,23 @@ function parseAgentResult(
     };
   }
 
-  // Ambiguous — treat as success if any fix description exists
-  return {
-    status: "success",
-    explanation: lastText.slice(0, 500),
-    branch: fixBranch,
-    verified: false,
-    turns,
-  };
+  // Ambiguous — verify before trusting
+  try {
+    const [, owner, repo] = repositoryUrl.match(/github\.com\/([^/]+)\/([^/.]+)/) ?? [];
+    if (owner && repo) {
+      const { getBranchSha } = await import("@/lib/services/github-api");
+      await getBranchSha(githubToken, owner, repo, fixBranch);
+      return {
+        status: "success",
+        explanation: lastText.slice(0, 500),
+        branch: fixBranch,
+        verified: false,
+        turns,
+      };
+    }
+  } catch {
+    // Branch doesn't exist
+  }
+
+  return { status: "retriable_error", reason: "Agent output ambiguous and branch not found", turns };
 }

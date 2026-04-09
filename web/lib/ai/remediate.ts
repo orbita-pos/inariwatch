@@ -670,6 +670,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
       let fix: { explanation: string; files: { path: string; content: string }[] } = null!;
       let managedAgentPushed = false; // If true, skip our own push — agent already pushed
+      let managedBranch: string | null = null; // Branch name from Managed Agent (different from branchName)
 
       // ── MANAGED AGENT (first attempt, if enabled) ─────────────────────
       // The agent clones the repo, explores, fixes, verifies (tsc/build/test), and pushes.
@@ -715,12 +716,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               files: managedResult.files ?? [],
             };
 
+            managedBranch = managedResult.branch;
+
             steps = await resolveStep(sessionId, steps, "completed",
               `Managed Agent fixed and pushed in ${managedResult.turns ?? "?"} steps${managedResult.verified ? " (verified: tsc + build pass)" : ""}`, emit);
-
-            // Store branch name for later PR creation
-            // Override branchName since agent created its own
-            Object.assign(fix, { _managedBranch: managedResult.branch });
           } else {
             // Managed Agent failed — fall through to agentic loop
             log.warn("managed_agent_fallback", { status: managedResult.status, reason: managedResult.reason });
@@ -851,7 +850,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         }
       } // end if (!fix) — single-shot path
 
-      if (!fix.files?.length) {
+      if (!fix.files?.length && !managedAgentPushed) {
         await fail(sessionId, emit, "AI could not determine what code to change.");
         return;
       }
@@ -933,6 +932,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       }
 
       // ── SECURITY SCAN ────────────────────────────────────────────────
+      // Managed Agent pushes directly — fix.files may be empty.
+      // Fetch actual changed files from GitHub for security scan + self-review.
+      if (managedAgentPushed && (!fix.files || fix.files.length === 0) && managedBranch) {
+        try {
+          const changedPaths = await gh.getRecentCommitFiles(token, owner, repo, managedBranch);
+          if (changedPaths?.files) {
+            for (const f of changedPaths.files.slice(0, 10)) {
+              const content = await gh.getFileContent(token, owner, repo, f.filename, managedBranch);
+              if (content) fix.files.push({ path: f.filename, content });
+            }
+          }
+        } catch { /* non-blocking — proceed with what we have */ }
+      }
+
       let securityHighCount: number | null = null;
       steps = await pushStep(sessionId, steps,
         makeStep("security_scan", "Running security scan on generated fix..."), emit);
@@ -1036,8 +1049,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
       // ── PUSH ─────────────────────────────────────────────────────────────
       // If Managed Agent already pushed, use its branch name and skip push
-      const effectiveBranch = managedAgentPushed
-        ? ((fix as { _managedBranch?: string })._managedBranch ?? branchName)
+      const effectiveBranch = managedAgentPushed && managedBranch
+        ? managedBranch
         : branchName;
 
       if (managedAgentPushed) {
