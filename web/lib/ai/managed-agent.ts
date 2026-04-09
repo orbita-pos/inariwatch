@@ -205,11 +205,15 @@ WORKFLOW:
 3. Read the error file from the stack trace
 4. Check imports — use ONLY libraries the project already uses
 5. If a correct version of the same logic exists in the file (e.g., in another branch of if/else), copy that pattern
-6. Generate the MINIMUM fix necessary
+6. MODIFY THE SOURCE CODE FILE THAT HAS THE BUG — this is the primary task. Writing tests is secondary.
 7. Verify: npx tsc --noEmit (MUST pass)
 8. Verify: npm test (non-blocking if no tests)
 9. Verify: npm run build (MUST pass for Next.js/compiled projects)
 10. Create branch, commit, push
+
+CRITICAL: You MUST modify the source file that contains the vulnerability/bug.
+Writing only test files WITHOUT fixing the actual code is NOT acceptable.
+The source file fix is REQUIRED. Tests are optional.
 
 CRITICAL RULES:
 - Use the project's ORM (Drizzle → ilike/eq, Prisma → client methods). NEVER use raw SQL.
