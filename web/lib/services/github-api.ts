@@ -135,17 +135,18 @@ export async function commitFiles(
   const commitData = await commitRes.json();
   const baseTreeSha = commitData.tree.sha;
 
-  // 3. Create blobs
+  // 3. Create blobs (normalize paths — AI may emit "./path" which GitHub rejects)
   const tree = await Promise.all(
     files.map(async (f) => {
+      const cleanPath = f.path.replace(/^\.\//, "");
       const blobRes = await ghFetch(`${API}/repos/${owner}/${repo}/git/blobs`, {
         method: "POST",
         headers: h,
         body: JSON.stringify({ content: f.content, encoding: "utf-8" }),
       });
-      if (!blobRes.ok) throw new Error(`Failed to create blob for ${f.path} (${blobRes.status})`);
+      if (!blobRes.ok) throw new Error(`Failed to create blob for ${cleanPath} (${blobRes.status})`);
       const blob = await blobRes.json();
-      return { path: f.path, mode: "100644" as const, type: "blob" as const, sha: blob.sha as string };
+      return { path: cleanPath, mode: "100644" as const, type: "blob" as const, sha: blob.sha as string };
     })
   );
 
@@ -155,7 +156,10 @@ export async function commitFiles(
     headers: h,
     body: JSON.stringify({ base_tree: baseTreeSha, tree }),
   });
-  if (!treeRes.ok) throw new Error(`Failed to create tree (${treeRes.status})`);
+  if (!treeRes.ok) {
+    const err = await treeRes.text().catch(() => "");
+    throw new Error(`Failed to create tree (${treeRes.status}): ${err}`);
+  }
   const treeData = await treeRes.json();
 
   // 5. Create commit
