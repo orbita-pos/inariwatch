@@ -366,18 +366,21 @@ function buildErrorMessage(
 
   parts.push(
     "",
-    "INSTRUCTIONS:",
+    "INSTRUCTIONS — FOLLOW EXACTLY:",
     "1. cd /workspace/repo && npm install",
-    "2. Read the error file and understand the bug",
-    "3. Fix it using the project's existing libraries (check imports)",
-    "4. Run: npx tsc --noEmit (must pass)",
-    "5. Run: npm run build (must pass if applicable)",
-    `6. git checkout -b ${fixBranch}`,
-    "7. git add the changed files (ONLY the files you modified)",
-    `8. git commit -m "fix: ${title.slice(0, 60)}"`,
-    `9. git push -u origin ${fixBranch}`,
+    "2. Read the file mentioned in the stack trace — this is the file you MUST edit",
+    `3. EDIT THAT SOURCE FILE to fix the bug. Use the project's existing libraries (check imports at the top of the file). If a correct version exists in the same file (e.g., in an else branch), copy that pattern.`,
+    "4. DO NOT only write test files. You MUST modify the source .ts/.tsx/.js file that has the bug.",
+    "5. Run: npx tsc --noEmit (must pass — if it fails, fix the TypeScript error and re-run)",
+    "6. Run: npm run build (must pass if applicable — if it fails, fix and re-run)",
+    `7. git checkout -b ${fixBranch}`,
+    "8. git add the changed source files (the file you edited to fix the bug)",
+    `9. git commit -m "fix: ${title.slice(0, 60)}"`,
+    `10. git push -u origin ${fixBranch}`,
     "",
-    "When done, tell me: what you changed, why, and which files.",
+    "CRITICAL: Your commit MUST include the modified source file. A commit with only test files is REJECTED.",
+    "",
+    "When done, tell me: what source file you changed, what you changed in it, and why.",
   );
 
   return parts.filter(Boolean).join("\n");

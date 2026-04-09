@@ -1632,7 +1632,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
           const pr = await gh.createPR(
             token, owner, repo,
             `fix: ${alert.title.slice(0, 60)}`,
-            prBody, branchName, defaultBranch,
+            prBody, effectiveBranch, defaultBranch,
             !isAutoMerge // draft = true if NOT auto-merge
           );
           await updateSession(sessionId, { prUrl: pr.url, prNumber: pr.number });
