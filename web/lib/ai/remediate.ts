@@ -857,21 +857,23 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       }
 
       // Validate file paths — reject dangerous or blocked files
-      const blockedFiles: string[] = [];
-      fix.files = fix.files.filter((f) => {
-        const reason = getBlockedReason(f.path);
-        if (reason) { blockedFiles.push(`${f.path} (${reason})`); return false; }
-        return true;
-      });
-      if (!fix.files.length) {
-        const blocked = blockedFiles.length ? `\n\nBlocked files: ${blockedFiles.join(", ")}` : "";
-        await fail(sessionId, emit, `AI tried to modify protected files that cannot be auto-patched.${blocked}`);
-        return;
-      }
-      if (blockedFiles.length > 0) {
-        // Warn but continue with remaining safe files
-        emit("warning", { message: `Skipped protected files: ${blockedFiles.join(", ")}` });
-      }
+      // Skip validation when Managed Agent already pushed (files fetched for review only, not for push)
+      if (!managedAgentPushed) {
+        const blockedFiles: string[] = [];
+        fix.files = fix.files.filter((f) => {
+          const reason = getBlockedReason(f.path);
+          if (reason) { blockedFiles.push(`${f.path} (${reason})`); return false; }
+          return true;
+        });
+        if (!fix.files.length) {
+          const blocked = blockedFiles.length ? `\n\nBlocked files: ${blockedFiles.join(", ")}` : "";
+          await fail(sessionId, emit, `AI tried to modify protected files that cannot be auto-patched.${blocked}`);
+          return;
+        }
+        if (blockedFiles.length > 0) {
+          emit("warning", { message: `Skipped protected files: ${blockedFiles.join(", ")}` });
+        }
+      } // end if (!managedAgentPushed) — blocked file validation
 
       await updateSession(sessionId, { fileChanges: fix.files });
 
