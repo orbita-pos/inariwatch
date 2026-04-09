@@ -87,7 +87,7 @@ export async function silenceAlert(
   resolve: boolean = true
 ): Promise<{ ok: boolean; title?: string }> {
   const [alert] = await db
-    .select({ id: alerts.id, title: alerts.title })
+    .select({ id: alerts.id, title: alerts.title, projectId: alerts.projectId, fingerprint: alerts.fingerprint })
     .from(alerts)
     .where(eq(alerts.id, alertId))
     .limit(1);
@@ -101,6 +101,14 @@ export async function silenceAlert(
       ...(resolve ? { isResolved: true, resolvedAt: new Date() } : {}),
     })
     .where(eq(alerts.id, alertId));
+
+  // Clear Redis dedup key so the same error can create a new alert if it recurs
+  if (resolve && alert.fingerprint) {
+    import("@/lib/redis").then(({ getRedis }) => {
+      const redis = getRedis();
+      if (redis) redis.del(`dedup:${alert.projectId}:${alert.fingerprint}`).catch(() => {});
+    }).catch(() => {});
+  }
 
   return { ok: true, title: alert.title };
 }
@@ -119,10 +127,24 @@ export async function acknowledgeAlert(alertId: string): Promise<{ ok: boolean }
 // ── Reopen alert ─────────────────────────────────────────────────────────────
 
 export async function reopenAlert(alertId: string): Promise<{ ok: boolean }> {
+  const [alert] = await db
+    .select({ projectId: alerts.projectId, fingerprint: alerts.fingerprint })
+    .from(alerts)
+    .where(eq(alerts.id, alertId))
+    .limit(1);
+
   await db
     .update(alerts)
     .set({ isResolved: false, resolvedAt: null })
     .where(eq(alerts.id, alertId));
+
+  // Clear Redis dedup key so the error can be re-ingested
+  if (alert?.fingerprint) {
+    import("@/lib/redis").then(({ getRedis }) => {
+      const redis = getRedis();
+      if (redis) redis.del(`dedup:${alert.projectId}:${alert.fingerprint}`).catch(() => {});
+    }).catch(() => {});
+  }
 
   return { ok: true };
 }
