@@ -84,6 +84,9 @@ const BLOCKED_PATTERNS = [
   /\bsh\s+-c\b/,          // direct sh -c invocation
   /\bbash\s+-c\b/,        // direct bash -c invocation
   /\bsh\s+[<>|]/,         // sh with redirects
+  /\$\(/,                 // subshell command substitution
+  /`[^']*`/,              // backtick command substitution
+  /;\s*\w/,               // semicolon command chaining
 ];
 
 function isCommandAllowed(command: string): { allowed: boolean; reason?: string } {

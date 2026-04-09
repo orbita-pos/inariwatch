@@ -114,13 +114,17 @@ function handleJobStatus(res: ServerResponse, jobId: string): void {
   json(res, 200, response);
 }
 
-function handleHealth(res: ServerResponse): void {
+function handleHealth(res: ServerResponse, authenticated: boolean): void {
+  if (!authenticated) {
+    json(res, 200, { ok: true });
+    return;
+  }
   const running = [...jobs.values()].filter((j) => j.status === "running").length;
   json(res, 200, {
     ok: true,
     activeJobs: running,
     maxJobs: MAX_CONCURRENT,
-    uptime: process.uptime(),
+    uptime: Math.round(process.uptime()),
     memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
   });
 }
@@ -131,9 +135,9 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const path = url.pathname;
 
-  // Health check — no auth required
+  // Health check — basic ok for unauthenticated, detailed for authenticated
   if (req.method === "GET" && path === "/worker/health") {
-    handleHealth(res);
+    handleHealth(res, checkAuth(req));
     return;
   }
 
@@ -153,9 +157,8 @@ const server = createServer(async (req, res) => {
       json(res, 404, { error: "Not found" });
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[server] error: ${msg}`);
-    json(res, 500, { error: msg });
+    console.error(`[server] error:`, err instanceof Error ? err.message : String(err));
+    json(res, 500, { error: "Internal server error" });
   }
 });
 

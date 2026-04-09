@@ -772,7 +772,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
           // ── Try Hetzner worker first (AI loop on localhost = no latency) ──
           const workerUrl = process.env.WORKER_URL;
-          if (workerUrl) {
+          const isSecureWorkerUrl = workerUrl && (workerUrl.startsWith("https://") || workerUrl.startsWith("http://localhost") || workerUrl.startsWith("http://127.0.0.1"));
+          if (workerUrl && isSecureWorkerUrl) {
             emit("container_agent", { status: "dispatching" });
             const jobRes = await fetch(`${workerUrl}/worker/run`, {
               method: "POST",

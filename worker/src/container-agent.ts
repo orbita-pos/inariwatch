@@ -40,6 +40,7 @@ const BLOCKED_PATTERNS = [
   /\brm\s+-rf\s+\//, /\bsudo\b/, /\bchmod\b/, /\bchown\b/, /\bkill\b/, /\bpkill\b/,
   /\bcurl\b/, /\bwget\b/, /\bnc\b/, /\bdd\b/, /\bmkfs\b/, /\bfdisk\b/,
   />\s*\/dev\//, /\|.*\bsh\b/, /\|.*\bbash\b/, /\bsh\s+-c\b/, /\bbash\s+-c\b/, /\bsh\s+[<>|]/,
+  /\$\(/, /`[^']*`/, /;\s*\w/,  // subshell $(), backticks, semicolon chaining
 ];
 
 function isBlockedFile(path: string): boolean {

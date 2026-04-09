@@ -208,11 +208,19 @@ export async function POST(
         }
 
         // Fire-and-forget: prediction engine (pattern match + AI prediction)
+        // Dedup: skip if already predicted for this PR in the last 60s (prevents cost abuse via rapid pushes)
         const predictionEnabled = alertConfig.prediction?.enabled !== false;
         if (predictionEnabled) {
-          import("@/lib/ai/prediction").then(({ runPrediction }) =>
-            runPrediction({ projectId: integ.projectId, token: ghToken, owner, repo: repoName, prNumber })
-          ).catch(() => {});
+          import("@/lib/redis").then(async ({ getRedis }) => {
+            const redis = getRedis();
+            const dedupKey = `pred:${integ.projectId}:${prNumber}`;
+            if (redis) {
+              const wasSet = await redis.set(dedupKey, "1", { nx: true, ex: 60 });
+              if (!wasSet) return; // already predicted recently
+            }
+            const { runPrediction } = await import("@/lib/ai/prediction");
+            await runPrediction({ projectId: integ.projectId, token: ghToken, owner, repo: repoName, prNumber });
+          }).catch(() => {});
         }
       }
     }
