@@ -747,9 +747,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         steps = await pushStep(sessionId, steps,
           makeStep("generate_fix", "Container agent is cloning the repo and fixing the bug..."), emit);
 
-        let containerId: string | null = null;
         try {
-          const { runContainerAgent, createContainer, destroyContainer } = await import("./container-agent");
           const { getPlatformAnthropicKey } = await import("./get-key");
           const platformClaude = getPlatformAnthropicKey();
 
@@ -762,18 +760,6 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             ? (await import("./models")).resolveModel("remediation", aiKey.provider, aiKey.modelPrefs)
             : "claude-sonnet-4-6";
 
-          // Create container with repo cloned + npm install
-          emit("container_agent", { status: "creating" });
-          containerId = await createContainer(
-            process.env.STAGING_SERVER_URL!,
-            process.env.STAGING_API_SECRET!,
-            `https://github.com/${fullRepo}.git`,
-            defaultBranch,
-            token,
-            sessionId,
-          );
-          emit("container_agent", { status: "ready", containerId });
-
           const errorContext = [
             `ERROR: ${alert.title}`,
             `SEVERITY: ${alert.severity}`,
@@ -784,37 +770,106 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
           ].filter(Boolean).join("\n\n");
 
-          const containerResult = await runContainerAgent({
-            apiKey: containerApiKey,
-            provider: containerProvider,
-            exploreModel: containerExplore,
-            fixModel: containerFix,
-            errorContext,
-            containerUrl: process.env.STAGING_SERVER_URL!,
-            containerId,
-            stagingSecret: process.env.STAGING_API_SECRET!,
-            emit: (event: string, data: Record<string, unknown>) => emit(event, data),
-          });
+          // ── Try Hetzner worker first (AI loop on localhost = no latency) ──
+          const workerUrl = process.env.WORKER_URL;
+          if (workerUrl) {
+            emit("container_agent", { status: "dispatching" });
+            const jobRes = await fetch(`${workerUrl}/worker/run`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${process.env.STAGING_API_SECRET}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId, repoUrl: `https://github.com/${fullRepo}.git`, branch: defaultBranch,
+                githubToken: token, aiKey: containerApiKey, aiProvider: containerProvider,
+                exploreModel: containerExplore, fixModel: containerFix, errorContext, maxTurns: 40,
+              }),
+              signal: AbortSignal.timeout(10_000),
+            });
 
-          fix = { explanation: containerResult.explanation, files: containerResult.files };
-          containerVerified = containerResult.verified;
+            if (!jobRes.ok) throw new Error(`Worker dispatch failed (${jobRes.status})`);
+            const { jobId } = await jobRes.json() as { jobId: string };
+            emit("container_agent", { status: "running", jobId });
 
-          steps = await resolveStep(sessionId, steps, "completed",
-            `Container agent fixed in ${containerResult.turns} turns (tsc: ${containerResult.verified ? "✅" : "❌"}, tests: ${containerResult.testsPassed ? "✅" : "⚠"})`, emit);
+            // Poll for completion (worker writes steps to DB, SSE reads them)
+            const pollStart = Date.now();
+            const maxPollMs = 8 * 60 * 1000;
+            type WorkerResult = { explanation: string; files: { path: string; content: string }[]; turns: number; verified: boolean; testsPassed: boolean };
+            let workerResult: WorkerResult | null = null;
 
-          // Cleanup container
-          destroyContainer(process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!, containerId).catch(() => {});
-          containerId = null;
+            while (Date.now() - pollStart < maxPollMs) {
+              await new Promise((r) => setTimeout(r, 3000));
+
+              // Forward fresh steps from DB to SSE
+              const [freshSession] = await db.select({ steps: remediationSessions.steps })
+                .from(remediationSessions).where(eq(remediationSessions.id, sessionId)).limit(1);
+              const freshSteps = (freshSession?.steps ?? []) as RemediationStep[];
+              if (freshSteps.length > steps.length) {
+                for (let i = steps.length; i < freshSteps.length; i++) {
+                  emit("step", { step: freshSteps[i], steps: freshSteps });
+                }
+                steps = freshSteps;
+              }
+
+              const statusRes = await fetch(`${workerUrl}/worker/job/${jobId}`, {
+                headers: { "Authorization": `Bearer ${process.env.STAGING_API_SECRET}` },
+                signal: AbortSignal.timeout(5_000),
+              });
+              const jobStatus = await statusRes.json() as { status: string; result?: WorkerResult; error?: string };
+
+              if (jobStatus.status === "completed" && jobStatus.result) {
+                workerResult = jobStatus.result;
+                break;
+              }
+              if (jobStatus.status === "failed") {
+                throw new Error(jobStatus.error ?? "Worker job failed");
+              }
+            }
+
+            if (!workerResult) throw new Error("Worker job timed out");
+
+            fix = { explanation: workerResult.explanation, files: workerResult.files };
+            containerVerified = workerResult.verified;
+
+            steps = await resolveStep(sessionId, steps, "completed",
+              `Container agent fixed in ${workerResult.turns} turns (tsc: ${workerResult.verified ? "✅" : "❌"}, tests: ${workerResult.testsPassed ? "✅" : "⚠"})`, emit);
+          } else {
+            // ── Fallback: run container agent on Vercel (original path) ──
+            const { runContainerAgent, createContainer, destroyContainer } = await import("./container-agent");
+            let containerId: string | null = null;
+
+            try {
+              emit("container_agent", { status: "creating" });
+              containerId = await createContainer(
+                process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!,
+                `https://github.com/${fullRepo}.git`, defaultBranch, token, sessionId,
+              );
+              emit("container_agent", { status: "ready", containerId });
+
+              const containerResult = await runContainerAgent({
+                apiKey: containerApiKey, provider: containerProvider,
+                exploreModel: containerExplore, fixModel: containerFix, errorContext,
+                containerUrl: process.env.STAGING_SERVER_URL!, containerId,
+                stagingSecret: process.env.STAGING_API_SECRET!,
+                emit: (event: string, data: Record<string, unknown>) => emit(event, data),
+              });
+
+              fix = { explanation: containerResult.explanation, files: containerResult.files };
+              containerVerified = containerResult.verified;
+
+              steps = await resolveStep(sessionId, steps, "completed",
+                `Container agent fixed in ${containerResult.turns} turns (tsc: ${containerResult.verified ? "✅" : "❌"}, tests: ${containerResult.testsPassed ? "✅" : "⚠"})`, emit);
+
+              destroyContainer(process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!, containerId).catch(() => {});
+            } finally {
+              if (containerId) {
+                const { destroyContainer: dc } = await import("./container-agent");
+                dc(process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!, containerId).catch(() => {});
+              }
+            }
+          }
         } catch (containerErr) {
           log.warn("container_agent_fallback", { error: containerErr instanceof Error ? containerErr.message : String(containerErr) });
           steps = await resolveStep(sessionId, steps, "completed",
             "Container agent unavailable — falling back to agentic exploration", emit);
-
-          // Cleanup container on error
-          if (containerId) {
-            const { destroyContainer } = await import("./container-agent");
-            destroyContainer(process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!, containerId).catch(() => {});
-          }
         }
       }
 
