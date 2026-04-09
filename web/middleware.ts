@@ -49,6 +49,17 @@ export function middleware(req: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // Status subdomain rewrite — status.inariwatch.com → /status
+  if (host.startsWith("status.")) {
+    const url = req.nextUrl.clone();
+    if (pathname === "/") {
+      url.pathname = "/status";
+    } else if (!pathname.startsWith("/status")) {
+      url.pathname = `/status${pathname}`;
+    }
+    return NextResponse.rewrite(url);
+  }
+
   if (isAlwaysAllowed(pathname)) return NextResponse.next();
 
   // ── Local development ──────────────────────────────────────────────────────
