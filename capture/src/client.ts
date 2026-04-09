@@ -155,8 +155,10 @@ export function captureException(
       transport.send(fullEvent)
     }
 
-    if (substrateFlush) {
-      substrateFlush().catch(() => {})
+    if (substrateFlush && config.dsn) {
+      // Upload substrate recording to InariWatch alongside the error
+      const uploadUrl = config.dsn.replace(/\/capture\//, "/api/recordings/upload/")
+      substrateFlush(uploadUrl).catch(() => {})
     }
   })
 }
