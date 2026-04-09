@@ -42,6 +42,7 @@ The product is live at **app.inariwatch.com**. There is also a demo account at `
 ├── vscode/       # VS Code extension — inline diagnostics, AI hover, sidebar
 ├── action/       # GitHub Action — AI risk assessment on PRs
 ├── cli/          # Rust CLI (local monitoring: dev, watch, simulate — serve-mcp deprecated, WhatsApp stub)
+├── worker/       # Hetzner AI worker — runs container agent loop on localhost Docker (Node.js)
 ├── bot-app/      # Expo React Native mobile app (push notifications, alert management)
 ├── desktop/      # Tauri desktop app (native alert viewer)
 └── k6/           # Stress test suite (10 scenarios, all passing)
@@ -78,14 +79,51 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 - **Push notifications:** Web Push API + mobile push (Expo)
 - **Slack:** @slack/web-api (OAuth bot, not just webhooks)
 - **Telegram:** Bot API (webhooks + inline formatting)
-- **Rate limiting:** DB-backed atomic UPSERT (safe across serverless instances)
-- **Cron:** cron-job.org (external, not Vercel crons)
+- **Rate limiting:** Redis-first (Upstash) with DB fallback — ~1ms via `@upstash/ratelimit`
+- **Redis:** Upstash (Vercel-facing: rate limiting, AI cache, dedup, service health, Slack cache) + self-hosted on Hetzner (future: remediation state, job queue)
+- **Cron:** Go scheduler on Hetzner (replaces cron-job.org) — 5 jobs, same Vercel routes, Bearer auth
 - **Substrate:** Optional I/O recording via @inariwatch/substrate-agent (ring buffer, auto-flush on error)
 - **Cortex:** External execution data plane — serves EAP verification chain (optional, via EAP_SERVER_URL)
 - **EAP:** Cryptographic proof chain for AI fix verification (Merkle trees, Ed25519)
 - **Code Intelligence:** pgvector (1024D HNSW) + BM25 full-text search for semantic code search
 - **Vulnerability Intelligence:** OSV.dev (primary, 17+ databases, no auth) + GitHub Advisory (fallback); lockfile parsing (package-lock.json, yarn.lock, Cargo.lock)
 - **Security Scanning:** eslint-plugin-security (17 rules) + 19 regex patterns + AI review — runs in-memory on Vercel serverless, no CLI
+- **Dogfooding:** InariWatch monitors itself via `@inariwatch/capture/next` wrapper + `instrumentation.ts`
+
+## Hetzner infrastructure (CX22 — 2 vCPU, 4GB RAM)
+
+The Hetzner server runs 4 services alongside each other:
+
+| Service | Port | Process | Purpose |
+|---|---|---|---|
+| Go staging server | 9400 | `inari-staging` (systemd) | Container lifecycle (create/exec/write/delete), cron scheduler |
+| Node.js AI worker | 9401 | `inari-worker` (systemd) | Runs container agent AI loop on localhost Docker |
+| Redis | 6379 | Docker container | Remediation state, job queue (Hetzner-local) |
+| Caddy | 443 | systemd | TLS termination, routes `/worker/*` → 9401, rest → 9400 |
+
+**Cron scheduler** (built into Go server): 5 jobs trigger Vercel routes with `Bearer CRON_SECRET`. Replaces cron-job.org.
+
+| Job | Route | Interval |
+|---|---|---|
+| poll | /api/cron/poll | 2 min |
+| uptime | /api/cron/uptime | 1 min |
+| escalate | /api/cron/escalate | 2 min |
+| deploy-monitor | /api/cron/deploy-monitor | 1 min |
+| digest | /api/cron/digest | 1 hr |
+
+**Redis caching layer** (Upstash for Vercel, self-hosted for Hetzner):
+- Rate limiting: `@upstash/ratelimit` sliding window (~1ms vs 30-50ms DB)
+- AI diagnosis cache: same fingerprint = cached response (1h TTL)
+- Alert dedup: `SET NX` fast-path (24h TTL, skips 7-9 DB queries for duplicates)
+- Email rate limiting: 3 `INCR` pipelined (vs 3-4 DB queries)
+- Service health: shared across Vercel instances via `HSET`
+- Slack token cache: survives cold starts
+- All operations have DB/in-memory fallback if Redis unavailable
+
+**AI cost optimizations:**
+- Prompt caching: `cache_control: { type: "ephemeral" }` on system prompts (~$0.25-0.30 savings/remediation)
+- Model routing: self-review + security scan use analysis model (Haiku) instead of Sonnet
+- Estimated cost: ~$0.25/remediation (down from ~$0.56)
 
 ## Key features
 
@@ -96,12 +134,12 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 - **AI remediation** — full pipeline: diagnose → read code → generate fix → security scan → self-review → push → CI (3x retry) → PR → auto-merge gates → post-merge monitoring → escalation if failed; live terminal UI in dashboard
 - **Autonomous mode** — `autoRemediate: true` auto-triggers remediation on critical alerts without human click; all 11 safety gates still apply
 - **Auto-heal** — `autoHeal: true` when uptime detects site down (3 consecutive failures): rollback to last good Vercel deploy + start AI remediation; 10-min cooldown prevents loops
-- **Prediction engine** — pre-deployment error detection with 3 layers: pattern matching against historical alerts, AI prediction on PR diffs, shadow replay of Substrate recordings against PR code; self-improving via community pattern feedback loop
+- **Prediction engine** — pre-deployment error detection with 3 layers: pattern matching against historical alerts, AI prediction on PR diffs, shadow replay of Substrate recordings against PR code; self-improving via community pattern feedback loop; **auto-triggers on PR opened/synchronize** via GitHub webhook (deduped via Redis 60s TTL)
 - **Security scanning** — 3-layer scan built into remediation pipeline: (1) 17 ESLint rules via eslint-plugin-security (unsafe regex, child_process, CSRF, timing attacks, bidi chars, etc.), (2) 19 Semgrep-inspired regex patterns (SSRF, hardcoded secrets, prototype pollution, SQL injection, XSS, open redirect, insecure crypto, CORS wildcard), (3) AI security review (10 vulnerability categories via Claude); all 3 layers merge with dedup; no external API, runs serverless
 - **Code Intelligence** — semantic code search via pgvector + BM25; indexes repos on GitHub connection; call graph tracking (callers/callees); hybrid vector + keyword search; 2 MCP tools (search_codebase, reindex_codebase)
 - **Staging E2E verification** — auto-detects framework (Next.js, Express, generic); generates GitHub Actions E2E workflows to verify fix branches before merge
 - **Substrate replay** — two modes: AI analysis (fast, serverless) + GitHub Action replay (real I/O verification); replays production recordings against fix code; confidence + risk scoring
-- **Community fix network** — crowdsourced error fixes with success rates; when an error matches a known pattern, shows "47 teams fixed this, 96% success rate" with one-click apply; contribution pipeline anonymizes and strips PII
+- **Community fix network** — crowdsourced error fixes with success rates; when an error matches a known pattern, shows "47 teams fixed this, 96% success rate" with one-click apply; contribution pipeline anonymizes and strips PII; **auto-contributes** after successful post-merge monitoring (no manual approval needed)
 - **Escalation engine** — smart escalation to on-call when remediation fails; triggers: low confidence, fix failed, max retries, self-review rejected, regression detected
 - **Status page automation** — auto-creates incidents on critical alerts, updates during remediation, resolves on fix; links to public status pages
 - **Post-merge monitoring** — watches merged fixes for regressions (15-min health check); auto-reverts if regression detected
@@ -152,20 +190,27 @@ All AI modules live in `web/lib/ai/`. Key files:
 | Trust level | `trust-level.ts` | Compute trust level from track record (Rookie → Expert), apply to gate thresholds |
 | Managed Agent | `managed-agent.ts` | Claude Managed Agents integration (beta — currently disabled) |
 | Container Agent | `container-agent.ts` | Hetzner container agent (6 tools: read, write, grep, exec, submit_fix) |
+| Container Worker | `worker/src/` | Standalone Node.js worker — runs container agent loop on Hetzner localhost (40 turns, ~1ms tools) |
 | Agentic loop | `agentic-loop.ts` | Tool-use exploration loop (4 tools: read_file, search_code, list_directory, submit_fix) |
+| Service health | `service-health.ts` | Graceful degradation for external services, shared across instances via Redis |
+| Redis client | `lib/redis.ts` | Upstash Redis singleton (rate limiting, AI cache, dedup, service health, Slack cache) |
 
 ### Remediation fix generation — 3 strategies (cascading fallback)
 
 | Strategy | File | When | How |
 |---|---|---|---|
 | **1. Managed Agent** | `managed-agent.ts` | `MANAGED_AGENT_ENABLED=true`, attempt 1 only | Anthropic container: clone → explore → fix → tsc/build/test → push. Agent pushes directly to GitHub. |
-| **2. Container Agent** | `container-agent.ts` | `CONTAINER_AGENT_ENABLED=true` + `STAGING_SERVER_URL`, attempt 1 only | Hetzner Docker container: clone → 6 tools (read, write, grep, exec) → tsc/build/test → push via GitHub API. |
+| **2. Container Agent (Worker)** | `container-agent.ts` + `worker/` | `WORKER_URL` set, attempt 1 only | Hetzner worker runs AI loop on localhost Docker: clone → 6 tools (read, write, grep, exec) → tsc/build/test → push via GitHub API. **40 turns, ~1ms tool calls, no timeout.** |
+| **2b. Container Agent (Vercel)** | `container-agent.ts` | `CONTAINER_AGENT_ENABLED=true` + `STAGING_SERVER_URL`, no `WORKER_URL` | Same as above but AI loop runs on Vercel (15 turns, 80-120ms tool calls). Fallback when worker unavailable. |
 | **3. Agentic loop** | `agentic-loop.ts` | attempt 1, provider supports tool_use | Haiku explores (turns 1–12), Sonnet fixes (turns 13–15). 4 tools via GitHub API. Max 15 turns. |
 | **4. Single-shot** | (in `remediate.ts`) | retries, Gemini, or agentic fallback | One prompt with full context + anti-patterns from failed attempts. |
 
 **⚠ Managed Agents status:** `MANAGED_AGENT_ENABLED=false` in production. The Anthropic Managed Agents API (`managed-agents-2026-04-01`) is still in beta and was causing failures (wrong branch pushes, test-only commits, session billing leaks). Do NOT set to `true` until the API exits beta and is stable.
 
-**Container Agent status:** Go endpoints deployed to Hetzner (2026-04-09). Set `CONTAINER_AGENT_ENABLED=true` to activate. Same quality as Managed Agent at ~$0.40-0.50/fix (vs $1.52). Falls back to agentic loop if container unavailable. Security: command whitelist, path traversal protection, symlink validation, tmpfs disk limits, input size limits.
+**Container Agent status:** DEPLOYED + WORKER ACTIVE (2026-04-09). Two modes:
+- **Worker mode** (`WORKER_URL` set): AI loop runs on Hetzner Node.js worker (`worker/src/`), 40 turns, Docker on localhost (~1ms tool calls), no Vercel timeout. ~$0.25/fix with prompt caching.
+- **Vercel mode** (fallback): AI loop on Vercel, 15 turns, HTTP round-trips to Hetzner (~80-120ms/call). Activates when worker unavailable.
+Security: command whitelist + subshell/backtick/semicolon blocking, path traversal protection, symlink validation, tmpfs disk limits, input size limits, WORKER_URL scheme validation (must be HTTPS or localhost).
 
 ## Service layer — single source of truth
 
@@ -280,7 +325,7 @@ See `web/.env.example`. Key vars:
 - `DATABASE_URL` — Neon PostgreSQL connection string
 - `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
 - `ENCRYPTION_KEY` — for encrypting API keys in DB
-- `CRON_SECRET` — authenticates cron-job.org requests
+- `CRON_SECRET` — authenticates cron requests (Go scheduler on Hetzner + legacy cron-job.org)
 - `PLATFORM_AI_KEY` — platform-level AI key for free auto-analysis
 - `RESEND_API_KEY` — Resend email service
 - `ADMIN_EMAIL` — grants access to `/admin`
@@ -292,6 +337,9 @@ See `web/.env.example`. Key vars:
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL` — Web Push API
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — GitHub OAuth
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Google OAuth
+- `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` — Upstash Redis (rate limiting, AI cache, dedup)
+- `WORKER_URL` — Hetzner AI worker URL (enables worker mode for container agent)
+- `STAGING_API_SECRET` — authenticates requests to Hetzner Go server + worker
 
 ## Security considerations
 
