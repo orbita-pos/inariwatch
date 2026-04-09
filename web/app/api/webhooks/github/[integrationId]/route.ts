@@ -193,18 +193,26 @@ export async function POST(
     const action = payload.action as string;
     const repo = payload.repository as Record<string, unknown> | undefined;
 
-    // Pre-deploy risk assessment on PR opened/updated
+    // Pre-deploy risk assessment + prediction on PR opened/updated
     if ((action === "opened" || action === "synchronize") && pr?.number) {
-      const riskEnabled = alertConfig.pr_risk_assessment?.enabled !== false;
-      if (riskEnabled) {
-        const owner = config.owner as string;
-        const repoName = (repo?.name ?? "") as string;
-        const prNumber = pr.number as number;
+      const owner = config.owner as string;
+      const repoName = (repo?.name ?? "") as string;
+      const prNumber = pr.number as number;
+      const ghToken = config.token as string;
 
-        if (owner && repoName && prNumber) {
-          const ghToken = config.token as string;
-          // Fire-and-forget: AI risk assessment + comment on PR
+      if (owner && repoName && prNumber && ghToken) {
+        // Fire-and-forget: AI risk assessment + comment on PR
+        const riskEnabled = alertConfig.pr_risk_assessment?.enabled !== false;
+        if (riskEnabled) {
           assessPRRisk(integ.projectId, ghToken, owner, repoName, prNumber).catch(() => {});
+        }
+
+        // Fire-and-forget: prediction engine (pattern match + AI prediction)
+        const predictionEnabled = alertConfig.prediction?.enabled !== false;
+        if (predictionEnabled) {
+          import("@/lib/ai/prediction").then(({ runPrediction }) =>
+            runPrediction({ projectId: integ.projectId, token: ghToken, owner, repo: repoName, prNumber })
+          ).catch(() => {});
         }
       }
     }
