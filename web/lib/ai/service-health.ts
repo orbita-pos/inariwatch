@@ -22,11 +22,7 @@ export type ServiceName =
 const DOWN_THRESHOLD = 3; // consecutive failures to mark "down"
 const COOLDOWN_MS = 2 * 60 * 1000; // 2 min before retrying a "down" service
 
-// In-memory registry — resets on cold start.
-// NOTE: In a serverless environment (Vercel), each function instance has its own registry.
-// Health state is NOT shared across instances. This is acceptable because the registry is
-// a performance optimization (fast-fail on known-down services), not a safety-critical gate.
-// For cross-instance health tracking, consider backing with Vercel KV or a DB table.
+// In-memory registry as fast local cache + Redis for cross-instance sharing
 const registry = new Map<ServiceName, ServiceHealth>();
 
 function getHealth(service: ServiceName): ServiceHealth {
@@ -39,23 +35,44 @@ function getHealth(service: ServiceName): ServiceHealth {
 }
 
 /** Check if a service call should be attempted */
-export function isServiceAvailable(service: ServiceName): boolean {
+export async function isServiceAvailable(service: ServiceName): Promise<boolean> {
   // GitHub is critical — always attempt
   if (service === "github") return true;
 
-  const health = getHealth(service);
-  if (health.status !== "down") return true;
-
-  // Check cooldown
-  const elapsed = Date.now() - (health.downSince?.getTime() ?? 0);
-  if (elapsed >= COOLDOWN_MS) {
-    // Cooldown elapsed — allow one probe attempt
-    health.status = "degraded";
-    registry.set(service, health);
+  // Check local cache first
+  const local = getHealth(service);
+  if (local.status === "down") {
+    const elapsed = Date.now() - (local.downSince?.getTime() ?? 0);
+    if (elapsed < COOLDOWN_MS) return false;
+    local.status = "degraded";
+    registry.set(service, local);
+    return true;
+  }
+  if (local.status === "degraded" && local.lastCheck.getTime() > Date.now() - 30_000) {
+    // Local cache is fresh (< 30s) and degraded — still available
     return true;
   }
 
-  return false; // Still down, skip
+  // Check Redis for cross-instance state
+  try {
+    const { getRedis } = await import("@/lib/redis");
+    const redis = getRedis();
+    if (redis) {
+      const data = await redis.hgetall<{ failures: string; status: string; downSince: string; lastError: string }>(`svc:${service}`);
+      if (data?.status === "down") {
+        const downSince = Number(data.downSince || 0);
+        if (Date.now() - downSince < COOLDOWN_MS) {
+          // Sync to local cache
+          registry.set(service, { status: "down", lastCheck: new Date(), consecutiveFailures: Number(data.failures), lastError: data.lastError ?? "", downSince: new Date(downSince) });
+          return false;
+        }
+      }
+    }
+  } catch {
+    // Redis unavailable — use local only
+  }
+
+  return true;
 }
 
 /** Record a successful service call */
@@ -66,6 +83,11 @@ export function recordSuccess(service: ServiceName): void {
     consecutiveFailures: 0,
     lastError: "",
   });
+  // Sync to Redis (fire-and-forget)
+  import("@/lib/redis").then(({ getRedis }) => {
+    const redis = getRedis();
+    if (redis) redis.del(`svc:${service}`).catch(() => {});
+  }).catch(() => {});
 }
 
 /** Record a failed service call */
@@ -83,6 +105,20 @@ export function recordFailure(service: ServiceName, error: string): void {
   }
 
   registry.set(service, health);
+
+  // Sync to Redis (fire-and-forget)
+  import("@/lib/redis").then(({ getRedis }) => {
+    const redis = getRedis();
+    if (redis) {
+      redis.hset(`svc:${service}`, {
+        failures: String(health.consecutiveFailures),
+        status: health.status,
+        downSince: String(health.downSince?.getTime() ?? 0),
+        lastError: error.slice(0, 200),
+      }).catch(() => {});
+      redis.expire(`svc:${service}`, 300).catch(() => {}); // 5 min TTL
+    }
+  }).catch(() => {});
 }
 
 /** Get status summary for all services (for PR body) */
@@ -109,7 +145,7 @@ export async function withServiceHealth<T>(
   service: ServiceName,
   fn: () => Promise<T>,
 ): Promise<T | null> {
-  if (!isServiceAvailable(service)) return null;
+  if (!(await isServiceAvailable(service))) return null;
 
   try {
     const result = await fn();

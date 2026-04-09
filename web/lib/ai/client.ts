@@ -191,12 +191,13 @@ async function callClaudeWithTools(
     headers: {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
       "content-type": "application/json",
     },
     body: JSON.stringify({
       model: opts.model ?? "claude-sonnet-4-6",
       max_tokens: opts.maxTokens ?? 4096,
-      system: systemPrompt,
+      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     }),
@@ -393,12 +394,13 @@ async function callClaude(
     headers: {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
       "content-type": "application/json",
     },
     body: JSON.stringify({
       model: opts.model ?? "claude-sonnet-4-6",
       max_tokens: opts.maxTokens ?? 1024,
-      system,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages,
     }),
     signal: AbortSignal.timeout(opts.timeout ?? 30000),

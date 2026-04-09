@@ -5,6 +5,7 @@ import { enqueueAlert } from "@/lib/notifications/send";
 import { dispatchOutgoingWebhooks } from "@/lib/webhooks/outgoing";
 import { autoCreateIncident } from "@/lib/ai/status-page-automation";
 import { decrypt } from "@/lib/crypto";
+import { getRedis } from "@/lib/redis";
 import type { NewAlert, Alert } from "@/lib/db";
 
 /**
@@ -94,6 +95,20 @@ export async function createAlertIfNew(
     fingerprint = computeErrorFingerprint(alert.title ?? "", alert.body ?? "");
   } catch {
     // Non-blocking
+  }
+
+  // Redis fast-path dedup: if fingerprint seen in last 24h, skip all DB queries
+  if (fingerprint) {
+    const redis = getRedis();
+    if (redis) {
+      try {
+        const dedupKey = `dedup:${projectId}:${fingerprint}`;
+        const wasSet = await redis.set(dedupKey, "1", { nx: true, ex: 86400 });
+        if (!wasSet) return null; // duplicate — skip everything
+      } catch {
+        // Redis unavailable — fall through to DB dedup
+      }
+    }
   }
 
   // Title-based dedup fallback (when no fingerprint — rare)

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withInariWatch } from "@inariwatch/capture/next";
 
 const securityHeaders = [
   { key: "X-Content-Type-Options",  value: "nosniff" },
@@ -30,4 +31,4 @@ const config: NextConfig = {
   },
 };
 
-export default config;
+export default withInariWatch(config as Record<string, unknown>) as NextConfig;

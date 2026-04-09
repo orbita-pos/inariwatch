@@ -4,6 +4,8 @@ import { callAI } from "./client";
 import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "./prompts";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
+import { computeErrorFingerprint } from "./fingerprint";
+import { getRedis } from "@/lib/redis";
 import type { Alert } from "@/lib/db";
 
 /**
@@ -15,6 +17,21 @@ import type { Alert } from "@/lib/db";
 export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
   if (!aiKey) return;
+
+  // Check Redis cache — same fingerprint = same diagnosis (saves AI call + $0.005)
+  const fingerprint = computeErrorFingerprint(alert.title, alert.body ?? "");
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const cached = await redis.get<string>(`ai_diag:${fingerprint}`);
+      if (cached) {
+        await db.update(alerts).set({ aiReasoning: cached }).where(eq(alerts.id, alert.id));
+        return;
+      }
+    } catch {
+      // Redis unavailable — proceed with AI call
+    }
+  }
 
   // Analyze this alert — use Haiku for platform key (free tier), user's model otherwise
   const reasoning = await callAI(
@@ -33,6 +50,11 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     .update(alerts)
     .set({ aiReasoning: reasoning })
     .where(eq(alerts.id, alert.id));
+
+  // Cache diagnosis by fingerprint (1h TTL)
+  if (redis && reasoning) {
+    redis.set(`ai_diag:${fingerprint}`, reasoning, { ex: 3600 }).catch(() => {});
+  }
 
   // Post AI diagnosis to Slack thread (if alert has one)
   try {

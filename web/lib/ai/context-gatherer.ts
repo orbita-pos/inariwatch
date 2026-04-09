@@ -11,6 +11,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import type { RemediationContext } from "./prompts";
 import { aiLog } from "./logger";
+import { withServiceHealth } from "./service-health";
 import * as gh from "@/lib/services/github-api";
 import { getDeploymentBuildLogs, getLatestFailedDeployment } from "@/lib/services/vercel-api";
 
@@ -216,10 +217,12 @@ export async function gatherRemediationContext(
       const token = config.token as string;
       const org = config.org as string;
       if (token && org) {
-        const ctx = await fetchSentryContext(token, org, alert);
-        result.sentryStackTrace = ctx.stackTrace;
-        result.sentryIssueDetails = ctx.issueDetails;
-        emit("context", { source: "sentry", status: ctx.stackTrace ? "found" : "empty" });
+        const ctx = await withServiceHealth("sentry", () => fetchSentryContext(token, org, alert));
+        if (ctx) {
+          result.sentryStackTrace = ctx.stackTrace;
+          result.sentryIssueDetails = ctx.issueDetails;
+        }
+        emit("context", { source: "sentry", status: ctx?.stackTrace ? "found" : "empty" });
       }
     })());
   }
@@ -233,7 +236,7 @@ export async function gatherRemediationContext(
       const token = config.token as string;
       const teamId = (config.teamId as string) || undefined;
       if (token) {
-        result.vercelBuildLogs = await fetchVercelContext(token, teamId, alert, projectName);
+        result.vercelBuildLogs = await withServiceHealth("vercel", () => fetchVercelContext(token, teamId, alert, projectName));
         emit("context", { source: "vercel", status: result.vercelBuildLogs ? "found" : "empty" });
       }
     })());
@@ -252,7 +255,7 @@ export async function gatherRemediationContext(
       const repo = repoMatch?.[1];
       if (token && owner && repo) {
         const branch = "main"; // will be refined in the remediate engine
-        result.githubCILogs = await fetchGitHubCIContext(token, owner, repo, branch);
+        result.githubCILogs = await withServiceHealth("github", () => fetchGitHubCIContext(token, owner, repo, branch));
         emit("context", { source: "github", status: result.githubCILogs ? "found" : "empty" });
       }
     })());
@@ -267,7 +270,7 @@ export async function gatherRemediationContext(
         const owner = config.owner as string;
         const repo = (config.repo ?? (config.repos as string[] | undefined)?.[0] ?? "") as string;
         if (token && owner && repo) {
-          const commit = await gh.getRecentCommitFiles(token, owner, repo, "main");
+          const commit = await withServiceHealth("github", () => gh.getRecentCommitFiles(token, owner, repo, "main"));
           if (commit && commit.files.length > 0) {
             const fileList = commit.files
               .map((f) => `  ${f.filename} (${f.status} +${f.additions} -${f.deletions})`)
@@ -288,7 +291,7 @@ export async function gatherRemediationContext(
       const apiKey = config.apiKey as string;
       const appKey = config.appKey as string;
       if (apiKey && appKey) {
-        result.datadogMetrics = await fetchDatadogContext(apiKey, appKey, alert);
+        result.datadogMetrics = await withServiceHealth("datadog", () => fetchDatadogContext(apiKey, appKey, alert));
         emit("context", { source: "datadog", status: result.datadogMetrics ? "found" : "empty" });
       }
     })());

@@ -294,6 +294,16 @@ export async function startPostMergeMonitoring(params: {
     } catch (e) { log.warn("community_pattern_boost_failed", { error: e instanceof Error ? e.message : String(e) }); }
   }
 
+  // Auto-contribute the fix to the community network
+  try {
+    const session = await db.select({ alertId: remediationSessions.alertId }).from(remediationSessions)
+      .where(eq(remediationSessions.id, sessionId)).limit(1);
+    if (session[0]?.alertId) {
+      const { contributeApprovedFix } = await import("./contribute-fix");
+      await contributeApprovedFix(sessionId, session[0].alertId);
+    }
+  } catch (e) { log.warn("auto_contribute_fix_failed", { error: e instanceof Error ? e.message : String(e) }); }
+
   // Resolve the status page incident
   try { await resolveIncident({ remediationSessionId: sessionId }); } catch (e) { log.warn("resolve_incident_failed", { error: e instanceof Error ? e.message : String(e) }); }
 

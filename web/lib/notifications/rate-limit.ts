@@ -1,5 +1,6 @@
 import { db, notificationLogs, notificationChannels, emailSuppressions } from "@/lib/db";
 import { eq, and, gt, sql } from "drizzle-orm";
+import { getRedis } from "@/lib/redis";
 
 // ── Configurable limits ─────────────────────────────────────────────────────
 
@@ -11,15 +12,49 @@ const VERIFICATION_COOLDOWN_MS = 60 * 1000; // 1 minute
 // Verification cooldowns stay in-memory (per-session, non-critical)
 const verificationCooldowns = new Map<string, number>();
 
-// ── Rate limit (fully DB-backed) ────────────────────────────────────────────
+// ── Rate limit (Redis-first, DB fallback) ───────────────────────────────────
 
 export async function checkEmailRateLimit(
   userId: string
 ): Promise<{ allowed: boolean; reason?: string }> {
+  // Try Redis first — 3 INCR calls pipelined vs 3-4 DB queries
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const pipe = redis.pipeline();
+      pipe.incr("email:global:daily");
+      pipe.incr(`email:${userId}:hourly`);
+      pipe.incr(`email:${userId}:daily`);
+      const results = await pipe.exec();
+
+      const globalCount = results[0] as number;
+      const hourlyCount = results[1] as number;
+      const dailyCount = results[2] as number;
+
+      // Set TTLs only on first increment (when count = 1)
+      if (globalCount === 1) redis.expire("email:global:daily", 86400).catch(() => {});
+      if (hourlyCount === 1) redis.expire(`email:${userId}:hourly`, 3600).catch(() => {});
+      if (dailyCount === 1) redis.expire(`email:${userId}:daily`, 86400).catch(() => {});
+
+      if (globalCount > EMAIL_GLOBAL_DAILY) {
+        return { allowed: false, reason: "Global daily email limit reached." };
+      }
+      if (hourlyCount > EMAIL_PER_USER_HOURLY) {
+        return { allowed: false, reason: `Hourly email limit reached (${EMAIL_PER_USER_HOURLY}/hr).` };
+      }
+      if (dailyCount > EMAIL_PER_USER_DAILY) {
+        return { allowed: false, reason: `Daily email limit reached (${EMAIL_PER_USER_DAILY}/day).` };
+      }
+      return { allowed: true };
+    } catch {
+      // Redis unavailable — fall through to DB
+    }
+  }
+
+  // DB fallback
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-  // 1. Global daily cap — count ALL sent emails today across all channels
   const [globalResult] = await db
     .select({ count: sql<number>`count(*)` })
     .from(notificationLogs)
@@ -34,7 +69,6 @@ export async function checkEmailRateLimit(
     return { allowed: false, reason: "Global daily email limit reached." };
   }
 
-  // 2. Per-user limits — find user's email channels, count their logs
   const emailChannels = await db
     .select({ id: notificationChannels.id })
     .from(notificationChannels)

@@ -1043,7 +1043,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
         // AI security review — async, non-blocking enhancement
         try {
-          const aiFindings = await aiSecurityReview(fix.files, callAI, aiKey.key);
+          const scanModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
+          const callAIScan = (key: string, system: string, msgs: { role: "user"; content: string }[]) =>
+            callAI(key, system, msgs, { model: scanModel, provider: aiKey.provider });
+          const aiFindings = await aiSecurityReview(fix.files, callAIScan, aiKey.key);
           for (const f of aiFindings) {
             const exists = scanResult.findings.some(
               (e) => e.file === f.file && e.line === f.line && e.rule === f.rule
@@ -1087,11 +1090,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         makeStep("self_review", "AI is reviewing the generated fix for correctness..."), emit);
 
       try {
+        const reviewModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
         const reviewRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, [
           { role: "user", content: buildSelfReviewPrompt(
             diagnosis.diagnosis, fileContents, fix.files, alert.body
           ) },
-        ], { maxTokens: 1024, timeout: 45000, model: remModel, provider: aiKey.provider });
+        ], { maxTokens: 1024, timeout: 45000, model: reviewModel, provider: aiKey.provider });
 
         const parsed = JSON.parse(cleanJSON(reviewRaw));
         selfReview = {
