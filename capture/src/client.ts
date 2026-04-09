@@ -139,12 +139,24 @@ export function captureException(
 
   const transport = globalTransport
   const config = globalConfig
-  computeErrorFingerprint(title, body).then((fp) => {
+  computeErrorFingerprint(title, body).then(async (fp) => {
     const fullEvent = enrichEvent({ ...event, fingerprint: fp })
 
     // Attach session recording if available (before send)
     if (sessionFlush) {
       fullEvent.sessionEvents = sessionFlush()
+    }
+
+    // Attach substrate I/O recording if available (piggybacked on error event)
+    if (substrateFlush) {
+      try {
+        const recording = await substrateFlush()
+        if (recording && typeof recording === "object" && "events" in (recording as Record<string, unknown>)) {
+          fullEvent.substrateEvents = (recording as { events: unknown[] }).events
+        }
+      } catch {
+        if (config.debug) console.warn("[@inariwatch/capture] Substrate flush failed")
+      }
     }
 
     if (config.beforeSend) {
@@ -153,12 +165,6 @@ export function captureException(
       transport.send(filtered)
     } else {
       transport.send(fullEvent)
-    }
-
-    if (substrateFlush && config.dsn) {
-      // Upload substrate recording to InariWatch alongside the error
-      const uploadUrl = config.dsn.replace(/\/capture\//, "/api/recordings/upload/")
-      substrateFlush(uploadUrl).catch(() => {})
     }
   })
 }

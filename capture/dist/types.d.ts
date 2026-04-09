@@ -107,6 +107,8 @@ export interface ErrorEvent {
     tags?: Record<string, string>;
     /** Browser session events (rrweb) — attached on error flush */
     sessionEvents?: SessionEvent[];
+    /** Substrate I/O recording — attached on error flush */
+    substrateEvents?: unknown[];
 }
 export type VulnerabilityType = "sql_injection" | "command_injection" | "path_traversal" | "ssrf" | "nosql_injection" | "prototype_pollution";
 export interface SecurityContext {

@@ -111,6 +111,8 @@ export interface ErrorEvent {
   tags?: Record<string, string>
   /** Browser session events (rrweb) — attached on error flush */
   sessionEvents?: SessionEvent[]
+  /** Substrate I/O recording — attached on error flush */
+  substrateEvents?: unknown[]
 }
 
 export type VulnerabilityType =

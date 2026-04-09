@@ -158,6 +158,23 @@ export async function POST(
         })
         .catch((err) => console.error("[capture-webhook] recording insert failed:", err));
     }
+
+    // Save inline Substrate I/O recording linked to this specific alert
+    const substrateEvents = (event.substrateEvents as unknown[] | undefined)?.slice(0, 5000);
+    if (substrateEvents?.length) {
+      const recordingId = crypto.randomUUID();
+      await db.insert(substrateRecordings)
+        .values({
+          recordingId,
+          alertId: result.id,
+          projectId: integ.projectId,
+          runtime: (event.runtime as string) || "node",
+          startedAt: new Date(),
+          eventCount: substrateEvents.length,
+          events: substrateEvents,
+        })
+        .catch((err) => console.error("[capture-webhook] substrate recording insert failed:", err));
+    }
   }
 
   await markIntegrationSuccess(integrationId);
