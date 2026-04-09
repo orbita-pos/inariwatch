@@ -81,6 +81,8 @@ const BETA_HEADER = "managed-agents-2026-04-01";
 
 let cachedAgentId: string | null = null;
 let cachedEnvId: string | null = null;
+let agentInitPromise: Promise<string> | null = null;
+let envInitPromise: Promise<string> | null = null;
 
 /** Make an authenticated request to the Managed Agents API. */
 async function agentFetch(apiKey: string, path: string, opts?: RequestInit): Promise<Record<string, unknown>> {
@@ -108,6 +110,13 @@ async function agentFetch(apiKey: string, path: string, opts?: RequestInit): Pro
 
 async function ensureAgent(apiKey: string): Promise<string> {
   if (cachedAgentId) return cachedAgentId;
+  // Prevent concurrent creation — reuse the same in-flight promise
+  if (agentInitPromise) return agentInitPromise;
+  agentInitPromise = _createAgent(apiKey);
+  try { return await agentInitPromise; } finally { agentInitPromise = null; }
+}
+
+async function _createAgent(apiKey: string): Promise<string> {
 
   // Check if agent already exists
   const existing = await agentFetch(apiKey, "/agents");
@@ -143,6 +152,12 @@ async function ensureAgent(apiKey: string): Promise<string> {
 
 async function ensureEnvironment(apiKey: string): Promise<string> {
   if (cachedEnvId) return cachedEnvId;
+  if (envInitPromise) return envInitPromise;
+  envInitPromise = _createEnvironment(apiKey);
+  try { return await envInitPromise; } finally { envInitPromise = null; }
+}
+
+async function _createEnvironment(apiKey: string): Promise<string> {
 
   // Check if environment already exists
   const existing = await agentFetch(apiKey, "/environments");
@@ -213,6 +228,8 @@ When done, output a summary of what you changed and why.`;
 // ── Main Function ───────────────────────────────────────────────────────────
 
 export async function runManagedRemediation(params: ManagedAgentParams): Promise<ManagedAgentResult> {
+  let createdSessionId: string | null = null; // Track for cleanup
+
   const {
     apiKey, errorTitle, stackTrace, severity, errorFile,
     repositoryUrl, branch, githubToken, alertId,
@@ -252,6 +269,7 @@ export async function runManagedRemediation(params: ManagedAgentParams): Promise
     });
 
     const sessionId = session.id as string;
+    createdSessionId = sessionId; // Track for cleanup on error
 
     // Send the error context as the first message
     emit("managed_agent", { status: "starting", sessionId });
@@ -286,12 +304,17 @@ export async function runManagedRemediation(params: ManagedAgentParams): Promise
     // Process streaming events with timeout
     const result = await processSessionStream(streamRes.body, sessionId, emit, SESSION_TIMEOUT_MS, fixBranch, apiKey, repositoryUrl, githubToken);
 
+    // Cleanup: terminate session to stop billing
+    terminateSession(apiKey, sessionId).catch(() => {});
+
     return result;
 
   } catch (err) {
+    // Cleanup session to stop billing
+    if (createdSessionId) terminateSession(apiKey, createdSessionId).catch(() => {});
+
     const msg = err instanceof Error ? err.message : String(err);
 
-    // Classify error
     if (msg.includes("rate_limit") || msg.includes("overloaded") || msg.includes("timeout")) {
       return { status: "retriable_error", reason: msg };
     }
@@ -299,6 +322,15 @@ export async function runManagedRemediation(params: ManagedAgentParams): Promise
       return { status: "permanent_error", reason: msg };
     }
     return { status: "retriable_error", reason: msg };
+  }
+}
+
+/** Terminate a managed agent session to stop billing. Fire-and-forget. */
+async function terminateSession(apiKey: string, sessionId: string): Promise<void> {
+  try {
+    await agentFetch(apiKey, `/sessions/${sessionId}`, { method: "DELETE" });
+  } catch {
+    // Non-critical — session will eventually time out on its own
   }
 }
 
@@ -366,6 +398,7 @@ async function processSessionStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const MAX_BUFFER = 1_000_000; // 1MB — prevent unbounded growth on malformed streams
 
   try {
     while (true) {
@@ -379,6 +412,11 @@ async function processSessionStream(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
+
+      // Prevent unbounded buffer growth
+      if (buffer.length > MAX_BUFFER) {
+        buffer = buffer.slice(-MAX_BUFFER / 2);
+      }
 
       // Parse SSE events from buffer
       const lines = buffer.split("\n");
@@ -468,28 +506,22 @@ async function parseAndVerifyAgentResult(
     return { status: "retriable_error", reason: "Agent produced no output", turns };
   }
 
-  // Check if the agent mentioned pushing successfully
-  const pushSuccess = lastText.includes("push") && (
-    lastText.includes("success") ||
-    lastText.includes("pushed") ||
-    lastText.includes("committed") ||
-    lastText.includes(fixBranch)
-  );
+  // Don't trust string matching — always verify the branch exists on GitHub.
+  // The agent may say "push success" but fail, or describe a failure that contains "push".
+  const [, owner, repo] = repositoryUrl.match(/github\.com\/([^/]+)\/([^/.]+)/) ?? [];
+  let branchExists = false;
 
-  if (pushSuccess) {
-    // VERIFY: actually check that the branch exists on GitHub
+  if (owner && repo) {
     try {
-      const [, owner, repo] = repositoryUrl.match(/github\.com\/([^/]+)\/([^/.]+)/) ?? [];
-      if (owner && repo) {
-        const { getBranchSha } = await import("@/lib/services/github-api");
-        await getBranchSha(githubToken, owner, repo, fixBranch);
-        // Branch exists — confirmed push
-      }
+      const { getBranchSha } = await import("@/lib/services/github-api");
+      await getBranchSha(githubToken, owner, repo, fixBranch);
+      branchExists = true;
     } catch {
-      // Branch doesn't exist — agent lied or push failed silently
-      return { status: "retriable_error", reason: "Agent reported push success but branch not found on GitHub", turns };
+      // Branch doesn't exist
     }
+  }
 
+  if (branchExists) {
     return {
       status: "success",
       explanation: lastText.slice(0, 500),
@@ -499,32 +531,10 @@ async function parseAndVerifyAgentResult(
     };
   }
 
-  // Agent explicitly mentioned failure
-  if (lastText.includes("error") || lastText.includes("failed") || lastText.includes("could not")) {
-    return {
-      status: "retriable_error",
-      reason: lastText.slice(0, 500),
-      turns,
-    };
-  }
-
-  // Ambiguous — verify before trusting
-  try {
-    const [, owner, repo] = repositoryUrl.match(/github\.com\/([^/]+)\/([^/.]+)/) ?? [];
-    if (owner && repo) {
-      const { getBranchSha } = await import("@/lib/services/github-api");
-      await getBranchSha(githubToken, owner, repo, fixBranch);
-      return {
-        status: "success",
-        explanation: lastText.slice(0, 500),
-        branch: fixBranch,
-        verified: false,
-        turns,
-      };
-    }
-  } catch {
-    // Branch doesn't exist
-  }
-
-  return { status: "retriable_error", reason: "Agent output ambiguous and branch not found", turns };
+  // Branch doesn't exist — agent failed to push regardless of what it says
+  return {
+    status: "retriable_error",
+    reason: `Agent did not push to ${fixBranch}. Output: ${lastText.slice(0, 300)}`,
+    turns,
+  };
 }

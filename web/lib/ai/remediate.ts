@@ -675,7 +675,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       // ── MANAGED AGENT (first attempt, if enabled) ─────────────────────
       // The agent clones the repo, explores, fixes, verifies (tsc/build/test), and pushes.
       // Falls back to agentic loop if Managed Agent fails.
-      const useManagedAgent = attempt === 1 && !previousAttempt && process.env.MANAGED_AGENT_ENABLED === "true";
+      const managedAgentEnabled = process.env.MANAGED_AGENT_ENABLED?.toLowerCase() === "true" || process.env.MANAGED_AGENT_ENABLED === "1";
+      const useManagedAgent = attempt === 1 && !previousAttempt && managedAgentEnabled;
 
       if (useManagedAgent) {
         steps = await pushStep(sessionId, steps,
@@ -1097,7 +1098,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       steps = await pushStep(sessionId, steps,
         makeStep("await_ci", "Waiting for CI checks to run..."), emit);
 
-      const headSha = await gh.getBranchSha(token, owner, repo, branchName);
+      const headSha = await gh.getBranchSha(token, owner, repo, effectiveBranch);
 
       // Give GitHub a moment to register the push and start checks
       await sleep(10_000);
@@ -1487,7 +1488,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
                 steps = await pushStep(sessionId, steps,
                   makeStep("e2e_wait", "Waiting for E2E staging results..."), emit);
 
-                const headSha = await gh.getBranchSha(token, owner, repo, branchName);
+                const headSha = await gh.getBranchSha(token, owner, repo, effectiveBranch);
                 const e2eResult = await waitForE2EResult(token, owner, repo, headSha);
 
                 if (e2eResult) {
