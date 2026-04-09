@@ -162,13 +162,13 @@ export default async function StatusPage() {
     incidentUpdates, days90, uptimePct, anyMonitorDown,
   } = await getPlatformData();
 
-  const hasCritical = (alertStats?.critical ?? 0) > 0;
-  const hasWarning = (alertStats?.warning ?? 0) > 0;
   const hasActiveIncidents = activeIncidents.length > 0;
+  const hasCriticalIncident = activeIncidents.some((i) => i.severity === "critical");
 
-  const overallStatus = hasCritical || anyMonitorDown
+  // Platform status based on uptime monitors + incidents (NOT user project alerts)
+  const overallStatus = anyMonitorDown || hasCriticalIncident
     ? "outage"
-    : hasWarning || hasActiveIncidents
+    : hasActiveIncidents
     ? "degraded"
     : "operational";
 
@@ -198,14 +198,13 @@ export default async function StatusPage() {
 
   const status = STATUS_CONFIG[overallStatus];
 
-  // Determine per-service status from alert data
-  function getServiceStatus(key: string): "operational" | "degraded" | "outage" {
-    if (hasCritical && (key === "web" || key === "ai")) return "outage";
-    if (hasWarning && (key === "web" || key === "webhooks")) return "degraded";
-    if (anyMonitorDown && key === "web") return "outage";
+  // Per-service status: based on uptime monitors, not user project alerts
+  function getServiceStatus(_key: string): "operational" | "degraded" | "outage" {
+    if (anyMonitorDown && _key === "web") return "outage";
     return "operational";
   }
 
+  // Alert stats are informational: how many alerts the platform processed
   const resolvedPct = (weekStats?.total ?? 0) > 0
     ? Math.round(((weekStats?.resolved ?? 0) / (weekStats?.total ?? 1)) * 100)
     : 100;
@@ -250,11 +249,11 @@ export default async function StatusPage() {
           </div>
           <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-4 text-center">
             <p className="text-2xl font-bold text-zinc-200">{alertStats?.total ?? 0}</p>
-            <p className="text-[11px] text-zinc-600 mt-1">Alerts (24h)</p>
+            <p className="text-[11px] text-zinc-600 mt-1">Alerts processed (24h)</p>
           </div>
           <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-4 text-center">
             <p className="text-2xl font-bold text-zinc-200">{resolvedPct}%</p>
-            <p className="text-[11px] text-zinc-600 mt-1">Resolved (7d)</p>
+            <p className="text-[11px] text-zinc-600 mt-1">Resolution rate (7d)</p>
           </div>
         </div>
 
