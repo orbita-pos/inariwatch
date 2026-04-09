@@ -671,6 +671,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       let fix: { explanation: string; files: { path: string; content: string }[] } = null!;
       let managedAgentPushed = false; // If true, skip our own push — agent already pushed
       let managedBranch: string | null = null; // Branch name from Managed Agent (different from branchName)
+      let containerVerified = false; // If true, fix was verified (tsc+build) in container — boosts gate confidence
 
       // ── MANAGED AGENT (first attempt, if enabled) ─────────────────────
       // The agent clones the repo, explores, fixes, verifies (tsc/build/test), and pushes.
@@ -734,7 +735,90 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         }
       }
 
-      // ── AGENTIC LOOP (fallback if Managed Agent didn't produce a fix) ──
+      // ── CONTAINER AGENT (Hetzner — fix + verify in Docker container) ────
+      // The AI explores and fixes code inside a container with shell access.
+      // Can run tsc/build/test before pushing — only verified code leaves.
+      // Falls back to agentic loop if container is unavailable.
+      const containerAgentEnabled = !!process.env.STAGING_SERVER_URL
+        && (process.env.CONTAINER_AGENT_ENABLED?.toLowerCase() === "true" || process.env.CONTAINER_AGENT_ENABLED === "1");
+      const useContainerAgent = !fix && attempt === 1 && !previousAttempt && containerAgentEnabled;
+
+      if (useContainerAgent) {
+        steps = await pushStep(sessionId, steps,
+          makeStep("generate_fix", "Container agent is cloning the repo and fixing the bug..."), emit);
+
+        let containerId: string | null = null;
+        try {
+          const { runContainerAgent, createContainer, destroyContainer } = await import("./container-agent");
+          const { getPlatformAnthropicKey } = await import("./get-key");
+          const platformClaude = getPlatformAnthropicKey();
+
+          const containerApiKey = platformClaude?.key ?? aiKey.key;
+          const containerProvider = platformClaude ? "claude" as const : aiKey.provider;
+          const containerExplore = platformClaude ? "claude-haiku-4-5-20251001" : aiKey.provider !== "gemini"
+            ? (await import("./models")).resolveModel("analysis", aiKey.provider, aiKey.modelPrefs)
+            : "claude-haiku-4-5-20251001";
+          const containerFix = platformClaude ? "claude-sonnet-4-6" : aiKey.provider !== "gemini"
+            ? (await import("./models")).resolveModel("remediation", aiKey.provider, aiKey.modelPrefs)
+            : "claude-sonnet-4-6";
+
+          // Create container with repo cloned + npm install
+          emit("container_agent", { status: "creating" });
+          containerId = await createContainer(
+            process.env.STAGING_SERVER_URL!,
+            process.env.STAGING_API_SECRET!,
+            `https://github.com/${fullRepo}.git`,
+            defaultBranch,
+            token,
+            sessionId,
+          );
+          emit("container_agent", { status: "ready", containerId });
+
+          const errorContext = [
+            `ERROR: ${alert.title}`,
+            `SEVERITY: ${alert.severity}`,
+            `STACK TRACE:\n${alert.body.slice(0, 3000)}`,
+            remediationContext?.sentryStackTrace ? `\nSENTRY:\n${remediationContext.sentryStackTrace.slice(0, 2000)}` : "",
+            remediationContext?.vercelBuildLogs ? `\nBUILD LOGS:\n${remediationContext.vercelBuildLogs.slice(0, 2000)}` : "",
+            remediationContext?.githubCILogs ? `\nCI LOGS:\n${remediationContext.githubCILogs.slice(0, 2000)}` : "",
+            remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
+          ].filter(Boolean).join("\n\n");
+
+          const containerResult = await runContainerAgent({
+            apiKey: containerApiKey,
+            provider: containerProvider,
+            exploreModel: containerExplore,
+            fixModel: containerFix,
+            errorContext,
+            containerUrl: process.env.STAGING_SERVER_URL!,
+            containerId,
+            stagingSecret: process.env.STAGING_API_SECRET!,
+            emit: (event: string, data: Record<string, unknown>) => emit(event, data),
+          });
+
+          fix = { explanation: containerResult.explanation, files: containerResult.files };
+          containerVerified = containerResult.verified;
+
+          steps = await resolveStep(sessionId, steps, "completed",
+            `Container agent fixed in ${containerResult.turns} turns (tsc: ${containerResult.verified ? "✅" : "❌"}, tests: ${containerResult.testsPassed ? "✅" : "⚠"})`, emit);
+
+          // Cleanup container
+          destroyContainer(process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!, containerId).catch(() => {});
+          containerId = null;
+        } catch (containerErr) {
+          log.warn("container_agent_fallback", { error: containerErr instanceof Error ? containerErr.message : String(containerErr) });
+          steps = await resolveStep(sessionId, steps, "completed",
+            "Container agent unavailable — falling back to agentic exploration", emit);
+
+          // Cleanup container on error
+          if (containerId) {
+            const { destroyContainer } = await import("./container-agent");
+            destroyContainer(process.env.STAGING_SERVER_URL!, process.env.STAGING_API_SECRET!, containerId).catch(() => {});
+          }
+        }
+      }
+
+      // ── AGENTIC LOOP (fallback if Container Agent / Managed Agent didn't produce a fix) ──
       const supportsToolUse = aiKey.provider !== "gemini";
       const useAgentic = !fix && attempt === 1 && (supportsToolUse || !!process.env.PLATFORM_ANTHROPIC_KEY) && !previousAttempt;
 
@@ -1554,6 +1638,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
           e2eStagingPassed,
           eapChainVerified,
           securityScanHighCount: securityHighCount,
+          containerVerified: containerVerified || null,
           circuitBreakerBypassed,
         });
 

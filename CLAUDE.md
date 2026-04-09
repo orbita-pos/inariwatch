@@ -72,7 +72,7 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 - **Framework:** Next.js 15 (App Router), TypeScript
 - **Database:** PostgreSQL via Neon + Drizzle ORM
 - **Auth:** NextAuth (credentials + Google)
-- **AI:** Multi-provider BYOK — Claude, OpenAI, Groq, Grok, DeepSeek, Gemini (6 providers)
+- **AI:** Multi-provider BYOK — Claude, OpenAI, Groq, Grok, DeepSeek, Gemini (6 providers); MCP uses sampling-first (client LLM does analysis, BYOK only for remediation)
 - **Deploy:** Vercel
 - **Email:** Resend (SMTP via Nodemailer)
 - **Push notifications:** Web Push API + mobile push (Expo)
@@ -90,7 +90,7 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 ## Key features
 
 - **Alerts** — ingest from Sentry, Vercel, GitHub, Datadog, Expo, @inariwatch/capture via webhooks; free AI auto-analysis on arrival (GPT-4o-mini, no key required)
-- **Ask Inari** — chat interface for querying alert history and getting AI recommendations (BYOK)
+- **Ask Inari** — chat interface for querying alert history and getting AI recommendations (BYOK on dashboard/Slack/Telegram; sampling-first on MCP — client LLM does the analysis)
 - **On-call scheduling** — rotation schedules per project, multi-level escalation policies, schedule overrides, timezone-aware
 - **Auto-merge gates** — 11 safety gates: auto_merge_enabled, CI pass, confidence (>= threshold), lines changed (<= max), self-review (>= 70), substrate_simulate (risk <= 40), eap_chain_verified, prediction_safe (risk <= 40), security_scan (zero HIGH findings), substrate_replay (I/O replay pass), e2e_staging (staging E2E pass)
 - **AI remediation** — full pipeline: diagnose → read code → generate fix → security scan → self-review → push → CI (3x retry) → PR → auto-merge gates → post-merge monitoring → escalation if failed; live terminal UI in dashboard
@@ -150,6 +150,22 @@ All AI modules live in `web/lib/ai/`. Key files:
 | Context gatherer | `context-gatherer.ts` | Gather Vercel/Sentry/GitHub context |
 | Fingerprint | `fingerprint.ts` | Error fingerprinting for dedup |
 | Trust level | `trust-level.ts` | Compute trust level from track record (Rookie → Expert), apply to gate thresholds |
+| Managed Agent | `managed-agent.ts` | Claude Managed Agents integration (beta — currently disabled) |
+| Container Agent | `container-agent.ts` | Hetzner container agent (6 tools: read, write, grep, exec, submit_fix) |
+| Agentic loop | `agentic-loop.ts` | Tool-use exploration loop (4 tools: read_file, search_code, list_directory, submit_fix) |
+
+### Remediation fix generation — 3 strategies (cascading fallback)
+
+| Strategy | File | When | How |
+|---|---|---|---|
+| **1. Managed Agent** | `managed-agent.ts` | `MANAGED_AGENT_ENABLED=true`, attempt 1 only | Anthropic container: clone → explore → fix → tsc/build/test → push. Agent pushes directly to GitHub. |
+| **2. Container Agent** | `container-agent.ts` | `CONTAINER_AGENT_ENABLED=true` + `STAGING_SERVER_URL`, attempt 1 only | Hetzner Docker container: clone → 6 tools (read, write, grep, exec) → tsc/build/test → push via GitHub API. |
+| **3. Agentic loop** | `agentic-loop.ts` | attempt 1, provider supports tool_use | Haiku explores (turns 1–12), Sonnet fixes (turns 13–15). 4 tools via GitHub API. Max 15 turns. |
+| **4. Single-shot** | (in `remediate.ts`) | retries, Gemini, or agentic fallback | One prompt with full context + anti-patterns from failed attempts. |
+
+**⚠ Managed Agents status:** `MANAGED_AGENT_ENABLED=false` in production. The Anthropic Managed Agents API (`managed-agents-2026-04-01`) is still in beta and was causing failures (wrong branch pushes, test-only commits, session billing leaks). Do NOT set to `true` until the API exits beta and is stable.
+
+**Container Agent status:** Go endpoints deployed to Hetzner (2026-04-09). Set `CONTAINER_AGENT_ENABLED=true` to activate. Same quality as Managed Agent at ~$0.40-0.50/fix (vs $1.52). Falls back to agentic loop if container unavailable. Security: command whitelist, path traversal protection, symlink validation, tmpfs disk limits, input size limits.
 
 ## Service layer — single source of truth
 
@@ -202,11 +218,13 @@ All pollers live in `web/lib/pollers/`. Cron-triggered via `/api/cron/poll/*`.
 
 ## MCP server
 
-Hosted at `mcp.inariwatch.com` (middleware rewrite → `POST /api/mcp`). Streamable HTTP, JSON-RPC 2.0.
+Hosted at `mcp.inariwatch.com` (middleware rewrite → `POST /api/mcp`). Streamable HTTP, JSON-RPC 2.0. Custom implementation (no SDK dependency).
 
 - **25 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, acknowledge_alert, reopen_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor, run_health_check, reproduce_bug, simulate_fix, verify_remediation, search_codebase, reindex_codebase
 - **4 resources** — alerts/critical, alerts/recent, status/overview, remediations/active
 - **7 prompts** — diagnose, status-report, fix-this, post-deploy-check, weekly-summary, production-health-check, daily-report
+- **Sampling-first:** 4 analysis tools (get_root_cause, ask_inari, assess_risk, simulate_fix) return `_sampling_request` with prompt + context for the client LLM to process. Server does zero AI calls for analysis. `trigger_fix` keeps BYOK for server-side remediation pipeline.
+- **sampling/createMessage:** endpoint persists client LLM results to `aiReasoning` (alert-based tools) or acknowledges (non-alert tools)
 - **Auth:** Bearer tokens (SHA-256 hashed), OAuth 2.0 + PKCE, granular scopes (read/write/execute)
 - **Rate limits:** cheap (200/min), moderate (30/min), expensive (5/min) per tool
 - **Audit trail:** every tool call logged to audit_logs
@@ -359,3 +377,4 @@ These differences are by design — do not attempt to "fix" them.
 | **Escalation triggers** | 3 (low confidence, CI fail, regression) | 5+ (same + self-review reject, Vercel-without-Sentry) | Web has more integration context to make nuanced decisions |
 | **Notification format** | Raw client, caller handles format | Rich formatter in `lib/telegram/format.ts` | CLI keeps Telegram client minimal; escalation.rs handles its own formatting |
 | **Community patterns auth** | `api_token` in config.toml | Session auth or `CRON_SECRET` Bearer | CLI uses Bearer token matching web's CRON_SECRET |
+| **MCP AI strategy** | N/A (CLI has no MCP client) | Sampling-first for analysis (4 tools), BYOK for remediation (trigger_fix) | MCP clients already have an LLM — no need for server-side AI calls for analysis |

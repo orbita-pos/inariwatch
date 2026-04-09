@@ -39,10 +39,12 @@ export function evaluateAutoMergeGates(params: {
   securityScanHighCount?: number | null;
   substrateReplayPassed?: boolean | null;
   e2eStagingPassed?: boolean | null;
+  /** Whether the fix was verified (tsc + build) inside a container before push. */
+  containerVerified?: boolean | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, e2eStagingPassed, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, e2eStagingPassed, containerVerified, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -138,6 +140,16 @@ export function evaluateAutoMergeGates(params: {
       e2eStagingPassed
         ? "E2E staging tests passed — fix verified in staging environment"
         : "E2E staging tests failed — fix may introduce regressions");
+  }
+
+  // Gate 11: Container verification (if fix was verified in container)
+  // This gate is informational — always passes when present. Its purpose is to
+  // boost confidence in the gate audit trail (fix was compiled + built before push).
+  if (containerVerified != null) {
+    pushGate("container_verified", containerVerified,
+      containerVerified
+        ? "Fix verified in container — tsc and build passed before push"
+        : "Container verification ran but tsc/build failed");
   }
 
   const allPassed = gates.every((g) => g.passed);

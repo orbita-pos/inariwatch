@@ -1,0 +1,626 @@
+/**
+ * Container-based remediation agent — the AI explores and fixes code inside
+ * a Docker container on the Hetzner staging server with full shell access.
+ *
+ * Tools: read_file, search_code, list_directory, write_file, run_command, submit_fix
+ *
+ * Unlike the agentic loop (which reads via GitHub API and can't verify),
+ * this agent can write files, run tsc/build/test, and self-correct inside
+ * the container before pushing. Only verified code leaves the container.
+ *
+ * Falls back to the regular agentic loop if the container is unavailable.
+ */
+
+import type { ToolDefinition, AIMessage, ContentBlock, ToolUseBlock, ToolResultBlock, AIProvider } from "./client";
+import { callAIWithTools } from "./client";
+
+const MAX_TURNS = 15;
+const MAX_FILE_SIZE = 15_000; // chars per file read
+const MAX_OUTPUT_SIZE = 10_000; // chars per command output
+const EXEC_TIMEOUT = 120; // seconds per command
+const READ_TIMEOUT = 10;
+
+// ── Blocked Files (shared with agentic-loop.ts) ─────────────────────────────
+
+const BLOCKED_FILE_PATTERNS = [
+  /^\.env/,
+  /\.env$/,
+  /secrets?\./i,
+  /credentials?\./i,
+  /private[_-]?key/i,
+  /\.pem$/,
+  /\.key$/,
+  /\.cert$/,
+  /\.p12$/,
+  /\.pfx$/,
+  /serviceaccount/i,
+  /token\.json$/i,
+];
+
+const BLOCKED_WRITE_PATTERNS = [
+  ...BLOCKED_FILE_PATTERNS,
+  /package-lock\.json$/,
+  /yarn\.lock$/,
+  /pnpm-lock\.yaml$/,
+  /bun\.lockb$/,
+  /^node_modules\//,
+  /\/node_modules\//,
+];
+
+function isBlockedFile(path: string): boolean {
+  const filename = path.split("/").pop() ?? path;
+  return BLOCKED_FILE_PATTERNS.some((p) => p.test(filename) || p.test(path));
+}
+
+function isBlockedWrite(path: string): boolean {
+  const filename = path.split("/").pop() ?? path;
+  return BLOCKED_WRITE_PATTERNS.some((p) => p.test(filename) || p.test(path));
+}
+
+// ── Command Safety ──────────────────────────────────────────────────────────
+
+const ALLOWED_COMMANDS = [
+  "npm", "npx", "node", "tsc", "git", "cat", "ls", "grep", "find",
+  "mkdir", "cp", "head", "tail", "wc", "diff", "echo", "pwd", "which",
+  "pnpm", "yarn", "bun",
+];
+
+const BLOCKED_PATTERNS = [
+  /\brm\s+-rf\s+\//,    // rm -rf /
+  /\bsudo\b/,
+  /\bchmod\b/,
+  /\bchown\b/,
+  /\bkill\b/,
+  /\bpkill\b/,
+  /\bcurl\b/,            // no arbitrary HTTP (npm registry handled by npm)
+  /\bwget\b/,
+  /\bnc\b/,              // netcat
+  /\bdd\b/,
+  /\bmkfs\b/,
+  /\bfdisk\b/,
+  />\s*\/dev\//,         // redirect to devices
+  /\|.*\bsh\b/,          // pipe to shell
+  /\|.*\bbash\b/,
+  /\bsh\s+-c\b/,          // direct sh -c invocation
+  /\bbash\s+-c\b/,        // direct bash -c invocation
+  /\bsh\s+[<>|]/,         // sh with redirects
+];
+
+function isCommandAllowed(command: string): { allowed: boolean; reason?: string } {
+  // Check blocked patterns first
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (pattern.test(command)) {
+      return { allowed: false, reason: `Command blocked: matches dangerous pattern` };
+    }
+  }
+
+  // Extract the base command (first word)
+  const baseCommand = command.trim().split(/\s+/)[0].replace(/^\.\//, "");
+
+  if (!ALLOWED_COMMANDS.includes(baseCommand)) {
+    return { allowed: false, reason: `Command "${baseCommand}" is not in the allowed list. Allowed: ${ALLOWED_COMMANDS.join(", ")}` };
+  }
+
+  return { allowed: true };
+}
+
+/** Escape a string for safe use in shell commands. */
+function shellEscape(s: string): string {
+  // Replace single quotes with escaped version, wrap in single quotes
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+// ── Tool Definitions ────────────────────────────────────────────────────────
+
+const CONTAINER_TOOLS: ToolDefinition[] = [
+  {
+    name: "read_file",
+    description: "Read a file from the repository. Returns the full contents (up to 15K chars). Use to examine code, config, types, schemas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path relative to repo root (e.g. 'src/index.ts', 'lib/db/schema.ts')" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "search_code",
+    description: "Search the codebase for patterns using grep. Returns matching lines with file paths and line numbers.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search string or regex pattern (e.g. 'database query handler', 'ilike', 'captureException')" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "list_directory",
+    description: "List files in the repository, optionally filtered by a directory path. Excludes node_modules and .git.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prefix: { type: "string", description: "Directory path (e.g. 'src/', 'lib/db/'). Omit for full repo listing." },
+      },
+    },
+  },
+  {
+    name: "write_file",
+    description: "Write complete file contents to the repository. Use this to apply your fix. Always provide the COMPLETE file content, not a partial snippet.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path relative to repo root" },
+        content: { type: "string", description: "Complete new file content" },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "run_command",
+    description: "Run a shell command in the repo directory. Use for verification: 'npx tsc --noEmit', 'npm run build', 'npm test'. ALWAYS verify your fix compiles before calling submit_fix.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command to run (e.g. 'npx tsc --noEmit', 'npm run build')" },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "submit_fix",
+    description: "Signal that the fix is complete and verified. ONLY call this AFTER npx tsc --noEmit and npm run build pass successfully. List every file you modified.",
+    input_schema: {
+      type: "object",
+      properties: {
+        explanation: { type: "string", description: "Brief summary of the fix (1-2 sentences for the PR description)" },
+        files_changed: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of file paths you modified (e.g. ['src/lib/auth.ts', 'src/utils/validate.ts'])",
+        },
+      },
+      required: ["explanation", "files_changed"],
+    },
+  },
+];
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface ContainerAgentParams {
+  apiKey: string;
+  provider: AIProvider;
+  /** Model for exploration (Haiku — cheap). */
+  exploreModel: string;
+  /** Model for final fix (Sonnet — quality). */
+  fixModel: string;
+  /** Error context: title, stack trace, severity, additional context. */
+  errorContext: string;
+  /** Hetzner staging server URL (e.g., https://api.staging.inariwatch.com). */
+  containerUrl: string;
+  /** Container ID (created by caller). */
+  containerId: string;
+  /** Staging server bearer token. */
+  stagingSecret: string;
+  /** Event emitter for streaming status to client. */
+  emit: (event: string, data: Record<string, unknown>) => void;
+}
+
+export interface ContainerAgentResult {
+  /** Brief summary of the fix. */
+  explanation: string;
+  /** Files modified with their complete content (read back from container). */
+  files: { path: string; content: string }[];
+  /** Number of turns the agent took. */
+  turns: number;
+  /** Whether tsc/build passed in the container. */
+  verified: boolean;
+  /** Whether npm test passed (non-blocking). */
+  testsPassed: boolean;
+}
+
+// ── Container API Helpers ───────────────────────────────────────────────────
+
+async function containerFetch(
+  baseUrl: string,
+  containerId: string,
+  path: string,
+  secret: string,
+  body: Record<string, unknown>,
+  timeoutMs = 30_000,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${baseUrl}/container/${containerId}${path}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Container API error (${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  return res.json();
+}
+
+async function containerExec(
+  baseUrl: string,
+  containerId: string,
+  command: string,
+  secret: string,
+  timeoutSeconds = EXEC_TIMEOUT,
+): Promise<{ exitCode: number; stdout: string; stderr: string; durationMs: number }> {
+  const data = await containerFetch(baseUrl, containerId, "/exec", secret, {
+    command,
+    timeout_seconds: timeoutSeconds,
+    workdir: "/workspace/repo",
+  }, (timeoutSeconds + 10) * 1000); // HTTP timeout slightly longer than exec timeout
+
+  return {
+    exitCode: data.exit_code as number,
+    stdout: (data.stdout as string ?? "").slice(0, MAX_OUTPUT_SIZE),
+    stderr: (data.stderr as string ?? "").slice(0, MAX_OUTPUT_SIZE),
+    durationMs: data.duration_ms as number ?? 0,
+  };
+}
+
+async function containerWrite(
+  baseUrl: string,
+  containerId: string,
+  filePath: string,
+  content: string,
+  secret: string,
+): Promise<{ written: boolean; size: number }> {
+  const data = await containerFetch(baseUrl, containerId, "/write", secret, {
+    path: filePath,
+    content,
+  });
+
+  return {
+    written: data.written as boolean,
+    size: data.size as number ?? content.length,
+  };
+}
+
+// ── Tool Executor ───────────────────────────────────────────────────────────
+
+async function executeContainerTool(
+  tool: ToolUseBlock,
+  params: ContainerAgentParams,
+): Promise<string> {
+  const { containerUrl, containerId, stagingSecret } = params;
+  const input = tool.input as Record<string, unknown>;
+
+  switch (tool.name) {
+    case "read_file": {
+      const path = input.path as string;
+      if (!path) return "Error: path is required";
+      if (isBlockedFile(path)) return `Access denied: ${path} is a sensitive file and cannot be read.`;
+
+      const result = await containerExec(
+        containerUrl, containerId,
+        `cat ${shellEscape(path)}`,
+        stagingSecret,
+        READ_TIMEOUT,
+      );
+
+      if (result.exitCode !== 0) return `File not found: ${path}`;
+      return result.stdout.slice(0, MAX_FILE_SIZE);
+    }
+
+    case "search_code": {
+      const query = input.query as string;
+      if (!query) return "Error: query is required";
+
+      const result = await containerExec(
+        containerUrl, containerId,
+        `grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.json' -l ${shellEscape(query)} . 2>/dev/null | head -20`,
+        stagingSecret,
+        15,
+      );
+
+      if (!result.stdout.trim()) {
+        // Try broader search
+        const broad = await containerExec(
+          containerUrl, containerId,
+          `grep -rn --include='*.ts' --include='*.tsx' --include='*.js' ${shellEscape(query)} . 2>/dev/null | head -30`,
+          stagingSecret,
+          15,
+        );
+        return broad.stdout || "No results found.";
+      }
+
+      // Get context for matching files
+      const files = result.stdout.trim().split("\n").slice(0, 5);
+      const contextResults: string[] = [];
+      for (const file of files) {
+        const ctx = await containerExec(
+          containerUrl, containerId,
+          `grep -n ${shellEscape(query)} ${shellEscape(file)} | head -10`,
+          stagingSecret,
+          5,
+        );
+        if (ctx.stdout) contextResults.push(`--- ${file} ---\n${ctx.stdout}`);
+      }
+
+      return contextResults.join("\n\n") || "No results found.";
+    }
+
+    case "list_directory": {
+      const prefix = (input.prefix as string) ?? ".";
+      const dir = prefix === "" ? "." : prefix;
+
+      const result = await containerExec(
+        containerUrl, containerId,
+        `find ${shellEscape(dir)} -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -path '*/.next/*' | sort | head -100`,
+        stagingSecret,
+        READ_TIMEOUT,
+      );
+
+      if (result.exitCode !== 0) return `Directory not found: ${dir}`;
+      return result.stdout || "Empty directory.";
+    }
+
+    case "write_file": {
+      const path = input.path as string;
+      const content = input.content as string;
+      if (!path) return "Error: path is required";
+      if (!content) return "Error: content is required";
+      if (isBlockedWrite(path)) return `Cannot write to protected file: ${path}`;
+
+      // Path traversal check
+      if (path.includes("..") || path.startsWith("/")) {
+        return "Error: path must be relative to repo root, no '..' or absolute paths allowed.";
+      }
+
+      const result = await containerWrite(containerUrl, containerId, path, content, stagingSecret);
+      return result.written
+        ? `Written ${result.size} bytes to ${path}`
+        : `Failed to write: ${path}`;
+    }
+
+    case "run_command": {
+      const command = input.command as string;
+      if (!command) return "Error: command is required";
+
+      const check = isCommandAllowed(command);
+      if (!check.allowed) return `Error: ${check.reason}`;
+
+      const result = await containerExec(containerUrl, containerId, command, stagingSecret);
+
+      const output = [
+        `Exit code: ${result.exitCode}`,
+        result.stdout ? `stdout:\n${result.stdout}` : "",
+        result.stderr ? `stderr:\n${result.stderr}` : "",
+        `Duration: ${result.durationMs}ms`,
+      ].filter(Boolean).join("\n");
+
+      return output;
+    }
+
+    case "submit_fix": {
+      // Terminal — return the submission payload
+      return JSON.stringify({
+        explanation: input.explanation,
+        files_changed: input.files_changed,
+      });
+    }
+
+    default:
+      return `Unknown tool: ${tool.name}`;
+  }
+}
+
+// ── System Prompt ───────────────────────────────────────────────────────────
+
+function buildContainerSystemPrompt(): string {
+  return `You are an expert software engineer fixing a production bug.
+You are working inside a container with the repository at /workspace/repo.
+
+You have tools to explore, modify, and VERIFY code:
+- read_file: Read files from the repo
+- search_code: Search for patterns using grep
+- list_directory: List directory contents
+- write_file: Write/modify files (apply your fix)
+- run_command: Run shell commands (tsc, build, test)
+- submit_fix: Signal completion (ONLY after verification)
+
+WORKFLOW:
+1. Read the file(s) mentioned in the error/stack trace
+2. Check imports to understand what libraries the project uses
+3. Read package.json if you need to know the tech stack
+4. Apply your fix using write_file with COMPLETE file contents
+5. VERIFY: run_command "npx tsc --noEmit" — MUST pass
+6. VERIFY: run_command "npm run build" — MUST pass (if applicable)
+7. OPTIONAL: run_command "npm test" — non-blocking
+8. If tsc or build FAILS, read the error, fix it with write_file, and re-verify
+9. When ALL checks pass, call submit_fix with the list of files you changed
+
+CRITICAL RULES:
+- NEVER call submit_fix before tsc passes
+- Use the same libraries and APIs the project already uses (check imports)
+- If the project uses an ORM (Drizzle, Prisma), use its query builder — never raw SQL
+- Make MINIMUM changes to fix the bug — do not refactor unrelated code
+- Never modify .env files, lock files, migrations, or CI workflows
+- If tsc fails, DO NOT give up — read the error message and fix the issue
+
+Respond ONLY with tool calls. Do not output free text.`;
+}
+
+// ── Main Loop ───────────────────────────────────────────────────────────────
+
+export async function runContainerAgent(params: ContainerAgentParams): Promise<ContainerAgentResult> {
+  const { apiKey, provider, exploreModel, fixModel, errorContext, containerUrl, containerId, stagingSecret, emit } = params;
+
+  const systemPrompt = buildContainerSystemPrompt();
+
+  const messages: AIMessage[] = [
+    { role: "user", content: errorContext },
+  ];
+
+  let tscPassed = false;
+  let buildPassed = false;
+  let testsPassed = false;
+
+  for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    emit("container_turn", { turn, maxTurns: MAX_TURNS });
+
+    // Haiku for exploration (cheap), Sonnet for final fix (quality)
+    const isNearEnd = turn > MAX_TURNS - 3;
+    const currentModel = isNearEnd ? fixModel : exploreModel;
+
+    const response = await callAIWithTools(apiKey, systemPrompt, messages, CONTAINER_TOOLS, {
+      maxTokens: 4096,
+      model: currentModel,
+      timeout: 90_000, // Longer timeout — container commands can take time
+      provider,
+    });
+
+    if (response.stopReason === "end_turn") {
+      emit("container_text", { turn, text: response.text.slice(0, 200) });
+      messages.push({ role: "assistant", content: response.text });
+      messages.push({ role: "user", content: "You must use a tool. Write your fix with write_file, verify with run_command, then call submit_fix when tsc and build pass." });
+      continue;
+    }
+
+    // Process tool use blocks
+    const assistantContent = response.content;
+    const toolUses = assistantContent.filter((b): b is ToolUseBlock => b.type === "tool_use");
+
+    messages.push({ role: "assistant", content: assistantContent });
+
+    const toolResults: ToolResultBlock[] = [];
+
+    for (const toolUse of toolUses) {
+      // Emit tool invocation (mask file content for write_file)
+      const emitInput = toolUse.name === "write_file"
+        ? { path: (toolUse.input as { path: string }).path, size: ((toolUse.input as { content: string }).content ?? "").length }
+        : toolUse.name === "submit_fix"
+          ? toolUse.input
+          : toolUse.input;
+      emit("container_tool", { turn, tool: toolUse.name, input: emitInput });
+
+      try {
+        const result = await executeContainerTool(toolUse, params);
+
+        // Track verification status from run_command results
+        if (toolUse.name === "run_command") {
+          const cmd = (toolUse.input as { command: string }).command;
+          const exitCode = result.match(/^Exit code: (\d+)/)?.[1];
+          if (cmd.includes("tsc") && exitCode === "0") tscPassed = true;
+          if (cmd.includes("tsc") && exitCode !== "0") tscPassed = false;
+          if (cmd.includes("build") && exitCode === "0") buildPassed = true;
+          if (cmd.includes("test") && exitCode === "0") testsPassed = true;
+
+          emit("container_exec", {
+            turn, command: cmd, exitCode: parseInt(exitCode ?? "-1"),
+            passed: exitCode === "0",
+          });
+        }
+
+        // Check if this is the terminal submit_fix
+        if (toolUse.name === "submit_fix") {
+          const submission = JSON.parse(result) as { explanation: string; files_changed: string[] };
+
+          // Read back changed files from container to get actual content
+          const files: { path: string; content: string }[] = [];
+          for (const filePath of submission.files_changed) {
+            const readResult = await containerExec(
+              containerUrl, containerId,
+              `cat ${shellEscape(filePath)}`,
+              stagingSecret,
+              READ_TIMEOUT,
+            );
+            if (readResult.exitCode === 0 && readResult.stdout) {
+              files.push({ path: filePath, content: readResult.stdout });
+            }
+          }
+
+          emit("container_done", {
+            turns: turn,
+            files: files.map((f) => f.path),
+            verified: tscPassed,
+            testsPassed,
+          });
+
+          return {
+            explanation: submission.explanation,
+            files,
+            turns: turn,
+            verified: tscPassed && buildPassed,
+            testsPassed,
+          };
+        }
+
+        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });
+        emit("container_result", { turn, tool: toolUse.name, size: result.length });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error: ${errMsg}`, is_error: true });
+        emit("container_error", { turn, tool: toolUse.name, error: errMsg });
+      }
+    }
+
+    // Add tool results as user message
+    messages.push({ role: "user", content: toolResults as ContentBlock[] });
+  }
+
+  throw new Error(`Container agent did not submit fix after ${MAX_TURNS} turns`);
+}
+
+// ── Container Lifecycle Helpers (for remediate.ts) ──────────────────────────
+
+export async function createContainer(
+  stagingUrl: string,
+  stagingSecret: string,
+  repoUrl: string,
+  branch: string,
+  githubToken: string,
+  sessionId: string,
+): Promise<string> {
+  const containerId = `agent-${sessionId.slice(0, 8)}-${Date.now().toString(36)}`;
+
+  const res = await fetch(`${stagingUrl}/container`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${stagingSecret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      id: containerId,
+      repo_url: repoUrl,
+      branch,
+      github_token: githubToken,
+      ttl_seconds: 300,
+    }),
+    signal: AbortSignal.timeout(120_000), // npm install can be slow
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create container (${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  return containerId;
+}
+
+export async function destroyContainer(
+  stagingUrl: string,
+  stagingSecret: string,
+  containerId: string,
+): Promise<void> {
+  try {
+    await fetch(`${stagingUrl}/container/${containerId}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${stagingSecret}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Non-critical — TTL cleanup will handle it
+  }
+}
