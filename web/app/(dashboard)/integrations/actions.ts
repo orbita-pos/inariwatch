@@ -217,6 +217,9 @@ export async function connectIntegration(
     } else if (service === "capture") {
       // Capture SDK — no token needed, just generate webhook secret
       config = {};
+    } else if (service === "agent") {
+      // eBPF Agent — no token needed, just generate webhook secret for HMAC auth
+      config = {};
     } else if (service === "datadog") {
       const apiKey = formData.get("token") as string;
       const appKey = formData.get("app_key") as string;

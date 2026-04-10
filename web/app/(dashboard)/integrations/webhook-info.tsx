@@ -17,10 +17,12 @@ export function WebhookInfo({
   service: string;
   webhookSecret: string;
 }) {
-  const [open, setOpen] = useState(service === "capture"); // auto-open for capture
+  const [open, setOpen] = useState(service === "capture" || service === "agent"); // auto-open for capture/agent
+  const [copiedId, setCopiedId] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState(false);
   const [copiedDsn, setCopiedDsn] = useState(false);
+  const [copiedToml, setCopiedToml] = useState(false);
 
   const webhookUrl = `${getAppUrl()}/api/webhooks/${service}/${integrationId}`;
   const dsnFull = service === "capture" ? `https://${webhookSecret}@${getAppUrl().replace(/^https?:\/\//, "")}/capture/${integrationId}` : null;
@@ -38,6 +40,7 @@ export function WebhookInfo({
     sentry: "Sentry → Settings → Developer Settings → Webhooks. Select Issue events.",
     expo: "Expo → Project Settings → Webhooks → Add webhook. Paste the URL below and set the secret. Select Build and Update events.",
     capture: "Copy the DSN above and add it to your .env as INARIWATCH_DSN. Then run: npx @inariwatch/mcp init",
+    agent: "Copy the Integration ID and Secret into /etc/inariwatch/agent.toml under [cloud]. Then restart the agent: sudo systemctl restart inariwatch-agent",
   };
 
   return (
@@ -48,7 +51,7 @@ export function WebhookInfo({
         className="flex w-full items-center gap-2 px-3 py-2 text-xs text-zinc-500 hover:text-fg-base transition-colors"
       >
         <Webhook className="h-3.5 w-3.5" />
-        <span>{service === "capture" ? "Setup" : "Webhook (real-time)"}</span>
+        <span>{service === "capture" || service === "agent" ? "Setup" : "Webhook (real-time)"}</span>
         {open ? (
           <ChevronDown className="ml-auto h-3.5 w-3.5" />
         ) : (
@@ -76,6 +79,44 @@ export function WebhookInfo({
                 </button>
               </div>
             </div>
+          )}
+          {/* Agent TOML config */}
+          {service === "agent" && (
+            <>
+              <div>
+                <p className="text-xs text-zinc-600 mb-1">Integration ID</p>
+                <div className="flex items-center gap-1.5">
+                  <code className="flex-1 truncate rounded bg-surface-dim border border-line px-2 py-1 text-xs text-emerald-400 font-mono">
+                    {integrationId}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => copy(integrationId, setCopiedId)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 hover:text-fg-base hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
+                    title="Copy Integration ID"
+                  >
+                    {copiedId ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-600 mb-1">agent.toml <span className="text-zinc-700">(/etc/inariwatch/agent.toml)</span></p>
+                <div className="flex items-start gap-1.5">
+                  <pre className="flex-1 rounded bg-surface-dim border border-line px-2 py-1.5 text-[11px] text-zinc-400 font-mono whitespace-pre overflow-x-auto">{`[cloud]
+endpoint = "${getAppUrl()}/api/agent/events"
+integration_id = "${integrationId}"
+webhook_secret = "<paste secret above>"`}</pre>
+                  <button
+                    type="button"
+                    onClick={() => copy(`[cloud]\nendpoint = "${getAppUrl()}/api/agent/events"\nintegration_id = "${integrationId}"\nwebhook_secret = "${webhookSecret}"`, setCopiedToml)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 hover:text-fg-base hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors mt-0.5"
+                    title="Copy TOML config (with real secret)"
+                  >
+                    {copiedToml ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+            </>
           )}
           {/* URL */}
           <div>

@@ -9,7 +9,7 @@ import {
   Terminal, Settings2, Unplug,
 } from "lucide-react";
 import {
-  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon, ExpoIcon, CaptureIcon,
+  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon, ExpoIcon, CaptureIcon, AgentIcon,
 } from "@/components/brand-icons";
 import type { ElementType } from "react";
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,13 @@ const CATALOG = [
     label:   "Capture SDK",
     desc:    "Catch errors from your app with @inariwatch/capture — zero deps, zero config",
     icon:    CaptureIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "agent",
+    label:   "eBPF Agent",
+    desc:    "Kernel-level observability — process, network, filesystem, DNS, TLS, syscall, security",
+    icon:    AgentIcon,
     mode:    "web" as const,
   },
 ];
