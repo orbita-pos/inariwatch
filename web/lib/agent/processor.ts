@@ -487,9 +487,22 @@ function buildThreat(
   event: AgentEvent,
   batch: AgentBatch,
 ): DetectedThreat {
+  // Fingerprint intentionally excludes pid/tid/timestamp so re-executions
+  // of the same command by the same process name dedupe into one alert.
+  // Include threat-identifying fields from the event to distinguish between
+  // different threats from the same process (e.g. cat /etc/shadow vs cat /etc/passwd).
+  const identifiers: string[] = [event.type, event.comm, batch.hostname];
+
+  // Pull stable per-threat identifiers out of the event (whichever apply).
+  const e = event as unknown as Record<string, unknown>;
+  if (typeof e.filename === "string") identifiers.push(`file:${e.filename}`);
+  if (typeof e.daddr === "string") identifiers.push(`daddr:${e.daddr}`);
+  if (typeof e.query_name === "string") identifiers.push(`dns:${e.query_name}`);
+  if (typeof e.path === "string") identifiers.push(`path:${e.path}`);
+
   const fingerprint = crypto
     .createHash("sha256")
-    .update(`${title}\n${event.type}\n${event.comm}\n${event.pid}`)
+    .update(identifiers.join("\n"))
     .digest("hex");
 
   return {

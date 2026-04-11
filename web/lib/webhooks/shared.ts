@@ -272,7 +272,10 @@ export async function createAlertIfNew(
   // Skip auto-remediate for revert alerts — prevents infinite loop:
   // critical alert → remediate → merge → regression → revert → [Auto-Revert] alert → remediate → ...
   const isRevertAlert = inserted.title?.startsWith("[Auto-Revert]") ?? false;
-  if (inserted.severity === "critical" && !stormId && !isRevertAlert) {
+  // Skip auto-remediate for eBPF agent security events — AI cannot "fix" that
+  // someone executed curl/chmod/cat. These are detection signals, not bugs in code.
+  const isAgentAlert = inserted.sourceIntegrations?.includes("agent") ?? false;
+  if (inserted.severity === "critical" && !stormId && !isRevertAlert && !isAgentAlert) {
     try {
       const { projects: projectsTable, remediationSessions, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
       const [proj] = await db
