@@ -49,6 +49,15 @@ export function middleware(req: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // Install subdomain rewrite — install.inariwatch.com → /api/install
+  // Serves the eBPF agent installer script from the public distribution repo.
+  // Usage: curl -sf https://install.inariwatch.com | sh
+  if (host.startsWith("install.")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/api/install";
+    return NextResponse.rewrite(url);
+  }
+
   // Status subdomain rewrite — status.inariwatch.com → /status
   if (host.startsWith("status.")) {
     const url = req.nextUrl.clone();

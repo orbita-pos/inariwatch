@@ -70,6 +70,7 @@ const NAV = [
       { id: "int-npm",       label: "npm / Cargo" },
       { id: "int-capture",   label: "@inariwatch/capture" },
       { id: "int-shield",    label: "Shield (runtime security)" },
+      { id: "int-agent",     label: "eBPF Agent (kernel-level)" },
     ],
   },
   {
@@ -1227,6 +1228,163 @@ app.use(shield({ mode: "block" })) // block threats`}</CodeBlock>
               and how to fix it. Click <strong>Fix with AI</strong> to auto-generate a parameterized query,
               input sanitization, or safe API call.
             </P>
+
+            {/* ────────────────────────────────────────────────────────────────
+                eBPF AGENT
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="int-agent">eBPF Agent — Kernel-level observability</SectionHeading>
+            <P>
+              The InariWatch eBPF Agent captures <strong>everything that happens in your kernel</strong> —
+              process execution, network connections, file access, DNS queries, TLS plaintext, and security
+              events (LSM hooks) — without requiring any SDK in your code. It&apos;s language-agnostic: works
+              with Node.js, Python, Go, Java, Rust, or any production process.
+            </P>
+            <P>
+              While <InlineCode>@inariwatch/capture</InlineCode> catches application errors from within
+              your code, the eBPF agent watches your <em>entire server</em> from the kernel. It detects
+              threats that code-level instrumentation cannot see — SSRF to cloud metadata endpoints, reverse
+              shells, web shell uploads, container escapes, sensitive file reads, and more.
+            </P>
+
+            <SubHeading id="int-agent-install">Quick install</SubHeading>
+            <P>
+              Create an integration at <strong>Dashboard → Integrations → eBPF Agent</strong> to get your
+              credentials, then run this one-liner on your Linux server (as root):
+            </P>
+            <CodeBlock label="One-line installer">{`curl -sf https://install.inariwatch.com | sudo sh -s -- \\
+  --integration-id <your-uuid> \\
+  --secret <your-secret>`}</CodeBlock>
+            <P>
+              Or via environment variables:
+            </P>
+            <CodeBlock label="Env var install">{`IW_INTEGRATION_ID=<uuid> IW_SECRET=<secret> \\
+  bash -c "$(curl -sf https://install.inariwatch.com)"`}</CodeBlock>
+
+            <SubHeading id="int-agent-requirements">Requirements</SubHeading>
+            <ul className="mb-4 space-y-1.5 text-sm text-fg-base">
+              {[
+                "Linux kernel >= 5.8 with BTF support (check: ls /sys/kernel/btf/vmlinux)",
+                "Architecture: x86_64 or aarch64",
+                "Distros: Ubuntu 22.04+, Debian 12+, RHEL 9+, Fedora 38+, Amazon Linux 2023+",
+                "Root access (or CAP_BPF, CAP_PERFMON, CAP_NET_ADMIN, CAP_SYS_RESOURCE)",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+
+            <SubHeading id="int-agent-probes">What it captures</SubHeading>
+            <P>The agent loads 7 eBPF programs into your kernel:</P>
+            <Table
+              head={["Probe", "Captures", "Hook type"]}
+              rows={[
+                ["Process", "exec, exit, fork", "tracepoint/sched"],
+                ["Network", "TCP connect/accept/close, retransmits", "tracepoint/sock + kprobe/tcp_*"],
+                ["Filesystem", "file open, write, delete", "kprobe/vfs_open, vfs_write, vfs_unlink"],
+                ["DNS", "all DNS queries (parsed in userspace)", "kprobe/udp_sendmsg"],
+                ["TLS", "plaintext from OpenSSL + Go crypto/tls", "uprobe on SSL_read/SSL_write"],
+                ["Syscall", "any syscall via raw tracepoint", "raw_tracepoint/sys_enter"],
+                ["Security (LSM)", "exec, socket, capability, namespace", "LSM hooks (needs BPF LSM)"],
+              ]}
+            />
+            <P>
+              Events are batched (1000 events / 256KB / 5s window), compressed with LZ4 (~88% ratio),
+              and sent over HTTPS to the InariWatch cloud. Threat detection runs in the cloud pipeline.
+            </P>
+
+            <SubHeading id="int-agent-threats">Threat detection</SubHeading>
+            <P>The cloud pipeline analyzes events and creates alerts for:</P>
+            <ul className="mb-4 space-y-1.5 text-sm text-fg-base">
+              {[
+                "SQL injection, XSS, command injection (via TLS plaintext interception)",
+                "SSRF to cloud metadata (169.254.169.254, metadata.google.internal, etc.)",
+                "Reverse shell attempts (/dev/tcp, mkfifo, bash -i)",
+                "Web shell uploads (.php, .jsp, .asp in web directories)",
+                "Sensitive file access (/etc/shadow, SSH keys, cloud credentials)",
+                "Malicious DNS queries (known C2 / exfiltration domains)",
+                "Container escape attempts (namespace manipulation)",
+                "Suspicious process execution (nc, nmap, wget from web processes)",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+
+            <SubHeading id="int-agent-config">Configuration</SubHeading>
+            <P>
+              The installer creates <InlineCode>/etc/inariwatch/agent.toml</InlineCode>. Edit it to
+              enable optional probes (TLS interception, BPF LSM security hooks) or tune batching:
+            </P>
+            <CodeBlock label="/etc/inariwatch/agent.toml">{`[cloud]
+endpoint = "https://app.inariwatch.com/api/agent/events"
+integration_id = "your-uuid"
+webhook_secret = "your-secret"
+
+[agent]
+log_level = "info"
+
+[probes]
+enable_process = true
+enable_network = true
+enable_filesystem = true
+enable_dns = true
+enable_tls = true          # captures plaintext from OpenSSL/Go crypto/tls
+enable_syscall = true
+enable_security = false    # needs CONFIG_BPF_LSM in kernel`}</CodeBlock>
+            <P>Restart after editing:</P>
+            <CodeBlock label="Shell">{`sudo systemctl restart inariwatch-agent`}</CodeBlock>
+
+            <SubHeading id="int-agent-verify">Verification (cosign + SLSA)</SubHeading>
+            <P>
+              All releases are signed with <a href="https://github.com/sigstore/cosign" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">cosign<ExternalLink className="h-3 w-3" /></a> (keyless
+              via Sigstore) and include <a href="https://slsa.dev/spec/v1.0/levels#build-l3" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">SLSA Level 3<ExternalLink className="h-3 w-3" /></a> provenance
+              attestation. Verify before install:
+            </P>
+            <CodeBlock label="Verify signature">{`cosign verify-blob \\
+  --certificate inariwatch-agent-x86_64.pem \\
+  --signature inariwatch-agent-x86_64.sig \\
+  --certificate-identity-regexp "https://github.com/orbita-pos/inariwatch-agent" \\
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+  inariwatch-agent-x86_64`}</CodeBlock>
+
+            <SubHeading id="int-agent-manage">Service management</SubHeading>
+            <CodeBlock label="Shell">{`sudo systemctl status inariwatch-agent       # check running state
+sudo journalctl -u inariwatch-agent -f       # live logs
+sudo systemctl restart inariwatch-agent      # after config changes
+sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
+
+            <SubHeading id="int-agent-uninstall">Uninstall</SubHeading>
+            <CodeBlock label="Shell">{`curl -sf https://install.inariwatch.com | sudo sh -s -- --uninstall`}</CodeBlock>
+
+            <SubHeading id="int-agent-performance">Performance</SubHeading>
+            <ul className="mb-4 space-y-1.5 text-sm text-fg-base">
+              {[
+                "~200-300 events/second throughput",
+                "~88% LZ4 compression ratio",
+                "< 1% CPU overhead",
+                "~48 MB RAM",
+                "Zero kernel event drops under normal load",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+
+            <Callout type="info">
+              The source code of the agent is private. Binary releases are distributed via{" "}
+              <a href="https://github.com/orbita-pos/inariwatch-agent-releases/releases" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">
+                orbita-pos/inariwatch-agent-releases<ExternalLink className="h-3 w-3" />
+              </a>{" "}
+              (public). Contact <InlineCode>support@inariwatch.com</InlineCode> for commercial
+              licensing or security audits.
+            </Callout>
 
             {/* ────────────────────────────────────────────────────────────────
                 AI SETUP
