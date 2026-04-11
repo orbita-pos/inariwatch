@@ -346,9 +346,14 @@ export default async function AnalyticsPage() {
         <section className="overflow-hidden rounded-xl border border-line bg-surface p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-fg-base">AI Remediation</h2>
-            <Link href="/analytics/ai" className="text-xs text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1">
-              Full AI metrics <ArrowUpRight className="h-3 w-3" />
-            </Link>
+            <div className="flex items-center gap-4">
+              <Link href="/analytics/ai-usage" className="text-xs text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1">
+                BYOK usage <ArrowUpRight className="h-3 w-3" />
+              </Link>
+              <Link href="/analytics/ai" className="text-xs text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1">
+                Full AI metrics <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
