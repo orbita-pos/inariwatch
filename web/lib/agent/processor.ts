@@ -74,7 +74,8 @@ const SUSPICIOUS_BINARIES = new Set([
   "tcpdump", "wireshark", "tshark",
 ]);
 
-const SENSITIVE_FILES = [
+// Full paths (for when BPF provides full path via dentry walker)
+const SENSITIVE_FULL_PATHS = [
   "/etc/shadow",
   "/etc/passwd",
   "/etc/sudoers",
@@ -84,6 +85,31 @@ const SENSITIVE_FILES = [
   "/var/run/docker.sock",
   "/var/run/secrets/kubernetes.io/",
 ];
+
+// Basenames — matched when BPF only provides filename (current vfs_open kprobe).
+// Less precise but catches most high-value sensitive files. Filter false positives
+// on the dir name via the `parent_dirs` list where possible.
+const SENSITIVE_BASENAMES: Record<string, { severity: "critical" | "warning"; description: string }> = {
+  "shadow": { severity: "critical", description: "password hash database" },
+  "sudoers": { severity: "critical", description: "sudo privilege config" },
+  "authorized_keys": { severity: "critical", description: "SSH authorized keys" },
+  "id_rsa": { severity: "critical", description: "SSH private key" },
+  "id_ed25519": { severity: "critical", description: "SSH private key" },
+  "id_ecdsa": { severity: "critical", description: "SSH private key" },
+  ".bash_history": { severity: "warning", description: "shell history" },
+  ".zsh_history": { severity: "warning", description: "shell history" },
+  ".mysql_history": { severity: "warning", description: "mysql client history" },
+  ".psql_history": { severity: "warning", description: "postgres client history" },
+  "credentials": { severity: "critical", description: "AWS/cloud credentials file" },
+  "config.json": { severity: "warning", description: "docker config (may contain auth)" },
+  "docker.sock": { severity: "critical", description: "docker daemon socket" },
+  "kubeconfig": { severity: "critical", description: "Kubernetes cluster credentials" },
+  ".kube": { severity: "critical", description: "Kubernetes config directory" },
+  ".git-credentials": { severity: "critical", description: "stored git credentials" },
+  ".netrc": { severity: "critical", description: "HTTP credentials (curl/wget)" },
+  ".aws": { severity: "critical", description: "AWS credentials directory" },
+  ".pgpass": { severity: "critical", description: "PostgreSQL password file" },
+};
 
 const MALICIOUS_DNS = [
   /\.onion$/i,
@@ -266,7 +292,13 @@ function analyzeProcessExec(event: ProcessExecEvent, batch: AgentBatch): Detecte
 }
 
 function analyzeFileOpen(event: FileOpenEvent, batch: AgentBatch): DetectedThreat | null {
-  for (const sensitive of SENSITIVE_FILES) {
+  // Ignore reads from the agent's own data/runtime dirs
+  if (event.filename.startsWith("/var/lib/inariwatch") || event.filename.startsWith("/var/run/inariwatch")) {
+    return null;
+  }
+
+  // Strategy 1: full-path match (works when BPF walks dentry chain for absolute paths)
+  for (const sensitive of SENSITIVE_FULL_PATHS) {
     if (event.filename.startsWith(sensitive)) {
       return buildThreat(
         "critical",
@@ -275,7 +307,8 @@ function analyzeFileOpen(event: FileOpenEvent, batch: AgentBatch): DetectedThrea
           `Access to sensitive system file detected.`,
           `File: ${event.filename}`,
           `Process: ${event.comm} (PID ${event.pid})`,
-          `Flags: ${event.flags}`,
+          `UID: ${event.uid}`,
+          `Flags: 0x${event.flags.toString(16)}`,
           `Container: ${event.container_id || "host"}`,
         ].join("\n"),
         "security",
@@ -283,6 +316,33 @@ function analyzeFileOpen(event: FileOpenEvent, batch: AgentBatch): DetectedThrea
         batch
       );
     }
+  }
+
+  // Strategy 2: basename match (works with current BPF that only provides d_name.name).
+  // Extract the last path component.
+  const lastSlash = event.filename.lastIndexOf("/");
+  const basename = lastSlash >= 0 ? event.filename.slice(lastSlash + 1) : event.filename;
+  const matched = SENSITIVE_BASENAMES[basename];
+  if (matched) {
+    return buildThreat(
+      matched.severity,
+      `Sensitive file access: ${basename} (${matched.description}) — by ${event.comm} (PID ${event.pid})`,
+      [
+        `Access to sensitive file: ${matched.description}.`,
+        `File (basename): ${basename}`,
+        `Full path reported: ${event.filename}`,
+        `Process: ${event.comm} (PID ${event.pid})`,
+        `UID: ${event.uid}`,
+        `Flags: 0x${event.flags.toString(16)}`,
+        `Container: ${event.container_id || "host"}`,
+        ``,
+        `Note: BPF filesystem probe currently provides only the basename.`,
+        `Full path resolution via dentry walker is planned for a future release.`,
+      ].join("\n"),
+      "security",
+      event,
+      batch
+    );
   }
 
   return null;

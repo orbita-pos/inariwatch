@@ -33,6 +33,7 @@ export interface AgentEventHeader {
   timestamp_ns: number;
   pid: number;
   tid: number;
+  uid: number;
   comm: string; // process name (up to 16 chars)
   container_id?: string;
   pod_name?: string;
