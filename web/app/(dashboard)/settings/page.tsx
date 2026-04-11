@@ -15,7 +15,7 @@ import { ConnectSlackButton, SlackChannelRow } from "./connect-slack";
 import { ChannelToggle, ChannelDeleteButton, SeverityFilter } from "./channel-actions";
 import { PushNotificationsButton } from "./push-notifications";
 import { VerifyEmailBanner } from "./verify-email-banner";
-import { UpgradeButton } from "./upgrade-button";
+import { BillingSection } from "./billing-section";
 import { WebhookSection } from "./webhook-section";
 import { AuditLogSection } from "./audit-log-section";
 import { TwoFactorSection } from "./two-factor";
@@ -143,6 +143,21 @@ export default async function SettingsPage() {
               : "—"}
           </span>
         </Row>
+      </Section>
+
+      {/* ── Billing ──────────────────────────────────────────────────────── */}
+      <Section title="Billing">
+        <div className="py-2">
+          <BillingSection
+            billing={{
+              plan: (user?.plan ?? "free") as "free" | "pro",
+              status: user?.subscriptionStatus ?? null,
+              periodEnd: user?.subscriptionPeriodEnd?.toISOString() ?? null,
+              cancelAtPeriodEnd: user?.subscriptionCancelAtPeriodEnd ?? false,
+              hasStripeCustomer: !!user?.stripeCustomerId,
+            }}
+          />
+        </div>
       </Section>
 
       {/* ── Notifications ────────────────────────────────────────────────── */}

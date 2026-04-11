@@ -1099,3 +1099,13 @@ export const monthlyQuotaUsage = pgTable(
 
 export type MonthlyQuotaUsage = typeof monthlyQuotaUsage.$inferSelect;
 export type NewMonthlyQuotaUsage = typeof monthlyQuotaUsage.$inferInsert;
+
+// ── Webhook idempotency ─────────────────────────────────────────────────────
+// Track processed Stripe/GitHub/etc. webhook events to handle retries.
+
+export const processedWebhookEvents = pgTable("processed_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  source: text("source").notNull(), // 'stripe' | 'github' | etc.
+  eventType: text("event_type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow().notNull(),
+});
