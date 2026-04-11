@@ -12,10 +12,13 @@ export interface AIKeyResult {
   isPlatformKey?: boolean;
 }
 
-const AI_SERVICES: AIProvider[] = ["claude", "openai", "groq", "grok", "deepseek", "gemini"];
-// Priority order: claude → openai → groq → grok → deepseek → gemini
+const AI_SERVICES: AIProvider[] = ["openai", "claude", "groq", "grok", "deepseek", "gemini"];
+// Priority order: openai → claude → groq → grok → deepseek → gemini
+// OpenAI is the default as of 2026-04 — GPT-4o-mini (analysis) and GPT-5.4 (remediation)
+// are more cost-effective than Claude equivalents at equal quality per benchmarks.
+// Users can override via activeProvider in their model preferences.
 const PRIORITY: Record<AIProvider, number> = {
-  claude: 0, openai: 1, groq: 2, grok: 3, deepseek: 4, gemini: 5,
+  openai: 0, claude: 1, groq: 2, grok: 3, deepseek: 4, gemini: 5,
 };
 
 /** Platform-funded GPT-4o-mini key for free-tier analysis (auto-analyze + correlate). */

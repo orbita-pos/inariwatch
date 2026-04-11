@@ -29,9 +29,10 @@ export const CLAUDE_MODELS: ModelInfo[] = [
 ];
 
 export const OPENAI_MODELS: ModelInfo[] = [
-  { id: "gpt-4o-mini", label: "GPT-4o mini", desc: "Fast & cheap",         tier: "fast" },
-  { id: "gpt-4o",      label: "GPT-4o",      desc: "Balanced",             tier: "balanced" },
-  { id: "o1-mini",     label: "o1 mini",     desc: "Most capable, costly", tier: "powerful" },
+  { id: "gpt-4o-mini",  label: "GPT-4o mini",  desc: "Fast & cheap ($0.15/$0.60 per M)",       tier: "fast" },
+  { id: "gpt-4.1-mini", label: "GPT-4.1 mini", desc: "1M context, balanced ($0.40/$1.60)",     tier: "balanced" },
+  { id: "gpt-5-mini",   label: "GPT-5 mini",   desc: "Reasoning, cheap ($0.25/$2.00)",          tier: "balanced" },
+  { id: "gpt-5.4",      label: "GPT-5.4",      desc: "Flagship, best for code ($1.25/$10)",     tier: "powerful" },
 ];
 
 export const GROK_MODELS: ModelInfo[] = [
@@ -78,10 +79,10 @@ const DEFAULTS: Record<AIProvider, Record<AITask, string>> = {
     postmortem:  "claude-sonnet-4-6",
   },
   openai: {
-    analysis:    "gpt-4o-mini",
-    chat:        "gpt-4o",
-    remediation: "gpt-4o",
-    postmortem:  "gpt-4o",
+    analysis:    "gpt-4o-mini",   // Classification + summarization — 87% cheaper than Haiku 4.5
+    chat:        "gpt-4o-mini",   // Conversational — GPT-4o-mini handles tool use well
+    remediation: "gpt-5.4",       // Code fixes — tied with Sonnet on SWE-bench (~80%), ~40% cheaper
+    postmortem:  "gpt-5-mini",    // Long-form writing with reasoning — $0.25/$2.00
   },
   grok: {
     analysis:    "grok-2-mini-1212",
