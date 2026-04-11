@@ -5,7 +5,7 @@
  * and Substrate recordings to predict errors before deployment.
  */
 
-import { db, alerts, remediationSessions, errorPatterns, communityFixes, substrateRecordings } from "@/lib/db";
+import { db, alerts, remediationSessions, errorPatterns, communityFixes, substrateRecordings, projects } from "@/lib/db";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { callAI } from "./client";
 import { getProjectOwnerAIKey } from "./get-key";
@@ -41,6 +41,13 @@ export async function runPrediction(input: PredictionInput): Promise<PredictionO
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(projectId);
   if (!aiKey) return null;
+
+  // Resolve project owner for cost attribution.
+  const [proj] = await db
+    .select({ userId: projects.userId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
 
   // Fetch PR data
   const [prFiles, diff] = await Promise.all([
@@ -93,7 +100,19 @@ export async function runPrediction(input: PredictionInput): Promise<PredictionO
     aiKey.key,
     SYSTEM_PREDICTOR,
     [{ role: "user", content: prompt }],
-    { maxTokens: 1500, timeout: 45000 },
+    {
+      maxTokens: 1500,
+      timeout: 45000,
+      provider: aiKey.provider,
+      ...(proj ? {
+        log: {
+          userId: proj.userId,
+          projectId,
+          feature: "risk-assessment" as const,
+          isPlatformKey: aiKey.isPlatformKey,
+        },
+      } : {}),
+    },
   );
 
   // Parse AI response

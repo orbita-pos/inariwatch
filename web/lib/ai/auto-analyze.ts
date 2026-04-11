@@ -1,11 +1,10 @@
 import { db, alerts, projects } from "@/lib/db";
 import { eq, and, gt, ne } from "drizzle-orm";
-import { callAIWithUsage } from "./client";
+import { callAI } from "./client";
 import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "./prompts";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
 import { computeErrorFingerprint } from "./fingerprint";
-import { logAiUsage } from "./usage-logger";
 import { getRedis } from "@/lib/redis";
 import type { Alert } from "@/lib/db";
 
@@ -34,7 +33,7 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     }
   }
 
-  // Resolve the project owner's userId for cost attribution.
+  // Resolve project owner for cost attribution.
   const [proj] = await db
     .select({ userId: projects.userId })
     .from(projects)
@@ -42,60 +41,30 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     .limit(1);
 
   // Analyze this alert — use GPT-4o-mini for platform key, user's model otherwise.
-  const t0 = Date.now();
-  let response;
-  try {
-    response = await callAIWithUsage(
-      aiKey.key,
-      SYSTEM_ANALYZER,
-      [{ role: "user", content: buildAnalyzePrompt({
-        title: alert.title,
-        severity: alert.severity,
-        body: alert.body ?? "",
-        sourceIntegrations: alert.sourceIntegrations,
-      }) }],
-      {
-        maxTokens: 300,
-        provider: aiKey.provider,
-        ...(aiKey.isPlatformKey ? { model: PLATFORM_MODEL } : {}),
-      }
-    );
-  } catch (err) {
-    if (proj) {
-      logAiUsage({
-        userId: proj.userId,
-        projectId: alert.projectId,
-        alertId: alert.id,
-        feature: "auto-analyze",
-        provider: aiKey.provider,
-        model: aiKey.isPlatformKey ? PLATFORM_MODEL : "unknown",
-        inputTokens: 0,
-        outputTokens: 0,
-        isPlatformKey: aiKey.isPlatformKey,
-        error: err instanceof Error ? err.message : String(err),
-        durationMs: Date.now() - t0,
-      });
+  const reasoning = await callAI(
+    aiKey.key,
+    SYSTEM_ANALYZER,
+    [{ role: "user", content: buildAnalyzePrompt({
+      title: alert.title,
+      severity: alert.severity,
+      body: alert.body ?? "",
+      sourceIntegrations: alert.sourceIntegrations,
+    }) }],
+    {
+      maxTokens: 300,
+      provider: aiKey.provider,
+      ...(aiKey.isPlatformKey ? { model: PLATFORM_MODEL } : {}),
+      ...(proj ? {
+        log: {
+          userId: proj.userId,
+          projectId: alert.projectId,
+          alertId: alert.id,
+          feature: "auto-analyze" as const,
+          isPlatformKey: aiKey.isPlatformKey,
+        },
+      } : {}),
     }
-    throw err;
-  }
-  const reasoning = response.text;
-
-  // Track usage for cost dashboard
-  if (proj) {
-    logAiUsage({
-      userId: proj.userId,
-      projectId: alert.projectId,
-      alertId: alert.id,
-      feature: "auto-analyze",
-      provider: response.provider,
-      model: response.model,
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
-      isPlatformKey: aiKey.isPlatformKey,
-      durationMs: Date.now() - t0,
-    });
-  }
+  );
 
   await db
     .update(alerts)

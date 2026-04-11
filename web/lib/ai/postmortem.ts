@@ -115,7 +115,19 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
     aiKey.key,
     SYSTEM_POSTMORTEM,
     [{ role: "user", content: buildPostmortemPrompt(alert, remData) }],
-    { maxTokens: 2048, timeout: 45000, model, provider: aiKey.provider }
+    {
+      maxTokens: 2048,
+      timeout: 45000,
+      model,
+      provider: aiKey.provider,
+      log: {
+        userId,
+        projectId: alert.projectId,
+        alertId: alert.id,
+        feature: "postmortem",
+        isPlatformKey: aiKey.isPlatformKey,
+      },
+    }
   );
 
   await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));
@@ -128,6 +140,13 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
 export async function generatePostmortemInternal(alertId: string): Promise<void> {
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, alertId)).limit(1);
   if (!alert || alert.postmortem) return;
+
+  // Resolve project owner for cost attribution.
+  const [proj] = await db
+    .select({ userId: projects.userId })
+    .from(projects)
+    .where(eq(projects.id, alert.projectId))
+    .limit(1);
 
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
   if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK
@@ -153,7 +172,22 @@ export async function generatePostmortemInternal(alertId: string): Promise<void>
     aiKey.key,
     SYSTEM_POSTMORTEM,
     [{ role: "user", content: buildPostmortemPrompt(alert, remData) }],
-    { maxTokens: 2048, timeout: 45000, model, provider: aiKey.provider }
+    {
+      maxTokens: 2048,
+      timeout: 45000,
+      model,
+      provider: aiKey.provider,
+      ...(proj ? {
+        log: {
+          userId: proj.userId,
+          projectId: alert.projectId,
+          alertId: alert.id,
+          remediationSessionId: remediation?.id,
+          feature: "postmortem" as const,
+          isPlatformKey: aiKey.isPlatformKey,
+        },
+      } : {}),
+    }
   );
 
   await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));

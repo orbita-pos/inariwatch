@@ -481,7 +481,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           sourceIntegrations: alert.sourceIntegrations,
           aiReasoning: alert.aiReasoning,
         }, repoFiles, remediationContext, pastHints, hotFiles, deployedFiles) },
-      ], { maxTokens: 600, timeout: 45000, model: remModel, provider: aiKey.provider });
+      ], {
+        maxTokens: 600,
+        timeout: 45000,
+        model: remModel,
+        provider: aiKey.provider,
+        log: {
+          userId: session.userId,
+          projectId: session.projectId,
+          alertId: session.alertId,
+          remediationSessionId: session.id,
+          feature: "remediation",
+          isPlatformKey: aiKey.isPlatformKey,
+        },
+      });
     } catch (err) {
       await fail(sessionId, emit, `Diagnosis failed: ${err instanceof Error ? err.message : "AI provider error"}`);
       return;
@@ -972,7 +985,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         try {
           fixRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
             { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx, stackContext) },
-          ], { maxTokens: 4096, timeout: 60000, model: remModel, provider: aiKey.provider });
+          ], {
+            maxTokens: 4096,
+            timeout: 60000,
+            model: remModel,
+            provider: aiKey.provider,
+            log: {
+              userId: session.userId,
+              projectId: session.projectId,
+              alertId: session.alertId,
+              remediationSessionId: session.id,
+              feature: "remediation",
+              isPlatformKey: aiKey.isPlatformKey,
+            },
+          });
         } catch (err) {
           await fail(sessionId, emit, `Fix generation failed: ${err instanceof Error ? err.message : "AI provider error"}`);
           return;
@@ -1052,7 +1078,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               remediationContext?.codebaseContext
             ),
           },
-        ], { maxTokens: 2048, timeout: 45000, model: remModel, provider: aiKey.provider });
+        ], {
+          maxTokens: 2048,
+          timeout: 45000,
+          model: remModel,
+          provider: aiKey.provider,
+          log: {
+            userId: session.userId,
+            projectId: session.projectId,
+            alertId: session.alertId,
+            remediationSessionId: session.id,
+            feature: "remediation",
+            isPlatformKey: aiKey.isPlatformKey,
+          },
+        });
 
         const testResult: { files: { path: string; content: string }[]; description: string } = JSON.parse(cleanJSON(testRaw));
 
@@ -1101,7 +1140,18 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         try {
           const scanModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
           const callAIScan = (key: string, system: string, msgs: { role: "user"; content: string }[]) =>
-            callAI(key, system, msgs, { model: scanModel, provider: aiKey.provider });
+            callAI(key, system, msgs, {
+              model: scanModel,
+              provider: aiKey.provider,
+              log: {
+                userId: session.userId,
+                projectId: session.projectId,
+                alertId: session.alertId,
+                remediationSessionId: session.id,
+                feature: "security-scan",
+                isPlatformKey: aiKey.isPlatformKey,
+              },
+            });
           const aiFindings = await aiSecurityReview(fix.files, callAIScan, aiKey.key);
           for (const f of aiFindings) {
             const exists = scanResult.findings.some(
@@ -1151,7 +1201,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           { role: "user", content: buildSelfReviewPrompt(
             diagnosis.diagnosis, fileContents, fix.files, alert.body
           ) },
-        ], { maxTokens: 1024, timeout: 45000, model: reviewModel, provider: aiKey.provider });
+        ], {
+          maxTokens: 1024,
+          timeout: 45000,
+          model: reviewModel,
+          provider: aiKey.provider,
+          log: {
+            userId: session.userId,
+            projectId: session.projectId,
+            alertId: session.alertId,
+            remediationSessionId: session.id,
+            feature: "self-review",
+            isPlatformKey: aiKey.isPlatformKey,
+          },
+        });
 
         const parsed = JSON.parse(cleanJSON(reviewRaw));
         selfReview = {
@@ -1377,7 +1440,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           const replay = await analyzeReplay(
             session.projectId, alert.id,
             diagnosis.diagnosis, fix.files,
-            aiKey.key, aiKey.provider, remModel
+            aiKey.key, aiKey.provider, remModel,
+            {
+              userId: session.userId,
+              remediationSessionId: session.id,
+              isPlatformKey: aiKey.isPlatformKey,
+            }
           );
 
           if (replay) {

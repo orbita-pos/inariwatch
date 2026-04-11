@@ -55,31 +55,111 @@ export interface AIResponse {
 }
 
 /**
+ * Optional per-call cost-tracking metadata. When provided, the client
+ * auto-logs token usage + computed cost to `ai_usage_logs` after the call
+ * completes. Each feature passes its own userId + feature name.
+ */
+export interface AILogContext {
+  userId: string;
+  feature:
+    | "auto-analyze"
+    | "remediation"
+    | "chat"
+    | "security-scan"
+    | "risk-assessment"
+    | "postmortem"
+    | "correlate"
+    | "context-gather"
+    | "self-review"
+    | "other";
+  projectId?: string | null;
+  alertId?: string | null;
+  remediationSessionId?: string | null;
+  isPlatformKey?: boolean;
+}
+
+export interface CallAIOpts {
+  maxTokens?: number;
+  model?: string;
+  timeout?: number;
+  provider?: AIProvider;
+  /** When set, auto-logs usage + cost to ai_usage_logs. */
+  log?: AILogContext;
+}
+
+/**
  * Call the AI with a system prompt + messages and return the text response.
  * Pass opts.provider to override auto-detection (required for DeepSeek).
+ *
+ * If `opts.log` is set, the call's token counts + cost are auto-recorded
+ * to the ai_usage_logs table (fire-and-forget — logging errors never crash
+ * the actual AI feature).
  */
 export async function callAI(
   apiKey: string,
   systemPrompt: string,
   messages: AIMessage[],
-  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+  opts: CallAIOpts = {}
 ): Promise<string> {
-  const response = await callAIWithUsage(apiKey, systemPrompt, messages, opts);
-  return response.text;
+  const t0 = Date.now();
+  try {
+    const response = await callAIWithUsage(apiKey, systemPrompt, messages, opts);
+    if (opts.log) {
+      // Fire-and-forget: never await logging, never crash on log failure.
+      import("./usage-logger").then(({ logAiUsage }) => {
+        logAiUsage({
+          userId: opts.log!.userId,
+          projectId: opts.log!.projectId,
+          alertId: opts.log!.alertId,
+          remediationSessionId: opts.log!.remediationSessionId,
+          feature: opts.log!.feature,
+          provider: response.provider,
+          model: response.model,
+          inputTokens: response.usage.inputTokens,
+          outputTokens: response.usage.outputTokens,
+          cachedInputTokens: response.usage.cachedInputTokens,
+          isPlatformKey: opts.log!.isPlatformKey ?? false,
+          durationMs: Date.now() - t0,
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+    return response.text;
+  } catch (err) {
+    if (opts.log) {
+      import("./usage-logger").then(({ logAiUsage }) => {
+        logAiUsage({
+          userId: opts.log!.userId,
+          projectId: opts.log!.projectId,
+          alertId: opts.log!.alertId,
+          remediationSessionId: opts.log!.remediationSessionId,
+          feature: opts.log!.feature,
+          provider: opts.provider ?? detectProvider(apiKey),
+          model: opts.model ?? "unknown",
+          inputTokens: 0,
+          outputTokens: 0,
+          isPlatformKey: opts.log!.isPlatformKey ?? false,
+          error: err instanceof Error ? err.message : String(err),
+          durationMs: Date.now() - t0,
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+    throw err;
+  }
 }
 
 /**
  * Call the AI and return both the text response AND the usage metadata
  * (token counts) for cost tracking via the usage logger.
  *
- * Prefer this function when you need to log cost per call. Use `callAI`
- * only for legacy code paths that don't need usage data.
+ * Prefer using `callAI` with the `log` option instead — it handles
+ * logging automatically. Only use this function when you explicitly
+ * need the raw token counts in caller code.
  */
 export async function callAIWithUsage(
   apiKey: string,
   systemPrompt: string,
   messages: AIMessage[],
-  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+  opts: CallAIOpts = {}
 ): Promise<AIResponse> {
   const provider = opts.provider ?? detectProvider(apiKey);
 
@@ -108,7 +188,7 @@ export async function callAIWithRetry(
   apiKey: string,
   systemPrompt: string,
   messages: AIMessage[],
-  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider; retries?: number } = {}
+  opts: CallAIOpts & { retries?: number } = {}
 ): Promise<string> {
   const maxRetries = opts.retries ?? 2;
   let lastError: Error | undefined;

@@ -59,7 +59,12 @@ export async function analyzeReplay(
   fixFiles: { path: string; content: string }[],
   apiKey: string,
   provider: AIProvider,
-  model: string
+  model: string,
+  logContext?: {
+    userId: string;
+    remediationSessionId?: string;
+    isPlatformKey?: boolean;
+  }
 ): Promise<ReplayResult | null> {
   // Fetch the most recent Substrate recording for this project
   const [recording] = await db
@@ -105,6 +110,16 @@ Analyze whether this fix addresses the root cause visible in the recording.`;
       timeout: 30000,
       model,
       provider,
+      ...(logContext ? {
+        log: {
+          userId: logContext.userId,
+          projectId,
+          alertId,
+          remediationSessionId: logContext.remediationSessionId,
+          feature: "remediation" as const,
+          isPlatformKey: logContext.isPlatformKey,
+        },
+      } : {}),
     });
 
     const result = JSON.parse(raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim());

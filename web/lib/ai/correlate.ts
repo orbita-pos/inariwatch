@@ -1,4 +1,4 @@
-import { db, alerts } from "@/lib/db";
+import { db, alerts, projects } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_CORRELATOR, buildCorrelatePrompt } from "./prompts";
@@ -30,11 +30,32 @@ export async function correlateProjectAlerts(
     }))
   );
 
+  // Resolve project owner for cost attribution.
+  const [proj] = await db
+    .select({ userId: projects.userId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+
   let summary: string;
   try {
-    summary = await callAI(aiKey.key, SYSTEM_CORRELATOR, [
-      { role: "user", content: prompt },
-    ], aiKey.isPlatformKey ? { model: PLATFORM_MODEL } : {});
+    summary = await callAI(
+      aiKey.key,
+      SYSTEM_CORRELATOR,
+      [{ role: "user", content: prompt }],
+      {
+        provider: aiKey.provider,
+        ...(aiKey.isPlatformKey ? { model: PLATFORM_MODEL } : {}),
+        ...(proj ? {
+          log: {
+            userId: proj.userId,
+            projectId,
+            feature: "correlate" as const,
+            isPlatformKey: aiKey.isPlatformKey,
+          },
+        } : {}),
+      }
+    );
   } catch {
     return; // Non-blocking
   }

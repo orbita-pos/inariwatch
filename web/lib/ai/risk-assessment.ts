@@ -6,7 +6,7 @@
  * Fire-and-forget — called from the GitHub webhook handler.
  */
 
-import { db, alerts, remediationSessions, errorPatterns, communityFixes } from "@/lib/db";
+import { db, alerts, remediationSessions, errorPatterns, communityFixes, projects } from "@/lib/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { callAI } from "./client";
 import { getProjectOwnerAIKey } from "./get-key";
@@ -171,6 +171,13 @@ export async function assessPRRisk(
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(projectId);
   if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK — skip for free tier
+
+  // Resolve project owner for cost attribution.
+  const [proj] = await db
+    .select({ userId: projects.userId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
 
   // Get PR context
   const [prInfo, prFiles, diff] = await Promise.all([
@@ -348,7 +355,19 @@ export async function assessPRRisk(
     aiKey.key,
     SYSTEM_RISK,
     [{ role: "user", content: buildRiskPrompt(prContext, history) }],
-    { maxTokens: 1024, timeout: 45000 }
+    {
+      maxTokens: 1024,
+      timeout: 45000,
+      provider: aiKey.provider,
+      ...(proj ? {
+        log: {
+          userId: proj.userId,
+          projectId,
+          feature: "risk-assessment" as const,
+          isPlatformKey: aiKey.isPlatformKey,
+        },
+      } : {}),
+    }
   );
 
   if (!assessment.trim()) return;
