@@ -87,8 +87,10 @@ const SENSITIVE_FULL_PATHS = [
 ];
 
 // Basenames — matched when BPF only provides filename (current vfs_open kprobe).
-// Less precise but catches most high-value sensitive files. Filter false positives
-// on the dir name via the `parent_dirs` list where possible.
+// Only unambiguous names that rarely have legitimate non-sensitive uses.
+// Ambiguous names (credentials, config.json, kubeconfig, .aws) were removed
+// after generating ~100 false positives from legitimate system processes
+// (caddy, dockerd, etc.) that have their own files with those names.
 const SENSITIVE_BASENAMES: Record<string, { severity: "critical" | "warning"; description: string }> = {
   "shadow": { severity: "critical", description: "password hash database" },
   "sudoers": { severity: "critical", description: "sudo privilege config" },
@@ -96,20 +98,25 @@ const SENSITIVE_BASENAMES: Record<string, { severity: "critical" | "warning"; de
   "id_rsa": { severity: "critical", description: "SSH private key" },
   "id_ed25519": { severity: "critical", description: "SSH private key" },
   "id_ecdsa": { severity: "critical", description: "SSH private key" },
-  ".bash_history": { severity: "warning", description: "shell history" },
-  ".zsh_history": { severity: "warning", description: "shell history" },
-  ".mysql_history": { severity: "warning", description: "mysql client history" },
-  ".psql_history": { severity: "warning", description: "postgres client history" },
-  "credentials": { severity: "critical", description: "AWS/cloud credentials file" },
-  "config.json": { severity: "warning", description: "docker config (may contain auth)" },
-  "docker.sock": { severity: "critical", description: "docker daemon socket" },
-  "kubeconfig": { severity: "critical", description: "Kubernetes cluster credentials" },
-  ".kube": { severity: "critical", description: "Kubernetes config directory" },
-  ".git-credentials": { severity: "critical", description: "stored git credentials" },
-  ".netrc": { severity: "critical", description: "HTTP credentials (curl/wget)" },
-  ".aws": { severity: "critical", description: "AWS credentials directory" },
+  "id_dsa": { severity: "critical", description: "SSH private key (legacy)" },
   ".pgpass": { severity: "critical", description: "PostgreSQL password file" },
+  ".netrc": { severity: "critical", description: "HTTP credentials (curl/wget)" },
+  ".git-credentials": { severity: "critical", description: "stored git credentials" },
 };
+
+// Process names whose sensitive file reads are almost always legitimate.
+// These are common daemons that legitimately access configs named similarly
+// to sensitive paths (e.g. caddy has its own "credentials" file).
+// NOTE: This is a defense-in-depth filter — do not rely on it as the sole
+// gate; an attacker could spoof comm via execve. The basename list above
+// is already restrictive enough that this mainly reduces noise.
+const TRUSTED_DAEMONS = new Set([
+  "systemd", "systemd-journald", "systemd-logind", "systemd-resolve",
+  "sshd", "dockerd", "containerd", "containerd-shim",
+  "caddy", "nginx", "apache2", "httpd",
+  "kubelet", "kube-proxy",
+  "cron", "crond", "rsyslogd",
+]);
 
 const MALICIOUS_DNS = [
   /\.onion$/i,
@@ -324,6 +331,13 @@ function analyzeFileOpen(event: FileOpenEvent, batch: AgentBatch): DetectedThrea
   const basename = lastSlash >= 0 ? event.filename.slice(lastSlash + 1) : event.filename;
   const matched = SENSITIVE_BASENAMES[basename];
   if (matched) {
+    // Skip alerts from trusted system daemons — reduces noise from legitimate
+    // config file reads (e.g. caddy reading its own "credentials" file).
+    // Strip any parentheses that BPF adds around kernel thread names.
+    const commClean = event.comm.replace(/[()]/g, "");
+    if (TRUSTED_DAEMONS.has(commClean)) {
+      return null;
+    }
     return buildThreat(
       matched.severity,
       `Sensitive file access: ${basename} (${matched.description}) — by ${event.comm} (PID ${event.pid})`,
