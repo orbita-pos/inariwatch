@@ -7,6 +7,7 @@ import {
   boolean,
   jsonb,
   integer,
+  numeric,
   index,
   customType,
 } from "drizzle-orm/pg-core";
@@ -55,6 +56,9 @@ export const users = pgTable("users", {
   totpSecret: text("totp_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
   aiModels: jsonb("ai_models"),
+
+  /** Optional monthly budget cap in USD. Triggers notifications at 80% / 100%. */
+  aiBudgetMonthlyUsd: numeric("ai_budget_monthly_usd", { precision: 10, scale: 2 }),
 
   activeOrgId: uuid("active_org_id"), // FK to organizations.id (enforced at DB level via migration 0011)
 
@@ -1000,3 +1004,59 @@ export const codeDependencies = pgTable(
 
 export type CodeDependency = typeof codeDependencies.$inferSelect;
 export type NewCodeDependency = typeof codeDependencies.$inferInsert;
+
+// ── AI usage logs ────────────────────────────────────────────────────────────
+// Per-call telemetry for BYOK cost tracking. Each user sees only their own.
+
+export const aiUsageLogs = pgTable(
+  "ai_usage_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+    remediationSessionId: uuid("remediation_session_id").references(
+      () => remediationSessions.id,
+      { onDelete: "set null" }
+    ),
+
+    /** What feature triggered the call. */
+    feature: text("feature").notNull(),
+    // 'auto-analyze' | 'remediation' | 'chat' | 'security-scan'
+    // | 'risk-assessment' | 'postmortem' | 'correlate' | 'other'
+
+    provider: text("provider").notNull(),
+    // 'openai' | 'claude' | 'gemini' | 'grok' | 'deepseek' | 'groq'
+    model: text("model").notNull(),
+
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+
+    /** Computed cost in USD using pricing at time of call. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 8 }).notNull().default("0"),
+
+    /** True when using the free-tier platform key instead of user's BYOK. */
+    isPlatformKey: boolean("is_platform_key").notNull().default(false),
+
+    /** Error message if the call failed — null on success. */
+    error: text("error"),
+
+    /** Latency in ms — null if not measured. */
+    durationMs: integer("duration_ms"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_ai_usage_logs_user_created").on(table.userId, table.createdAt),
+    index("idx_ai_usage_logs_project_created").on(table.projectId, table.createdAt),
+    index("idx_ai_usage_logs_alert").on(table.alertId),
+    index("idx_ai_usage_logs_session").on(table.remediationSessionId),
+    index("idx_ai_usage_logs_feature").on(table.userId, table.feature, table.createdAt),
+  ]
+);
+
+export type AiUsageLog = typeof aiUsageLogs.$inferSelect;
+export type NewAiUsageLog = typeof aiUsageLogs.$inferInsert;

@@ -39,6 +39,21 @@ export function detectProvider(key: string): AIProvider {
   return "openai"; // sk-... → openai (DeepSeek also uses sk- but is disambiguated via explicit service)
 }
 
+/** Usage metadata extracted from provider responses. */
+export interface AIUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+}
+
+/** AI response with text + token usage for cost tracking. */
+export interface AIResponse {
+  text: string;
+  usage: AIUsage;
+  model: string;
+  provider: AIProvider;
+}
+
 /**
  * Call the AI with a system prompt + messages and return the text response.
  * Pass opts.provider to override auto-detection (required for DeepSeek).
@@ -49,21 +64,38 @@ export async function callAI(
   messages: AIMessage[],
   opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
 ): Promise<string> {
+  const response = await callAIWithUsage(apiKey, systemPrompt, messages, opts);
+  return response.text;
+}
+
+/**
+ * Call the AI and return both the text response AND the usage metadata
+ * (token counts) for cost tracking via the usage logger.
+ *
+ * Prefer this function when you need to log cost per call. Use `callAI`
+ * only for legacy code paths that don't need usage data.
+ */
+export async function callAIWithUsage(
+  apiKey: string,
+  systemPrompt: string,
+  messages: AIMessage[],
+  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+): Promise<AIResponse> {
   const provider = opts.provider ?? detectProvider(apiKey);
 
   switch (provider) {
     case "claude":
-      return callClaude(apiKey, systemPrompt, messages, opts);
+      return callClaudeWithUsage(apiKey, systemPrompt, messages, opts);
     case "grok":
-      return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.x.ai/v1");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.x.ai/v1", "grok");
     case "groq":
-      return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.groq.com/openai/v1");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.groq.com/openai/v1", "groq");
     case "deepseek":
-      return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.deepseek.com/v1");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.deepseek.com/v1", "deepseek");
     case "gemini":
-      return callGemini(apiKey, systemPrompt, messages, opts);
+      return callGeminiWithUsage(apiKey, systemPrompt, messages, opts);
     default:
-      return callOpenAICompat(apiKey, systemPrompt, messages, opts, "https://api.openai.com/v1");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.openai.com/v1", "openai");
   }
 }
 
@@ -389,6 +421,17 @@ async function callClaude(
   messages: AIMessage[],
   opts: { maxTokens?: number; model?: string; timeout?: number }
 ): Promise<string> {
+  const response = await callClaudeWithUsage(apiKey, system, messages, opts);
+  return response.text;
+}
+
+async function callClaudeWithUsage(
+  apiKey: string,
+  system: string,
+  messages: AIMessage[],
+  opts: { maxTokens?: number; model?: string; timeout?: number }
+): Promise<AIResponse> {
+  const model = opts.model ?? "claude-sonnet-4-6";
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -398,7 +441,7 @@ async function callClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: opts.model ?? "claude-sonnet-4-6",
+      model,
       max_tokens: opts.maxTokens ?? 1024,
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages,
@@ -409,7 +452,28 @@ async function callClaude(
   if (!res.ok) throw new Error(`Claude API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
 
   const data = await safeJson(res);
-  return (data.content as { text: string }[])?.[0]?.text ?? "";
+  const text = (data.content as { text: string }[])?.[0]?.text ?? "";
+  const usage = data.usage as
+    | {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      }
+    | undefined;
+
+  return {
+    text,
+    usage: {
+      // Claude's input_tokens is the NON-cached portion. Cached tokens are
+      // reported separately. Total input for cost = fresh + cache_read.
+      inputTokens: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+      outputTokens: usage?.output_tokens ?? 0,
+      cachedInputTokens: usage?.cache_read_input_tokens ?? 0,
+    },
+    model,
+    provider: "claude",
+  };
 }
 
 /** Shared implementation for OpenAI, Grok (xAI), and DeepSeek (all OpenAI-compatible). */
@@ -420,6 +484,19 @@ async function callOpenAICompat(
   opts: { maxTokens?: number; model?: string; timeout?: number },
   baseUrl: string
 ): Promise<string> {
+  const response = await callOpenAICompatWithUsage(apiKey, system, messages, opts, baseUrl, "openai");
+  return response.text;
+}
+
+async function callOpenAICompatWithUsage(
+  apiKey: string,
+  system: string,
+  messages: AIMessage[],
+  opts: { maxTokens?: number; model?: string; timeout?: number },
+  baseUrl: string,
+  provider: AIProvider
+): Promise<AIResponse> {
+  const model = opts.model ?? "gpt-4o-mini";
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -427,7 +504,7 @@ async function callOpenAICompat(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: opts.model ?? "gpt-4o-mini",
+      model,
       max_tokens: opts.maxTokens ?? 1024,
       messages: [{ role: "system", content: system }, ...messages],
     }),
@@ -437,7 +514,27 @@ async function callOpenAICompat(
   if (!res.ok) throw new Error(`API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
 
   const data = await safeJson(res);
-  return ((data.choices as { message: { content: string } }[])?.[0]?.message?.content as string) ?? "";
+  const text = ((data.choices as { message: { content: string } }[])?.[0]?.message?.content as string) ?? "";
+  const usage = data.usage as
+    | {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      }
+    | undefined;
+
+  return {
+    text,
+    usage: {
+      // OpenAI's prompt_tokens INCLUDES cached tokens (they're part of the
+      // total input). cached_tokens is the discounted portion.
+      inputTokens: usage?.prompt_tokens ?? 0,
+      outputTokens: usage?.completion_tokens ?? 0,
+      cachedInputTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+    model,
+    provider,
+  };
 }
 
 async function callGemini(
@@ -446,6 +543,16 @@ async function callGemini(
   messages: AIMessage[],
   opts: { maxTokens?: number; model?: string; timeout?: number }
 ): Promise<string> {
+  const response = await callGeminiWithUsage(apiKey, system, messages, opts);
+  return response.text;
+}
+
+async function callGeminiWithUsage(
+  apiKey: string,
+  system: string,
+  messages: AIMessage[],
+  opts: { maxTokens?: number; model?: string; timeout?: number }
+): Promise<AIResponse> {
   const model = opts.model ?? "gemini-1.5-flash";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid Gemini model name");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
@@ -469,7 +576,27 @@ async function callGemini(
   if (!res.ok) throw new Error(`Gemini API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
 
   const data = await safeJson(res);
-  return ((data.candidates as { content: { parts: { text: string }[] } }[])?.[0]?.content?.parts?.[0]?.text as string) ?? "";
+  const text = ((data.candidates as { content: { parts: { text: string }[] } }[])?.[0]?.content?.parts?.[0]?.text as string) ?? "";
+  const usage = data.usageMetadata as
+    | {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+        cachedContentTokenCount?: number;
+      }
+    | undefined;
+
+  // Need to return early with the usage object — the original function had
+  // more code after this point that we preserve in the wrapper below.
+  return {
+    text,
+    usage: {
+      inputTokens: usage?.promptTokenCount ?? 0,
+      outputTokens: usage?.candidatesTokenCount ?? 0,
+      cachedInputTokens: usage?.cachedContentTokenCount ?? 0,
+    },
+    model,
+    provider: "gemini",
+  };
 }
 
 // ── Vision implementations ──────────────────────────────────────────────────
