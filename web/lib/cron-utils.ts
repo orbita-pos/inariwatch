@@ -30,7 +30,8 @@ export type CronRoute =
   | "poll_expo"
   | "escalate"
   | "uptime"
-  | "digest";
+  | "digest"
+  | "quota-reset";
 
 export function cronLog(
   route: CronRoute,

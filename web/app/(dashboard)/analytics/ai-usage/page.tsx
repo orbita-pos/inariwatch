@@ -5,7 +5,8 @@ import { and, eq, gte, desc, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { formatCost } from "@/lib/ai/pricing";
-import { DollarSign, TrendingDown, TrendingUp, Activity, Zap, Brain, Calendar } from "lucide-react";
+import { getAllQuotaStatus, getUserPlan, type QuotaFeature, type QuotaStatus } from "@/lib/ai/quota";
+import { DollarSign, TrendingDown, TrendingUp, Activity, Zap, Brain, Calendar, Sparkles, AlertCircle } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -405,6 +406,147 @@ function DailyChart({ data }: { data: { day: string; cost: number }[] }) {
   );
 }
 
+const QUOTA_LABELS: Record<QuotaFeature, string> = {
+  "auto-analyze": "Auto-analyses",
+  "remediation": "AI Remediations",
+  "chat": "Ask Inari",
+  "pr-prediction": "PR Predictions",
+  "postmortem": "AI Postmortems",
+};
+
+const QUOTA_DESCRIPTIONS: Record<QuotaFeature, string> = {
+  "auto-analyze": "Alerts auto-diagnosed by AI",
+  "remediation": "Auto-fix with AI-generated PR",
+  "chat": "Messages to Ask Inari",
+  "pr-prediction": "Pre-deploy risk on PRs",
+  "postmortem": "Auto-generated incident post-mortems",
+};
+
+function QuotaBar({ status }: { status: QuotaStatus }) {
+  const colorClass =
+    status.percentUsed >= 100 ? "bg-red-500" :
+    status.percentUsed >= 80 ? "bg-amber-500" :
+    "bg-emerald-500";
+
+  return (
+    <div className="py-2.5">
+      <div className="flex items-baseline justify-between mb-1">
+        <div className="flex-1">
+          <span className="text-sm font-medium text-fg-base">
+            {QUOTA_LABELS[status.feature]}
+          </span>
+          <span className="ml-2 text-xs text-zinc-600">
+            {QUOTA_DESCRIPTIONS[status.feature]}
+          </span>
+        </div>
+        <div className="text-xs tabular-nums">
+          <span className="text-fg-strong font-semibold">{status.used.toLocaleString()}</span>
+          <span className="text-zinc-500">/{status.limit.toLocaleString()}</span>
+          <span className={`ml-2 ${
+            status.percentUsed >= 100 ? "text-red-400" :
+            status.percentUsed >= 80 ? "text-amber-400" :
+            "text-zinc-500"
+          }`}>{status.percentUsed}%</span>
+        </div>
+      </div>
+      <div className="h-2 rounded-full bg-surface-inner overflow-hidden">
+        <div
+          className={`h-full transition-all ${colorClass}`}
+          style={{ width: `${Math.min(100, status.percentUsed)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PlanCard({
+  plan,
+  quotas,
+  daysUntilReset,
+}: {
+  plan: "free" | "pro";
+  quotas: QuotaStatus[];
+  daysUntilReset: number;
+}) {
+  const anyExceeded = quotas.some((q) => q.exceeded);
+  const anyNearLimit = quotas.some((q) => q.percentUsed >= 80 && !q.exceeded);
+
+  return (
+    <div className="rounded-xl border border-line bg-surface-dim overflow-hidden mb-8">
+      {/* Header */}
+      <div className={`px-5 py-4 border-b border-line ${plan === "pro" ? "bg-inari-accent/5" : ""}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {plan === "pro" ? (
+              <Sparkles className="h-5 w-5 text-inari-accent" />
+            ) : (
+              <Brain className="h-5 w-5 text-zinc-500" />
+            )}
+            <h2 className="text-base font-semibold text-fg-strong">
+              {plan === "pro" ? "Pro Plan" : "Free Plan"}
+            </h2>
+            {plan === "free" && (
+              <span className="ml-2 text-xs text-zinc-500">
+                Upgrade for 10x more
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-zinc-500">
+            Resets in {daysUntilReset} {daysUntilReset === 1 ? "day" : "days"}
+          </div>
+        </div>
+      </div>
+
+      {/* Quotas */}
+      <div className="px-5 py-3">
+        {quotas.map((q) => (
+          <QuotaBar key={q.feature} status={q} />
+        ))}
+      </div>
+
+      {/* CTA banner */}
+      {plan === "free" && (anyExceeded || anyNearLimit) && (
+        <div className={`px-5 py-3 border-t border-line ${
+          anyExceeded ? "bg-red-500/5" : "bg-amber-500/5"
+        }`}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start gap-2">
+              <AlertCircle className={`h-4 w-4 mt-0.5 shrink-0 ${
+                anyExceeded ? "text-red-400" : "text-amber-400"
+              }`} />
+              <div className="text-sm">
+                {anyExceeded ? (
+                  <>
+                    <span className="font-medium text-fg-strong">You&apos;ve hit a limit.</span>
+                    <span className="text-zinc-500"> Upgrade to Pro for 10x more allocations.</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-fg-strong">You&apos;re close to a limit.</span>
+                    <span className="text-zinc-500"> Upgrade now to avoid interruption.</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Link
+              href="/pricing"
+              className="shrink-0 rounded-md bg-inari-accent text-bg-base px-3 py-1.5 text-xs font-medium hover:bg-inari-accent/90 transition-colors"
+            >
+              Upgrade $12/mo →
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function daysUntilNextMonth(): number {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return Math.ceil((next.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default async function AIUsagePage() {
@@ -412,7 +554,11 @@ export default async function AIUsagePage() {
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) redirect("/login?callbackUrl=/analytics/ai-usage");
 
-  const data = await getUsageData(userId);
+  const [data, quotas, userPlan] = await Promise.all([
+    getUsageData(userId),
+    getAllQuotaStatus(userId),
+    getUserPlan(userId),
+  ]);
 
   // Calculate trends
   const costDelta = data.thisMonth.cost - data.lastMonth.cost;
@@ -449,17 +595,22 @@ export default async function AIUsagePage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">
           <Brain className="h-6 w-6 text-inari-accent" />
           <h1 className="text-2xl font-semibold text-fg-strong">AI Usage</h1>
         </div>
         <p className="text-sm text-zinc-500">
-          Your BYOK spending this month, broken down by feature, model, and date.
-          Only calls made with your own API keys are counted here —
-          platform-provided free tier calls are not billed to you.
+          Your monthly AI quotas + BYOK spending broken down by feature, model, and date.
         </p>
       </div>
+
+      {/* Plan & Quotas */}
+      <PlanCard
+        plan={userPlan.plan}
+        quotas={quotas}
+        daysUntilReset={daysUntilNextMonth()}
+      />
 
       {/* Top stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">

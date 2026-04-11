@@ -93,6 +93,14 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
   if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK
 
+  // Quota check
+  try {
+    const { assertWithinQuota } = await import("./quota");
+    await assertWithinQuota(userId, "postmortem");
+  } catch {
+    return; // Quota exceeded
+  }
+
   // Get latest remediation session if any
   const [remediation] = await db
     .select()
@@ -131,6 +139,10 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
   );
 
   await db.update(alerts).set({ postmortem }).where(eq(alerts.id, alertId));
+
+  // Increment quota
+  const { incrementQuota } = await import("./quota");
+  incrementQuota(userId, "postmortem").catch(() => {});
 }
 
 /**

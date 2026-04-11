@@ -229,6 +229,22 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   if (!aiKey) { await fail(sessionId, emit, "No AI key configured. Add one in Settings."); return; }
   if (aiKey.isPlatformKey) { await fail(sessionId, emit, "Code remediation requires your own AI key. Add one in Settings → AI analysis."); return; }
 
+  // Check quota before starting (remediations are expensive)
+  try {
+    const { assertWithinQuota } = await import("./quota");
+    await assertWithinQuota(session.userId, "remediation");
+  } catch (err) {
+    const { QuotaExceededError } = await import("./quota");
+    if (err instanceof QuotaExceededError) {
+      await fail(sessionId, emit,
+        `You've reached your monthly remediation limit (${err.used}/${err.limit} on ${err.plan} plan). ` +
+        (err.plan === "free" ? "Upgrade to Pro for 25 remediations/month at $12/mo." : "Contact support.")
+      );
+      return;
+    }
+    throw err;
+  }
+
   // Find GitHub integration
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, session.projectId));
   const ghInteg = integrations.find((i) => i.service === "github");
@@ -498,6 +514,15 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     } catch (err) {
       await fail(sessionId, emit, `Diagnosis failed: ${err instanceof Error ? err.message : "AI provider error"}`);
       return;
+    }
+
+    // Diagnosis succeeded — commit the quota slot now (so failed-from-API-error
+    // remediations don't waste user's quota, but committed work does count).
+    try {
+      const { incrementQuota } = await import("./quota");
+      incrementQuota(session.userId, "remediation").catch(() => {});
+    } catch {
+      // Non-blocking
     }
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: number };

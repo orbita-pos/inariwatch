@@ -5,6 +5,7 @@ import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "./prompts";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
 import { computeErrorFingerprint } from "./fingerprint";
+import { assertWithinQuota, incrementQuota, QuotaExceededError } from "./quota";
 import { getRedis } from "@/lib/redis";
 import type { Alert } from "@/lib/db";
 
@@ -33,12 +34,26 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     }
   }
 
-  // Resolve project owner for cost attribution.
+  // Resolve project owner for cost attribution + quota.
   const [proj] = await db
     .select({ userId: projects.userId })
     .from(projects)
     .where(eq(projects.id, alert.projectId))
     .limit(1);
+
+  // Check quota before making the AI call.
+  // Platform key calls don't count against user quota (they're our cost).
+  if (proj && !aiKey.isPlatformKey) {
+    try {
+      await assertWithinQuota(proj.userId, "auto-analyze");
+    } catch (err) {
+      if (err instanceof QuotaExceededError) {
+        // Skip silently — user will see "limit reached" in dashboard
+        return;
+      }
+      throw err;
+    }
+  }
 
   // Analyze this alert — use GPT-4o-mini for platform key, user's model otherwise.
   const reasoning = await callAI(
@@ -70,6 +85,11 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     .update(alerts)
     .set({ aiReasoning: reasoning })
     .where(eq(alerts.id, alert.id));
+
+  // Increment quota only after successful call (and only for BYOK, not platform key)
+  if (proj && !aiKey.isPlatformKey) {
+    incrementQuota(proj.userId, "auto-analyze").catch(() => {});
+  }
 
   // Cache diagnosis by fingerprint (1h TTL)
   if (redis && reasoning) {

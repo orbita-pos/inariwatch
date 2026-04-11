@@ -60,6 +60,14 @@ export const users = pgTable("users", {
   /** Optional monthly budget cap in USD. Triggers notifications at 80% / 100%. */
   aiBudgetMonthlyUsd: numeric("ai_budget_monthly_usd", { precision: 10, scale: 2 }),
 
+  // ── Stripe billing ───────────────────────────────────────────────────────
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  subscriptionStatus: text("subscription_status"),
+  // 'active' | 'past_due' | 'canceled' | 'incomplete' | 'trialing'
+  subscriptionPeriodEnd: timestamp("subscription_period_end", { withTimezone: true }),
+  subscriptionCancelAtPeriodEnd: boolean("subscription_cancel_at_period_end").default(false),
+
   activeOrgId: uuid("active_org_id"), // FK to organizations.id (enforced at DB level via migration 0011)
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1060,3 +1068,34 @@ export const aiUsageLogs = pgTable(
 
 export type AiUsageLog = typeof aiUsageLogs.$inferSelect;
 export type NewAiUsageLog = typeof aiUsageLogs.$inferInsert;
+
+// ── Monthly quota usage ─────────────────────────────────────────────────────
+// One row per user per month. Counters increment as features are used.
+// Reset by cron on day 1 of each month (creates new row with new period_start).
+
+export const monthlyQuotaUsage = pgTable(
+  "monthly_quota_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+
+    /** First day of the calendar month at 00:00 UTC */
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+
+    autoAnalyzeUsed: integer("auto_analyze_used").notNull().default(0),
+    remediationUsed: integer("remediation_used").notNull().default(0),
+    chatUsed: integer("chat_used").notNull().default(0),
+    prPredictionUsed: integer("pr_prediction_used").notNull().default(0),
+    postmortemUsed: integer("postmortem_used").notNull().default(0),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_quota_usage_user_period").on(table.userId, table.periodStart),
+  ]
+);
+
+export type MonthlyQuotaUsage = typeof monthlyQuotaUsage.$inferSelect;
+export type NewMonthlyQuotaUsage = typeof monthlyQuotaUsage.$inferInsert;

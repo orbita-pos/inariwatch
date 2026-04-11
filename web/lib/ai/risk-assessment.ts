@@ -179,6 +179,17 @@ export async function assessPRRisk(
     .where(eq(projects.id, projectId))
     .limit(1);
 
+  // Quota check
+  if (proj) {
+    try {
+      const { assertWithinQuota } = await import("./quota");
+      await assertWithinQuota(proj.userId, "pr-prediction");
+    } catch {
+      // Quota exceeded — skip silently, user sees limit in dashboard
+      return;
+    }
+  }
+
   // Get PR context
   const [prInfo, prFiles, diff] = await Promise.all([
     gh.getPRInfo(token, owner, repo, prNumber),
@@ -371,6 +382,12 @@ export async function assessPRRisk(
   );
 
   if (!assessment.trim()) return;
+
+  // Increment quota after successful call
+  if (proj) {
+    const { incrementQuota } = await import("./quota");
+    incrementQuota(proj.userId, "pr-prediction").catch(() => {});
+  }
 
   const MARKER = "<!-- radar-risk-assessment -->";
   const commentBody = `${MARKER}\n${assessment}${predictionSection}${aiPredictionSection}`;
