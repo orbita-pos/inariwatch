@@ -1,0 +1,14 @@
+{
+  "name": "test-nuxt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build"
+  },
+  "dependencies": {
+    "@inariwatch/capture": "file:../..",
+    "nuxt": "^3.14.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  }
+}

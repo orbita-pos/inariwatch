@@ -6,6 +6,8 @@ import {
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
+import { rateLimit } from "@/lib/auth-rate-limit";
+import { PLAN_LIMITS } from "@/lib/db";
 import { decryptConfig } from "@/lib/crypto";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 
@@ -89,13 +91,13 @@ export async function POST(
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
     return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
 
-  // Rate limiting
+  // IP rate limit (anti-DOS)
   const ip = extractClientIp(req);
-  const rateLimit = await checkWebhookRateLimit(ip);
-  if (!rateLimit.allowed) {
+  const ipRl = await checkWebhookRateLimit(ip);
+  if (!ipRl.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+      { status: 429, headers: { "Retry-After": String(ipRl.retryAfter) } }
     );
   }
 
@@ -106,6 +108,22 @@ export async function POST(
 
   if (integ.service !== "sentry") {
     return NextResponse.json({ error: "Not a Sentry integration" }, { status: 400 });
+  }
+
+  // Per-project daily events cap (shared with capture + other webhook sources).
+  // Counts ALL ingestion sources against the same counter so a noisy app
+  // can't bypass by switching sources.
+  const plan = integ.userPlan ?? "free";
+  const dailyCap = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.free).maxCaptureEventsPerDay;
+  const dayRl = await rateLimit("capture-daily", integ.projectId, {
+    windowMs: 86_400_000,
+    max: dailyCap,
+  });
+  if (!dayRl.allowed) {
+    return NextResponse.json(
+      { error: "Daily event cap reached for this project" },
+      { status: 429, headers: { "Retry-After": String(dayRl.retryAfterSeconds ?? 3600) } }
+    );
   }
 
   const secret = integ.webhookSecret;

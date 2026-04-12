@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAlertIfNew, loadIntegration, markIntegrationSuccess } from "@/lib/webhooks/shared";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { extractClientIp } from "@/lib/webhooks/rate-limit";
+import { PLAN_LIMITS } from "@/lib/db";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 import crypto from "crypto";
 
@@ -32,6 +33,20 @@ export async function POST(
   const integ = await loadIntegration(integrationId);
   if (!integ) return NextResponse.json({ error: "Integration not found" }, { status: 404 });
   if (integ.service !== "expo") return NextResponse.json({ error: "Not an Expo integration" }, { status: 400 });
+
+  // Per-project daily events cap (shared across all webhook sources).
+  const plan = integ.userPlan ?? "free";
+  const dailyCap = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.free).maxCaptureEventsPerDay;
+  const dayRl = await rateLimit("capture-daily", integ.projectId, {
+    windowMs: 86_400_000,
+    max: dailyCap,
+  });
+  if (!dayRl.allowed) {
+    return NextResponse.json(
+      { error: "Daily event cap reached for this project" },
+      { status: 429, headers: { "Retry-After": String(dayRl.retryAfterSeconds ?? 3600) } }
+    );
+  }
 
   // Require webhook secret — reject if not configured
   const secret = integ.webhookSecret;

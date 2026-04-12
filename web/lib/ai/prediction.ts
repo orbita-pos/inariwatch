@@ -10,7 +10,12 @@ import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { callAI } from "./client";
 import { getProjectOwnerAIKey } from "./get-key";
 import { SYSTEM_PREDICTOR, buildPredictionPrompt, type PredictionResult } from "./prompts";
+import { reservePlatformBudget, PlatformBudgetExceededError } from "./spend-guard";
 import * as gh from "@/lib/services/github-api";
+
+// Larger reservation: prediction calls are bigger (1500 max output, ~5K input).
+// Reconciled to actual after the call.
+const PREDICTION_RESERVE_CENTS = 5;
 
 export interface PredictionInput {
   projectId: string;
@@ -96,6 +101,19 @@ export async function runPrediction(input: PredictionInput): Promise<PredictionO
     substrateCtx,
   );
 
+  // Platform-AI kill-switch: pre-reserve before the call. Bail with null
+  // if the daily cap is exhausted — caller treats null as "no prediction".
+  let reservedCents = 0;
+  if (aiKey.isPlatformKey) {
+    try {
+      await reservePlatformBudget(PREDICTION_RESERVE_CENTS);
+      reservedCents = PREDICTION_RESERVE_CENTS;
+    } catch (err) {
+      if (err instanceof PlatformBudgetExceededError) return null;
+      throw err;
+    }
+  }
+
   const raw = await callAI(
     aiKey.key,
     SYSTEM_PREDICTOR,
@@ -110,6 +128,7 @@ export async function runPrediction(input: PredictionInput): Promise<PredictionO
           projectId,
           feature: "risk-assessment" as const,
           isPlatformKey: aiKey.isPlatformKey,
+          reservedPlatformCents: reservedCents,
         },
       } : {}),
     },

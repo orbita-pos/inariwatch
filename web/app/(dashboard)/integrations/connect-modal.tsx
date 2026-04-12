@@ -8,13 +8,21 @@ import { connectIntegration } from "./actions";
 
 // ── Per-service config ─────────────────────────────────────────────────────────
 
+interface HostingExtraField {
+  name: string;
+  label: string;
+  placeholder: string;
+  required?: boolean;
+}
+
 const SERVICE_CONFIG: Record<string, {
   tokenUrl?: string;
   tokenLabel: string;
   placeholder: string;
   permissions?: { label: string; scope: string }[];
   note?: string;
-  mode?: "token" | "uptime" | "postgres" | "npm" | "datadog";
+  mode?: "token" | "uptime" | "postgres" | "npm" | "datadog" | "hosting";
+  extraFields?: HostingExtraField[];
 }> = {
   github: {
     tokenUrl: "https://github.com/settings/personal-access-tokens/new",
@@ -36,6 +44,49 @@ const SERVICE_CONFIG: Record<string, {
       { label: "Projects",    scope: "Read" },
     ],
     note: "We'll auto-detect your team and projects.",
+  },
+  netlify: {
+    tokenUrl: "https://app.netlify.com/user/applications/personal",
+    tokenLabel: "Personal Access Token",
+    placeholder: "nfp_...",
+    permissions: [
+      { label: "Deploys",  scope: "Read/Write" },
+      { label: "Sites",    scope: "Read" },
+    ],
+    note: "Site ID is in Site settings → General → Site information.",
+    mode: "hosting",
+    extraFields: [
+      { name: "siteId", label: "Site ID", placeholder: "12345678-abcd-efgh-ijkl-...", required: true },
+    ],
+  },
+  "cloudflare-pages": {
+    tokenUrl: "https://dash.cloudflare.com/profile/api-tokens",
+    tokenLabel: "API Token",
+    placeholder: "cf_token_...",
+    permissions: [
+      { label: "Cloudflare Pages", scope: "Edit" },
+      { label: "Account",          scope: "Read" },
+    ],
+    note: "Account ID is in the right sidebar of your Cloudflare dashboard.",
+    mode: "hosting",
+    extraFields: [
+      { name: "accountId",   label: "Account ID",   placeholder: "abc123def456...", required: true },
+      { name: "projectName", label: "Project Name", placeholder: "my-pages-project", required: true },
+    ],
+  },
+  render: {
+    tokenUrl: "https://dashboard.render.com/account/api-keys",
+    tokenLabel: "API Key",
+    placeholder: "rnd_...",
+    permissions: [
+      { label: "Services", scope: "Read/Write" },
+    ],
+    note: "Service ID is in the URL when viewing a service (srv-xxxxx).",
+    mode: "hosting",
+    extraFields: [
+      { name: "serviceId",   label: "Service ID",        placeholder: "srv-abc123...", required: true },
+      { name: "projectName", label: "Service Name (display)", placeholder: "my-api", required: true },
+    ],
   },
   sentry: {
     tokenUrl: "https://sentry.io/settings/account/api/auth-tokens/",
@@ -142,14 +193,14 @@ export function ConnectModal({ service, label, projects, children }: Props) {
             <Dialog.Title className="text-sm font-semibold text-fg-strong">
               Connect {label}
             </Dialog.Title>
-            <Dialog.Close className="rounded-md p-1 text-zinc-600 hover:text-fg-base transition-colors">
-              <X className="h-4 w-4" />
+            <Dialog.Close className="rounded-md p-1 text-fg-base/50 hover:text-fg-base transition-colors">
+              <X aria-hidden="true" className="h-4 w-4" />
             </Dialog.Close>
           </div>
 
           {projects.length === 0 ? (
             <div className="px-5 py-8 text-center">
-              <p className="text-sm text-zinc-500">Create a project first.</p>
+              <p className="text-sm text-fg-base/60">Create a project first.</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit}>
@@ -157,7 +208,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
 
                 {/* Project selector */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                     Project
                   </label>
                   <select
@@ -174,28 +225,28 @@ export function ConnectModal({ service, label, projects, children }: Props) {
 
                 {cfg && (cfg.mode as string) === "capture" ? (
                   <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5">
-                    <p className="text-xs text-zinc-500 leading-relaxed">
+                    <p className="text-xs text-fg-base/60 leading-relaxed">
                       No token needed. Click Connect and we&apos;ll generate a DSN for your app.
                     </p>
-                    <p className="mt-2 text-xs text-zinc-600">
-                      Then add it to your <code className="text-zinc-400">.env</code>:
+                    <p className="mt-2 text-xs text-fg-base/50">
+                      Then add it to your <code className="text-fg-base/60">.env</code>:
                     </p>
-                    <pre className="mt-1 text-[11px] text-zinc-500 font-mono">INARIWATCH_DSN=https://...</pre>
+                    <pre className="mt-1 text-[11px] text-fg-base/60 font-mono">INARIWATCH_DSN=https://...</pre>
                   </div>
                 ) : cfg && (cfg.mode as string) === "agent" ? (
                   <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5">
-                    <p className="text-xs text-zinc-500 leading-relaxed">
+                    <p className="text-xs text-fg-base/60 leading-relaxed">
                       No token needed. Click Connect and we&apos;ll generate credentials for the eBPF agent.
                     </p>
-                    <p className="mt-2 text-xs text-zinc-600">
+                    <p className="mt-2 text-xs text-fg-base/50">
                       Install on your server:
                     </p>
-                    <pre className="mt-1 text-[11px] text-zinc-500 font-mono">curl -sf https://install.inariwatch.com | sh</pre>
+                    <pre className="mt-1 text-[11px] text-fg-base/60 font-mono">curl -sf https://install.inariwatch.com | sh</pre>
                   </div>
                 ) : cfg && cfg.mode === "postgres" ? (
                   <>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Connection String
                       </label>
                       <input
@@ -204,11 +255,11 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder={cfg.placeholder}
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Display name (optional)
                       </label>
                       <input
@@ -216,17 +267,17 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="db_name"
                         placeholder="Production DB"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     {cfg.note && (
-                      <p className="text-[11px] text-zinc-700">{cfg.note}</p>
+                      <p className="text-[11px] text-fg-base/40">{cfg.note}</p>
                     )}
                   </>
                 ) : cfg && cfg.mode === "npm" ? (
                   <>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         package.json URL (optional)
                       </label>
                       <input
@@ -234,11 +285,11 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="package_json_url"
                         placeholder="https://raw.githubusercontent.com/owner/repo/main/package.json"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Cargo.toml URL (optional)
                       </label>
                       <input
@@ -246,11 +297,11 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="cargo_toml_url"
                         placeholder="https://raw.githubusercontent.com/owner/repo/main/Cargo.toml"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         GitHub token (optional, for private repos)
                       </label>
                       <input
@@ -258,17 +309,17 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="token"
                         placeholder="github_pat_…"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     {cfg.note && (
-                      <p className="text-[11px] text-zinc-700">{cfg.note}</p>
+                      <p className="text-[11px] text-fg-base/40">{cfg.note}</p>
                     )}
                   </>
                 ) : cfg && cfg.mode === "uptime" ? (
                   <>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Endpoint URL
                       </label>
                       <input
@@ -277,11 +328,11 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder={cfg.placeholder}
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Name (optional)
                       </label>
                       <input
@@ -289,12 +340,12 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         name="endpoint_name"
                         placeholder="Production API"
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                        <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                           Expected status
                         </label>
                         <input
@@ -307,7 +358,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                        <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                           Timeout (ms)
                         </label>
                         <input
@@ -321,14 +372,84 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                       </div>
                     </div>
                     {cfg.note && (
-                      <p className="text-[11px] text-zinc-700">{cfg.note}</p>
+                      <p className="text-[11px] text-fg-base/40">{cfg.note}</p>
+                    )}
+                  </>
+                ) : cfg && cfg.mode === "hosting" ? (
+                  <>
+                    {/* Step 1 — Open token page */}
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
+                        Step 1 — Get your token
+                      </p>
+                      {cfg.tokenUrl && (
+                        <a
+                          href={cfg.tokenUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-fg-base/30 hover:text-fg-strong transition-all"
+                        >
+                          <span>Open {label} token page</span>
+                          <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-fg-base/40" />
+                        </a>
+                      )}
+                      {cfg.permissions && cfg.permissions.length > 0 && (
+                        <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5 space-y-1.5">
+                          <p className="text-[11px] text-fg-base/40 mb-2">Select these permissions:</p>
+                          {cfg.permissions.map((p) => (
+                            <div key={p.label} className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Check className="h-3 w-3 text-green-600" />
+                                <span className="font-mono text-[12px] text-fg-base/60">{p.label}</span>
+                              </div>
+                              <span className="text-[11px] text-fg-base/40">{p.scope}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step 2 — Paste token */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
+                        Step 2 — {cfg.tokenLabel}
+                      </label>
+                      <input
+                        type="password"
+                        name="token"
+                        placeholder={cfg.placeholder}
+                        required
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                      />
+                    </div>
+
+                    {/* Step 3..N — Extra identifier fields per provider */}
+                    {cfg.extraFields?.map((field, i) => (
+                      <div key={field.name} className="space-y-1.5">
+                        <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
+                          Step {3 + i} — {field.label}
+                        </label>
+                        <input
+                          type="text"
+                          name={field.name}
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          autoComplete="off"
+                          className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        />
+                      </div>
+                    ))}
+
+                    {cfg.note && (
+                      <p className="text-[11px] text-fg-base/40">{cfg.note}</p>
                     )}
                   </>
                 ) : cfg && cfg.mode === "datadog" ? (
                   <>
                     {/* Step 1 — Open keys page */}
                     <div className="space-y-2">
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Step 1 — Get your keys
                       </p>
                       {cfg.tokenUrl && (
@@ -336,22 +457,22 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                           href={cfg.tokenUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-zinc-600 hover:text-fg-strong transition-all"
+                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-fg-base/30 hover:text-fg-strong transition-all"
                         >
                           <span>Open Datadog API Keys page</span>
-                          <ExternalLink className="h-3.5 w-3.5 text-zinc-600" />
+                          <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-fg-base/40" />
                         </a>
                       )}
                       {cfg.permissions && cfg.permissions.length > 0 && (
                         <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5 space-y-1.5">
-                          <p className="text-[11px] text-zinc-700 mb-2">Recommended scopes:</p>
+                          <p className="text-[11px] text-fg-base/40 mb-2">Recommended scopes:</p>
                           {cfg.permissions.map((p) => (
                             <div key={p.label} className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <Check className="h-3 w-3 text-green-600" />
-                                <span className="font-mono text-[12px] text-zinc-400">{p.label}</span>
+                                <span className="font-mono text-[12px] text-fg-base/60">{p.label}</span>
                               </div>
-                              <span className="text-[11px] text-zinc-700">{p.scope}</span>
+                              <span className="text-[11px] text-fg-base/40">{p.scope}</span>
                             </div>
                           ))}
                         </div>
@@ -360,7 +481,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
 
                     {/* Step 2 — API Key */}
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Step 2 — API Key
                       </label>
                       <input
@@ -369,13 +490,13 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder="your_datadog_api_key"
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
 
                     {/* Step 3 — Application Key */}
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Step 3 — Application Key
                       </label>
                       <input
@@ -384,19 +505,19 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder="your_datadog_application_key"
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                     </div>
 
                     {cfg.note && (
-                      <p className="text-[11px] text-zinc-700">{cfg.note}</p>
+                      <p className="text-[11px] text-fg-base/40">{cfg.note}</p>
                     )}
                   </>
                 ) : cfg ? (
                   <>
                     {/* Step 1 */}
                     <div className="space-y-2">
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Step 1 — Get your token
                       </p>
                       {cfg.tokenUrl && (
@@ -404,24 +525,24 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                           href={cfg.tokenUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-zinc-600 hover:text-fg-strong transition-all"
+                          className="flex items-center justify-between rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 text-sm text-fg-base hover:border-fg-base/30 hover:text-fg-strong transition-all"
                         >
                           <span>Open {label} token page</span>
-                          <ExternalLink className="h-3.5 w-3.5 text-zinc-600" />
+                          <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-fg-base/40" />
                         </a>
                       )}
 
                       {/* Permissions */}
                       {cfg.permissions && cfg.permissions.length > 0 && (
                         <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5 space-y-1.5">
-                          <p className="text-[11px] text-zinc-700 mb-2">Select these permissions:</p>
+                          <p className="text-[11px] text-fg-base/40 mb-2">Select these permissions:</p>
                           {cfg.permissions.map((p) => (
                             <div key={p.label} className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <Check className="h-3 w-3 text-green-600" />
-                                <span className="font-mono text-[12px] text-zinc-400">{p.label}</span>
+                                <span className="font-mono text-[12px] text-fg-base/60">{p.label}</span>
                               </div>
-                              <span className="text-[11px] text-zinc-700">{p.scope}</span>
+                              <span className="text-[11px] text-fg-base/40">{p.scope}</span>
                             </div>
                           ))}
                         </div>
@@ -430,7 +551,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
 
                     {/* Step 2 */}
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
                         Step 2 — Paste your token
                       </label>
                       <input
@@ -439,10 +560,10 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                         placeholder={cfg.placeholder}
                         required
                         autoComplete="off"
-                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                        className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                       />
                       {cfg.note && (
-                        <p className="text-[11px] text-zinc-700">{cfg.note}</p>
+                        <p className="text-[11px] text-fg-base/40">{cfg.note}</p>
                       )}
                     </div>
                   </>
@@ -451,7 +572,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                 <input type="hidden" name="service" value={service} />
 
                 {error && (
-                  <p className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-[12px] text-red-400 font-mono">
+                  <p className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-600 dark:text-red-400 font-mono">
                     {error}
                   </p>
                 )}

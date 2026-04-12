@@ -44,14 +44,14 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
                     ? "border-inari-accent bg-inari-accent text-white"
                     : isActive
                     ? "border-inari-accent bg-inari-accent/10 text-inari-accent"
-                    : "border-line-medium bg-transparent text-zinc-600"
+                    : "border-line-medium bg-transparent text-fg-base/50"
                 }`}
               >
-                {isCompleted ? <Check className="h-3.5 w-3.5" /> : step.num}
+                {isCompleted ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : step.num}
               </div>
               <span
                 className={`text-[11px] font-medium transition-colors duration-300 ${
-                  isActive ? "text-zinc-200" : isCompleted ? "text-zinc-400" : "text-zinc-600"
+                  isActive ? "text-fg-strong" : isCompleted ? "text-fg-base/60" : "text-fg-base/40"
                 }`}
               >
                 {step.label}
@@ -193,7 +193,7 @@ function IntegrationCard({
           <Check className="h-5 w-5 text-green-500" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-zinc-200">{service.label}</p>
+          <p className="text-sm font-medium text-fg-base">{service.label}</p>
           <p className="text-xs text-green-500/70">Connected</p>
         </div>
       </div>
@@ -208,15 +208,16 @@ function IntegrationCard({
         onClick={() => { setExpanded(!expanded); setError(""); }}
         className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-zinc-900 text-zinc-300 shrink-0">
-          <Icon className="h-5 w-5" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-dim text-fg-base/50 shrink-0">
+          <Icon aria-hidden="true" className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-zinc-200">{service.label}</p>
-          <p className="text-xs text-zinc-500">{service.desc}</p>
+          <p className="text-sm font-medium text-fg-base">{service.label}</p>
+          <p className="text-xs text-fg-base/60">{service.desc}</p>
         </div>
         <ArrowRight
-          className={`h-4 w-4 text-zinc-600 transition-transform duration-200 ${
+          aria-hidden="true"
+          className={`h-4 w-4 text-fg-base/40 transition-transform duration-200 ${
             expanded ? "rotate-90" : ""
           }`}
         />
@@ -226,7 +227,7 @@ function IntegrationCard({
       {expanded && (
         <div className="border-t border-line px-4 pb-4 pt-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-1">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+            <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
               {service.tokenLabel}
             </label>
             <a
@@ -235,7 +236,7 @@ function IntegrationCard({
               rel="noreferrer"
               className="flex items-center gap-1 text-[11px] text-inari-accent hover:text-inari-accent/80 transition-colors"
             >
-              Get token <ExternalLink className="h-3 w-3" />
+              Get token <ExternalLink aria-hidden="true" className="h-3 w-3" />
             </a>
           </div>
           <input
@@ -244,11 +245,11 @@ function IntegrationCard({
             onChange={(e) => setToken(e.target.value)}
             placeholder={service.placeholder}
             autoComplete="off"
-            className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+            className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
           />
 
           {error && (
-            <p className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-[12px] text-red-400 font-mono">
+            <p className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-600 dark:text-red-400 font-mono">
               {error}
             </p>
           )}
@@ -262,7 +263,7 @@ function IntegrationCard({
           >
             {isPending ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Connecting...
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> Connecting...
               </>
             ) : (
               `Connect ${service.label}`
@@ -396,20 +397,20 @@ export function OnboardingWizard({ userName }: { userName: string }) {
           <StepContainer active={currentStep === 1}>
             <div className="flex flex-col items-center text-center">
               <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-inari-accent/20 bg-inari-accent/[0.06]">
-                <FolderPlus className="h-7 w-7 text-inari-accent" />
+                <FolderPlus aria-hidden="true" className="h-7 w-7 text-inari-accent" />
               </div>
 
               <h2 className="text-xl font-semibold text-fg-strong mb-2">
                 Welcome, {userName}
               </h2>
-              <p className="text-sm text-zinc-500 mb-8 max-w-sm">
+              <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
                 Let&apos;s set up your first project. A project groups your integrations
                 and alerts together.
               </p>
 
               <div className="w-full max-w-sm space-y-3">
                 <div className="text-left">
-                  <label className="block text-[11px] font-mono font-medium uppercase tracking-wider text-zinc-600 mb-1.5">
+                  <label className="block text-[11px] font-mono font-medium uppercase tracking-wider text-fg-base/50 mb-1.5">
                     Project name
                   </label>
                   <input
@@ -420,12 +421,12 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                     onKeyDown={handleKeyDown}
                     placeholder="my-app"
                     autoFocus
-                    className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                    className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
                   />
                   {projectName.trim() && (
-                    <p className="mt-1.5 text-xs text-zinc-600">
+                    <p className="mt-1.5 text-xs text-fg-base/50">
                       Slug:{" "}
-                      <span className="font-mono text-zinc-500">
+                      <span className="font-mono text-fg-base/60">
                         {projectName
                           .trim()
                           .toLowerCase()
@@ -438,7 +439,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 </div>
 
                 {projectError && (
-                  <p className="text-xs text-red-400 font-mono">{projectError}</p>
+                  <p className="text-xs text-red-600 dark:text-red-400 font-mono">{projectError}</p>
                 )}
 
                 <Button
@@ -450,11 +451,11 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 >
                   {isPending ? (
                     <>
-                      <Loader2 className="h-4 w-4 animate-spin" /> Creating...
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> Creating...
                     </>
                   ) : (
                     <>
-                      Create project <ArrowRight className="h-4 w-4" />
+                      Create project <ArrowRight aria-hidden="true" className="h-4 w-4" />
                     </>
                   )}
                 </Button>
@@ -468,7 +469,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
               <h2 className="text-xl font-semibold text-fg-strong mb-2">
                 Connect your services
               </h2>
-              <p className="text-sm text-zinc-500 mb-6 max-w-sm">
+              <p className="text-sm text-fg-base/60 mb-6 max-w-sm">
                 InariWatch polls these services every 1 minute and surfaces alerts
                 when something needs attention.
               </p>
@@ -486,7 +487,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
               </div>
 
               {connectedServices.size > 0 && (
-                <p className="text-xs text-zinc-500 mb-4">
+                <p className="text-xs text-fg-base/60 mb-4">
                   {connectedServices.size} of {SERVICES.length} connected
                 </p>
               )}
@@ -498,7 +499,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                     className="flex-1"
                     onClick={() => setCurrentStep(3)}
                   >
-                    Skip for now <ArrowRight className="h-3.5 w-3.5" />
+                    Skip for now <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
                   </Button>
                 ) : (
                   <Button
@@ -506,7 +507,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                     className="flex-1"
                     onClick={() => setCurrentStep(3)}
                   >
-                    Continue <ArrowRight className="h-3.5 w-3.5" />
+                    Continue <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
                   </Button>
                 )}
               </div>
@@ -517,13 +518,13 @@ export function OnboardingWizard({ userName }: { userName: string }) {
           <StepContainer active={currentStep === 3}>
             <div className="flex flex-col items-center text-center">
               <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-inari-accent/20 bg-inari-accent/[0.06]">
-                <Bell className="h-7 w-7 text-inari-accent" />
+                <Bell aria-hidden="true" className="h-7 w-7 text-inari-accent" />
               </div>
 
               <h2 className="text-xl font-semibold text-fg-strong mb-2">
                 Stay in the loop
               </h2>
-              <p className="text-sm text-zinc-500 mb-8 max-w-sm">
+              <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
                 Get alerted on Telegram or email when something breaks.
                 You can configure notification channels anytime from Settings.
               </p>
@@ -531,27 +532,27 @@ export function OnboardingWizard({ userName }: { userName: string }) {
               <div className="w-full max-w-sm space-y-3 mb-8">
                 {/* Telegram card */}
                 <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-zinc-900 text-zinc-400 shrink-0">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-dim text-fg-base/50 shrink-0">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-current">
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-1.99 1.27-5.62 3.72-.53.36-1.01.54-1.44.53-.47-.01-1.38-.27-2.06-.49-.83-.27-1.49-.42-1.43-.88.03-.24.37-.49 1.02-.75 3.99-1.73 6.65-2.87 7.97-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.53.17.14.12.18.28.2.45-.01.06.01.24 0 .38z" />
                     </svg>
                   </div>
                   <div className="min-w-0 flex-1 text-left">
-                    <p className="text-sm font-medium text-zinc-200">Telegram</p>
-                    <p className="text-xs text-zinc-500">Instant alerts via bot message</p>
+                    <p className="text-sm font-medium text-fg-base">Telegram</p>
+                    <p className="text-xs text-fg-base/60">Instant alerts via bot message</p>
                   </div>
                 </div>
 
                 {/* Email card */}
                 <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-zinc-900 text-zinc-400 shrink-0">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-dim text-fg-base/50 shrink-0">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-current">
                       <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
                     </svg>
                   </div>
                   <div className="min-w-0 flex-1 text-left">
-                    <p className="text-sm font-medium text-zinc-200">Email</p>
-                    <p className="text-xs text-zinc-500">Alert digests to your inbox</p>
+                    <p className="text-sm font-medium text-fg-base">Email</p>
+                    <p className="text-xs text-fg-base/60">Alert digests to your inbox</p>
                   </div>
                 </div>
               </div>
@@ -564,7 +565,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                     router.push("/settings");
                   }}
                 >
-                  Go to Settings <ArrowRight className="h-3.5 w-3.5" />
+                  Go to Settings <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   variant="outline"
@@ -583,13 +584,13 @@ export function OnboardingWizard({ userName }: { userName: string }) {
               <Celebration />
 
               <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-inari-accent/30 bg-inari-accent/10">
-                <Sparkles className="h-8 w-8 text-inari-accent" />
+                <Sparkles aria-hidden="true" className="h-8 w-8 text-inari-accent" />
               </div>
 
               <h2 className="text-2xl font-semibold text-fg-strong mb-2">
                 You&apos;re all set!
               </h2>
-              <p className="text-sm text-zinc-500 mb-2 max-w-sm">
+              <p className="text-sm text-fg-base/60 mb-2 max-w-sm">
                 Your project is ready. InariWatch will start monitoring your connected
                 services and surface alerts when something needs your attention.
               </p>
@@ -603,7 +604,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                         key={svc}
                         className="inline-flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/[0.06] px-3 py-1 text-xs font-medium text-green-400"
                       >
-                        <Check className="h-3 w-3" />
+                        <Check aria-hidden="true" className="h-3 w-3" />
                         {info?.label ?? svc}
                       </span>
                     );
@@ -612,7 +613,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
               )}
 
               {connectedServices.size === 0 && (
-                <p className="text-xs text-zinc-600 mb-6">
+                <p className="text-xs text-fg-base/50 mb-6">
                   You can connect integrations later from the Integrations page.
                 </p>
               )}
@@ -623,7 +624,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 className="w-full max-w-xs"
                 onClick={goToDashboard}
               >
-                Go to Dashboard <ArrowRight className="h-4 w-4" />
+                Go to Dashboard <ArrowRight aria-hidden="true" className="h-4 w-4" />
               </Button>
             </div>
           </StepContainer>
@@ -631,7 +632,7 @@ export function OnboardingWizard({ userName }: { userName: string }) {
 
         {/* Step counter */}
         <div className="mt-8 text-center">
-          <span className="text-xs text-zinc-700">
+          <span className="text-xs text-fg-base/40">
             Step {currentStep} of {TOTAL_STEPS}
           </span>
         </div>

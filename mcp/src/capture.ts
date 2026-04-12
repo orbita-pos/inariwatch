@@ -3,7 +3,17 @@ import { join } from "path";
 import { execSync } from "child_process";
 import { createInterface } from "readline";
 
-export type ProjectType = "nextjs" | "node" | "unknown";
+export type ProjectType =
+  | "nextjs"
+  | "nuxt"
+  | "remix"
+  | "sveltekit"
+  | "astro"
+  | "vite"
+  | "express"
+  | "fastify"
+  | "node"
+  | "unknown";
 
 export type ProjectInfo = {
   type: ProjectType;
@@ -29,9 +39,17 @@ export function detectProject(cwd: string = process.cwd()): ProjectInfo | null {
 
   const hasCapture = "@inariwatch/capture" in deps;
 
-  // Detect framework
+  // Detect framework — meta-frameworks before libs, since meta-frameworks often
+  // pull in underlying tools (vite, etc.) as transitive deps.
   let type: ProjectType = "node";
   if ("next" in deps) type = "nextjs";
+  else if ("nuxt" in deps || "nuxt3" in deps) type = "nuxt";
+  else if ("@remix-run/react" in deps || "@remix-run/node" in deps || "@remix-run/serve" in deps) type = "remix";
+  else if ("@sveltejs/kit" in deps) type = "sveltekit";
+  else if ("astro" in deps) type = "astro";
+  else if ("fastify" in deps) type = "fastify";
+  else if ("express" in deps) type = "express";
+  else if ("vite" in deps) type = "vite";
 
   // Detect package manager
   let packageManager: ProjectInfo["packageManager"] = "npm";
@@ -61,10 +79,101 @@ export function installCapture(project: ProjectInfo, cwd: string = process.cwd()
   }
 
   // Framework-specific setup
-  if (project.type === "nextjs") {
-    return setupNextjs(cwd);
+  switch (project.type) {
+    case "nextjs":    return setupNextjs(cwd);
+    case "nuxt":      return setupNuxt(cwd);
+    case "remix":
+    case "sveltekit":
+    case "vite":      return setupVite(cwd);
+    case "astro":     return setupAstro(cwd);
+    case "fastify":
+    case "express":
+    case "node":
+    case "unknown":
+    default:          return setupNodeEntry(cwd);
+  }
+}
+
+function findConfigFile(cwd: string, names: string[]): { path: string; content: string } | null {
+  for (const name of names) {
+    const p = join(cwd, name);
+    if (existsSync(p)) {
+      return { path: p, content: readFileSync(p, "utf8") };
+    }
+  }
+  return null;
+}
+
+function setupVite(cwd: string): { ok: boolean; error?: string } {
+  const found = findConfigFile(cwd, [
+    "vite.config.ts",
+    "vite.config.mts",
+    "vite.config.js",
+    "vite.config.mjs",
+    "vite.config.cjs",
+  ]);
+  if (!found) return { ok: true }; // Leave config alone if none present.
+  if (found.content.includes("@inariwatch/capture")) return { ok: true };
+
+  const importLine = `import { inariwatchVite } from "@inariwatch/capture/vite"\n`;
+  let newContent = importLine + found.content;
+
+  const pluginsRegex = /plugins\s*:\s*\[/;
+  if (pluginsRegex.test(newContent)) {
+    newContent = newContent.replace(pluginsRegex, "plugins: [inariwatchVite(), ");
+    writeFileSync(found.path, newContent);
+  }
+  return { ok: true };
+}
+
+function setupNuxt(cwd: string): { ok: boolean; error?: string } {
+  const found = findConfigFile(cwd, ["nuxt.config.ts", "nuxt.config.mjs", "nuxt.config.js"]);
+  if (!found) return { ok: true };
+  if (found.content.includes("@inariwatch/capture")) return { ok: true };
+
+  const modulesRegex = /modules\s*:\s*\[/;
+  let newContent: string;
+  if (modulesRegex.test(found.content)) {
+    newContent = found.content.replace(modulesRegex, `modules: ["@inariwatch/capture/nuxt", `);
+  } else {
+    const openBrace = /defineNuxtConfig\s*\(\s*\{/;
+    if (!openBrace.test(found.content)) return { ok: true };
+    newContent = found.content.replace(openBrace, `defineNuxtConfig({\n  modules: ["@inariwatch/capture/nuxt"],`);
+  }
+  writeFileSync(found.path, newContent);
+  return { ok: true };
+}
+
+function setupAstro(cwd: string): { ok: boolean; error?: string } {
+  const found = findConfigFile(cwd, ["astro.config.ts", "astro.config.mjs", "astro.config.js"]);
+  if (!found) return { ok: true };
+  if (found.content.includes("@inariwatch/capture")) return { ok: true };
+
+  const importLine = `import { inariwatchVite } from "@inariwatch/capture/vite"\n`;
+  let newContent = importLine + found.content;
+
+  // Existing vite.plugins array: inject into it.
+  const vitePluginsRegex = /vite\s*:\s*\{[^}]*plugins\s*:\s*\[/;
+  if (vitePluginsRegex.test(newContent)) {
+    newContent = newContent.replace(/plugins\s*:\s*\[/, "plugins: [inariwatchVite(), ");
+    writeFileSync(found.path, newContent);
+    return { ok: true };
   }
 
+  // Existing vite block without plugins: add plugins inside it.
+  const viteRegex = /vite\s*:\s*\{/;
+  if (viteRegex.test(newContent)) {
+    newContent = newContent.replace(viteRegex, "vite: {\n    plugins: [inariwatchVite()],");
+    writeFileSync(found.path, newContent);
+  }
+  return { ok: true };
+}
+
+function setupNodeEntry(cwd: string): { ok: boolean; error?: string } {
+  // For plain Node, Express, Fastify: rely on `--import @inariwatch/capture/auto`
+  // flag in the start script. We don't mutate source files — too risky to guess
+  // the entry point. The CLI output and docs tell the user how to wire it.
+  void cwd;
   return { ok: true };
 }
 

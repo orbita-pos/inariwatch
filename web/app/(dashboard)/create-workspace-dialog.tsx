@@ -55,25 +55,25 @@ export function CreateWorkspaceDialog({ open, onClose }: CreateWorkspaceDialogPr
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Acme Corp"
                 autoFocus
-                className="mt-1.5 h-10 w-full rounded-lg border border-line bg-surface-inner px-3 text-sm text-fg-strong placeholder:text-zinc-500 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                className="mt-1.5 h-10 w-full rounded-lg border border-line bg-surface-inner px-3 text-sm text-fg-strong placeholder:text-fg-base/40 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors"
               />
             </div>
 
             {error && (
-              <p className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">{error}</p>
+              <p role="alert" className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-400">{error}</p>
             )}
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
               <Button type="submit" variant="primary" disabled={pending || name.trim().length < 2}>
-                {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create workspace"}
+                {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Create workspace"}
               </Button>
             </div>
           </form>
 
           <Dialog.Close asChild>
-            <button className="absolute right-4 top-4 text-zinc-500 hover:text-fg-strong transition-colors" aria-label="Close">
-              <X className="h-4 w-4" />
+            <button type="button" className="absolute right-4 top-4 text-fg-base/60 hover:text-fg-strong transition-colors" aria-label="Close">
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </Dialog.Close>
         </Dialog.Content>

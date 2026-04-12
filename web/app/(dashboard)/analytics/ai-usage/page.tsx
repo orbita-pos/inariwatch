@@ -324,19 +324,19 @@ function StatCard({
   return (
     <div className="rounded-xl border border-line bg-surface-dim px-5 py-4">
       <div className="flex items-start justify-between mb-2">
-        <span className="text-xs uppercase tracking-wider text-zinc-500 font-medium">{label}</span>
-        <Icon className="h-4 w-4 text-zinc-600" />
+        <span className="text-xs uppercase tracking-wider text-fg-base/60 font-medium">{label}</span>
+        <Icon className="h-4 w-4 text-fg-base/50" aria-hidden="true" />
       </div>
       <div className="text-2xl font-semibold text-fg-strong">{value}</div>
-      {subtitle && <div className="mt-1 text-xs text-zinc-500">{subtitle}</div>}
+      {subtitle && <div className="mt-1 text-xs text-fg-base/60">{subtitle}</div>}
       {trend && (
         <div className={`mt-2 flex items-center gap-1 text-xs ${
-          trend.direction === "up" ? "text-red-400" :
-          trend.direction === "down" ? "text-emerald-400" :
-          "text-zinc-500"
+          trend.direction === "up" ? "text-red-600 dark:text-red-400" :
+          trend.direction === "down" ? "text-emerald-600 dark:text-emerald-400" :
+          "text-fg-base/60"
         }`}>
-          {trend.direction === "up" && <TrendingUp className="h-3 w-3" />}
-          {trend.direction === "down" && <TrendingDown className="h-3 w-3" />}
+          {trend.direction === "up" && <TrendingUp className="h-3 w-3" aria-hidden="true" />}
+          {trend.direction === "down" && <TrendingDown className="h-3 w-3" aria-hidden="true" />}
           <span>{trend.text}</span>
         </div>
       )}
@@ -362,10 +362,10 @@ function BarRow({
       <div className="flex items-baseline justify-between mb-1 text-sm">
         <div className="flex-1 min-w-0">
           <span className="text-fg-base font-medium truncate">{label}</span>
-          {sub && <span className="ml-2 text-xs text-zinc-500">{sub}</span>}
+          {sub && <span className="ml-2 text-xs text-fg-base/60">{sub}</span>}
         </div>
         <div className="flex items-center gap-3 text-xs tabular-nums">
-          <span className="text-zinc-500">{calls} {calls === 1 ? "call" : "calls"}</span>
+          <span className="text-fg-base/60">{calls} {calls === 1 ? "call" : "calls"}</span>
           <span className="text-fg-strong font-semibold">{formatCost(cost)}</span>
         </div>
       </div>
@@ -382,7 +382,7 @@ function BarRow({
 function DailyChart({ data }: { data: { day: string; cost: number }[] }) {
   if (data.length === 0) {
     return (
-      <div className="h-32 flex items-center justify-center text-sm text-zinc-500">
+      <div className="h-32 flex items-center justify-center text-sm text-fg-base/60">
         No usage yet this period
       </div>
     );
@@ -435,17 +435,17 @@ function QuotaBar({ status }: { status: QuotaStatus }) {
           <span className="text-sm font-medium text-fg-base">
             {QUOTA_LABELS[status.feature]}
           </span>
-          <span className="ml-2 text-xs text-zinc-600">
+          <span className="ml-2 text-xs text-fg-base/50">
             {QUOTA_DESCRIPTIONS[status.feature]}
           </span>
         </div>
         <div className="text-xs tabular-nums">
           <span className="text-fg-strong font-semibold">{status.used.toLocaleString()}</span>
-          <span className="text-zinc-500">/{status.limit.toLocaleString()}</span>
+          <span className="text-fg-base/60">/{status.limit.toLocaleString()}</span>
           <span className={`ml-2 ${
-            status.percentUsed >= 100 ? "text-red-400" :
-            status.percentUsed >= 80 ? "text-amber-400" :
-            "text-zinc-500"
+            status.percentUsed >= 100 ? "text-red-600 dark:text-red-400" :
+            status.percentUsed >= 80 ? "text-amber-600 dark:text-amber-400" :
+            "text-fg-base/60"
           }`}>{status.percentUsed}%</span>
         </div>
       </div>
@@ -478,20 +478,20 @@ function PlanCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {plan === "pro" ? (
-              <Sparkles className="h-5 w-5 text-inari-accent" />
+              <Sparkles className="h-5 w-5 text-inari-accent" aria-hidden="true" />
             ) : (
-              <Brain className="h-5 w-5 text-zinc-500" />
+              <Brain className="h-5 w-5 text-fg-base/50" aria-hidden="true" />
             )}
             <h2 className="text-base font-semibold text-fg-strong">
               {plan === "pro" ? "Pro Plan" : "Free Plan"}
             </h2>
             {plan === "free" && (
-              <span className="ml-2 text-xs text-zinc-500">
+              <span className="ml-2 text-xs text-fg-base/60">
                 Upgrade for 10x more
               </span>
             )}
           </div>
-          <div className="text-xs text-zinc-500">
+          <div className="text-xs text-fg-base/60">
             Resets in {daysUntilReset} {daysUntilReset === 1 ? "day" : "days"}
           </div>
         </div>
@@ -512,18 +512,18 @@ function PlanCard({
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-2">
               <AlertCircle className={`h-4 w-4 mt-0.5 shrink-0 ${
-                anyExceeded ? "text-red-400" : "text-amber-400"
-              }`} />
+                anyExceeded ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"
+              }`} aria-hidden="true" />
               <div className="text-sm">
                 {anyExceeded ? (
                   <>
                     <span className="font-medium text-fg-strong">You&apos;ve hit a limit.</span>
-                    <span className="text-zinc-500"> Upgrade to Pro for 10x more allocations.</span>
+                    <span className="text-fg-base/60"> Upgrade to Pro for 10x more allocations.</span>
                   </>
                 ) : (
                   <>
                     <span className="font-medium text-fg-strong">You&apos;re close to a limit.</span>
-                    <span className="text-zinc-500"> Upgrade now to avoid interruption.</span>
+                    <span className="text-fg-base/60"> Upgrade now to avoid interruption.</span>
                   </>
                 )}
               </div>
@@ -597,10 +597,10 @@ export default async function AIUsagePage() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">
-          <Brain className="h-6 w-6 text-inari-accent" />
+          <Brain className="h-6 w-6 text-inari-accent" aria-hidden="true" />
           <h1 className="text-2xl font-semibold text-fg-strong">AI Usage</h1>
         </div>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-fg-base/60">
           Your monthly AI quotas + BYOK spending broken down by feature, model, and date.
         </p>
       </div>
@@ -652,7 +652,7 @@ export default async function AIUsagePage() {
             <span className="text-sm font-medium text-fg-strong">Monthly budget</span>
             <span className="text-sm tabular-nums">
               <span className="text-fg-strong font-semibold">{formatCost(data.thisMonth.cost)}</span>
-              <span className="text-zinc-500"> / {formatCost(data.budget)}</span>
+              <span className="text-fg-base/60"> / {formatCost(data.budget)}</span>
             </span>
           </div>
           <div className="h-2 rounded-full bg-surface-inner overflow-hidden">
@@ -666,7 +666,7 @@ export default async function AIUsagePage() {
             />
           </div>
           {(budgetPct ?? 0) > 80 && (
-            <p className={`mt-2 text-xs ${(budgetPct ?? 0) > 100 ? "text-red-400" : "text-amber-400"}`}>
+            <p className={`mt-2 text-xs ${(budgetPct ?? 0) > 100 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
               {(budgetPct ?? 0) > 100
                 ? `You're ${formatCost(data.thisMonth.cost - data.budget)} over budget this month.`
                 : `You've used ${Math.round(budgetPct ?? 0)}% of your monthly budget.`}
@@ -686,7 +686,7 @@ export default async function AIUsagePage() {
         <div className="rounded-xl border border-line bg-surface-dim px-5 py-5">
           <h2 className="text-sm font-medium text-fg-strong mb-4">By feature</h2>
           {featuresWithPct.length === 0 ? (
-            <p className="text-sm text-zinc-500">No data yet this month.</p>
+            <p className="text-sm text-fg-base/60">No data yet this month.</p>
           ) : (
             <div className="space-y-1">
               {featuresWithPct.map((f) => (
@@ -705,7 +705,7 @@ export default async function AIUsagePage() {
         <div className="rounded-xl border border-line bg-surface-dim px-5 py-5">
           <h2 className="text-sm font-medium text-fg-strong mb-4">By model</h2>
           {modelsWithPct.length === 0 ? (
-            <p className="text-sm text-zinc-500">No data yet this month.</p>
+            <p className="text-sm text-fg-base/60">No data yet this month.</p>
           ) : (
             <div className="space-y-1">
               {modelsWithPct.map((m) => (
@@ -728,7 +728,7 @@ export default async function AIUsagePage() {
         <div className="rounded-xl border border-line bg-surface-dim px-5 py-5">
           <h2 className="text-sm font-medium text-fg-strong mb-4">Top alerts by cost</h2>
           {data.topAlerts.length === 0 ? (
-            <p className="text-sm text-zinc-500">No alert-linked calls yet.</p>
+            <p className="text-sm text-fg-base/60">No alert-linked calls yet.</p>
           ) : (
             <div className="space-y-2">
               {data.topAlerts.map((a) => (
@@ -739,7 +739,7 @@ export default async function AIUsagePage() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-fg-base truncate">{a.title}</div>
-                    <div className="text-xs text-zinc-500">{a.calls} {a.calls === 1 ? "call" : "calls"}</div>
+                    <div className="text-xs text-fg-base/60">{a.calls} {a.calls === 1 ? "call" : "calls"}</div>
                   </div>
                   <div className="text-sm font-semibold text-fg-strong tabular-nums shrink-0">
                     {formatCost(a.cost)}
@@ -753,7 +753,7 @@ export default async function AIUsagePage() {
         <div className="rounded-xl border border-line bg-surface-dim px-5 py-5">
           <h2 className="text-sm font-medium text-fg-strong mb-4">Top remediation sessions</h2>
           {data.topSessions.length === 0 ? (
-            <p className="text-sm text-zinc-500">No remediation sessions yet.</p>
+            <p className="text-sm text-fg-base/60">No remediation sessions yet.</p>
           ) : (
             <div className="space-y-2">
               {data.topSessions.map((s) => (
@@ -764,7 +764,7 @@ export default async function AIUsagePage() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-fg-base truncate">{s.alertTitle}</div>
-                    <div className="text-xs text-zinc-500">{s.calls} {s.calls === 1 ? "call" : "calls"}</div>
+                    <div className="text-xs text-fg-base/60">{s.calls} {s.calls === 1 ? "call" : "calls"}</div>
                   </div>
                   <div className="text-sm font-semibold text-fg-strong tabular-nums shrink-0">
                     {formatCost(s.cost)}
@@ -777,8 +777,8 @@ export default async function AIUsagePage() {
       </div>
 
       {/* Footer note */}
-      <div className="mt-8 rounded-lg border border-line bg-surface-inner px-4 py-3 text-xs text-zinc-500">
-        <strong className="text-zinc-400">How this is calculated:</strong> Every AI call logs
+      <div className="mt-8 rounded-lg border border-line bg-surface-inner px-4 py-3 text-xs text-fg-base/60">
+        <strong className="text-fg-base/60">How this is calculated:</strong> Every AI call logs
         input/output token counts from the provider response. Cost is computed using published
         per-model rates (USD per 1M tokens) at the time of call. Cached input tokens are billed
         at the discounted rate (typically 10% of full price). Numbers may differ slightly from

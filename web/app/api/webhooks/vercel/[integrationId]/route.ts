@@ -6,7 +6,8 @@ import {
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
-import { db, alerts } from "@/lib/db";
+import { rateLimit } from "@/lib/auth-rate-limit";
+import { db, alerts, PLAN_LIMITS } from "@/lib/db";
 import { eq, and, like, sql } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
@@ -32,13 +33,13 @@ export async function POST(
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
     return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
 
-  // Rate limiting
+  // IP rate limit (anti-DOS)
   const ip = extractClientIp(req);
-  const rateLimit = await checkWebhookRateLimit(ip);
-  if (!rateLimit.allowed) {
+  const ipRl = await checkWebhookRateLimit(ip);
+  if (!ipRl.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+      { status: 429, headers: { "Retry-After": String(ipRl.retryAfter) } }
     );
   }
 
@@ -49,6 +50,20 @@ export async function POST(
 
   if (integ.service !== "vercel") {
     return NextResponse.json({ error: "Not a Vercel integration" }, { status: 400 });
+  }
+
+  // Per-project daily events cap (shared across all webhook sources).
+  const plan = integ.userPlan ?? "free";
+  const dailyCap = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.free).maxCaptureEventsPerDay;
+  const dayRl = await rateLimit("capture-daily", integ.projectId, {
+    windowMs: 86_400_000,
+    max: dailyCap,
+  });
+  if (!dayRl.allowed) {
+    return NextResponse.json(
+      { error: "Daily event cap reached for this project" },
+      { status: 429, headers: { "Retry-After": String(dayRl.retryAfterSeconds ?? 3600) } }
+    );
   }
 
   const secret = integ.webhookSecret;
@@ -150,6 +165,7 @@ export async function POST(
       if (isProduction && autoRollbackEnabled) {
         triggerAutoRollback({
           alertId: result.id,
+          projectId: integ.projectId,
           token: config.token as string,
           teamId: config.teamId as string | undefined,
           vercelProjectId: (config.projectId as string) || String(projectName),
@@ -181,39 +197,16 @@ export async function POST(
       const dep = (innerPayload?.deployment ?? innerPayload ?? {}) as Record<string, unknown>;
       const gitSource = dep.gitSource as Record<string, unknown> | undefined;
       const branch = (gitSource?.ref ?? (dep.meta as Record<string, unknown>)?.branch ?? "main") as string;
+      const deployId = (dep.uid ?? dep.id ?? "") as string;
 
-      const { sendDeployNotification } = await import("@/lib/slack/send");
-      const { getSlackClientForProject } = await import("@/lib/slack/client");
-      sendDeployNotification(integ.projectId, branch, "success").catch(() => {});
-
-      // Schedule 15-minute health check
-      const slack = await getSlackClientForProject(integ.projectId);
-      if (slack) {
-        const { deployMonitors } = await import("@/lib/db");
-        // Get the latest thread for this deploy (just created by sendDeployNotification)
-        const { slackMessageThreads } = await import("@/lib/db");
-        const [thread] = await db
-          .select()
-          .from(slackMessageThreads)
-          .where(and(
-            eq(slackMessageThreads.type, "deploy"),
-            eq(slackMessageThreads.installationId, slack.installationId),
-          ))
-          .orderBy(sql`created_at DESC`)
-          .limit(1);
-
-        if (thread) {
-          await db.insert(deployMonitors).values({
-            projectId: integ.projectId,
-            channelId: slack.channelId,
-            threadTs: thread.threadTs,
-            installationId: slack.installationId,
-            deploySource: "vercel",
-            deployId: (dep.uid ?? dep.id ?? "") as string,
-            checkAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min from now
-          });
-        }
-      }
+      // Notify Slack + schedule 15-min health check via shared helper.
+      const { scheduleDeployHealthCheck } = await import("@/lib/services/deploy-health-check");
+      scheduleDeployHealthCheck({
+        projectId: integ.projectId,
+        deploySource: "vercel",
+        deployId,
+        branch,
+      }).catch(() => {});
     } catch {
       // Non-blocking
     }

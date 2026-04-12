@@ -42,7 +42,13 @@ const tsvector = customType<{ data: string; driverParam: string }>({
 export const planEnum = pgEnum("plan", ["free", "pro"]);
 export const severityEnum = pgEnum("severity", ["critical", "warning", "info"]);
 export const notifTypeEnum = pgEnum("notification_type", ["telegram", "whatsapp", "email", "slack", "push"]);
-export const integrationEnum = pgEnum("integration", ["github", "vercel", "sentry", "postgres", "git", "npm", "datadog", "uptime", "expo"]);
+export const integrationEnum = pgEnum("integration", [
+  "github", "vercel", "sentry", "postgres", "git", "npm", "datadog", "uptime", "expo",
+  // Hosting providers — see web/lib/providers/rollback/ for implementations.
+  // Vercel/Netlify/Cloudflare Pages/Render are fully implemented.
+  // Railway/Fly are stubs until someone asks for them.
+  "netlify", "cloudflare-pages", "render", "railway", "fly",
+]);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -232,6 +238,15 @@ export const alerts = pgTable("alerts", {
   sourceIntegrations: text("source_integrations").array().notNull().default([]),
   // AI-generated fields
   aiReasoning: text("ai_reasoning"),
+  /**
+   * Why AI auto-analyze was skipped, if it was. Null = AI ran (or hasn't
+   * been attempted yet). Values: 'quota' (user hit per-feature limit),
+   * 'platform_budget' (daily platform AI kill-switch fired), 'no_key'
+   * (no AI key configured at all). Used by the alert detail page to
+   * render a contextual banner instead of leaving the user wondering
+   * why their alert has no diagnosis.
+   */
+  aiSkippedReason: text("ai_skipped_reason"),
   correlationData: jsonb("correlation_data"),
   postmortem: text("postmortem"),
   isRead: boolean("is_read").default(false).notNull(),
@@ -911,7 +926,7 @@ export const deployMonitors = pgTable("deploy_monitors", {
   channelId: text("channel_id").notNull(),
   threadTs: text("thread_ts").notNull(),
   installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
-  deploySource: text("deploy_source").notNull(), // 'vercel' | 'github'
+  deploySource: text("deploy_source").notNull(), // 'vercel' | 'netlify' | 'cloudflare-pages' | 'render' | 'github'
   deployId: text("deploy_id"),
   checkAt: timestamp("check_at").notNull(),
   status: text("status").default("pending").notNull(), // 'pending' | 'checked'

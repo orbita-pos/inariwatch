@@ -166,8 +166,8 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
             <Dialog.Title className="text-sm font-semibold text-fg-strong capitalize">
               Configure {service} alerts
             </Dialog.Title>
-            <Dialog.Close className="rounded-md p-1 text-zinc-600 hover:text-fg-base transition-colors">
-              <X className="h-4 w-4" />
+            <Dialog.Close className="rounded-md p-1 text-fg-base/50 hover:text-fg-base transition-colors">
+              <X aria-hidden="true" className="h-4 w-4" />
             </Dialog.Close>
           </div>
 
@@ -180,7 +180,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                   type="button"
                   onClick={() => setTab(t)}
                   className={`relative py-2.5 pr-4 text-[13px] font-medium transition-colors ${
-                    tab === t ? "text-fg-strong" : "text-zinc-500 hover:text-zinc-400"
+                    tab === t ? "text-fg-strong" : "text-fg-base/50 hover:text-fg-base/60"
                   }`}
                 >
                   {t === "alerts" ? "Alerts" : filterLabel}
@@ -206,13 +206,13 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-fg-base">{type.label}</p>
-                      <p className="mt-0.5 text-[12px] text-zinc-600">{type.description}</p>
+                      <p className="mt-0.5 text-[12px] text-fg-base/50">{type.description}</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setEnabled((prev) => ({ ...prev, [type.key]: !prev[type.key] }))}
                       className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
-                        enabled[type.key] ? "bg-inari-accent" : "bg-zinc-800"
+                        enabled[type.key] ? "bg-inari-accent" : "bg-surface-dim"
                       }`}
                     >
                       <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
@@ -222,7 +222,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                   </div>
                   {type.threshold && enabled[type.key] && (
                     <div className="mt-3 flex items-center gap-3">
-                      <label className="text-[11px] text-zinc-600 flex-1">{type.threshold.label}</label>
+                      <label className="text-[11px] text-fg-base/50 flex-1">{type.threshold.label}</label>
                       <div className="flex items-center gap-1.5">
                         <input
                           type="number"
@@ -232,7 +232,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                           onChange={(e) => setThresholds((prev) => ({ ...prev, [type.key]: Number(e.target.value) }))}
                           className="w-16 rounded-lg border border-line-medium bg-surface-dim px-2 py-1 text-center text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20"
                         />
-                        <span className="text-[11px] text-zinc-600">{type.threshold.unit}</span>
+                        <span className="text-[11px] text-fg-base/50">{type.threshold.unit}</span>
                       </div>
                     </div>
                   )}
@@ -241,11 +241,11 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
 
               {/* ── Auto-rollback (Vercel only) ── */}
               {tab === "alerts" && service === "vercel" && (
-                <div className="rounded-xl border border-orange-900/30 bg-orange-950/10 px-4 py-3.5">
+                <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 px-4 py-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-orange-300">Auto-rollback on failure</p>
-                      <p className="mt-0.5 text-[12px] text-zinc-500">
+                      <p className="text-sm font-medium text-orange-600 dark:text-orange-400">Auto-rollback on failure</p>
+                      <p className="mt-0.5 text-[12px] text-fg-base/60">
                         When a production deployment fails, automatically roll back to the last successful deployment — no action needed.
                       </p>
                     </div>
@@ -253,7 +253,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                       type="button"
                       onClick={() => setAutoRollback((v) => !v)}
                       className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
-                        autoRollback ? "bg-orange-500" : "bg-zinc-800"
+                        autoRollback ? "bg-orange-500" : "bg-surface-dim"
                       }`}
                     >
                       <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
@@ -267,7 +267,7 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
               {/* ── Filter tab ── */}
               {tab === "filter" && (
                 <div className="space-y-3">
-                  <p className="text-[12px] text-zinc-500">
+                  <p className="text-[12px] text-fg-base/60">
                     {filterCount === 0
                       ? `Monitoring all ${filterLabel.toLowerCase()}. Select specific ones to narrow down.`
                       : `Monitoring ${filterCount} ${filterLabel.toLowerCase()}. Uncheck to monitor all.`}
@@ -277,8 +277,8 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                     <div className="space-y-2.5">
                       {[70, 55, 80, 60, 45].map((w, i) => (
                         <div key={i} className="flex items-center gap-2.5">
-                          <div className="h-3.5 w-3.5 rounded bg-zinc-800 animate-pulse shrink-0" />
-                          <div className="h-3 rounded bg-zinc-800 animate-pulse" style={{ width: `${w}%` }} />
+                          <div className="h-3.5 w-3.5 rounded bg-black/[0.08] dark:bg-white/[0.05] animate-pulse shrink-0" />
+                          <div className="h-3 rounded bg-black/[0.08] dark:bg-white/[0.05] animate-pulse" style={{ width: `${w}%` }} />
                         </div>
                       ))}
                     </div>
@@ -296,21 +296,21 @@ export function ConfigModal({ integrationId, service, currentConfig, children }:
                             }
                             className="h-3.5 w-3.5 shrink-0 rounded accent-inari-accent"
                           />
-                          <span className="text-[12px] text-zinc-400 group-hover:text-fg-base transition-colors truncate font-mono">
+                          <span className="text-[12px] text-fg-base/60 group-hover:text-fg-base transition-colors truncate font-mono">
                             {opt.label}
                           </span>
                         </label>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[12px] text-zinc-600">No {filterLabel.toLowerCase()} found.</p>
+                    <p className="text-[12px] text-fg-base/50">No {filterLabel.toLowerCase()} found.</p>
                   )}
 
                   {filterCount > 0 && (
                     <button
                       type="button"
                       onClick={() => setSelectedFilter([])}
-                      className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                      className="text-[11px] text-fg-base/50 hover:text-fg-base/60 transition-colors"
                     >
                       Clear — monitor all {filterLabel.toLowerCase()}
                     </button>

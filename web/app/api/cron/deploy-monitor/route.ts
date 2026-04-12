@@ -62,12 +62,17 @@ export async function GET(req: NextRequest) {
 
       // Post follow-up to Slack thread
       const client = await getSlackClient(monitor.installationId);
-      const blocks = buildDeployFollowUpBlocks(healthy, errorCount);
+      const blocks = buildDeployFollowUpBlocks(healthy, errorCount, monitor.deploySource);
+      const sourceLabel = monitor.deploySource && monitor.deploySource !== "vercel"
+        ? ` (${monitor.deploySource})`
+        : "";
 
       await client.chat.postMessage({
         channel: monitor.channelId,
         thread_ts: monitor.threadTs,
-        text: healthy ? "Deploy looks healthy." : `Deploy may be causing issues (${errorCount} errors).`,
+        text: healthy
+          ? `Deploy${sourceLabel} looks healthy.`
+          : `Deploy${sourceLabel} may be causing issues (${errorCount} errors).`,
         blocks,
       });
 

@@ -16,8 +16,20 @@ import * as gh from "@/lib/services/github-api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type E2EFramework =
+  | "nextjs"
+  | "nuxt"
+  | "remix"
+  | "sveltekit"
+  | "astro"
+  | "vite"
+  | "express"
+  | "fastify"
+  | "nest"
+  | "generic";
+
 export interface E2EConfig {
-  framework: "nextjs" | "express" | "generic";
+  framework: E2EFramework;
   startCommand: string;
   port: number;
   testCommand: string;
@@ -63,21 +75,56 @@ export async function detectE2EConfig(
       return null;
     }
 
-    // Detect framework
+    // Detect framework — order matters, check meta-frameworks before libs.
     let framework: E2EConfig["framework"] = "generic";
-    let startCommand = "npm start";
+    let startCommand = scripts.start ?? "npm start";
     let port = 3000;
-    let buildCommand = "npm run build --if-present";
+    let buildCommand = scripts.build ? "npm run build" : "npm run build --if-present";
 
     if (deps.next) {
       framework = "nextjs";
       startCommand = "npx next start";
       port = 3000;
       buildCommand = "npx next build";
+    } else if (deps.nuxt || deps["nuxt3"]) {
+      framework = "nuxt";
+      startCommand = "node .output/server/index.mjs";
+      port = 3000;
+      buildCommand = "npx nuxt build";
+    } else if (deps["@remix-run/serve"] || deps["@remix-run/node"] || deps["@remix-run/react"]) {
+      framework = "remix";
+      startCommand = scripts.start ?? "npx remix-serve build/server/index.js";
+      port = 3000;
+      buildCommand = "npx remix vite:build";
+    } else if (deps["@sveltejs/kit"]) {
+      framework = "sveltekit";
+      startCommand = "node build/index.js";
+      port = 3000;
+      buildCommand = "npx vite build";
+    } else if (deps.astro) {
+      framework = "astro";
+      startCommand = "node ./dist/server/entry.mjs";
+      port = 4321;
+      buildCommand = "npx astro build";
+    } else if (deps["@nestjs/core"] || deps["@nestjs/common"]) {
+      framework = "nest";
+      startCommand = scripts["start:prod"] ?? "node dist/main.js";
+      port = 3000;
+      buildCommand = scripts.build ? "npm run build" : "npx nest build";
+    } else if (deps.fastify) {
+      framework = "fastify";
+      startCommand = scripts.start ?? "node dist/index.js";
+      port = 3000;
     } else if (deps.express) {
       framework = "express";
       startCommand = scripts.start ?? "node dist/index.js";
       port = 3000;
+    } else if (deps.vite) {
+      // Vite without a known meta-framework — likely an SPA or SSR app.
+      framework = "vite";
+      startCommand = scripts.preview ? "npm run preview -- --port 4173 --host" : "npx vite preview --port 4173 --host";
+      port = 4173;
+      buildCommand = "npx vite build";
     }
 
     // Detect package manager

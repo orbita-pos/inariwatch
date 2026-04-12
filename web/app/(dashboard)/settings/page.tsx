@@ -27,7 +27,7 @@ export const metadata: Metadata = { title: "Settings" };
 
 const PLAN_BADGE: Record<string, { label: string; color: string }> = {
   free: { label: "100% Free", color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
-  pro:  { label: "Pro", color: "text-purple-400 border-purple-400/20 bg-purple-400/10" },
+  pro:  { label: "Pro", color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
 };
 
 const CHANNEL_ICON: Record<string, React.ElementType> = {
@@ -137,7 +137,7 @@ export default async function SettingsPage() {
           </div>
         </Row>
         <Row label="Member since">
-          <span className="font-mono text-sm text-zinc-500">
+          <span className="font-mono text-sm text-fg-base/60">
             {user?.createdAt
               ? new Date(user.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
               : "—"}
@@ -166,8 +166,8 @@ export default async function SettingsPage() {
         {channels.length === 0 ? (
           <div className="py-4 space-y-3">
             <div className="text-center">
-              <p className="text-sm text-zinc-500">No channels connected.</p>
-              <p className="mt-1 text-sm text-zinc-600">
+              <p className="text-sm text-fg-base/60">No channels connected.</p>
+              <p className="mt-1 text-sm text-fg-base/50">
                 Connect a channel to get notified when InariWatch detects issues.
               </p>
             </div>
@@ -177,8 +177,8 @@ export default async function SettingsPage() {
               {!slackInstall && <ConnectSlackButton projects={userProjects} />}
             </div>
             <PushNotificationsButton />
-            <Link href="/download" className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all">
-              <Smartphone className="h-3.5 w-3.5" />
+            <Link href="/download" className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-fg-base/60 hover:border-fg-base/30 hover:text-fg-base transition-all">
+              <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
               Get mobile app
             </Link>
           </div>
@@ -198,22 +198,22 @@ export default async function SettingsPage() {
                 const config = ch.config as Record<string, string>;
                 return (
                   <div key={ch.id} className="flex items-center gap-3 py-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500">
-                      <Icon className="h-4 w-4" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-fg-base/50">
+                      <Icon className="h-4 w-4" aria-hidden="true" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm capitalize text-fg-base">
                         {chType === "push" ? "Push" : chType}
-                        {config.bot_name  && <span className="ml-1.5 text-xs text-zinc-600">@{config.bot_name}</span>}
-                        {config.email     && <span className="ml-1.5 text-xs text-zinc-600">{config.email}</span>}
+                        {config.bot_name  && <span className="ml-1.5 text-xs text-fg-base/50">@{config.bot_name}</span>}
+                        {config.email     && <span className="ml-1.5 text-xs text-fg-base/50">{config.email}</span>}
                         {config.webhook_url && (
-                          <span className="ml-1.5 text-xs text-zinc-600">
+                          <span className="ml-1.5 text-xs text-fg-base/50">
                             {config.webhook_url.replace(/^https:\/\/hooks\.slack\.com\/services\//, "").slice(0, 12)}…
                           </span>
                         )}
-                        {chType === "push" && <span className="ml-1.5 text-xs text-zinc-600">Browser</span>}
+                        {chType === "push" && <span className="ml-1.5 text-xs text-fg-base/50">Browser</span>}
                       </p>
-                      <p className="text-xs text-zinc-700">
+                      <p className="text-xs text-fg-base/40">
                         {ch.verifiedAt ? `Verified ${formatRelativeTime(ch.verifiedAt)}` : "Not verified"}
                       </p>
                     </div>
@@ -231,8 +231,8 @@ export default async function SettingsPage() {
               {!channels.some((ch) => ch.type === "email")             && <ConnectEmailButton />}
               {!slackInstall && <ConnectSlackButton projects={userProjects} />}
               {!channels.some((ch) => (ch.type as string) === "push")  && <PushNotificationsButton />}
-              <Link href="/download" className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all">
-                <Smartphone className="h-3.5 w-3.5" />
+              <Link href="/download" className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-fg-base/60 hover:border-fg-base/30 hover:text-fg-base transition-all">
+                <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
                 Mobile app
               </Link>
             </div>
@@ -265,21 +265,21 @@ export default async function SettingsPage() {
       <Section title="API keys">
         {keys.length === 0 ? (
           <div className="py-4 text-center">
-            <p className="text-sm text-zinc-500">No API keys stored.</p>
-            <p className="mt-1 text-sm text-zinc-600">Keys are added via the InariWatch CLI.</p>
+            <p className="text-sm text-fg-base/60">No API keys stored.</p>
+            <p className="mt-1 text-sm text-fg-base/50">Keys are added via the InariWatch CLI.</p>
           </div>
         ) : (
           <div className="divide-y divide-line-subtle">
             {keys.map((k) => (
               <div key={k.id} className="flex items-center gap-3 py-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500">
-                  <Key className="h-4 w-4" />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-fg-base/50">
+                  <Key className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm capitalize text-fg-base">{k.service}</p>
-                  <p className="font-mono text-xs text-zinc-700">••••••••••••••••••••</p>
+                  <p className="font-mono text-xs text-fg-base/40">••••••••••••••••••••</p>
                 </div>
-                <p className="font-mono text-xs text-zinc-700">{formatRelativeTime(k.createdAt)}</p>
+                <p className="font-mono text-xs text-fg-base/40">{formatRelativeTime(k.createdAt)}</p>
               </div>
             ))}
           </div>
@@ -291,21 +291,21 @@ export default async function SettingsPage() {
       <Section title="Desktop app">
         <div className="py-3 space-y-3">
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500 mt-0.5">
-              <Monitor className="h-4 w-4" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-fg-base/50 mt-0.5">
+              <Monitor className="h-4 w-4" aria-hidden="true" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-fg-base">Desktop token</p>
-              <p className="mt-0.5 text-sm text-zinc-500">
+              <p className="mt-0.5 text-sm text-fg-base/60">
                 Used by the InariWatch desktop app to poll for alerts in the background.
               </p>
               {desktopKey ? (
-                <p className="mt-1.5 font-mono text-xs text-zinc-600 tracking-wide">
+                <p className="mt-1.5 font-mono text-xs text-fg-base/50 tracking-wide">
                   rdr_{"•".repeat(20)}{" "}
-                  <span className="text-zinc-700">— generated {formatRelativeTime(desktopKey.createdAt)}</span>
+                  <span className="text-fg-base/40">— generated {formatRelativeTime(desktopKey.createdAt)}</span>
                 </p>
               ) : (
-                <p className="mt-1.5 text-sm text-zinc-700">No token yet.</p>
+                <p className="mt-1.5 text-sm text-fg-base/40">No token yet.</p>
               )}
             </div>
           </div>
@@ -314,9 +314,9 @@ export default async function SettingsPage() {
 
           {desktopKey && (
             <div className="rounded-lg border border-line bg-surface-inner px-4 py-3 space-y-1">
-              <p className="text-xs text-zinc-600">Add to <span className="font-mono">~/.config/inari/desktop.toml</span></p>
-              <p className="font-mono text-sm text-zinc-600">api_url = <span className="text-zinc-400">"https://inariwatch.com"</span></p>
-              <p className="font-mono text-sm text-zinc-600">api_token = <span className="text-zinc-400">"your-token"</span></p>
+              <p className="text-xs text-fg-base/50">Add to <span className="font-mono">~/.config/inari/desktop.toml</span></p>
+              <p className="font-mono text-sm text-fg-base/50">api_url = <span className="text-fg-base/60">"https://inariwatch.com"</span></p>
+              <p className="font-mono text-sm text-fg-base/50">api_token = <span className="text-fg-base/60">"your-token"</span></p>
             </div>
           )}
         </div>
@@ -356,16 +356,17 @@ export default async function SettingsPage() {
 
       {/* ── Danger zone ──────────────────────────────────────────────────── */}
       <Section title="Danger zone">
-        <div className="flex items-center justify-between rounded-lg border border-red-950/40 bg-red-950/10 px-4 py-3.5">
+        <div className="flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3.5">
           <div>
             <p className="text-sm font-medium text-fg-base">Delete account</p>
-            <p className="mt-0.5 text-sm text-zinc-500">
+            <p className="mt-0.5 text-sm text-fg-base/60">
               Permanently remove your account and all associated data.
             </p>
           </div>
           <button
+            type="button"
             disabled
-            className="cursor-not-allowed rounded-lg border border-red-900/20 px-3 py-1.5 text-sm font-medium text-red-900"
+            className="cursor-not-allowed rounded-lg border border-red-500/20 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400"
             title="Contact support to delete your account"
           >
             Delete
@@ -381,7 +382,7 @@ export default async function SettingsPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-[11px] font-medium uppercase tracking-widest text-zinc-600">{title}</h2>
+      <h2 className="mb-3 text-[11px] font-medium uppercase tracking-widest text-fg-base/60">{title}</h2>
       <div className="overflow-hidden rounded-xl border border-line bg-surface px-5 divide-y divide-line-subtle">
         {children}
       </div>
@@ -392,7 +393,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3.5">
-      <span className="w-28 shrink-0 text-sm text-zinc-500">{label}</span>
+      <span className="w-28 shrink-0 text-sm text-fg-base/60">{label}</span>
       <div className="flex-1">{children}</div>
     </div>
   );

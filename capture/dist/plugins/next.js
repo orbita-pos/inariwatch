@@ -9,12 +9,17 @@
 import { extractGitInfo } from "../git.js";
 export function withInariWatch(nextConfig = {}) {
     const gitEnv = extractGitInfo();
+    const existingExternals = nextConfig.serverExternalPackages ?? [];
+    const serverExternalPackages = existingExternals.includes("@inariwatch/capture")
+        ? existingExternals
+        : [...existingExternals, "@inariwatch/capture"];
     return {
         ...nextConfig,
         env: {
             ...nextConfig.env,
             ...gitEnv,
         },
+        serverExternalPackages,
     };
 }
 //# sourceMappingURL=next.js.map

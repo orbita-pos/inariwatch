@@ -17,18 +17,42 @@ export async function generateMetadata({
     .from(statusPages)
     .where(eq(statusPages.slug, slug))
     .limit(1);
-  return { title: page ? `${page.title} — Status` : "Status" };
+
+  if (!page) return { title: "Status — InariWatch" };
+
+  const title       = `${page.title} — Status`;
+  const description = `Real-time operational status and incident history for ${page.title}. Powered by InariWatch.`;
+  const url         = `https://inariwatch.com/status/${slug}`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      type:        "website",
+      url,
+      siteName:    "InariWatch",
+      title,
+      description,
+    },
+    twitter: {
+      card:        "summary_large_image",
+      site:        "@inariwatch",
+      title,
+      description,
+    },
+  };
 }
 
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const INCIDENT_STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  investigating: { label: "Investigating", color: "text-amber-400", dot: "bg-amber-400" },
-  identified:    { label: "Identified",    color: "text-amber-400", dot: "bg-amber-400" },
-  fixing:        { label: "Fix in Progress", color: "text-blue-400", dot: "bg-blue-400" },
-  monitoring:    { label: "Monitoring",    color: "text-blue-400", dot: "bg-blue-400" },
-  resolved:      { label: "Resolved",      color: "text-green-400", dot: "bg-green-400" },
-  regressed:     { label: "Regressed",     color: "text-red-400", dot: "bg-red-400" },
+  investigating: { label: "Investigating",   color: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" },
+  identified:    { label: "Identified",      color: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" },
+  fixing:        { label: "Fix in Progress", color: "text-blue-600 dark:text-blue-400",   dot: "bg-blue-500"  },
+  monitoring:    { label: "Monitoring",      color: "text-blue-600 dark:text-blue-400",   dot: "bg-blue-500"  },
+  resolved:      { label: "Resolved",        color: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" },
+  regressed:     { label: "Regressed",       color: "text-red-600 dark:text-red-400",     dot: "bg-red-500"   },
 };
 
 export default async function PublicStatusPage({
@@ -145,9 +169,9 @@ export default async function PublicStatusPage({
       : "operational";
 
   const STATUS_CONFIG = {
-    operational: { label: "All Systems Operational", color: "text-green-400", bg: "bg-green-500/10 border-green-500/20", dot: "bg-green-400" },
-    degraded: { label: "Degraded Performance", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20", dot: "bg-amber-400" },
-    major_outage: { label: "Major Outage", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20", dot: "bg-red-400" },
+    operational:  { label: "All Systems Operational", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", dot: "bg-emerald-500" },
+    degraded:     { label: "Degraded Performance",    color: "text-amber-600 dark:text-amber-400",     bg: "bg-amber-500/10 border-amber-500/20",     dot: "bg-amber-500"   },
+    major_outage: { label: "Major Outage",            color: "text-red-600 dark:text-red-400",         bg: "bg-red-500/10 border-red-500/20",         dot: "bg-red-500"     },
   };
 
   const status = STATUS_CONFIG[overallStatus];
@@ -167,28 +191,33 @@ export default async function PublicStatusPage({
   }
 
   return (
-    <div className="min-h-screen bg-[#09090b]">
-      <div className="mx-auto max-w-2xl px-4 py-12">
+    <div className="min-h-screen bg-inari-bg">
+      <main className="mx-auto max-w-2xl px-4 py-12">
         {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-white">{page.title}</h1>
-          <p className="mt-1 text-sm text-zinc-500">System status for {project.name}</p>
-          <p className="mt-1 text-xs text-zinc-700">
+          <h1 className="text-2xl font-bold text-fg-strong">{page.title}</h1>
+          <p className="mt-1 text-sm text-fg-base">System status for {project.name}</p>
+          <p className="mt-1 text-xs text-fg-base/70">
             Last updated {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}
           </p>
         </div>
 
         {/* Overall status */}
-        <div className={`mb-8 flex items-center justify-center gap-3 rounded-xl border p-5 ${status.bg}`}>
-          <span className={`h-3 w-3 rounded-full ${status.dot} animate-pulse`} />
+        <div
+          className={`mb-8 flex items-center justify-center gap-3 rounded-xl border p-5 ${status.bg}`}
+          role="status"
+          aria-live="polite"
+          aria-label={status.label}
+        >
+          <span className={`h-3 w-3 rounded-full ${status.dot} animate-pulse`} aria-hidden="true" />
           <span className={`text-lg font-semibold ${status.color}`}>{status.label}</span>
         </div>
 
         {/* Active incidents */}
         {activeIncidents.length > 0 && (
-          <div className="mb-8 rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden">
+          <section aria-labelledby="active-incidents-heading" className="mb-8 rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden">
             <div className="border-b border-red-500/10 px-5 py-3">
-              <h2 className="text-sm font-medium text-red-400">Active Incidents</h2>
+              <h2 id="active-incidents-heading" className="text-sm font-medium text-red-600 dark:text-red-400">Active Incidents</h2>
             </div>
             <div className="divide-y divide-red-500/10">
               {activeIncidents.map((incident) => {
@@ -199,34 +228,34 @@ export default async function PublicStatusPage({
                   <div key={incident.id} className="px-5 py-4">
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <p className="text-sm font-medium text-zinc-200">{incident.title}</p>
+                        <p className="text-sm font-medium text-fg-strong">{incident.title}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot} animate-pulse`} />
+                          <span className={`h-1.5 w-1.5 rounded-full ${statusInfo.dot} animate-pulse`} aria-hidden="true" />
                           <span className={`text-xs font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
-                          <span className="text-xs text-zinc-600">
+                          <span className="text-xs text-fg-base/70">
                             {incident.startedAt?.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>
                       </div>
                       <span className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded ${
-                        incident.severity === "critical" ? "bg-red-500/20 text-red-400" :
-                        incident.severity === "major" ? "bg-amber-500/20 text-amber-400" :
-                        "bg-blue-500/20 text-blue-400"
+                        incident.severity === "critical" ? "bg-red-500/20 text-red-600 dark:text-red-400" :
+                        incident.severity === "major"    ? "bg-amber-500/20 text-amber-600 dark:text-amber-400" :
+                        "bg-blue-500/20 text-blue-600 dark:text-blue-400"
                       }`}>
                         {incident.severity}
                       </span>
                     </div>
                     {/* Timeline */}
                     {updates.length > 0 && (
-                      <div className="ml-1 border-l border-[#1a1a1a] pl-4 space-y-3">
+                      <div className="ml-1 border-l border-line pl-4 space-y-3">
                         {updates.slice(0, 5).map((update) => {
                           const uStatus = INCIDENT_STATUS_CONFIG[update.status] ?? INCIDENT_STATUS_CONFIG.investigating;
                           return (
                             <div key={update.id} className="relative">
-                              <span className={`absolute -left-[21px] top-1 h-2 w-2 rounded-full ${uStatus.dot}`} />
+                              <span className={`absolute -left-[21px] top-1 h-2 w-2 rounded-full ${uStatus.dot}`} aria-hidden="true" />
                               <p className={`text-xs font-medium ${uStatus.color}`}>{uStatus.label}</p>
-                              <p className="text-xs text-zinc-500 mt-0.5">{update.message}</p>
-                              <p className="text-[10px] text-zinc-700 mt-0.5">
+                              <p className="text-xs text-fg-base mt-0.5">{update.message}</p>
+                              <p className="text-[10px] text-fg-base/60 mt-0.5">
                                 {update.createdAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                               </p>
                             </div>
@@ -238,17 +267,17 @@ export default async function PublicStatusPage({
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
         {/* Components / integrations */}
-        <div className="mb-8 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-          <div className="border-b border-[#1a1a1a] px-5 py-3">
-            <h2 className="text-sm font-medium text-zinc-400">Components</h2>
+        <section aria-labelledby="components-heading" className="mb-8 rounded-xl border border-line bg-inari-card overflow-hidden">
+          <div className="border-b border-line px-5 py-3">
+            <h2 id="components-heading" className="text-sm font-medium text-fg-base">Components</h2>
           </div>
-          <div className="divide-y divide-[#131313]">
+          <div className="divide-y divide-line-subtle">
             {integrations.length === 0 ? (
-              <div className="px-5 py-4 text-center text-sm text-zinc-600">No components configured</div>
+              <div className="px-5 py-4 text-center text-sm text-fg-base/70">No components configured</div>
             ) : (
               integrations.map((integ) => {
                 const integAlerts = recentAlerts.filter(
@@ -262,14 +291,14 @@ export default async function PublicStatusPage({
 
                 return (
                   <div key={integ.id} className="flex items-center justify-between px-5 py-3">
-                    <span className="text-sm text-zinc-300 capitalize">{integ.service}</span>
+                    <span className="text-sm text-fg-strong capitalize">{integ.service}</span>
                     <span
                       className={`text-xs font-medium ${
                         integStatus === "operational"
-                          ? "text-green-400"
+                          ? "text-emerald-600 dark:text-emerald-400"
                           : integStatus === "degraded"
-                          ? "text-amber-400"
-                          : "text-red-400"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-red-600 dark:text-red-400"
                       }`}
                     >
                       {integStatus === "operational" ? "Operational" : integStatus === "degraded" ? "Degraded" : "Outage"}
@@ -279,15 +308,15 @@ export default async function PublicStatusPage({
               })
             )}
           </div>
-        </div>
+        </section>
 
         {/* Uptime monitors */}
         {monitors.length > 0 && (
-          <div className="mb-8 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-            <div className="border-b border-[#1a1a1a] px-5 py-3">
-              <h2 className="text-sm font-medium text-zinc-400">Uptime</h2>
+          <section aria-labelledby="uptime-heading" className="mb-8 rounded-xl border border-line bg-inari-card overflow-hidden">
+            <div className="border-b border-line px-5 py-3">
+              <h2 id="uptime-heading" className="text-sm font-medium text-fg-base">Uptime</h2>
             </div>
-            <div className="divide-y divide-[#131313]">
+            <div className="divide-y divide-line-subtle">
               {monitors.map((monitor) => {
                 const monitorChecks = allChecks.filter(c => c.monitorId === monitor.id);
                 const uptimePct = monitorChecks.length > 0
@@ -300,57 +329,66 @@ export default async function PublicStatusPage({
                   d.setDate(d.getDate() - (89 - i));
                   const dateStr = d.toISOString().split("T")[0];
                   const dayChecks = monitorChecks.filter(c => c.checkedAt.toISOString().split("T")[0] === dateStr);
-                  if (dayChecks.length === 0) return null; // no data
+                  if (dayChecks.length === 0) return null;
                   return dayChecks.every(c => c.isUp);
                 });
+
+                const monitorLabel = monitor.name ?? monitor.url;
 
                 return (
                   <div key={monitor.id} className="px-5 py-4">
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <p className="text-sm font-medium text-zinc-300">{monitor.name ?? monitor.url}</p>
-                        <p className="text-xs text-zinc-600 font-mono truncate max-w-xs">{monitor.url}</p>
+                        <p className="text-sm font-medium text-fg-strong">{monitorLabel}</p>
+                        <p className="text-xs text-fg-base/70 font-mono truncate max-w-xs">{monitor.url}</p>
                       </div>
                       <div className="text-right">
                         {uptimePct !== null && (
-                          <p className="text-sm font-semibold text-green-400">{uptimePct.toFixed(2)}%</p>
+                          <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{uptimePct.toFixed(2)}%</p>
                         )}
-                        <p className={`text-xs ${monitor.isDown ? "text-red-400" : "text-green-400"}`}>
+                        <p className={`text-xs ${monitor.isDown ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                           {monitor.isDown ? "Down" : "Operational"}
                         </p>
                       </div>
                     </div>
                     {/* 90-day bar */}
-                    <div className="flex items-center gap-px overflow-hidden">
+                    <div
+                      className="flex items-center gap-px overflow-hidden"
+                      role="img"
+                      aria-label={`${monitorLabel} — 90 day uptime history${
+                        uptimePct !== null ? `, ${uptimePct.toFixed(2)}% overall` : ""
+                      }`}
+                    >
                       {days90.map((isUp, i) => (
                         <div
                           key={i}
                           title={`Day ${90 - i} ago`}
                           className={`h-6 flex-1 rounded-sm ${
-                            isUp === null ? "bg-[#1a1a1a]" :
-                            isUp ? "bg-green-500/70" : "bg-red-500/70"
+                            isUp === null ? "bg-surface-inner" :
+                            isUp ? "bg-emerald-500/70" : "bg-red-500/70"
                           }`}
+                          aria-hidden="true"
                         />
                       ))}
                     </div>
                     <div className="flex justify-between mt-1">
-                      <span className="text-[10px] text-zinc-700">90 days ago</span>
-                      <span className="text-[10px] text-zinc-700">Today</span>
+                      <span className="text-[10px] text-fg-base/60">90 days ago</span>
+                      <span className="text-[10px] text-fg-base/60">Today</span>
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
         {/* Resolved incidents */}
         {resolvedIncidents.length > 0 && (
-          <div className="mb-8 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-            <div className="border-b border-[#1a1a1a] px-5 py-3">
-              <h2 className="text-sm font-medium text-zinc-400">Resolved Incidents (30 days)</h2>
+          <section aria-labelledby="resolved-heading" className="mb-8 rounded-xl border border-line bg-inari-card overflow-hidden">
+            <div className="border-b border-line px-5 py-3">
+              <h2 id="resolved-heading" className="text-sm font-medium text-fg-base">Resolved Incidents (30 days)</h2>
             </div>
-            <div className="divide-y divide-[#131313]">
+            <div className="divide-y divide-line-subtle">
               {resolvedIncidents.map((incident) => {
                 const updates = allUpdates.filter((u) => u.incidentId === incident.id);
                 const duration = incident.resolvedAt && incident.startedAt
@@ -361,16 +399,16 @@ export default async function PublicStatusPage({
                   <div key={incident.id} className="px-5 py-4">
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <p className="text-sm font-medium text-zinc-300">{incident.title}</p>
+                        <p className="text-sm font-medium text-fg-strong">{incident.title}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                          <span className="text-xs text-green-400">Resolved</span>
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400">Resolved</span>
                           {duration !== null && (
-                            <span className="text-xs text-zinc-600">
+                            <span className="text-xs text-fg-base/70">
                               {duration < 60 ? `${duration}m` : `${Math.floor(duration / 60)}h ${duration % 60}m`}
                             </span>
                           )}
-                          <span className="text-xs text-zinc-700">
+                          <span className="text-xs text-fg-base/60">
                             {incident.resolvedAt?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                           </span>
                         </div>
@@ -378,15 +416,15 @@ export default async function PublicStatusPage({
                     </div>
                     {/* Collapsed timeline — show last update only */}
                     {updates.length > 0 && (
-                      <p className="text-xs text-zinc-600 ml-4">{updates[0].message}</p>
+                      <p className="text-xs text-fg-base ml-4">{updates[0].message}</p>
                     )}
                     {/* Post-mortem (if available) */}
                     {incident.postmortem && (
                       <details className="mt-3 ml-4">
-                        <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400 transition-colors">
+                        <summary className="text-xs text-fg-base cursor-pointer hover:text-fg-strong transition-colors">
                           View post-mortem
                         </summary>
-                        <div className="mt-2 text-xs text-zinc-500 prose prose-invert prose-xs max-w-none whitespace-pre-wrap border-l-2 border-zinc-800 pl-3">
+                        <div className="mt-2 text-xs text-fg-base prose dark:prose-invert prose-xs max-w-none whitespace-pre-wrap border-l-2 border-line pl-3">
                           {incident.postmortem}
                         </div>
                       </details>
@@ -395,19 +433,19 @@ export default async function PublicStatusPage({
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
         {/* Alert history (7 days) */}
-        <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] overflow-hidden">
-          <div className="border-b border-[#1a1a1a] px-5 py-3">
-            <h2 className="text-sm font-medium text-zinc-400">Alert History (7 days)</h2>
+        <section aria-labelledby="alert-history-heading" className="rounded-xl border border-line bg-inari-card overflow-hidden">
+          <div className="border-b border-line px-5 py-3">
+            <h2 id="alert-history-heading" className="text-sm font-medium text-fg-base">Alert History (7 days)</h2>
           </div>
-          <div className="divide-y divide-[#131313]">
+          <div className="divide-y divide-line-subtle">
             {days.map((day) => (
               <div key={day.date} className="px-5 py-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-zinc-400">
+                  <span className="text-sm font-medium text-fg-base">
                     {new Date(day.date + "T00:00:00").toLocaleDateString("en-US", {
                       weekday: "short",
                       month: "short",
@@ -415,9 +453,9 @@ export default async function PublicStatusPage({
                     })}
                   </span>
                   {day.alerts.length === 0 ? (
-                    <span className="text-xs text-green-600">No incidents</span>
+                    <span className="text-xs text-emerald-700 dark:text-emerald-500">No incidents</span>
                   ) : (
-                    <span className="text-xs text-zinc-500">{day.alerts.length} incident(s)</span>
+                    <span className="text-xs text-fg-base">{day.alerts.length} incident(s)</span>
                   )}
                 </div>
                 {day.alerts.length > 0 && (
@@ -426,12 +464,13 @@ export default async function PublicStatusPage({
                       <div key={a.id} className="flex items-start gap-2">
                         <span
                           className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                            a.severity === "critical" ? "bg-red-400" : a.severity === "warning" ? "bg-amber-400" : "bg-blue-400"
+                            a.severity === "critical" ? "bg-red-500" : a.severity === "warning" ? "bg-amber-500" : "bg-blue-500"
                           }`}
+                          aria-hidden="true"
                         />
                         <div>
-                          <p className="text-xs text-zinc-400">{a.title}</p>
-                          <p className="text-xs text-zinc-600">
+                          <p className="text-xs text-fg-strong">{a.title}</p>
+                          <p className="text-xs text-fg-base/70">
                             {a.isResolved ? "Resolved" : "Open"} &middot;{" "}
                             {a.createdAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                           </p>
@@ -443,24 +482,24 @@ export default async function PublicStatusPage({
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* Footer */}
-        <div className="mt-10 border-t border-[#1a1a1a] pt-6 text-center">
+        <div className="mt-10 border-t border-line pt-6 text-center">
           <a
             href="https://inariwatch.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            className="inline-flex items-center gap-2 text-xs text-fg-base hover:text-fg-strong transition-colors"
           >
             <span>Powered by</span>
-            <span className="font-semibold tracking-wide text-zinc-500">InariWatch</span>
+            <span className="font-semibold tracking-wide text-fg-strong">InariWatch</span>
           </a>
-          <p className="mt-1 text-[10px] text-zinc-800">
+          <p className="mt-1 text-[10px] text-fg-base/60">
             Real-time monitoring for developers
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

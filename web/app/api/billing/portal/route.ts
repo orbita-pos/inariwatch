@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { db, users } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { stripe, isStripeConfigured } from "@/lib/stripe";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 
 /**
  * POST /api/billing/portal
@@ -12,7 +13,17 @@ import { stripe, isStripeConfigured } from "@/lib/stripe";
  * subscription (update card, cancel, view invoices) without us building
  * the UI.
  */
-export async function POST() {
+export async function POST(req: Request) {
+  // Rate limit: 10 portal sessions per minute per IP
+  const ip = extractClientIp(req);
+  const rl = await checkWebhookRateLimit(ip, 60_000, 10);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter ?? 60) } }
+    );
+  }
+
   if (!isStripeConfigured() || !stripe) {
     return NextResponse.json({ error: "Billing not configured" }, { status: 503 });
   }

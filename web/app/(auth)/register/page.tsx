@@ -101,7 +101,7 @@ export default function RegisterPage() {
             Create your account
           </h1>
 
-          <p className="mt-1.5 text-sm text-zinc-400">
+          <p className="mt-1.5 text-sm text-white/60">
             Your AI is ready to watch your code
           </p>
         </div>
@@ -154,7 +154,7 @@ export default function RegisterPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name"
-              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
+              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
             />
 
             <input
@@ -163,7 +163,7 @@ export default function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
               required
-              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
+              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
             />
 
             <input
@@ -173,11 +173,11 @@ export default function RegisterPage() {
               placeholder="At least 8 characters"
               required
               minLength={8}
-              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
+              className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
             />
 
             {error && (
-              <p className="text-sm text-red-400 font-mono">{error}</p>
+              <p className="text-sm text-red-600 font-mono">{error}</p>
             )}
 
             <Button

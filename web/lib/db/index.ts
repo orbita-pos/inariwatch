@@ -128,13 +128,69 @@ export async function getUserOrganizations(userId: string) {
   return Array.from(map.values());
 }
 
-// ── Plan limits (100% Free SaaS — generous limits for everyone) ──────────────
+// ── Plan limits ──────────────────────────────────────────────────────────────
+//
+// Free is for solo devs / side projects (3 projects, 5 integrations).
+// Pro unlocks the real product (100p / 200i).
+//
+// `maxCaptureEventsPerDay` is enforced by capture + other webhook routes
+// via a per-project sliding window counter (web/lib/auth-rate-limit.ts).
+//
+// `pollIntervalMinutes` drives the cron poller skip logic — free integrations
+// are skipped 4 of 5 cycles to keep upstream API spend (Sentry, Vercel, GH)
+// under control. The label is what users see in the dashboard.
 
-export const PLAN_LIMITS: Record<string, { maxProjects: number; maxIntegrations: number; pollIntervalLabel: string }> = {
-  free: { maxProjects: 100, maxIntegrations: 200, pollIntervalLabel: "Every 1 min" },
-  pro:  { maxProjects: 100, maxIntegrations: 200, pollIntervalLabel: "Every 1 min" },
-  team: { maxProjects: 100, maxIntegrations: 200, pollIntervalLabel: "Every 1 min" },
+export interface PlanLimit {
+  maxProjects: number;
+  maxIntegrations: number;
+  maxCaptureEventsPerDay: number;
+  pollIntervalMinutes: number;
+  pollIntervalLabel: string;
+}
+
+export const PLAN_LIMITS: Record<string, PlanLimit> = {
+  free: {
+    maxProjects: 3,
+    maxIntegrations: 5,
+    maxCaptureEventsPerDay: 50_000,
+    pollIntervalMinutes: 5,
+    pollIntervalLabel: "Every 5 min",
+  },
+  pro: {
+    maxProjects: 100,
+    maxIntegrations: 200,
+    maxCaptureEventsPerDay: 500_000,
+    pollIntervalMinutes: 1,
+    pollIntervalLabel: "Every 1 min",
+  },
+  team: {
+    maxProjects: 100,
+    maxIntegrations: 200,
+    maxCaptureEventsPerDay: 500_000,
+    pollIntervalMinutes: 1,
+    pollIntervalLabel: "Every 1 min",
+  },
 };
+
+/**
+ * Decide whether a poller cron should poll this integration on the current
+ * tick. Free integrations are throttled to once per `pollIntervalMinutes`
+ * to keep upstream API spend (Sentry, Vercel, GitHub, Expo) bounded under
+ * viral load.
+ *
+ * Used by the Sentry/Vercel/GitHub/Expo poller routes. Uptime + npm-audit
+ * are NOT throttled — uptime needs low-latency detection and npm-audit
+ * makes no upstream calls.
+ */
+export function shouldPollThisCycle(plan: string, lastCheckedAt: Date | null): boolean {
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  if (limits.pollIntervalMinutes <= 1) return true;
+  if (!lastCheckedAt) return true; // Never polled — always run
+  const minutesSince = (Date.now() - lastCheckedAt.getTime()) / 60_000;
+  // Allow a tiny bit of slack so we don't accidentally double-skip when
+  // the cron tick lands a few seconds late.
+  return minutesSince >= limits.pollIntervalMinutes - 0.25;
+}
 
 // ── Severity ordering ────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon, ExpoIcon, CaptureIcon, AgentIcon,
+  NetlifyIcon, CloudflareIcon, RenderIcon,
 } from "@/components/brand-icons";
 import type { ElementType } from "react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,27 @@ const CATALOG = [
     label:   "Vercel",
     desc:    "Failed deployments, build errors, preview failures",
     icon:    VercelIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "netlify",
+    label:   "Netlify",
+    desc:    "Failed deploys, build errors, auto-rollback on production incidents",
+    icon:    NetlifyIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "cloudflare-pages",
+    label:   "Cloudflare Pages",
+    desc:    "Deployment failures, stage errors, production rollback",
+    icon:    CloudflareIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "render",
+    label:   "Render",
+    desc:    "Build failures, deploy errors, rollback to last live deploy",
+    icon:    RenderIcon,
     mode:    "web" as const,
   },
   {
@@ -142,7 +164,7 @@ export default async function IntegrationsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Integrations</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-fg-base/60">
             Connect your services. InariWatch polls them every 1 minute and surfaces alerts automatically.
           </p>
         </div>
@@ -157,11 +179,11 @@ export default async function IntegrationsPage() {
       {userProjects.length === 0 && (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-20 text-center">
           <div className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface-dim">
-            <span className="text-base text-zinc-600">◉</span>
+            <span className="text-base text-fg-base/50" aria-hidden="true">◉</span>
           </div>
           <div>
-            <p className="text-sm font-medium text-zinc-400">No projects yet</p>
-            <p className="mt-1 text-sm text-zinc-600">
+            <p className="text-sm font-medium text-fg-base/60">No projects yet</p>
+            <p className="mt-1 text-sm text-fg-base/50">
               Create a project to start connecting integrations.
             </p>
           </div>
@@ -239,7 +261,7 @@ function CardShell({
         {/* Icon + title */}
         <div className="mb-3 flex items-center gap-3">
           <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
-            isActive ? "border-line-medium bg-surface-dim text-fg-base" : "border-line bg-surface-dim text-zinc-500"
+            isActive ? "border-line-medium bg-surface-dim text-fg-base" : "border-line bg-surface-dim text-fg-base/50"
           }`}>
             <Icon className="h-[18px] w-[18px]" />
           </div>
@@ -251,7 +273,7 @@ function CardShell({
           </div>
         </div>
 
-        <p className="mb-4 text-sm leading-relaxed text-zinc-500">{item.desc}</p>
+        <p className="mb-4 text-sm leading-relaxed text-fg-base/60">{item.desc}</p>
 
         {children}
       </div>
@@ -296,8 +318,8 @@ function WebCard({
                       </>
                     )}
                     {row.lastCheckedAt && (
-                      <span className="text-zinc-700">
-                        <Clock className="mr-0.5 inline h-2.5 w-2.5" />
+                      <span className="text-fg-base/40">
+                        <Clock aria-hidden="true" className="mr-0.5 inline h-2.5 w-2.5" />
                         {formatRelativeTime(row.lastCheckedAt)}
                       </span>
                     )}
@@ -317,18 +339,20 @@ function WebCard({
                     <button
                       type="button"
                       title="Configure"
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-black/[0.06] dark:hover:bg-white/[0.06] hover:text-fg-base"
+                      aria-label="Configure integration"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/50 transition-colors hover:bg-black/[0.06] dark:hover:bg-white/[0.06] hover:text-fg-base"
                     >
-                      <Settings2 className="h-3.5 w-3.5" />
+                      <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />
                     </button>
                   </ConfigModal>
                   <form action={disconnectIntegration.bind(null, row.id)}>
                     <button
                       type="submit"
                       title="Disconnect"
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
+                      aria-label="Disconnect integration"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/50 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
                     >
-                      <Unplug className="h-3.5 w-3.5" />
+                      <Unplug aria-hidden="true" className="h-3.5 w-3.5" />
                     </button>
                   </form>
                 </div>
@@ -400,9 +424,10 @@ function CliCard({
                 <button
                   type="submit"
                   title="Disconnect"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
+                  aria-label="Disconnect integration"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/50 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
                 >
-                  <Unplug className="h-3.5 w-3.5" />
+                  <Unplug aria-hidden="true" className="h-3.5 w-3.5" />
                 </button>
               </form>
             </li>
@@ -413,15 +438,15 @@ function CliCard({
       {/* CLI notice */}
       <div className="mt-auto rounded-lg border border-line bg-surface-inner px-3.5 py-3">
         <div className="mb-1.5 flex items-center gap-1.5">
-          <Terminal className="h-3.5 w-3.5 text-zinc-600" />
-          <span className="text-[11px] font-medium uppercase tracking-widest text-zinc-600">
+          <Terminal aria-hidden="true" className="h-3.5 w-3.5 text-fg-base/50" />
+          <span className="text-[11px] font-medium uppercase tracking-widest text-fg-base/50">
             Requires the CLI
           </span>
         </div>
-        <p className="text-sm leading-relaxed text-zinc-500">
+        <p className="text-sm leading-relaxed text-fg-base/60">
           This integration runs locally on your machine.
         </p>
-        <p className="mt-2 font-mono text-xs text-zinc-600">
+        <p className="mt-2 font-mono text-xs text-fg-base/50">
           $ {item.cmd}
         </p>
       </div>

@@ -126,7 +126,7 @@ export async function GET(req: Request) {
 
         if (!healOnCooldown) {
           try {
-            const { projectIntegrations, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
+            const { DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
             const [proj] = await db
               .select({ autoMergeConfig: projects.autoMergeConfig, userId: projects.userId })
               .from(projects)
@@ -142,27 +142,24 @@ export async function GET(req: Request) {
                 .set({ healTriggeredAt: now })
                 .where(eq(uptimeMonitors.id, monitor.id));
 
-              // Step 1: Rollback to last good deploy (Vercel)
-              const [vercelInteg] = await db
-                .select()
-                .from(projectIntegrations)
-                .where(and(
-                  eq(projectIntegrations.projectId, monitor.projectId),
-                  eq(projectIntegrations.service, "vercel"),
-                  eq(projectIntegrations.isActive, true),
-                ))
-                .limit(1);
-
-              if (vercelInteg) {
-                const { decryptConfig } = await import("@/lib/crypto");
-                const vercelConfig = decryptConfig(vercelInteg.configEncrypted);
-                const { triggerAutoRollback } = await import("@/lib/services/auto-rollback");
-                triggerAutoRollback({
+              // Step 1: Rollback to last good deploy on whichever hosting
+              // provider the project has connected. Priority order:
+              // vercel > netlify > cloudflare-pages > render.
+              const { findHostingProvider, triggerProviderRollback } = await import(
+                "@/lib/services/auto-rollback"
+              );
+              const providerConfig = await findHostingProvider(monitor.projectId);
+              if (providerConfig) {
+                // Ensure projectName falls back to the monitor name so the
+                // alert body and audit log read nicely even if the integration
+                // config has an empty projectName.
+                if (!providerConfig.projectName) {
+                  providerConfig.projectName = monitorName;
+                }
+                triggerProviderRollback({
                   alertId: downAlert.id,
-                  token: vercelConfig.token as string,
-                  teamId: vercelConfig.teamId as string | undefined,
-                  vercelProjectId: (vercelConfig.projectId as string) || monitorName,
-                  projectName: monitorName,
+                  projectId: monitor.projectId,
+                  providerConfig,
                 }).catch(() => {});
               }
 
@@ -188,12 +185,13 @@ export async function GET(req: Request) {
               }
 
               // Notify Slack
+              const hostingLabel = providerConfig?.service ?? "hosting";
               import("@/lib/slack/send").then(({ sendThreadReply }) => {
                 sendThreadReply(downAlert.id,
                   `:shield: *Auto-heal activated* (${failures} consecutive failures)\n` +
-                  (vercelInteg ? `1. Rolling back to last successful deploy...\n` : `1. No Vercel integration — skipping rollback\n`) +
+                  (providerConfig ? `1. Rolling back ${hostingLabel} to last successful deploy...\n` : `1. No hosting integration — skipping rollback\n`) +
                   (config.autoRemediate ? `2. AI remediation starting in background...\n` : `2. Auto-remediate not enabled — create a fix manually\n`) +
-                  (vercelInteg ? `Your site will be back online in ~30 seconds.` : `Connect Vercel for automatic rollback.`)
+                  (providerConfig ? `Your site will be back online in ~30 seconds.` : `Connect Vercel, Netlify, Cloudflare Pages, or Render for automatic rollback.`)
                 ).catch(() => {});
               }).catch(() => {});
             }

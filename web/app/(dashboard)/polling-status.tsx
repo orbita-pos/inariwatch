@@ -60,7 +60,7 @@ export function PollingStatus({ lastCheckedAt: initialLastCheckedAt }: PollingSt
     : true;
 
   const dotColor = !lastCheckedAt
-    ? "bg-zinc-600"
+    ? "bg-fg-base/30"
     : isRecent
     ? "bg-emerald-500"
     : isStale
@@ -71,8 +71,8 @@ export function PollingStatus({ lastCheckedAt: initialLastCheckedAt }: PollingSt
     <div className="mx-2 mb-2 flex items-center gap-2 rounded-md px-3 py-2">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotColor} ${isRecent ? "shadow-[0_0_4px_1px] shadow-emerald-500/50" : ""}`} />
       <div className="min-w-0">
-        <p className="text-[11px] text-zinc-500 leading-tight">Polling</p>
-        <p className="text-[11px] text-zinc-600 leading-tight truncate">{label}</p>
+        <p className="text-[11px] text-fg-base/60 leading-tight">Polling</p>
+        <p className="text-[11px] text-fg-base/50 leading-tight truncate">{label}</p>
       </div>
     </div>
   );

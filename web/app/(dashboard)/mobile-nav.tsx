@@ -46,10 +46,10 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:text-fg-strong hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-strong hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
           aria-label="Open menu"
         >
-          <Menu className="h-5 w-5" />
+          <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
 
         {/* Center: logo */}
@@ -89,6 +89,10 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
 
       {/* Slide-in drawer */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        aria-hidden={open ? undefined : true}
         className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-line bg-surface transition-transform duration-300 ease-in-out md:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
@@ -110,10 +114,10 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
           <button
             type="button"
             onClick={close}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-strong hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
             aria-label="Close menu"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -127,17 +131,15 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
                 key={href}
                 href={href}
                 onClick={close}
+                aria-current={active ? "page" : undefined}
                 className={`relative flex items-center gap-2.5 rounded-md px-3 py-2.5 text-sm transition-all ${
                   active
-                    ? "bg-black/[0.06] dark:bg-white/[0.06] text-fg-strong"
-                    : "text-zinc-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] hover:text-fg-base"
+                    ? "bg-inari-accent/10 text-inari-accent font-medium"
+                    : "text-fg-base/60 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] hover:text-fg-base"
                 }`}
               >
-                {active && (
-                  <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r-full bg-inari-accent" />
-                )}
-                <Icon className={`h-4 w-4 shrink-0 ${active ? "text-inari-accent" : "text-zinc-600"}`} />
-                <span className={active ? "font-medium" : ""}>{label}</span>
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="flex-1">{label}</span>
                 {showBadge && (
                   <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-inari-accent px-1.5 text-[10px] font-bold text-white">
                     {unreadAlerts > 99 ? "99+" : unreadAlerts}
@@ -159,17 +161,17 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
                 {userName}
               </p>
               {userEmail && userName !== userEmail && (
-                <p className="truncate text-xs text-zinc-500">{userEmail}</p>
+                <p className="truncate text-xs text-fg-base/60">{userEmail}</p>
               )}
               <p className="text-xs text-inari-accent">100% Free</p>
             </div>
             <Link
               href="/api/auth/signout"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-400 transition-colors"
-              title="Sign out"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-base transition-colors"
+              aria-label="Sign out"
               onClick={close}
             >
-              <LogOut className="h-3.5 w-3.5" />
+              <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
           </div>
         </div>

@@ -15,7 +15,7 @@ export default function DashboardError({
     <div className="flex flex-1 items-center justify-center min-h-[60vh] px-6">
       <div className="text-center max-w-md">
         <div className="flex justify-center mb-6">
-          <AlertTriangle className="h-10 w-10 text-inari-accent opacity-80" />
+          <AlertTriangle className="h-10 w-10 text-inari-accent opacity-80" aria-hidden="true" />
         </div>
         <h1 className="text-xl font-bold text-fg-strong mb-2">Something went wrong</h1>
         <p className="text-fg-base text-sm mb-6">
@@ -28,7 +28,7 @@ export default function DashboardError({
           </Link>
         </div>
         {error.digest && (
-          <p className="mt-6 text-xs text-zinc-500 font-mono">Error ID: {error.digest}</p>
+          <p className="mt-6 text-xs text-fg-base/60 font-mono">Error ID: {error.digest}</p>
         )}
       </div>
     </div>

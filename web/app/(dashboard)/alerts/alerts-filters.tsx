@@ -61,14 +61,17 @@ export function AlertsFilters({ severity, status, source }: AlertsFiltersProps) 
         </Select>
 
         <Select value={source} onValueChange={(v) => updateParam("source", v)}>
-          <SelectTrigger className="w-32">
+          <SelectTrigger className="w-36">
             <SelectValue placeholder="Source" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Any source</SelectItem>
+            <SelectItem value="capture">Capture SDK</SelectItem>
             <SelectItem value="github">GitHub</SelectItem>
             <SelectItem value="vercel">Vercel</SelectItem>
             <SelectItem value="sentry">Sentry</SelectItem>
+            <SelectItem value="datadog">Datadog</SelectItem>
+            <SelectItem value="expo">Expo</SelectItem>
             <SelectItem value="uptime">Uptime</SelectItem>
             <SelectItem value="postgres">Postgres</SelectItem>
             <SelectItem value="npm">npm</SelectItem>

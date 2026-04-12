@@ -17,6 +17,7 @@ export interface ServiceHealth {
 
 export type ServiceName =
   | "sentry" | "vercel" | "github" | "datadog"
+  | "netlify" | "cloudflare-pages" | "render"
   | "staging" | "eap" | "substrate" | "code_intelligence";
 
 const DOWN_THRESHOLD = 3; // consecutive failures to mark "down"

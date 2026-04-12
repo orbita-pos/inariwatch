@@ -85,33 +85,33 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 {session.user?.name ?? session.user?.email}
               </p>
               {session.user?.name && session.user?.email && (
-                <p className="truncate text-[11px] text-zinc-500 leading-tight">{session.user.email}</p>
+                <p className="truncate text-[11px] text-fg-base/60 leading-tight">{session.user.email}</p>
               )}
             </div>
             <div className="flex items-center gap-0.5">
               {activeOrgId && (
                 <Link
                   href="/settings"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong transition-colors"
-                  title="Personal settings"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-strong transition-colors"
+                  aria-label="Personal settings"
                 >
-                  <Settings className="h-3.5 w-3.5" />
+                  <Settings className="h-3.5 w-3.5" aria-hidden="true" />
                 </Link>
               )}
               <Link
                 href="/download"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong transition-colors"
-                title="Get mobile app"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-strong transition-colors"
+                aria-label="Get mobile app"
               >
-                <Smartphone className="h-3.5 w-3.5" />
+                <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
               <ThemeToggle />
               <Link
                 href="/api/auth/signout"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong transition-colors"
-                title="Sign out"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-strong transition-colors"
+                aria-label="Sign out"
               >
-                <LogOut className="h-3.5 w-3.5" />
+                <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
             </div>
           </div>

@@ -61,8 +61,8 @@ export function SessionPlayer({ events, onTimeChange }: SessionPlayerProps) {
 
   if (events.length === 0) {
     return (
-      <div className="flex items-center justify-center h-[400px] bg-zinc-950 rounded-xl border border-line">
-        <p className="text-zinc-500 text-sm">No session recording available</p>
+      <div className="flex items-center justify-center h-[400px] bg-surface rounded-xl border border-line">
+        <p className="text-fg-base/60 text-sm">No session recording available</p>
       </div>
     );
   }
@@ -73,13 +73,13 @@ export function SessionPlayer({ events, onTimeChange }: SessionPlayerProps) {
           The sandbox="allow-same-origin" on the parent container blocks script execution.
           TODO: migrate to iframe-based sandboxing for full XSS isolation. */}
       {error && (
-        <div className="p-4 text-sm text-red-400 bg-red-950/20 border-b border-red-900/30">
+        <div className="p-4 text-sm text-red-700 dark:text-red-400 bg-red-500/5 border-b border-red-500/20">
           Session player error: {error}
         </div>
       )}
       {!loaded && !error && (
         <div className="flex items-center justify-center h-[400px]">
-          <p className="text-zinc-500 text-sm animate-pulse">Loading session replay...</p>
+          <p className="text-fg-base/60 text-sm animate-pulse">Loading session replay...</p>
         </div>
       )}
       <div ref={containerRef} className={loaded ? "" : "hidden"} />

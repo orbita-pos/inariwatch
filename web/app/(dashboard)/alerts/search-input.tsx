@@ -46,13 +46,14 @@ export function SearchInput() {
 
   return (
     <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-base/50" aria-hidden="true" />
       <input
         type="text"
+        aria-label="Search alerts"
         value={value}
         onChange={handleChange}
         placeholder="Search alerts..."
-        className="h-8 w-full rounded-lg border border-line bg-surface pl-8 pr-3 text-sm text-fg-base placeholder:text-zinc-600 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors sm:w-64"
+        className="h-8 w-full rounded-lg border border-line bg-surface pl-8 pr-3 text-sm text-fg-base placeholder:text-fg-base/40 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors sm:w-64"
       />
     </div>
   );

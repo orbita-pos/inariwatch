@@ -38,7 +38,7 @@ function Breadcrumb() {
   if (segments.length === 0) return <span className="text-sm font-medium text-fg-strong">Overview</span>;
 
   return (
-    <nav className="flex items-center gap-1.5 text-sm">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
       {segments.map((seg, i) => {
         const isLast = i === segments.length - 1;
         const href = "/" + segments.slice(0, i + 1).join("/");
@@ -46,11 +46,11 @@ function Breadcrumb() {
 
         return (
           <span key={href} className="flex items-center gap-1.5">
-            {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />}
+            {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-fg-base/60 shrink-0" aria-hidden="true" />}
             {isLast ? (
               <span className="font-medium text-fg-strong">{label}</span>
             ) : (
-              <Link href={href} className="text-zinc-500 hover:text-fg-base transition-colors">
+              <Link href={href} className="text-fg-base/60 hover:text-fg-base transition-colors">
                 {label}
               </Link>
             )}
@@ -80,7 +80,7 @@ function NewButton() {
   return (
     <Link href={href}>
       <Button variant="primary" size="sm" className="gap-1.5">
-        <Plus className="h-3.5 w-3.5" />
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         {label}
       </Button>
     </Link>
@@ -122,11 +122,11 @@ export function DashboardHeader({ unreadAlerts }: DashboardHeaderProps) {
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="hidden lg:flex items-center gap-2 rounded-md border border-line bg-surface-inner px-3 h-8 text-sm text-zinc-500 hover:text-fg-base hover:border-line-medium transition-colors w-48"
+            className="hidden lg:flex items-center gap-2 rounded-md border border-line bg-surface-inner px-3 h-8 text-sm text-fg-base/60 hover:text-fg-base hover:border-line-medium transition-colors w-48"
           >
-            <Search className="h-3.5 w-3.5 shrink-0" />
+            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="flex-1 text-left">Search…</span>
-            <kbd className="text-[10px] text-zinc-600 font-mono">⌘K</kbd>
+            <kbd className="text-[10px] text-fg-base/60 font-mono">⌘K</kbd>
           </button>
 
           {/* Bell */}

@@ -42,14 +42,14 @@ export default async function AdminPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-fg-strong">Dead-Letter Queue</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-fg-base/60">
           Notifications that failed after {3} retries. Retry to re-enqueue them.
         </p>
       </div>
 
       <div className="rounded-xl border border-line bg-surface overflow-hidden">
         {rows.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-zinc-500">
+          <div className="px-6 py-12 text-center text-sm text-fg-base/60">
             No dead notifications — all clear.
           </div>
         ) : (
@@ -57,31 +57,31 @@ export default async function AdminPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line bg-black/[0.03] dark:bg-white/[0.03]">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     ID
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     User ID
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Channel
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Alert
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Error
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Attempts
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Created
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Updated
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-fg-base/60">
                     Action
                   </th>
                 </tr>
@@ -89,30 +89,30 @@ export default async function AdminPage() {
               <tbody className="divide-y divide-line">
                 {rows.map((row) => (
                   <tr key={row.id} className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-                    <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 max-w-[90px] truncate" title={row.id}>
+                    <td className="px-4 py-3 font-mono text-[11px] text-fg-base/60 max-w-[90px] truncate" title={row.id}>
                       {row.id.slice(0, 8)}…
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 max-w-[90px] truncate" title={row.channelUserId ?? ""}>
+                    <td className="px-4 py-3 font-mono text-[11px] text-fg-base/60 max-w-[90px] truncate" title={row.channelUserId ?? ""}>
                       {row.channelUserId ? row.channelUserId.slice(0, 8) + "…" : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded-full bg-zinc-800/60 px-2 py-0.5 text-xs font-medium text-zinc-300">
+                      <span className="inline-flex items-center rounded-full bg-surface-dim px-2 py-0.5 text-xs font-medium text-fg-base">
                         {row.channelType ?? "unknown"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-fg-base max-w-[180px] truncate" title={row.alertTitle ?? row.alertId}>
                       {row.alertTitle ?? row.alertId.slice(0, 8) + "…"}
                     </td>
-                    <td className="px-4 py-3 text-zinc-400 max-w-[200px] truncate text-xs" title={row.error ?? ""}>
+                    <td className="px-4 py-3 text-fg-base/60 max-w-[200px] truncate text-xs" title={row.error ?? ""}>
                       {row.error ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-center text-zinc-400">
+                    <td className="px-4 py-3 text-center text-fg-base/60">
                       {row.attempts}
                     </td>
-                    <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">
+                    <td className="px-4 py-3 text-xs text-fg-base/60 whitespace-nowrap">
                       {row.createdAt.toISOString().replace("T", " ").slice(0, 19)}
                     </td>
-                    <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">
+                    <td className="px-4 py-3 text-xs text-fg-base/60 whitespace-nowrap">
                       {row.nextRetry.toISOString().replace("T", " ").slice(0, 19)}
                     </td>
                     <td className="px-4 py-3">

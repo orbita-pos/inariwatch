@@ -3,7 +3,10 @@ import { eq } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_CORRELATOR, buildCorrelatePrompt } from "./prompts";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
+import { reservePlatformBudget, PlatformBudgetExceededError } from "./spend-guard";
 import type { Alert } from "@/lib/db";
+
+const CORRELATE_RESERVE_CENTS = 2;
 
 /**
  * Correlate a group of newly created alerts from the same project.
@@ -37,6 +40,19 @@ export async function correlateProjectAlerts(
     .where(eq(projects.id, projectId))
     .limit(1);
 
+  // Platform-AI kill-switch: pre-reserve before the call. Skip silently
+  // if the daily cap is exhausted (correlation is non-essential).
+  let reservedCents = 0;
+  if (aiKey.isPlatformKey) {
+    try {
+      await reservePlatformBudget(CORRELATE_RESERVE_CENTS);
+      reservedCents = CORRELATE_RESERVE_CENTS;
+    } catch (err) {
+      if (err instanceof PlatformBudgetExceededError) return;
+      throw err;
+    }
+  }
+
   let summary: string;
   try {
     summary = await callAI(
@@ -52,6 +68,7 @@ export async function correlateProjectAlerts(
             projectId,
             feature: "correlate" as const,
             isPlatformKey: aiKey.isPlatformKey,
+            reservedPlatformCents: reservedCents,
           },
         } : {}),
       }

@@ -75,6 +75,23 @@ const FEATURE_DB_COLUMNS: Record<QuotaFeature, string> = {
   "postmortem":    "postmortem_used",
 };
 
+// Explicit whitelist guard — defense-in-depth for the sql.raw() interpolation
+// below. Today every caller passes a hardcoded QuotaFeature, but if a future
+// caller ever passes user input, this blocks SQL injection via column name.
+const VALID_FEATURES = new Set<QuotaFeature>([
+  "auto-analyze",
+  "remediation",
+  "chat",
+  "pr-prediction",
+  "postmortem",
+]);
+
+function assertValidFeature(feature: QuotaFeature): void {
+  if (!VALID_FEATURES.has(feature)) {
+    throw new Error(`Invalid quota feature: ${String(feature)}`);
+  }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 export interface UserPlan {
@@ -85,11 +102,22 @@ export interface UserPlan {
 
 /**
  * Get the user's current plan + Pro subscription status.
+ *
+ * A user counts as Pro-active only if:
+ *   - users.plan = 'pro' AND
+ *   - Either they have NO stripeSubscriptionId (legacy / manual upgrade by
+ *     admin — these are grandfathered without Stripe records), OR
+ *   - They have a stripeSubscriptionId AND status is active/trialing AND
+ *     subscriptionPeriodEnd is in the future.
+ *
+ * The strict check on the Stripe path prevents a bug from leaving plan='pro'
+ * with a null period_end, which would otherwise grant infinite free Pro.
  */
 export async function getUserPlan(userId: string): Promise<UserPlan> {
   const [row] = await db
     .select({
       plan: users.plan,
+      stripeSubscriptionId: users.stripeSubscriptionId,
       subscriptionStatus: users.subscriptionStatus,
       subscriptionPeriodEnd: users.subscriptionPeriodEnd,
     })
@@ -101,19 +129,27 @@ export async function getUserPlan(userId: string): Promise<UserPlan> {
     return { plan: "free", isProActive: false };
   }
 
-  // A user is "Pro active" only if:
-  //   - users.plan = 'pro'
-  //   - subscription_status is one of the valid active states
-  //   - subscription_period_end is in the future (OR null for legacy)
+  if (row.plan !== "pro") {
+    return { plan: "free", isProActive: false };
+  }
+
+  // Pro user without a Stripe subscription = legacy / manual upgrade.
+  // Allow without further checks.
+  const isLegacy = !row.stripeSubscriptionId;
+  if (isLegacy) {
+    return { plan: "pro", isProActive: true };
+  }
+
+  // Pro user with a Stripe subscription must have a valid future period_end.
   const validStatuses = new Set(["active", "trialing"]);
   const statusOK = row.subscriptionStatus
     ? validStatuses.has(row.subscriptionStatus)
-    : true; // null = legacy/grandfathered, allow
+    : false;
   const periodOK = row.subscriptionPeriodEnd
     ? row.subscriptionPeriodEnd.getTime() > Date.now()
-    : true;
+    : false;
 
-  const isProActive = row.plan === "pro" && statusOK && periodOK;
+  const isProActive = statusOK && periodOK;
 
   return {
     plan: isProActive ? "pro" : "free",
@@ -137,6 +173,7 @@ export async function getQuotaStatus(
   userId: string,
   feature: QuotaFeature
 ): Promise<QuotaStatus> {
+  assertValidFeature(feature);
   const { plan } = await getUserPlan(userId);
   const limit = QUOTA_LIMITS[plan][feature];
 
@@ -240,6 +277,7 @@ export async function incrementQuota(
   userId: string,
   feature: QuotaFeature
 ): Promise<void> {
+  assertValidFeature(feature);
   const periodStart = currentPeriodStart();
   const dbColumn = FEATURE_DB_COLUMNS[feature];
 

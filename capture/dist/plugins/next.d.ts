@@ -9,6 +9,7 @@
 type NextConfig = {
     experimental?: Record<string, unknown>;
     env?: Record<string, string>;
+    serverExternalPackages?: string[];
     [key: string]: unknown;
 };
 export declare function withInariWatch<T extends NextConfig>(nextConfig?: T): T;

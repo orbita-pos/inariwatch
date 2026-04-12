@@ -356,15 +356,16 @@ export default async function ProjectDetailPage({
       <div className="flex items-center gap-3">
         <Link
           href="/projects"
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#222] text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+          aria-label="Back to projects"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-fg-base hover:text-fg-strong hover:border-line-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         </Link>
         <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">
+          <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">
             {project.name}
           </h1>
-          <p className="text-sm text-zinc-500 font-mono">{project.slug}</p>
+          <p className="text-sm text-fg-base font-mono">{project.slug}</p>
         </div>
       </div>
 

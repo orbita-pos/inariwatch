@@ -1,6 +1,6 @@
 {
   "name": "@inariwatch/capture",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Lightweight error capture SDK for InariWatch — replaces Sentry with zero dependencies",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,6 +23,22 @@
       "types": "./dist/plugins/next.d.ts",
       "import": "./dist/plugins/next.js",
       "default": "./dist/plugins/next.js"
+    },
+    "./vite": {
+      "types": "./dist/plugins/vite.d.ts",
+      "import": "./dist/plugins/vite.js",
+      "default": "./dist/plugins/vite.js"
+    },
+    "./webpack": {
+      "types": "./dist/plugins/webpack.d.ts",
+      "import": "./dist/plugins/webpack.js",
+      "require": "./dist/plugins/webpack.js",
+      "default": "./dist/plugins/webpack.js"
+    },
+    "./nuxt": {
+      "types": "./dist/plugins/nuxt.d.ts",
+      "import": "./dist/plugins/nuxt.js",
+      "default": "./dist/plugins/nuxt.js"
     },
     "./browser": {
       "types": "./dist/browser.d.ts",

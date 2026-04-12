@@ -57,20 +57,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ received: true, duplicate: true });
     }
   } catch (err) {
+    // Fail loud — return 500 so Stripe retries instead of risking
+    // double-processing (which would cause double Pro activation).
     console.error("[stripe-webhook] dedup check failed:", err);
-    // Continue anyway — it's better to risk double-processing than to fail
+    return NextResponse.json({ error: "Dedup check failed" }, { status: 500 });
   }
 
   try {
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const userId = session.metadata?.userId;
+        const checkoutSess = event.data.object as Stripe.Checkout.Session;
+        const userId = checkoutSess.metadata?.userId;
         if (!userId) break;
 
+        // Defense-in-depth: verify the customer in the session matches
+        // the user's stored stripeCustomerId (prevents metadata tampering).
+        const sessionCustomerId =
+          typeof checkoutSess.customer === "string"
+            ? checkoutSess.customer
+            : checkoutSess.customer?.id ?? null;
+
+        const ownershipOK = await verifyCustomerOwnership(userId, sessionCustomerId);
+        if (!ownershipOK) {
+          console.error("[stripe-webhook] customer/user mismatch on checkout", {
+            userId, sessionCustomerId,
+          });
+          break; // Don't activate
+        }
+
         // Fetch the subscription details
-        if (typeof session.subscription === "string") {
-          const subscription = await stripe.subscriptions.retrieve(session.subscription);
+        if (typeof checkoutSess.subscription === "string") {
+          const subscription = await stripe.subscriptions.retrieve(checkoutSess.subscription);
           await activateProPlan(userId, subscription);
         }
         break;
@@ -79,9 +96,29 @@ export async function POST(req: Request) {
       case "customer.subscription.created":
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const userId = subscription.metadata?.userId
-          ?? (await getUserIdFromCustomerId(subscription.customer as string));
+        const customerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer?.id ?? null;
+
+        // Resolve userId: prefer metadata, fall back to customer lookup.
+        // Explicit annotation because Stripe types metadata as a plain
+        // string index, so `?? null` narrows to `string` on its own and
+        // would block the fallback reassignment below.
+        let userId: string | null = subscription.metadata?.userId ?? null;
+        if (!userId && customerId) {
+          userId = await getUserIdFromCustomerId(customerId);
+        }
         if (!userId) break;
+
+        // Verify customer ownership before mutating the user's plan.
+        const ownershipOK = await verifyCustomerOwnership(userId, customerId);
+        if (!ownershipOK) {
+          console.error("[stripe-webhook] customer/user mismatch on subscription", {
+            userId, customerId, subscriptionId: subscription.id,
+          });
+          break;
+        }
 
         if (subscription.status === "active" || subscription.status === "trialing") {
           await activateProPlan(userId, subscription);
@@ -96,9 +133,25 @@ export async function POST(req: Request) {
 
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
-        const userId = subscription.metadata?.userId
-          ?? (await getUserIdFromCustomerId(subscription.customer as string));
+        const customerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer?.id ?? null;
+
+        let userId: string | null = subscription.metadata?.userId ?? null;
+        if (!userId && customerId) {
+          userId = await getUserIdFromCustomerId(customerId);
+        }
         if (!userId) break;
+
+        const ownershipOK = await verifyCustomerOwnership(userId, customerId);
+        if (!ownershipOK) {
+          console.error("[stripe-webhook] customer/user mismatch on delete", {
+            userId, customerId, subscriptionId: subscription.id,
+          });
+          break;
+        }
+
         await downgradeToFree(userId, subscription);
         break;
       }
@@ -108,26 +161,42 @@ export async function POST(req: Request) {
         const subscriptionId = (invoice as Stripe.Invoice & { subscription?: string }).subscription;
         if (typeof subscriptionId === "string") {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-          const userId = subscription.metadata?.userId
-            ?? (await getUserIdFromCustomerId(subscription.customer as string));
-          if (userId) {
-            const [u] = await db
-              .select({ email: users.email })
-              .from(users)
-              .where(eq(users.id, userId))
-              .limit(1);
-            await db
-              .update(users)
-              .set({ subscriptionStatus: "past_due" })
-              .where(eq(users.id, userId));
+          const customerId =
+            typeof subscription.customer === "string"
+              ? subscription.customer
+              : subscription.customer?.id ?? null;
 
-            if (u?.email) {
-              import("@/lib/notifications/billing-email").then(({ sendPaymentFailedEmail }) => {
-                sendPaymentFailedEmail(u.email, {
-                  updateUrl: invoice.hosted_invoice_url ?? undefined,
-                }).catch(() => {});
+          let userId: string | null = subscription.metadata?.userId ?? null;
+          if (!userId && customerId) {
+            userId = await getUserIdFromCustomerId(customerId);
+          }
+          if (!userId) break;
+
+          // Verify ownership before mutating subscription_status / sending email.
+          const ownershipOK = await verifyCustomerOwnership(userId, customerId);
+          if (!ownershipOK) {
+            console.error("[stripe-webhook] customer/user mismatch on payment_failed", {
+              userId, customerId, subscriptionId,
+            });
+            break;
+          }
+
+          const [u] = await db
+            .select({ email: users.email })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+          await db
+            .update(users)
+            .set({ subscriptionStatus: "past_due" })
+            .where(eq(users.id, userId));
+
+          if (u?.email) {
+            import("@/lib/notifications/billing-email").then(({ sendPaymentFailedEmail }) => {
+              sendPaymentFailedEmail(u.email, {
+                updateUrl: invoice.hosted_invoice_url ?? undefined,
               }).catch(() => {});
-            }
+            }).catch(() => {});
           }
         }
         break;
@@ -143,25 +212,41 @@ export async function POST(req: Request) {
         const subscriptionId = (invoice as Stripe.Invoice & { subscription?: string }).subscription;
         if (typeof subscriptionId === "string") {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-          const userId = subscription.metadata?.userId
-            ?? (await getUserIdFromCustomerId(subscription.customer as string));
-          if (userId) {
-            const [u] = await db
-              .select({ email: users.email })
-              .from(users)
-              .where(eq(users.id, userId))
-              .limit(1);
-            const periodEnd = (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end;
+          const customerId =
+            typeof subscription.customer === "string"
+              ? subscription.customer
+              : subscription.customer?.id ?? null;
 
-            if (u?.email && periodEnd) {
-              import("@/lib/notifications/billing-email").then(({ sendRenewalEmail }) => {
-                sendRenewalEmail(u.email, {
-                  amount: invoice.amount_paid ?? 0,
-                  nextBillingDate: new Date(periodEnd * 1000),
-                  invoiceUrl: invoice.hosted_invoice_url ?? undefined,
-                }).catch(() => {});
+          let userId: string | null = subscription.metadata?.userId ?? null;
+          if (!userId && customerId) {
+            userId = await getUserIdFromCustomerId(customerId);
+          }
+          if (!userId) break;
+
+          // Verify ownership before sending renewal email.
+          const ownershipOK = await verifyCustomerOwnership(userId, customerId);
+          if (!ownershipOK) {
+            console.error("[stripe-webhook] customer/user mismatch on payment_succeeded", {
+              userId, customerId, subscriptionId,
+            });
+            break;
+          }
+
+          const [u] = await db
+            .select({ email: users.email })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+          const periodEnd = (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end;
+
+          if (u?.email && periodEnd) {
+            import("@/lib/notifications/billing-email").then(({ sendRenewalEmail }) => {
+              sendRenewalEmail(u.email, {
+                amount: invoice.amount_paid ?? 0,
+                nextBillingDate: new Date(periodEnd * 1000),
+                invoiceUrl: invoice.hosted_invoice_url ?? undefined,
               }).catch(() => {});
-            }
+            }).catch(() => {});
           }
         }
         break;
@@ -181,7 +266,27 @@ export async function POST(req: Request) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+// Valid Pro subscription amounts in cents: $12/mo or $120/yr.
+// If Stripe sends anything else, refuse to activate — it's either a
+// misconfiguration in Stripe Dashboard or a tampered webhook.
+const VALID_PRO_AMOUNTS = new Set([1200, 12000]);
+
 async function activateProPlan(userId: string, subscription: Stripe.Subscription) {
+  // Sanity check: verify the subscription's price matches our expected Pro
+  // tiers. Without this, a future bug exposing the priceId or a Stripe-side
+  // misconfiguration could grant Pro for $0.
+  const item = subscription.items.data[0];
+  const amount = item?.price.unit_amount;
+  if (amount == null || !VALID_PRO_AMOUNTS.has(amount)) {
+    console.error("[stripe-webhook] unexpected subscription price — not activating", {
+      userId,
+      subscriptionId: subscription.id,
+      amount,
+      priceId: item?.price.id,
+    });
+    return;
+  }
+
   const periodEnd = (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end;
 
   // Detect first-time activation so we send the welcome email exactly once.
@@ -259,4 +364,30 @@ async function getUserIdFromCustomerId(customerId: string): Promise<string | nul
     .where(eq(users.stripeCustomerId, customerId))
     .limit(1);
   return user?.id ?? null;
+}
+
+/**
+ * Verify that a Stripe customer ID actually belongs to a given user.
+ *
+ * Returns true when:
+ *   - The user has no stored stripeCustomerId yet (first checkout — they
+ *     haven't been linked to any customer, so any inbound customer is
+ *     accepted as the initial link)
+ *   - The user's stored stripeCustomerId matches the inbound one
+ *
+ * Returns false on mismatch (potential metadata tampering).
+ */
+async function verifyCustomerOwnership(
+  userId: string,
+  customerId: string | null
+): Promise<boolean> {
+  if (!customerId) return false;
+  const [u] = await db
+    .select({ stripeCustomerId: users.stripeCustomerId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!u) return false;
+  if (!u.stripeCustomerId) return true; // First-time link — allow
+  return u.stripeCustomerId === customerId;
 }

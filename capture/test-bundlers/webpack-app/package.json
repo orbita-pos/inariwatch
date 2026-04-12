@@ -1,0 +1,14 @@
+{
+  "name": "test-webpack",
+  "private": true,
+  "scripts": {
+    "build": "webpack --config webpack.config.cjs"
+  },
+  "dependencies": {
+    "@inariwatch/capture": "file:../.."
+  },
+  "devDependencies": {
+    "webpack": "^5.94.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

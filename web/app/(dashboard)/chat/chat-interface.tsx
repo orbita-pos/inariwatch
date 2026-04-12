@@ -165,9 +165,9 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center space-y-3">
-          <MessageSquare className="h-10 w-10 text-zinc-700 mx-auto" />
+          <MessageSquare className="h-10 w-10 text-fg-base/30 mx-auto" aria-hidden="true" />
           <h2 className="text-lg font-semibold text-fg-strong">Ask Inari</h2>
-          <p className="text-sm text-zinc-500 max-w-sm">
+          <p className="text-sm text-fg-base/60 max-w-sm">
             Add an AI API key (Claude, OpenAI, DeepSeek, Grok, or Gemini) in{" "}
             <a href="/settings" className="text-inari-accent hover:underline">Settings</a>{" "}
             to chat with your monitoring data.
@@ -183,13 +183,13 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
         <div className="flex-1 overflow-y-auto min-h-0 py-4 space-y-4 px-2">
           {[80, 55, 90, 60, 75].map((w, i) => (
             <div key={i} className={`flex gap-3 ${i % 2 === 0 ? "" : "flex-row-reverse"}`}>
-              <div className="h-6 w-6 shrink-0 rounded-full bg-zinc-800 animate-pulse" />
-              <div className={`h-4 rounded-lg bg-zinc-800 animate-pulse`} style={{ width: `${w}%` }} />
+              <div className="h-6 w-6 shrink-0 rounded-full bg-black/[0.08] dark:bg-white/[0.05] animate-pulse" />
+              <div className="h-4 rounded-lg bg-black/[0.08] dark:bg-white/[0.05] animate-pulse" style={{ width: `${w}%` }} />
             </div>
           ))}
         </div>
         <div className="shrink-0 border-t border-line pt-3 pb-3">
-          <div className="h-11 w-full rounded-xl bg-zinc-800 animate-pulse" />
+          <div className="h-11 w-full rounded-xl bg-black/[0.08] dark:bg-white/[0.05] animate-pulse" />
         </div>
       </div>
     );
@@ -203,10 +203,10 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
           <div className="flex flex-col items-center justify-center h-full space-y-6">
             <div className="text-center space-y-2">
               <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-inari-accent/10 mb-2">
-                <Sparkles className="h-6 w-6 text-inari-accent" />
+                <Sparkles className="h-6 w-6 text-inari-accent" aria-hidden="true" />
               </div>
               <h2 className="text-lg font-semibold text-fg-strong">Ask Inari anything</h2>
-              <p className="text-sm text-zinc-500 max-w-md">
+              <p className="text-sm text-fg-base/60 max-w-md">
                 Chat with your monitoring data. Ask about alerts, incidents, system health, and patterns.
               </p>
             </div>
@@ -216,8 +216,9 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
+                  type="button"
                   onClick={() => sendMessage(s)}
-                  className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-zinc-400 hover:text-fg-strong hover:border-zinc-600 transition-all"
+                  className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-fg-base/60 hover:text-fg-strong hover:border-fg-base/30 transition-all"
                 >
                   {s}
                 </button>
@@ -232,19 +233,19 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
               } rounded-lg`}>
                 <div className="mt-0.5 shrink-0">
                   {msg.role === "user" ? (
-                    <div className="h-6 w-6 rounded-full bg-zinc-800 flex items-center justify-center">
-                      <User className="h-3.5 w-3.5 text-zinc-400" />
+                    <div className="h-6 w-6 rounded-full bg-surface-dim flex items-center justify-center">
+                      <User className="h-3.5 w-3.5 text-fg-base/50" aria-hidden="true" />
                     </div>
                   ) : (
                     <div className="h-6 w-6 rounded-full bg-inari-accent/10 flex items-center justify-center">
-                      <Sparkles className="h-3.5 w-3.5 text-inari-accent" />
+                      <Sparkles className="h-3.5 w-3.5 text-inari-accent" aria-hidden="true" />
                     </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   {msg.role === "assistant" && !msg.content && isStreaming ? (
-                    <div className="flex items-center gap-2 text-sm text-zinc-600">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <div className="flex items-center gap-2 text-sm text-fg-base/50">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                       Thinking…
                     </div>
                   ) : (
@@ -273,7 +274,7 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 placeholder="Ask about your systems..."
                 disabled={isStreaming}
                 rows={1}
-                className="w-full resize-none overflow-hidden rounded-xl border border-line bg-surface px-4 py-3 pr-12 text-sm text-fg-strong placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-50 transition-colors"
+                className="w-full resize-none overflow-hidden rounded-xl border border-line bg-surface px-4 py-3 pr-12 text-sm text-fg-strong placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none disabled:opacity-50 transition-colors"
                 style={{ maxHeight: "120px", minHeight: "44px", display: "block" }}
                 onInput={(e) => {
                   const el = e.currentTarget;
@@ -287,9 +288,9 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg bg-inari-accent p-1.5 text-white disabled:opacity-30 hover:bg-inari-accent/80 transition-colors"
               >
                 {isStreaming ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <Send className="h-4 w-4" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -298,16 +299,16 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
                 <button
                   type="button"
                   onClick={handleClear}
-                  className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-zinc-600 hover:text-zinc-400 hover:border-zinc-600 transition-colors"
-                  title="Clear chat"
+                  className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-fg-base/50 hover:text-fg-base hover:border-fg-base/30 transition-colors"
+                  aria-label="Clear chat"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             )}
           </div>
         </form>
-        <p className="mt-2 text-center text-[10px] text-zinc-700">
+        <p className="mt-2 text-center text-[10px] text-fg-base/40">
           InariWatch AI queries your real monitoring data. Responses may not always be accurate.
         </p>
       </div>
@@ -346,15 +347,15 @@ function ChatMarkdown({ content }: { content: string }) {
     }
 
     if (line.startsWith("### ")) {
-      elements.push(<h3 key={key++} className="text-sm font-semibold text-zinc-200 mt-3 mb-1">{formatInline(line.slice(4))}</h3>);
+      elements.push(<h3 key={key++} className="text-sm font-semibold text-fg-strong mt-3 mb-1">{formatInline(line.slice(4))}</h3>);
     } else if (line.startsWith("## ")) {
-      elements.push(<h2 key={key++} className="text-base font-semibold text-zinc-200 mt-4 mb-2">{formatInline(line.slice(3))}</h2>);
+      elements.push(<h2 key={key++} className="text-base font-semibold text-fg-strong mt-4 mb-2">{formatInline(line.slice(3))}</h2>);
     } else if (line.startsWith("# ")) {
       elements.push(<h1 key={key++} className="text-lg font-semibold text-fg-strong mt-4 mb-2">{formatInline(line.slice(2))}</h1>);
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
       elements.push(
         <div key={key++} className="flex gap-2 pl-2 text-sm text-fg-base">
-          <span className="text-zinc-600 shrink-0">•</span>
+          <span className="text-fg-base/40 shrink-0">•</span>
           <span>{formatInline(line.slice(2))}</span>
         </div>
       );
@@ -363,7 +364,7 @@ function ChatMarkdown({ content }: { content: string }) {
       if (match) {
         elements.push(
           <div key={key++} className="flex gap-2 pl-2 text-sm text-fg-base">
-            <span className="text-zinc-500 shrink-0 tabular-nums">{match[1]}.</span>
+            <span className="text-fg-base/60 shrink-0 tabular-nums">{match[1]}.</span>
             <span>{formatInline(match[2])}</span>
           </div>
         );
@@ -372,7 +373,7 @@ function ChatMarkdown({ content }: { content: string }) {
       elements.push(<div key={key++} className="h-2" />);
     } else if (line.startsWith("> ")) {
       elements.push(
-        <div key={key++} className="border-l-2 border-zinc-700 pl-3 my-1 text-sm text-zinc-500 italic">
+        <div key={key++} className="border-l-2 border-fg-base/20 pl-3 my-1 text-sm text-fg-base/50 italic">
           {formatInline(line.slice(2))}
         </div>
       );
@@ -403,7 +404,7 @@ function formatInline(text: string): React.ReactNode {
     // Bold
     const boldMatch = remaining.match(/^\*\*(.*?)\*\*/);
     if (boldMatch) {
-      parts.push(<strong key={i++} className="text-zinc-200 font-medium">{boldMatch[1]}</strong>);
+      parts.push(<strong key={i++} className="text-fg-strong font-medium">{boldMatch[1]}</strong>);
       remaining = remaining.slice(boldMatch[0].length);
       continue;
     }
@@ -412,7 +413,7 @@ function formatInline(text: string): React.ReactNode {
     const codeMatch = remaining.match(/^`([^`]+)`/);
     if (codeMatch) {
       parts.push(
-        <code key={i++} className="rounded bg-surface-dim border border-line px-1.5 py-0.5 text-xs font-mono text-zinc-400">
+        <code key={i++} className="rounded bg-surface-dim border border-line px-1.5 py-0.5 text-xs font-mono text-fg-base/60">
           {codeMatch[1]}
         </code>
       );
@@ -423,7 +424,7 @@ function formatInline(text: string): React.ReactNode {
     // Italic
     const italicMatch = remaining.match(/^\*([^*]+)\*/);
     if (italicMatch) {
-      parts.push(<em key={i++} className="text-zinc-400">{italicMatch[1]}</em>);
+      parts.push(<em key={i++} className="text-fg-base/60">{italicMatch[1]}</em>);
       remaining = remaining.slice(italicMatch[0].length);
       continue;
     }

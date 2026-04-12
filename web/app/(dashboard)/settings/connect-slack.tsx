@@ -47,10 +47,11 @@ export function ConnectSlackButton({ projects }: { projects?: { id: string; name
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-fg-base/60 hover:border-fg-base/30 hover:text-fg-base transition-all"
       >
-        <Plus className="h-3.5 w-3.5" />
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         Install Slack Bot
       </button>
 
@@ -62,13 +63,13 @@ export function ConnectSlackButton({ projects }: { projects?: { id: string; name
             </div>
             <span className="text-sm font-semibold text-fg-strong">Install Slack Bot</span>
           </div>
-          <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-fg-base transition-colors">
-            <X className="h-4 w-4" />
+          <button type="button" onClick={() => setOpen(false)} className="text-fg-base/60 hover:text-fg-base transition-colors" aria-label="Close">
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
         <div className="px-5 py-5 space-y-4">
-          <p className="text-sm text-zinc-400 leading-relaxed">
+          <p className="text-sm text-fg-base/60 leading-relaxed">
             Connect InariWatch to your Slack workspace to receive alerts, trigger AI remediation, and manage incidents without leaving Slack.
           </p>
           <ul className="space-y-2">
@@ -78,8 +79,8 @@ export function ConnectSlackButton({ projects }: { projects?: { id: string; name
               "Ask Inari via @mention in any channel",
               "Slash commands: /inari status, alerts, fix, oncall",
             ].map((f) => (
-              <li key={f} className="flex items-start gap-2 text-sm text-zinc-400">
-                <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-green-500" />
+              <li key={f} className="flex items-start gap-2 text-sm text-fg-base/60">
+                <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
                 {f}
               </li>
             ))}
@@ -87,14 +88,14 @@ export function ConnectSlackButton({ projects }: { projects?: { id: string; name
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
-          <button onClick={() => setOpen(false)} className="px-3 py-1.5 text-sm text-zinc-500 hover:text-fg-base transition-colors">
+          <button type="button" onClick={() => setOpen(false)} className="px-3 py-1.5 text-sm text-fg-base/60 hover:text-fg-base transition-colors">
             Cancel
           </button>
           <a
             href="/api/slack/oauth"
             className="inline-flex items-center gap-2 rounded-lg bg-[#4A154B] px-4 py-2 text-sm font-medium text-white hover:bg-[#5a1d5c] transition-colors"
           >
-            <Hash className="h-3.5 w-3.5" />
+            <Hash className="h-3.5 w-3.5" aria-hidden="true" />
             Add to Slack
           </a>
         </div>
@@ -156,17 +157,18 @@ export function SlackChannelRow({
         <div className="flex-1 min-w-0">
           <p className="text-sm text-fg-base">
             Slack
-            <span className="ml-1.5 text-xs text-zinc-600">{installation.teamName}</span>
+            <span className="ml-1.5 text-xs text-fg-base/50">{installation.teamName}</span>
           </p>
-          <p className="text-xs text-zinc-700">
+          <p className="text-xs text-fg-base/40">
             {mappedCount > 0 ? `${mappedCount} channel${mappedCount > 1 ? "s" : ""} mapped` : "No channels mapped yet"}
           </p>
         </div>
         <button
+          type="button"
           onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-2.5 py-1.5 text-[11px] font-medium text-zinc-500 hover:border-zinc-600 hover:text-fg-base transition-all"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-2.5 py-1.5 text-[11px] font-medium text-fg-base/60 hover:border-fg-base/30 hover:text-fg-base transition-all"
         >
-          <Settings className="h-3 w-3" />
+          <Settings className="h-3 w-3" aria-hidden="true" />
           Manage
         </button>
       </div>
@@ -180,18 +182,18 @@ export function SlackChannelRow({
             </div>
             <div>
               <p className="text-sm font-semibold text-fg-strong">{installation.teamName}</p>
-              <p className="text-[11px] text-green-500">Connected</p>
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400">Connected</p>
             </div>
           </div>
-          <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-fg-base transition-colors">
-            <X className="h-4 w-4" />
+          <button type="button" onClick={() => setOpen(false)} className="text-fg-base/60 hover:text-fg-base transition-colors" aria-label="Close">
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
         {projects.length > 0 && (
           <div className="px-5 py-4 space-y-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Channel mapping</p>
-            <p className="text-xs text-zinc-600">Route alerts to specific Slack channels per project.</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-fg-base/60">Channel mapping</p>
+            <p className="text-xs text-fg-base/50">Route alerts to specific Slack channels per project.</p>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {projects.map((project) => {
                 const existing = channelMappings.find((m) => m.projectId === project.id);
@@ -199,13 +201,13 @@ export function SlackChannelRow({
                   <div key={project.id} className="flex items-center gap-2">
                     <span className="w-36 shrink-0 truncate text-sm text-fg-base">{project.name}</span>
                     <div className="relative flex-1">
-                      <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+                      <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-base/50" aria-hidden="true" />
                       <input
                         type="text"
                         value={channelInputs[project.id] || ""}
                         onChange={(e) => setChannelInputs((prev) => ({ ...prev, [project.id]: e.target.value }))}
                         placeholder="channel-name"
-                        className="h-8 w-full rounded-lg border border-line bg-surface-inner pl-8 pr-3 text-sm text-fg-strong placeholder:text-zinc-600 outline-none focus:border-inari-accent/40 transition-colors"
+                        className="h-8 w-full rounded-lg border border-line bg-surface-inner pl-8 pr-3 text-sm text-fg-strong placeholder:text-fg-base/40 outline-none focus:border-inari-accent/40 transition-colors"
                       />
                     </div>
                     <button
@@ -217,10 +219,12 @@ export function SlackChannelRow({
                     </button>
                     {existing && (
                       <button
+                        type="button"
                         onClick={() => handleRemove(project.id)}
-                        className="h-8 px-2 rounded-lg text-zinc-500 hover:text-red-400 transition-colors shrink-0"
+                        className="h-8 px-2 rounded-lg text-fg-base/50 hover:text-red-600 dark:hover:text-red-400 transition-colors shrink-0"
+                        aria-label={`Remove channel for ${project.name}`}
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
                     )}
                   </div>
@@ -236,10 +240,10 @@ export function SlackChannelRow({
             disabled={isPending}
             className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-all"
           >
-            {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            {isPending ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <Trash2 className="h-3 w-3" aria-hidden="true" />}
             Disconnect
           </button>
-          <button onClick={() => setOpen(false)} className="px-3 py-1.5 text-sm text-zinc-500 hover:text-fg-base transition-colors">
+          <button type="button" onClick={() => setOpen(false)} className="px-3 py-1.5 text-sm text-fg-base/60 hover:text-fg-base transition-colors">
             Done
           </button>
         </div>

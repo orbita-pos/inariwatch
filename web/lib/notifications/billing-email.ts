@@ -6,6 +6,18 @@ import { sendEmail } from "./email";
 
 const APP_URL = process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "https://app.inariwatch.com";
 
+// Defense-in-depth: all interpolated values come from Stripe / our DB, not
+// raw user input, but an escape helper is cheap insurance against a future
+// template or data-source change.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const wrapper = (title: string, body: string) => `
 <!doctype html>
 <html>
@@ -68,8 +80,8 @@ export async function sendProWelcomeEmail(
     </div>
 
     <div style="font-size:13px;color:#525252;margin:20px 0;line-height:1.6;">
-      <strong style="color:#a3a3a3;">Plan:</strong> ${intervalLabel}<br/>
-      <strong style="color:#a3a3a3;">Next billing date:</strong> ${renewalDate}
+      <strong style="color:#a3a3a3;">Plan:</strong> ${escapeHtml(intervalLabel)}<br/>
+      <strong style="color:#a3a3a3;">Next billing date:</strong> ${escapeHtml(renewalDate)}
     </div>
 
     <div style="text-align:center;margin:24px 0;">
@@ -108,13 +120,13 @@ export async function sendRenewalEmail(
   const body = `
     <h1 style="margin:0 0 16px;font-size:20px;color:#fafafa;">Subscription renewed</h1>
     <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#a3a3a3;">
-      Your InariWatch Pro subscription was renewed for <strong style="color:#fafafa;">${amountStr}</strong>.
-      Your next billing date is <strong style="color:#fafafa;">${renewalDate}</strong>.
+      Your InariWatch Pro subscription was renewed for <strong style="color:#fafafa;">${escapeHtml(amountStr)}</strong>.
+      Your next billing date is <strong style="color:#fafafa;">${escapeHtml(renewalDate)}</strong>.
     </p>
 
     ${options.invoiceUrl ? `
     <div style="text-align:center;margin:24px 0;">
-      <a href="${options.invoiceUrl}" style="display:inline-block;background:transparent;color:#f59e0b;padding:10px 20px;border:1px solid #f59e0b;border-radius:8px;text-decoration:none;font-weight:500;font-size:13px;">
+      <a href="${escapeHtml(options.invoiceUrl)}" style="display:inline-block;background:transparent;color:#f59e0b;padding:10px 20px;border:1px solid #f59e0b;border-radius:8px;text-decoration:none;font-weight:500;font-size:13px;">
         Download invoice
       </a>
     </div>
@@ -143,7 +155,7 @@ export async function sendPaymentFailedEmail(
     </p>
 
     <div style="text-align:center;margin:24px 0;">
-      <a href="${options.updateUrl ?? `${APP_URL}/settings`}" style="display:inline-block;background:#ef4444;color:#fafafa;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
+      <a href="${escapeHtml(options.updateUrl ?? `${APP_URL}/settings`)}" style="display:inline-block;background:#ef4444;color:#fafafa;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
         Update payment method
       </a>
     </div>
@@ -173,7 +185,7 @@ export async function sendSubscriptionCanceledEmail(
     <h1 style="margin:0 0 16px;font-size:20px;color:#fafafa;">Subscription canceled</h1>
     <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#a3a3a3;">
       Your InariWatch Pro subscription has been canceled. You&apos;ll keep Pro access until
-      <strong style="color:#fafafa;">${dateStr}</strong>, then your account will revert to the Free plan.
+      <strong style="color:#fafafa;">${escapeHtml(dateStr)}</strong>, then your account will revert to the Free plan.
     </p>
 
     <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#a3a3a3;">

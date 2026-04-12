@@ -27,7 +27,7 @@ export function McpDashboard({ stats }: { stats: McpStats }) {
       {/* Top tools */}
       {stats.topTools.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-zinc-500 mb-2">Top tools (30 days)</p>
+          <p className="text-xs font-medium text-fg-base/60 mb-2">Top tools (30 days)</p>
           <div className="space-y-1.5">
             {stats.topTools.map((t) => {
               const pct = stats.totalCalls > 0 ? (t.count / stats.totalCalls) * 100 : 0;
@@ -40,7 +40,7 @@ export function McpDashboard({ stats }: { stats: McpStats }) {
                       style={{ width: `${Math.max(pct, 2)}%` }}
                     />
                   </div>
-                  <span className="w-12 text-right text-[11px] text-zinc-500">{t.count}</span>
+                  <span className="w-12 text-right text-[11px] text-fg-base/60">{t.count}</span>
                 </div>
               );
             })}
@@ -51,7 +51,7 @@ export function McpDashboard({ stats }: { stats: McpStats }) {
       {/* Calls by day */}
       {stats.callsByDay.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-zinc-500 mb-2">Calls / day (last 7 days)</p>
+          <p className="text-xs font-medium text-fg-base/60 mb-2">Calls / day (last 7 days)</p>
           <div className="flex items-end gap-1 h-16">
             {stats.callsByDay.map((d) => {
               const max = Math.max(...stats.callsByDay.map((x) => x.count), 1);
@@ -63,7 +63,7 @@ export function McpDashboard({ stats }: { stats: McpStats }) {
                     style={{ height: `${Math.max(pct, 4)}%` }}
                     title={`${d.date}: ${d.count} calls`}
                   />
-                  <span className="text-[9px] text-zinc-600">{d.date.slice(5)}</span>
+                  <span className="text-[9px] text-fg-base/50">{d.date.slice(5)}</span>
                 </div>
               );
             })}
@@ -72,7 +72,7 @@ export function McpDashboard({ stats }: { stats: McpStats }) {
       )}
 
       {stats.totalCalls === 0 && (
-        <p className="text-sm text-zinc-500 text-center py-2">
+        <p className="text-sm text-fg-base/60 text-center py-2">
           No MCP calls yet. Connect an AI tool to get started.
         </p>
       )}
@@ -82,9 +82,9 @@ export function McpDashboard({ stats }: { stats: McpStats }) {
 
 function StatCard({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 ${warn ? "border-amber-900/40 bg-amber-950/20" : "border-line bg-surface-inner"}`}>
-      <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</p>
-      <p className={`text-lg font-semibold ${warn ? "text-amber-400" : "text-fg-strong"}`}>{value}</p>
+    <div className={`rounded-lg border px-3 py-2 ${warn ? "border-amber-500/30 bg-amber-500/5" : "border-line bg-surface-inner"}`}>
+      <p className="text-[10px] text-fg-base/60 uppercase tracking-wider">{label}</p>
+      <p className={`text-lg font-semibold ${warn ? "text-amber-600 dark:text-amber-400" : "text-fg-strong"}`}>{value}</p>
     </div>
   );
 }

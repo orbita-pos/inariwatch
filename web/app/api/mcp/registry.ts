@@ -107,11 +107,11 @@ export const TOOLS: ToolDef[] = [
     costTier: "cheap",
   },
 
-  // ── Reasoning (AI calls, may cache results) ───────────────────────────────
+  // ── Reasoning (sampling-first: client LLM does the analysis) ───────────────
   {
     name: "get_root_cause",
     description:
-      "Deep AI-powered root cause analysis of a specific alert. Gathers context from integrations (Sentry, Vercel, GitHub CI) and returns structured analysis with confidence score, impact assessment, and suggested fix.",
+      "Root cause analysis of a specific alert. Returns cached AI analysis if available, otherwise provides alert context and a sampling request for client-side LLM diagnosis.",
     inputSchema: {
       type: "object",
       properties: {
@@ -120,13 +120,13 @@ export const TOOLS: ToolDef[] = [
       required: ["alert_id"],
     },
     scope: "read",
-    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+    annotations: { readOnlyHint: true, idempotentHint: true },
     costTier: "moderate",
   },
   {
     name: "assess_risk",
     description:
-      "Pre-deploy risk assessment for a pull request. Analyzes the diff against historical incident data. Returns risk level (Low/Medium/High) with findings.",
+      "Pre-deploy risk assessment for a pull request. Fetches the PR diff from GitHub and provides a sampling request for client-side LLM analysis. Returns risk level (Low/Medium/High) with findings.",
     inputSchema: {
       type: "object",
       properties: {
@@ -203,17 +203,30 @@ export const TOOLS: ToolDef[] = [
     costTier: "expensive",
   },
   {
-    name: "rollback_vercel",
+    name: "rollback_deploy",
     description:
-      "Roll back a Vercel project to its previous successful production deployment.",
+      "Roll back a project to its previous successful production deployment. Host-agnostic — works with Vercel, Netlify, Cloudflare Pages, and Render depending on which hosting integration the project has connected.",
     inputSchema: {
       type: "object",
       properties: {
         project: { type: "string", description: "Project slug." },
-        deployment_id: {
-          type: "string",
-          description: "Specific deployment to roll back to. Omit to auto-select.",
-        },
+      },
+      required: ["project"],
+    },
+    scope: "execute",
+    annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    costTier: "expensive",
+  },
+  {
+    // Legacy alias — same execute path as rollback_deploy. Kept so MCP clients
+    // already configured against older InariWatch versions keep working.
+    name: "rollback_vercel",
+    description:
+      "[Legacy alias for rollback_deploy] Roll back a project to its previous successful production deployment. Host-agnostic despite the name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug." },
       },
       required: ["project"],
     },
@@ -311,7 +324,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "ask_inari",
     description:
-      "Ask a natural language question about your infrastructure. Inari AI has full context: alerts, remediations, integrations, uptime — and answers based on real data, not guesses.",
+      "Ask a natural language question about your infrastructure. Gathers full operational context (alerts, remediations, integrations, uptime) and provides a sampling request for client-side LLM to answer based on real data.",
     inputSchema: {
       type: "object",
       properties: {
@@ -393,7 +406,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "simulate_fix",
     description:
-      "Simulate whether a proposed fix would resolve a bug, based on the Substrate I/O recording. AI analyzes the recording + fix description and returns probability of success, risks, and side effects.",
+      "Simulate whether a proposed fix would resolve a bug, based on the Substrate I/O recording. Returns recording data and a sampling request for client-side LLM to analyze probability of success, risks, and side effects.",
     inputSchema: {
       type: "object",
       properties: {

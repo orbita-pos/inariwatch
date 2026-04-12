@@ -7,7 +7,7 @@
   :root {
     color-scheme: light;
 
-    --bg-page:         #f8fafc;
+    --bg-page:         #fafafa;
     --bg-card:         #ffffff;
     --bg-card-inner:   #f4f4f5;
     --bg-card-elevated:#efefef;
@@ -16,11 +16,11 @@
     --bd-subtle:       #f0f0f0;
     --bd-medium:       #d4d4d8;
 
-    --fg-strong:       #0f0f11;
-    --fg-base:         #3f3f46;
+    --fg-strong:       #0a0a0c;
+    --fg-base:         #52525b;
 
     /* inari marketing colors — light */
-    --inari-bg:        #f8fafc;
+    --inari-bg:        #fafafa;
     --inari-card:      #ffffff;
     --inari-border:    #e4e4e7;
   }
@@ -29,27 +29,23 @@
   .dark {
     color-scheme: dark;
 
-    /* Content area — deepest layer */
-    --bg-page:          #0c0c12;
-    /* Sidebar — slightly elevated with purple tint for depth */
-    --bg-card:          #111118;
-    /* Hover states, inputs */
-    --bg-card-inner:    #18181f;
-    /* Card backgrounds — purple-tinted to feel branded */
-    --bg-card-elevated: #1c1c26;
+    /* Near-black neutral — no color tint */
+    --bg-page:          #0a0a0c;
+    --bg-card:          #111114;
+    --bg-card-inner:    #16161a;
+    --bg-card-elevated: #1a1a1f;
 
-    --bd-default:       #1e1e2c;
-    --bd-subtle:        #171720;
-    --bd-medium:        #28283a;
+    --bd-default:       #1f1f24;
+    --bd-subtle:        #17171b;
+    --bd-medium:        #2a2a31;
 
-    --fg-strong:        #f0f0f5;
-    /* Cooler muted text — less flat than zinc-300 */
-    --fg-base:          #b0b0c8;
+    --fg-strong:        #f5f5f7;
+    --fg-base:          #a1a1aa;
 
     /* inari marketing colors — dark */
-    --inari-bg:         #0c0c12;
-    --inari-card:       #111118;
-    --inari-border:     #1e1e2c;
+    --inari-bg:         #0a0a0c;
+    --inari-card:       #111114;
+    --inari-border:     #1f1f24;
   }
 
   * {
@@ -59,11 +55,17 @@
   }
 
   html {
-    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-satoshi), ui-sans-serif, system-ui, sans-serif;
     background-color: var(--bg-page);
     color: var(--fg-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Display font for headings — Clash Display */
+  h1, h2, h3 {
+    font-family: var(--font-clash), var(--font-satoshi), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
   }
 
   /* Custom scrollbar */
@@ -72,22 +74,22 @@
   ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
 
-  .dark ::-webkit-scrollbar-thumb { background: #252535; }
-  .dark ::-webkit-scrollbar-thumb:hover { background: #35354a; }
+  .dark ::-webkit-scrollbar-thumb { background: #27272a; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
   :not(.dark) ::-webkit-scrollbar-thumb { background: #d4d4d8; }
   :not(.dark) ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
 
   /* Focus ring */
   :focus-visible {
-    outline: 2px solid rgba(124, 58, 237, 0.5);
+    outline: 2px solid rgba(234, 88, 12, 0.5);
     outline-offset: 2px;
   }
 }
 
 @layer utilities {
-  /* Gradient text */
+  /* Gradient text — neutral fade for headings */
   .text-gradient {
-    background: linear-gradient(135deg, #0f0f11 0%, #52525b 100%);
+    background: linear-gradient(135deg, #0a0a0c 0%, #52525b 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -99,50 +101,60 @@
     background-clip: text;
   }
 
+  /* Accent gradient — burnt orange wash */
   .text-gradient-accent {
-    background: linear-gradient(135deg, #7C3AED 0%, #9F67FF 60%, #B794F6 100%);
+    background: linear-gradient(135deg, #fb923c 0%, #ea580c 55%, #c2410c 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
-  /* Glow effects */
+  /* Glow effects — subtle, openclaw-style */
   .glow-accent {
-    box-shadow: 0 0 20px rgba(124, 58, 237, 0.2), 0 0 60px rgba(124, 58, 237, 0.08);
+    box-shadow: 0 0 20px rgba(234, 88, 12, 0.18), 0 0 60px rgba(234, 88, 12, 0.07);
   }
 
   .glow-accent-sm {
-    box-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
+    box-shadow: 0 0 12px rgba(234, 88, 12, 0.3);
   }
 
   .glow-accent-text {
-    text-shadow: 0 0 24px rgba(124, 58, 237, 0.6);
+    text-shadow: 0 0 24px rgba(234, 88, 12, 0.45);
   }
 
   /* Grid pattern background */
   .bg-grid {
     background-image:
-      linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px);
-    background-size: 40px 40px;
+      linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px);
+    background-size: 56px 56px;
   }
   .dark .bg-grid {
     background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 40px 40px;
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 56px 56px;
   }
 
-  /* Radial gradient mask */
+  /* Radial gradient mask — subtle burnt-orange wash */
   .bg-radial-fade {
-    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(124,58,237,0.07) 0%, transparent 70%);
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(234,88,12,0.1) 0%, transparent 70%);
   }
 
   /* Terminal cursor blink */
   .cursor::after {
     content: "▋";
     animation: blink 1s step-end infinite;
-    color: #7C3AED;
+    color: #ea580c;
+  }
+
+  /* Infinite marquee */
+  .marquee-track {
+    display: flex;
+    align-items: center;
+    width: max-content;
+    will-change: transform;
+    animation: marquee 40s linear infinite;
   }
 
   /* InariWatch logo dot pulse ring */
@@ -157,38 +169,9 @@
     position: absolute;
     inset: -3px;
     border-radius: 50%;
-    border: 1px solid rgba(124, 58, 237, 0.5);
+    border: 1px solid rgba(234, 88, 12, 0.5);
     animation: inari-ring 2.5s ease-out infinite;
     pointer-events: none;
-  }
-
-  /* InariWatch concentric circles background */
-  .inari-visual {
-    position: relative;
-    width: 700px;
-    height: 700px;
-    border-radius: 50%;
-    background:
-      radial-gradient(circle, transparent 19.5%, rgba(124,58,237,0.06) 20%, transparent 20.5%),
-      radial-gradient(circle, transparent 34.5%, rgba(124,58,237,0.05) 35%, transparent 35.5%),
-      radial-gradient(circle, transparent 49.5%, rgba(124,58,237,0.04) 50%, transparent 50.5%),
-      radial-gradient(circle, transparent 64.5%, rgba(124,58,237,0.03) 65%, transparent 65.5%),
-      radial-gradient(circle, transparent 79.5%, rgba(124,58,237,0.02) 80%, transparent 80.5%);
-    flex-shrink: 0;
-  }
-
-  .inari-visual::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: conic-gradient(
-      from 0deg,
-      transparent 0deg 320deg,
-      rgba(124, 58, 237, 0.07) 320deg 350deg,
-      rgba(124, 58, 237, 0.02) 350deg 360deg
-    );
-    animation: inari-spin 8s linear infinite;
   }
 }
 
@@ -198,7 +181,44 @@
   100% { transform: scale(2.8); opacity: 0; }
 }
 
-@keyframes inari-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+@keyframes marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+@keyframes scroll-up {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-from-right {
+  from { transform: translateX(10px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes slide-to-right {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(10px); opacity: 0; }
+}
+
+/* Reduced motion — respect user OS preference (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration:   0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration:  0.01ms !important;
+    scroll-behavior:      auto !important;
+  }
 }

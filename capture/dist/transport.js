@@ -24,7 +24,10 @@ export function parseDSN(dsn) {
 }
 async function signPayload(body, secret) {
     try {
-        const nodeCrypto = await import("crypto");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pkg = "node:crypto";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nodeCrypto = await import(/* webpackIgnore: true */ pkg);
         if (nodeCrypto.createHmac) {
             return `sha256=${nodeCrypto.createHmac("sha256", secret).update(body, "utf8").digest("hex")}`;
         }

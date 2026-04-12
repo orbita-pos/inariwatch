@@ -88,7 +88,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
                 {PLAN_LABEL[plan]}
               </p>
             </div>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-zinc-500 group-hover:text-fg-base transition-colors" />
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-fg-base/60 group-hover:text-fg-base transition-colors" aria-hidden="true" />
           </button>
         </DropdownMenu.Trigger>
 
@@ -101,6 +101,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
             {/* Personal workspace */}
             <div className="px-1.5 mb-1">
               <button
+                type="button"
                 className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-inner transition-colors"
                 onClick={() => {
                   startTransition(async () => {
@@ -115,9 +116,9 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
                 </div>
                 <div className="min-w-0 flex-1 text-left">
                   <p className="truncate text-sm font-medium text-fg-strong">{personalName}</p>
-                  <p className="text-[11px] text-zinc-500 truncate">{userEmail}</p>
+                  <p className="text-[11px] text-fg-base/60 truncate">{userEmail}</p>
                 </div>
-                {!activeOrg && <Check className="h-3.5 w-3.5 shrink-0 text-inari-accent" />}
+                {!activeOrg && <Check className="h-3.5 w-3.5 shrink-0 text-inari-accent" aria-hidden="true" />}
               </button>
             </div>
 
@@ -125,13 +126,14 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
             {organizations.length > 0 && (
               <>
                 <DropdownMenu.Separator className="h-px bg-line my-1" />
-                <p className="px-3 py-1.5 text-[11px] font-medium text-zinc-500 uppercase tracking-wider">
+                <p className="px-3 py-1.5 text-[11px] font-medium text-fg-base/60 uppercase tracking-wider">
                   Workspaces
                 </p>
                 <div className="px-1.5">
                   {organizations.map((org) => (
                     <button
                       key={org.id}
+                      type="button"
                       className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-inner transition-colors"
                       onClick={() => {
                         startTransition(async () => {
@@ -142,14 +144,14 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
                       }}
                     >
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-inari-accent/10 text-inari-accent">
-                        <Building2 className="h-3.5 w-3.5" />
+                        <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
                       </div>
                       <div className="min-w-0 flex-1 text-left">
                         <p className="truncate text-sm font-medium text-fg-strong">{org.name}</p>
-                        <p className="text-[11px] text-zinc-500">{ROLE_LABEL[org.role] ?? org.role}</p>
+                        <p className="text-[11px] text-fg-base/60">{ROLE_LABEL[org.role] ?? org.role}</p>
                       </div>
                       {activeOrg?.id === org.id && (
-                        <Check className="h-3.5 w-3.5 shrink-0 text-inari-accent" />
+                        <Check className="h-3.5 w-3.5 shrink-0 text-inari-accent" aria-hidden="true" />
                       )}
                     </button>
                   ))}
@@ -165,7 +167,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
                 href={activeOrg ? "/workspace/settings" : "/settings"}
                 className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg-base hover:text-fg-strong hover:bg-surface-inner rounded-lg mx-1 cursor-pointer outline-none transition-colors"
               >
-                <Settings className="h-3.5 w-3.5 text-zinc-500" />
+                <Settings className="h-3.5 w-3.5 text-fg-base/60" aria-hidden="true" />
                 Workspace settings
               </Link>
             </DropdownMenu.Item>
@@ -177,7 +179,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
                 onSelect={() => handleInvite(org)}
                 className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg-base hover:text-fg-strong hover:bg-surface-inner rounded-lg mx-1 cursor-pointer outline-none transition-colors"
               >
-                <UserPlus className="h-3.5 w-3.5 text-zinc-500" />
+                <UserPlus className="h-3.5 w-3.5 text-fg-base/60" aria-hidden="true" />
                 Invite to {org.name}
               </DropdownMenu.Item>
             ))}
@@ -190,7 +192,7 @@ export function WorkspaceSwitcher({ userName, userEmail, plan, organizations, ac
               onSelect={handleCreateWorkspace}
               className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg-base hover:text-fg-strong hover:bg-surface-inner rounded-lg mx-1 cursor-pointer outline-none transition-colors"
             >
-              <Plus className="h-3.5 w-3.5 text-zinc-500" />
+              <Plus className="h-3.5 w-3.5 text-fg-base/60" aria-hidden="true" />
               Create workspace
             </DropdownMenu.Item>
           </DropdownMenu.Content>

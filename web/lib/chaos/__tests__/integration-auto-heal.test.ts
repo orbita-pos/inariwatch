@@ -55,13 +55,17 @@ describe("Integration: Auto-Heal Cascade", () => {
     control.setDefaultSelectResult([]);
     mockGetLastDeploy.mockReset();
     mockRollback.mockReset();
-    // Default: cooldown lock always acquired (not in cooldown)
-    db.execute.mockResolvedValue({ rows: [{ key: "rollback:prj-abc" }] });
+    // Default: cooldown lock always acquired (not in cooldown).
+    // Lock key format: `rollback:${service}:${projectId ?? projectName}`
+    db.execute.mockResolvedValue({ rows: [{ key: "rollback:vercel:prj-abc" }] });
   });
 
   it("successful rollback resolves the alert", async () => {
     mockGetLastDeploy.mockResolvedValue(goodDeploy);
-    mockRollback.mockResolvedValue(undefined);
+    // vercel-api.rollbackToDeployment returns { url } — the provider
+    // abstraction (VercelProvider) passes that shape through, so the mock
+    // must match it or the provider throws reading .url on undefined.
+    mockRollback.mockResolvedValue({ url: "https://my-app.vercel.app" });
 
     await triggerAutoRollback(baseOpts);
 
@@ -115,7 +119,7 @@ describe("Integration: Auto-Heal Cascade", () => {
     mockGetLastDeploy.mockResolvedValue(goodDeploy);
     mockRollback
       .mockRejectedValueOnce(new Error("Transient 502"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce({ url: "https://my-app.vercel.app" });
 
     const result = await chaosTest("rollback-retry", async () => {
       await triggerAutoRollback(baseOpts);
@@ -135,13 +139,13 @@ describe("Integration: Auto-Heal Cascade", () => {
 
   it("cooldown prevents second rollback within 10 minutes", async () => {
     mockGetLastDeploy.mockResolvedValue(goodDeploy);
-    mockRollback.mockResolvedValue(undefined);
+    mockRollback.mockResolvedValue({ url: "https://my-app.vercel.app" });
 
     // Mock db.execute for the cron_locks cooldown check
     // First call: lock acquired (returns key)
     // Second call: lock held (returns empty — cooldown active)
     db.execute
-      .mockResolvedValueOnce({ rows: [{ key: "rollback:prj-abc" }] }) // lock acquired
+      .mockResolvedValueOnce({ rows: [{ key: "rollback:vercel:prj-abc" }] }) // lock acquired
       .mockResolvedValueOnce({ rows: [] }); // cooldown active
 
     // First rollback executes

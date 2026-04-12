@@ -11,8 +11,8 @@ const config: Config = {
     extend: {
       colors: {
         inari: {
-          accent:     "#7C3AED",
-          "accent-dim": "rgba(124,58,237,0.06)",
+          accent:     "#ea580c",
+          "accent-dim": "rgba(234,88,12,0.06)",
           bg:         "var(--inari-bg)",
           card:       "var(--inari-card)",
           border:     "var(--inari-border)",
@@ -30,8 +30,9 @@ const config: Config = {
         "fg-base":      "var(--fg-base)",
       },
       fontFamily: {
-        mono: ["'Geist Mono'", "ui-monospace", "monospace"],
-        sans: ["'Geist'", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono:    ["'JetBrains Mono'", "'SF Mono'", "'Fira Code'", "ui-monospace", "monospace"],
+        sans:    ["var(--font-satoshi)", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-clash)", "var(--font-satoshi)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       animation: {
         "blink": "blink 1s step-end infinite",

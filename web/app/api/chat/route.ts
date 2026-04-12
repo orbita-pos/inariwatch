@@ -6,6 +6,7 @@ import { getUserAIKey } from "@/lib/ai/get-key";
 import { resolveModel } from "@/lib/ai/models";
 import type { AIProvider } from "@/lib/ai/client";
 import { gatherChatContext, buildContextString, SYSTEM_OPS } from "@/lib/services/chat.service";
+import { assertWithinQuota, incrementQuota, QuotaExceededError } from "@/lib/ai/quota";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -23,6 +24,22 @@ export async function POST(req: NextRequest) {
       role: "assistant",
       content: "Ask Inari requires your own AI API key. Add one in **Settings → AI analysis**. Supported providers: Claude, OpenAI, Grok, DeepSeek, and Gemini.",
     });
+  }
+
+  // Defense-in-depth: enforce per-user chat quota even though chat is BYOK-only
+  // today. If the BYOK gate above is ever removed (intentionally or by bug),
+  // this still caps platform-funded usage to the configured limit.
+  try {
+    await assertWithinQuota(userId, "chat");
+  } catch (err) {
+    if (err instanceof QuotaExceededError) {
+      return Response.json({
+        role: "assistant",
+        content: `You've used your monthly Ask Inari quota (${err.used}/${err.limit} on ${err.plan} plan). ` +
+          (err.plan === "free" ? "Upgrade to Pro for 5x more messages." : "Contact support."),
+      });
+    }
+    throw err;
   }
 
   const projectIds = await getUserProjectIds(userId);
@@ -53,6 +70,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let streamOk = false;
       try {
         const chatModel = resolveModel("chat", aiKey.provider, aiKey.modelPrefs);
         const response = await streamAI(aiKey.key, aiKey.provider, SYSTEM_OPS, aiMessages, chatModel);
@@ -62,11 +80,18 @@ export async function POST(req: NextRequest) {
         }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        streamOk = true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "AI error";
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
       }
       controller.close();
+
+      // Increment quota only after successful stream — failed AI calls
+      // don't count against the user's monthly limit.
+      if (streamOk) {
+        incrementQuota(userId, "chat").catch(() => {});
+      }
     },
   });
 

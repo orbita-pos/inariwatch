@@ -8,7 +8,7 @@ import { decryptConfig } from "@/lib/crypto";
 import type { NewAlert } from "@/lib/db";
 
 import crypto from "crypto";
-import { cronLog, pingCronHealth } from "@/lib/cron-utils";
+import { cronLog, pingCronHealth, settleWithConcurrency } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -75,7 +75,8 @@ export async function GET(req: Request) {
     return newAlerts.map((a) => ({ ...a, projectId: integ.projectId }));
   }
 
-  const results = await Promise.allSettled(integrations.map((integ) => pollIntegration(integ)));
+  // Concurrency-limited fan-out (10 parallel) to bound Vercel function time + outbound HTTP.
+  const results = await settleWithConcurrency(integrations, 10, pollIntegration);
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i];

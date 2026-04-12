@@ -44,8 +44,8 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
     <div className="space-y-3 py-1">
       {webhooks.length === 0 && !showForm ? (
         <div className="py-4 text-center">
-          <p className="text-sm text-zinc-500">No outgoing webhooks configured.</p>
-          <p className="mt-1 text-sm text-zinc-600">
+          <p className="text-sm text-fg-base/60">No outgoing webhooks configured.</p>
+          <p className="mt-1 text-sm text-fg-base/50">
             Webhooks send HMAC-signed POST requests when events occur.
           </p>
         </div>
@@ -53,22 +53,23 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
         <div className="divide-y divide-line-subtle">
           {webhooks.map((wh) => (
             <div key={wh.id} className="flex items-center gap-3 py-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-zinc-500">
-                <Globe className="h-4 w-4" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line-medium bg-surface-dim text-fg-base/50">
+                <Globe className="h-4 w-4" aria-hidden="true" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-fg-base font-mono truncate">{wh.url}</p>
-                <p className="text-xs text-zinc-600">
+                <p className="text-xs text-fg-base/50">
                   {wh.events.join(", ")} &middot; {wh.isActive ? "Active" : "Inactive"}
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => handleDelete(wh.id)}
                 disabled={isPending}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-400/[0.06] transition-colors"
-                title="Delete webhook"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/50 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-400/[0.06] transition-colors"
+                aria-label="Delete webhook"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
           ))}
@@ -78,20 +79,21 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
       {showForm && (
         <div className="space-y-3 rounded-lg border border-line bg-surface-inner p-4">
           <div className="space-y-1.5">
-            <label className="text-xs text-zinc-500">Endpoint URL</label>
+            <label htmlFor="webhook-url" className="text-xs text-fg-base/60">Endpoint URL</label>
             <input
+              id="webhook-url"
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com/webhook"
-              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base font-mono placeholder-zinc-400 focus:border-inari-accent/40 focus:outline-none"
+              className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base font-mono placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs text-zinc-500">Events</label>
+            <span className="text-xs text-fg-base/60">Events</span>
             <div className="flex flex-wrap gap-2">
               {EVENT_OPTIONS.map((opt) => (
-                <label key={opt.value} className="flex items-center gap-1.5 text-xs text-zinc-400">
+                <label key={opt.value} className="flex items-center gap-1.5 text-xs text-fg-base/60">
                   <input
                     type="checkbox"
                     checked={events.includes(opt.value)}
@@ -99,7 +101,7 @@ export function WebhookSection({ webhooks }: { webhooks: Webhook[] }) {
                       if (e.target.checked) setEvents([...events, opt.value]);
                       else setEvents(events.filter((ev) => ev !== opt.value));
                     }}
-                    className="rounded border-zinc-700"
+                    className="rounded border-line-medium"
                   />
                   {opt.label}
                 </label>

@@ -6,8 +6,13 @@ import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
 import { computeErrorFingerprint } from "./fingerprint";
 import { assertWithinQuota, incrementQuota, QuotaExceededError } from "./quota";
+import { reservePlatformBudget, PlatformBudgetExceededError } from "./spend-guard";
 import { getRedis } from "@/lib/redis";
 import type { Alert } from "@/lib/db";
+
+// Pessimistic estimate for one auto-analyze call (Haiku/4o-mini, 300 max
+// tokens out, ~2K tokens in). Reconciled to actual after the call.
+const AUTO_ANALYZE_RESERVE_CENTS = 2;
 
 /**
  * Auto-analyze a newly created alert with AI and persist the reasoning.
@@ -55,6 +60,27 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     }
   }
 
+  // Platform-AI kill-switch: pre-reserve estimated cost. Reconciled to
+  // actual in usage-logger after the call. Throws PlatformBudgetExceededError
+  // when the daily cap is hit — caller catches and persists aiSkippedReason.
+  let reservedCents = 0;
+  if (aiKey.isPlatformKey) {
+    try {
+      await reservePlatformBudget(AUTO_ANALYZE_RESERVE_CENTS);
+      reservedCents = AUTO_ANALYZE_RESERVE_CENTS;
+    } catch (err) {
+      if (err instanceof PlatformBudgetExceededError) {
+        // Persist reason so the alert page can show a banner.
+        await db
+          .update(alerts)
+          .set({ aiSkippedReason: "platform_budget" })
+          .where(eq(alerts.id, alert.id));
+        return;
+      }
+      throw err;
+    }
+  }
+
   // Analyze this alert — use GPT-4o-mini for platform key, user's model otherwise.
   const reasoning = await callAI(
     aiKey.key,
@@ -76,6 +102,7 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
           alertId: alert.id,
           feature: "auto-analyze" as const,
           isPlatformKey: aiKey.isPlatformKey,
+          reservedPlatformCents: reservedCents,
         },
       } : {}),
     }

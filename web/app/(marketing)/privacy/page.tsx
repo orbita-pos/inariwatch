@@ -1,11 +1,31 @@
 import { MarketingNav } from "../marketing-nav";
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
 
+const PAGE_TITLE       = "Privacy Policy — InariWatch";
+const PAGE_DESCRIPTION = "How InariWatch collects, uses, and protects your data.";
+const PAGE_URL         = "https://inariwatch.com/privacy";
+const LAST_UPDATED     = "April 11, 2026";
+
 export const metadata: Metadata = {
-  title: "Privacy Policy — InariWatch",
-  description: "How InariWatch collects, uses, and protects your data.",
-  alternates: { canonical: "https://inariwatch.com/privacy" },
+  title:       PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates:  { canonical: PAGE_URL },
+  openGraph: {
+    type:        "website",
+    url:         PAGE_URL,
+    siteName:    "InariWatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
+  },
+  twitter: {
+    card:        "summary_large_image",
+    site:        "@inariwatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+  },
 };
 
 export default function PrivacyPage() {
@@ -14,7 +34,7 @@ export default function PrivacyPage() {
       <MarketingNav opaque />
       <main className="mx-auto max-w-3xl px-6 pt-28 pb-24">
         <h1 className="text-3xl font-bold text-fg-strong mb-2">Privacy Policy</h1>
-        <p className="text-sm text-zinc-500 mb-10">Last updated: March 23, 2025</p>
+        <p className="text-sm text-fg-base mb-10">Last updated: {LAST_UPDATED}</p>
 
         <Section title="1. Overview">
           <p>
@@ -26,18 +46,21 @@ export default function PrivacyPage() {
             how we use it, and your rights regarding it.
           </p>
           <p>
-            InariWatch is fully open source under the MIT License. You can review all data handling code at{" "}
-            <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">
-              github.com/orbita-pos/inariwatch
-            </a>.
+            InariWatch follows an <strong>open-core</strong> model. The user-facing components — the{" "}
+            <a href="https://github.com/orbita-pos/inariwatch-capture" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">Capture SDK</a>,{" "}
+            <a href="https://github.com/orbita-pos/inariwatch-mcp" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">MCP init tool</a>,{" "}
+            <a href="https://github.com/orbita-pos/inariwatch-vscode" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">VS Code extension</a>, and{" "}
+            <a href="https://github.com/orbita-pos/inariwatch-action" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">GitHub Action</a>{" "}
+            — are released under the MIT License and publicly auditable. The hosted web application is proprietary.
           </p>
         </Section>
 
         <Section title="2. Data we collect">
           <p><strong>Account data:</strong> your name and email address when you register, and OAuth profile info (name, email, avatar) if you sign in with GitHub, Google, or GitLab.</p>
-          <p><strong>Authentication data:</strong> hashed passwords, 2FA secrets (encrypted), session tokens, and password reset tokens. Session cookies (<code className="text-xs bg-zinc-800 px-1 py-0.5 rounded">next-auth.session-token</code>) are set with a 30-day expiry and are required for the app to function.</p>
-          <p><strong>Integration data:</strong> webhook payloads and API responses from services you connect (GitHub, Vercel, Sentry, Datadog). This may include stack traces, deployment logs, and error messages from your systems. All integration credentials are stored encrypted.</p>
-          <p><strong>AI API keys:</strong> keys you provide under Settings (Anthropic, OpenAI, Google, Grok, DeepSeek) are stored encrypted and used only to make requests on your behalf. We never share them or use them for any other purpose.</p>
+          <p><strong>Authentication data:</strong> hashed passwords, 2FA secrets (encrypted), session tokens, and password reset tokens. Session cookies (<InlineCode>next-auth.session-token</InlineCode>) are set with a 30-day expiry and are required for the app to function.</p>
+          <p><strong>Integration data:</strong> webhook payloads and API responses from services you connect (GitHub, Vercel, Sentry, Datadog, Expo, and others). This may include stack traces, deployment logs, and error messages from your systems. All integration credentials are stored encrypted.</p>
+          <p><strong>AI API keys:</strong> keys you provide under Settings (Anthropic, OpenAI, Groq, Grok, DeepSeek, Google Gemini) are stored encrypted and used only to make requests on your behalf. We never share them or use them for any other purpose.</p>
+          <p><strong>Billing data:</strong> if you subscribe to InariWatch Pro, payment is processed by <a href="https://stripe.com" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">Stripe</a>. We store your Stripe customer ID, subscription status, and plan tier — we never see or store your payment card details.</p>
           <p><strong>Notification data:</strong> configuration for your notification channels (email, Telegram, Slack, browser push). Webhook endpoints and secrets are stored encrypted.</p>
           <p><strong>Email interaction data:</strong> alert notification emails include an open-tracking pixel and click-tracking links so we can show you whether notifications were received. This data is stored in your account and visible to you in the app.</p>
           <p><strong>Audit logs:</strong> we log certain account actions (login, settings changes) along with IP addresses for security purposes.</p>
@@ -48,11 +71,12 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-5 space-y-2">
             <li>To provide and operate the InariWatch service.</li>
             <li>To send transactional emails (password reset, workspace invites, alert notifications).</li>
+            <li>To process subscription payments and manage billing.</li>
             <li>To send blog updates if you opted in.</li>
             <li>To debug errors and improve reliability.</li>
             <li>To detect and prevent abuse (rate limiting, audit logs).</li>
           </ul>
-          <p className="mt-3">We do not sell your data. We do not use your data for advertising. We have no analytics or behavioral tracking on our website.</p>
+          <p className="mt-3">We do not sell your data. We do not use your data for advertising. We have no behavioral tracking on our website — only privacy-friendly, cookieless analytics (see Section 4).</p>
         </Section>
 
         <Section title="4. Third-party services">
@@ -60,7 +84,8 @@ export default function PrivacyPage() {
             <li><strong>Neon</strong> — PostgreSQL database hosting. All your data is stored here.</li>
             <li><strong>Vercel</strong> — application hosting and edge functions.</li>
             <li><strong>Resend</strong> — transactional email delivery.</li>
-            <li><strong>AI providers</strong> — when you use AI features, requests are sent to the provider whose key you configured (Anthropic, OpenAI, Google, xAI/Grok, DeepSeek). We do not store AI responses beyond what is shown in the app.</li>
+            <li><strong>Stripe</strong> — subscription billing for InariWatch Pro. Card details are handled exclusively by Stripe; we never see or store them.</li>
+            <li><strong>AI providers</strong> — when you use AI features, requests are sent to the provider whose key you configured (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, Google Gemini). We do not store AI responses beyond what is shown in the app.</li>
             <li><strong>GitHub / Google / GitLab</strong> — optional OAuth sign-in. We only store the provider account ID, email, and name returned by the provider.</li>
             <li><strong>Plausible Analytics</strong> — privacy-friendly, cookieless analytics. No personal data is collected. See <a href="https://plausible.io/privacy" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">plausible.io/privacy</a>.</li>
             <li><strong>Telegram / Slack</strong> — if you configure these as notification channels, alert data is sent to your Telegram bot or Slack webhook.</li>
@@ -69,7 +94,8 @@ export default function PrivacyPage() {
 
         <Section title="5. Cookies">
           <p>
-            We use one session cookie (<code className="text-xs bg-zinc-800 px-1 py-0.5 rounded">next-auth.session-token</code>) to keep you logged in. It expires after 30 days. We do not use advertising cookies, tracking cookies, or third-party analytics cookies.
+            We use one session cookie (<InlineCode>next-auth.session-token</InlineCode>) to keep you logged in. It expires after 30 days.
+            We do not use advertising cookies, tracking cookies, or third-party analytics cookies.
           </p>
         </Section>
 
@@ -91,10 +117,12 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="8. Self-hosting">
+        <Section title="8. Open-source components">
           <p>
-            InariWatch is MIT-licensed open source software. If you self-host InariWatch, you are responsible
-            for your own data handling and privacy compliance. This policy applies only to the hosted service at inariwatch.com.
+            The open-source components of InariWatch — the Capture SDK, MCP init tool, VS Code extension, and
+            GitHub Action — are released under the MIT License. If you deploy those components yourself, you
+            are responsible for the data they handle in your own environment. This policy applies only to the
+            hosted service at inariwatch.com.
           </p>
         </Section>
 
@@ -121,11 +149,48 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
-        <div className="mt-12 pt-8 border-t border-line flex gap-6 text-sm text-zinc-500">
-          <Link href="/terms" className="hover:text-fg-base transition-colors">Terms of Service</Link>
-          <Link href="/" className="hover:text-fg-base transition-colors">Home</Link>
+        <div className="mt-12 pt-8 border-t border-line flex gap-6 text-sm text-fg-base">
+          <Link href="/terms" className="hover:text-fg-strong transition-colors">Terms of Service</Link>
+          <Link href="/" className="hover:text-fg-strong transition-colors">Home</Link>
         </div>
       </main>
+
+      {/* Footer — matches landing page */}
+      <footer className="border-t border-inari-border py-12">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <Image
+                src="/logo-inari/favicon-96x96.png"
+                alt=""
+                width={24}
+                height={24}
+              />
+              <span className="font-mono text-sm text-fg-base">
+                inariwatch · built in MX
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-fg-base">
+              <Link href="/docs"    className="hover:text-fg-strong transition-colors">Docs</Link>
+              <Link href="/pricing" className="hover:text-fg-strong transition-colors">Pricing</Link>
+              <Link href="/download" className="hover:text-fg-strong transition-colors">Mobile</Link>
+              <Link href="/trust"   className="hover:text-fg-strong transition-colors">Trust</Link>
+              <Link href="/status"  className="hover:text-fg-strong transition-colors">Status</Link>
+              <Link href="/blog"    className="hover:text-fg-strong transition-colors">Blog</Link>
+              <a
+                href="https://github.com/orbita-pos/inariwatch-capture"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-fg-strong transition-colors"
+              >
+                GitHub
+              </a>
+              <Link href="/privacy" className="hover:text-fg-strong transition-colors">Privacy</Link>
+              <Link href="/terms"   className="hover:text-fg-strong transition-colors">Terms</Link>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -134,7 +199,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="mb-8">
       <h2 className="text-lg font-semibold text-fg-strong mb-3">{title}</h2>
-      <div className="text-zinc-400 leading-relaxed space-y-2">{children}</div>
+      <div className="text-fg-base leading-relaxed space-y-2">{children}</div>
     </section>
+  );
+}
+
+function InlineCode({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="text-xs bg-surface-inner border border-line-subtle px-1.5 py-0.5 rounded font-mono text-fg-strong">
+      {children}
+    </code>
   );
 }

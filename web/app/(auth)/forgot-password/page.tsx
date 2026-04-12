@@ -80,7 +80,7 @@ export default function ForgotPasswordPage() {
             Reset your password
           </h1>
 
-          <p className="mt-1.5 text-sm text-zinc-400">
+          <p className="mt-1.5 text-sm text-white/60">
             Inari will help you recover access
           </p>
         </div>
@@ -123,11 +123,11 @@ export default function ForgotPasswordPage() {
                 name="email"
                 placeholder="you@company.com"
                 required
-                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20"
               />
 
               {error && (
-                <p className="text-sm text-red-400 font-mono">{error}</p>
+                <p className="text-sm text-red-600 font-mono">{error}</p>
               )}
 
               <Button

@@ -227,6 +227,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(session.projectId);
   if (!aiKey) { await fail(sessionId, emit, "No AI key configured. Add one in Settings."); return; }
+  // HARD BLOCK: code remediation is BYOK-only and MUST stay that way.
+  // A single remediation session can make 10-40 AI calls and cost $0.25–$2.
+  // The platform AI daily budget ($20/day) cannot absorb this — one bad
+  // session would exhaust the entire free-tier auto-analyze budget.
+  // If you EVER remove this guard, you MUST add `reservePlatformBudget()`
+  // calls (~30¢ each) before every callAI inside this function, AND
+  // expect free-tier remediation to be DOSed by the budget cap regularly.
   if (aiKey.isPlatformKey) { await fail(sessionId, emit, "Code remediation requires your own AI key. Add one in Settings → AI analysis."); return; }
 
   // Check quota before starting (remediations are expensive)
@@ -630,22 +637,20 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       return;
     }
 
-    // ── READ PACKAGE.JSON (stack detection) ─────────────────────────────
+    // ── DETECT PROJECT LANGUAGE + DEPS (language-agnostic) ──────────────
+    // Checks package.json, pyproject.toml, requirements.txt, Cargo.toml,
+    // go.mod, pom.xml, build.gradle, Gemfile — whichever exists first.
     let projectDeps: string[] = [];
     let stackContext = "";
     try {
-      const pkgRaw = await gh.getFileContent(token, owner, repo, "package.json", defaultBranch);
-      if (pkgRaw) {
-        const pkg = JSON.parse(pkgRaw);
-        projectDeps = [
-          ...Object.keys(pkg.dependencies ?? {}),
-          ...Object.keys(pkg.devDependencies ?? {}),
-        ];
+      const { gatherProjectDeps } = await import("./context-gatherer");
+      const detected = await gatherProjectDeps(token, owner, repo, defaultBranch);
+      projectDeps = detected.deps;
+      if (detected.deps.length > 0) {
         const { getStackInstructions } = await import("./prompts");
-        stackContext = getStackInstructions(projectDeps);
-        if (projectDeps.length > 0) {
-          stackContext = `Dependencies: ${projectDeps.slice(0, 30).join(", ")}\n${stackContext}`;
-        }
+        const instructions = getStackInstructions(detected.deps);
+        const header = `Language: ${detected.language} (from ${detected.source})\nDependencies: ${detected.deps.slice(0, 30).join(", ")}`;
+        stackContext = instructions ? `${header}\n${instructions}` : header;
       }
     } catch { /* non-blocking — continue without stack detection */ }
 

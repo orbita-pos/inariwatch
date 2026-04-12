@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, projectIntegrations, projects, users, organizations } from "@/lib/db";
+import { db, projectIntegrations, projects, users, organizations, shouldPollThisCycle } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { pollExpo, type ExpoAlertConfig } from "@/lib/pollers/expo";
@@ -8,7 +8,7 @@ import { decryptConfig } from "@/lib/crypto";
 import type { NewAlert } from "@/lib/db";
 
 import crypto from "crypto";
-import { cronLog, pingCronHealth } from "@/lib/cron-utils";
+import { cronLog, pingCronHealth, settleWithConcurrency } from "@/lib/cron-utils";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -51,10 +51,13 @@ export async function GET(req: Request) {
       )
     );
 
-  const integrations = integrationsRaw.map((i) => ({
-    ...i,
-    userPlan: i.orgOwnerPlan ?? i.projectOwnerPlan ?? "free",
-  }));
+  const integrations = integrationsRaw
+    .map((i) => ({
+      ...i,
+      userPlan: i.orgOwnerPlan ?? i.projectOwnerPlan ?? "free",
+    }))
+    // Free plan: throttle to once per 5 min to limit upstream Expo API spend.
+    .filter((i) => shouldPollThisCycle(i.userPlan, i.lastCheckedAt));
 
   let created = 0;
   const errors: string[] = [];
@@ -74,7 +77,8 @@ export async function GET(req: Request) {
     return newAlerts.map((a) => ({ ...a, projectId: integ.projectId }));
   }
 
-  const results = await Promise.allSettled(integrations.map((integ) => pollIntegration(integ)));
+  // Concurrency-limited fan-out (10 parallel) to bound upstream Expo API calls.
+  const results = await settleWithConcurrency(integrations, 10, pollIntegration);
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i];

@@ -95,32 +95,32 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
           {/* Input */}
           <div className="flex items-center gap-3 border-b border-line px-4 py-3">
             {pending
-              ? <Loader2 className="h-4 w-4 shrink-0 text-zinc-500 animate-spin" />
-              : <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+              ? <Loader2 className="h-4 w-4 shrink-0 text-fg-base/60 animate-spin" aria-hidden="true" />
+              : <Search className="h-4 w-4 shrink-0 text-fg-base/60" aria-hidden="true" />
             }
             <input
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search alerts, projects, pages…"
-              className="flex-1 bg-transparent text-sm text-fg-strong placeholder:text-zinc-500 outline-none"
+              className="flex-1 bg-transparent text-sm text-fg-strong placeholder:text-fg-base/60 outline-none"
             />
             {query && (
-              <button onClick={() => setQuery("")} className="text-zinc-500 hover:text-fg-base transition-colors">
-                <X className="h-3.5 w-3.5" />
+              <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="text-fg-base/60 hover:text-fg-base transition-colors">
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             )}
-            <kbd className="hidden sm:block text-[10px] text-zinc-600 bg-surface-inner border border-line rounded px-1.5 py-0.5 font-mono">ESC</kbd>
+            <kbd className="hidden sm:block text-[10px] text-fg-base/60 bg-surface-inner border border-line rounded px-1.5 py-0.5 font-mono">ESC</kbd>
           </div>
 
           {/* Results */}
           <div className="max-h-80 overflow-y-auto py-2">
             {allItems.length === 0 && query.trim().length >= 2 && !pending && (
-              <p className="px-4 py-8 text-center text-sm text-zinc-500">No results for &ldquo;{query}&rdquo;</p>
+              <p className="px-4 py-8 text-center text-sm text-fg-base/60">No results for &ldquo;{query}&rdquo;</p>
             )}
 
             {shortcuts.length > 0 && (
-              <p className="px-4 pt-1 pb-1 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+              <p className="px-4 pt-1 pb-1 text-[11px] font-semibold uppercase tracking-widest text-fg-base/60">
                 Navigation
               </p>
             )}
@@ -139,7 +139,7 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
               return (
                 <div key={item.href + i}>
                   {showResultsLabel && (
-                    <p className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                    <p className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-widest text-fg-base/60">
                       {isAlert ? "Alerts" : "Projects"}
                     </p>
                   )}
@@ -151,11 +151,11 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
                       i === active ? "bg-surface-inner text-fg-strong" : "text-fg-base hover:bg-surface-inner"
                     }`}
                   >
-                    <Icon className={`h-4 w-4 shrink-0 ${i === active ? "text-inari-accent" : "text-zinc-500"}`} />
+                    <Icon className={`h-4 w-4 shrink-0 ${i === active ? "text-inari-accent" : "text-fg-base/60"}`} />
                     <div className="min-w-0 flex-1 text-left">
                       <p className="truncate font-medium">{item.title}</p>
                     </div>
-                    <span className="text-xs text-zinc-500 shrink-0">{item.subtitle}</span>
+                    <span className="text-xs text-fg-base/60 shrink-0">{item.subtitle}</span>
                   </button>
                 </div>
               );
@@ -163,7 +163,7 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
           </div>
 
           {/* Footer */}
-          <div className="border-t border-line px-4 py-2 flex items-center gap-4 text-[11px] text-zinc-500">
+          <div className="border-t border-line px-4 py-2 flex items-center gap-4 text-[11px] text-fg-base/60">
             <span className="flex items-center gap-1"><kbd className="font-mono">↑↓</kbd> navigate</span>
             <span className="flex items-center gap-1"><kbd className="font-mono">↵</kbd> open</span>
             <span className="flex items-center gap-1"><kbd className="font-mono">ESC</kbd> close</span>

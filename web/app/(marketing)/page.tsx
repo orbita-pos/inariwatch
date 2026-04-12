@@ -1,708 +1,219 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
+import { db, blogPosts, errorPatterns, communityFixes, fixRatings } from "@/lib/db";
+import { eq, desc, sql } from "drizzle-orm";
+
+const LANDING_TITLE       = "InariWatch — AI Monitoring That Fixes Your Code";
+const LANDING_DESCRIPTION = "Your CI broke. The PR is already open. InariWatch monitors GitHub, Vercel, Sentry and more — then writes the fix autonomously.";
 
 export const metadata: Metadata = {
-  title: "InariWatch — AI Monitoring That Fixes Your Code",
-  description: "Your CI broke. The PR is already open. InariWatch monitors GitHub, Vercel, Sentry and more — then writes the fix autonomously.",
-  alternates: { canonical: "https://inariwatch.com" },
+  title:       LANDING_TITLE,
+  description: LANDING_DESCRIPTION,
+  alternates:  { canonical: "https://inariwatch.com" },
+  openGraph: {
+    type:        "website",
+    url:         "https://inariwatch.com",
+    siteName:    "InariWatch",
+    title:       LANDING_TITLE,
+    description: LANDING_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
+  },
+  twitter: {
+    card:        "summary_large_image",
+    site:        "@inariwatch",
+    title:       LANDING_TITLE,
+    description: LANDING_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
+  },
 };
+
+type LatestPost = { slug: string; title: string } | null;
+
 import {
   GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, UptimeIcon, DatadogIcon, ExpoIcon,
+  NextjsIcon, RemixIcon, BunIcon, FastifyIcon, ExpressIcon,
 } from "@/components/brand-icons";
-import {
-  Github,
-  Terminal,
-  Zap,
-  Activity,
-  CheckCircle2,
-  Brain,
-  MessageSquare,
-  TrendingUp,
-  GitPullRequest,
-  Wrench,
-  ArrowRight,
-  XCircle,
-  RefreshCw,
-  GitBranch,
-  Shield,
-  RotateCcw,
-  Bell,
-  Code2,
-  Plug,
-  Wand2,
-  Hash,
-  Monitor,
-  Film,
-  TestTube2,
-  Eye,
-  Radio,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, Code2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
 import { DemoVideo } from "./demo-video";
+import { MiniDashboard } from "./mini-dashboard";
 
-// ── Nav ───────────────────────────────────────────────────────────────────────
+// ── Latest blog pill ──────────────────────────────────────────────────────────
 
-function Nav() {
-  return <MarketingNav />;
+function LatestBlogPill({ post }: { post: { slug: string; title: string } }) {
+  return (
+    <Link
+      href={`/blog/${post.slug}`}
+      className="group inline-flex items-center gap-3 rounded-full border border-inari-border bg-inari-card py-1 pl-1 pr-4 hover:border-inari-accent/40 transition-colors"
+    >
+      <span className="rounded-full bg-inari-accent px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+        New
+      </span>
+      <span className="text-sm text-fg-strong truncate max-w-[220px] sm:max-w-[360px]">
+        {post.title}
+      </span>
+      <ArrowRight className="h-3.5 w-3.5 text-fg-base transition-all group-hover:text-inari-accent group-hover:translate-x-0.5" />
+    </Link>
+  );
 }
+
+function BetaPill() {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border border-inari-border bg-inari-card px-3 py-1">
+      <span className="h-1.5 w-1.5 rounded-full bg-inari-accent animate-pulse" />
+      <span className="text-xs font-mono text-fg-base">
+        Now in beta — <span className="text-fg-strong">free full access</span>
+      </span>
+    </div>
+  );
+}
+
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
 
-function Hero() {
+function Hero({ latestPost }: { latestPost: LatestPost }) {
   return (
-    <section className="relative overflow-hidden min-h-[680px] lg:min-h-[780px] flex items-center">
-      <div className="absolute inset-0">
-        <Image
-          src="/hero-fox-2k.png"
-          alt="InariWatch — fox guardian at the shrine"
-          fill
-          className="object-cover object-center hidden sm:block"
-          priority
-          quality={90}
-        />
-        <Image
-          src="/hero-fox-2k-mobile.png"
-          alt="InariWatch — fox guardian at the shrine"
-          fill
-          className="object-cover object-top sm:hidden"
-          priority
-          quality={90}
-        />
-        <div className="absolute inset-0 bg-black/50 sm:bg-transparent sm:bg-gradient-to-r sm:from-black sm:via-black/90 sm:via-[52%] sm:to-black/10" />
-        <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-inari-bg to-transparent" />
-        <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black/60 to-transparent" />
-      </div>
+    <section className="relative overflow-hidden">
+      {/* Orange glow — biased left where the text lives */}
+      <div
+        className="absolute inset-x-0 top-0 h-[640px] pointer-events-none"
+        style={{ background: "radial-gradient(ellipse 60% 50% at 30% 0%, rgba(249,115,22,0.14) 0%, transparent 70%)" }}
+        aria-hidden
+      />
+      {/* Grid */}
+      <div
+        className="absolute inset-0 pointer-events-none bg-grid"
+        style={{
+          maskImage: "radial-gradient(ellipse 80% 55% at 30% 0%, black 0%, transparent 100%)",
+          WebkitMaskImage: "radial-gradient(ellipse 80% 55% at 30% 0%, black 0%, transparent 100%)",
+        }}
+        aria-hidden
+      />
 
-      <div className="relative w-full pt-32 pb-24">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="max-w-xl">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-inari-accent/30 bg-inari-accent/10 px-3 py-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-inari-accent animate-pulse" />
-              <span className="text-xs font-mono text-inari-accent">Now in beta — free full access</span>
+      <div className="relative pt-24 pb-20 sm:pt-32 sm:pb-24 mx-auto max-w-6xl px-6">
+        <div className="flex flex-col lg:grid lg:grid-cols-[1fr_1.15fr] lg:gap-12 lg:items-center">
+
+          {/* ── Left: text ── */}
+          <div className="text-center lg:text-left">
+
+            <div className="mb-7 flex justify-center lg:justify-start" style={{ animation: "card-in 0.5s ease 0.05s both" }}>
+              {latestPost ? <LatestBlogPill post={latestPost} /> : <BetaPill />}
             </div>
 
-            <h1 className="text-5xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl leading-[1.05]">
-              Your CI broke.
-              <br />
-              <span className="text-gradient-accent glow-accent-text">PR is already open.</span>
+            <h1
+              className="text-[52px] sm:text-[64px] lg:text-[64px] xl:text-[72px] font-semibold tracking-[-0.04em] text-fg-strong leading-[0.94]"
+              style={{ animation: "card-in 0.6s ease 0.15s both" }}
+            >
+              Monitoring that<br />
+              <span className="text-gradient-accent">fixes itself.</span>
             </h1>
 
-            <p className="mt-6 text-lg text-zinc-300 leading-relaxed max-w-md">
-              InariWatch monitors GitHub, Vercel, Sentry, and your own app
-              via <span className="text-white font-medium">@inariwatch/capture</span>.
-              When something breaks, AI reads your code, writes the fix,
-              waits for CI, and opens a PR.{" "}
-              <span className="text-white">You just approve.</span>
+            <p
+              className="mt-6 text-[16px] text-fg-base max-w-[380px] mx-auto lg:mx-0 leading-relaxed"
+              style={{ animation: "card-in 0.5s ease 0.3s both" }}
+            >
+              When something breaks, AI reads your code, writes the fix, and opens a PR.
+              CI passes. You approve.
             </p>
 
-            <div className="mt-10 flex flex-col gap-3 max-w-md">
-              <Link href="/register" className="w-full">
-                <Button variant="primary" className="w-full py-3 text-base">
-                  Join the beta — free, no credit card
-                  <ArrowRight className="ml-2 h-4 w-4" />
+            <div
+              className="mt-8 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3"
+              style={{ animation: "card-in 0.5s ease 0.42s both" }}
+            >
+              <Link href="/register">
+                <Button variant="primary" size="lg" className="min-w-[148px]">
+                  Start free <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
               </Link>
-              <InstallSnippet />
-            </div>
-
-            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/50">
-              <a
-                href="https://github.com/orbita-pos/inariwatch"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 hover:text-white transition-colors"
-              >
-                <Github className="h-3.5 w-3.5" />
-                <img
-                  src="https://img.shields.io/github/stars/orbita-pos/inariwatch?style=flat&color=7c3aed&labelColor=18181b"
-                  alt="GitHub stars"
-                  className="h-5"
-                />
-              </a>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                AI analysis included — no key needed
-              </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                Open source (MIT)
-              </span>
-              <Link href="/download" className="flex items-center gap-1.5 hover:text-white transition-colors">
-                <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" />
-                Mobile app available
+              <Link href="#how">
+                <Button variant="ghost" size="lg" className="min-w-[148px]">
+                  See how it works
+                </Button>
               </Link>
             </div>
+
           </div>
+
+          {/* ── Right: dashboard ── */}
+          <div
+            className="hidden lg:block"
+            style={{ animation: "card-in 0.8s ease 0.35s both" }}
+          >
+            <MiniDashboard />
+          </div>
+
         </div>
       </div>
     </section>
   );
 }
 
-// ── Demo video (client component — loads video on click, not on page load) ───
+// ── Works with any runtime ────────────────────────────────────────────────────
 
-// ── Stats bar ─────────────────────────────────────────────────────────────────
+const FRAMEWORK_ICONS = [
+  { label: "Next.js",  icon: NextjsIcon  },
+  { label: "Remix",    icon: RemixIcon   },
+  { label: "Express",  icon: ExpressIcon },
+  { label: "Fastify",  icon: FastifyIcon },
+  { label: "Bun",      icon: BunIcon     },
+];
 
-function StatsBar() {
-  const stats = [
-    { value: "9", label: "integrations monitored" },
-    { value: "25", label: "MCP tools" },
-    { value: "11", label: "safety gates" },
-    { value: "10/10", label: "stress tests passing" },
-  ];
-
+function RuntimeStrip() {
   return (
-    <div className="border-y border-inari-border bg-inari-card/40">
-      <div className="mx-auto max-w-6xl px-6 py-5">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {stats.map((s) => (
-            <div key={s.label} className="text-center">
-              <p className="text-2xl font-bold text-fg-strong font-mono">{s.value}</p>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider mt-0.5">{s.label}</p>
+    <section className="py-14">
+      <div className="mx-auto max-w-6xl px-6">
+        <p className="text-center text-[10px] font-mono uppercase tracking-[0.18em] text-fg-base/60 mb-8">
+          Drop-in SDK for Node &amp; TypeScript
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
+          {FRAMEWORK_ICONS.map(({ label, icon: Icon }) => (
+            <div key={label} className="flex flex-col items-center gap-2 group">
+              <Icon className="h-6 w-6 text-fg-base/55 group-hover:text-fg-base/80 transition-colors duration-200" />
+              <span className="text-[10px] font-medium text-fg-base/55 group-hover:text-fg-base/80 transition-colors duration-200 tracking-wide">
+                {label}
+              </span>
             </div>
           ))}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Remediation walkthrough ───────────────────────────────────────────────────
-
-function RemediationWalkthrough() {
-  const stages = [
-    {
-      icon: <Radio className="h-4 w-4" />,
-      n: "01",
-      title: "Capture",
-      sub: "Your error, in full context",
-      desc: "Catches errors via Sentry, Vercel, GitHub, or our SDK. Captures the exact user session — every click, every request — as a replayable recording.",
-      stat: "7 sources",
-      hero: false,
-    },
-    {
-      icon: <Brain className="h-4 w-4" />,
-      n: "02",
-      title: "Diagnose",
-      sub: "AI reads the room",
-      desc: "Pulls stack traces, logs, metrics, code, and the user's recorded session. Cross-references against fixes that worked for other teams.",
-      stat: "Learns from every fix",
-      hero: false,
-    },
-    {
-      icon: <Wrench className="h-4 w-4" />,
-      n: "03",
-      title: "Fix",
-      sub: "Targeted, minimal, reviewed",
-      desc: "Generates the smallest possible fix. Runs a 3-layer security scan. Reviews its own code — if it's not good enough, it rewrites it.",
-      stat: "3-layer scan",
-      hero: false,
-    },
-    {
-      icon: <Eye className="h-4 w-4" />,
-      n: "04",
-      title: "Verify",
-      sub: "Staging, not guessing",
-      desc: "Deploys to ephemeral staging. A browser bot replays the exact user session. Compares API responses field-by-field. AI visually inspects before/after screenshots.",
-      stat: "AI sees the page",
-      hero: true,
-    },
-    {
-      icon: <Shield className="h-4 w-4" />,
-      n: "05",
-      title: "Ship",
-      sub: "11 gates say yes, or it's a draft",
-      desc: "CI, security scan, self-review, confidence calibration, staging, I/O replay — 11 independent gates. All pass for auto-merge. One fails? Draft PR.",
-      stat: "11 safety gates",
-      hero: false,
-    },
-    {
-      icon: <Activity className="h-4 w-4" />,
-      n: "06",
-      title: "Watch",
-      sub: "10 minutes of paranoia",
-      desc: "Canary monitoring in 3 phases — aggressive in the first 3 minutes, then relaxing. Error rates spike? Automatic revert in under 30 seconds.",
-      stat: "Auto-revert <30s",
-      hero: false,
-    },
-    {
-      icon: <Sparkles className="h-4 w-4" />,
-      n: "07",
-      title: "Learn",
-      sub: "Smarter every cycle",
-      desc: "Records what worked, what failed, and why. Calibrates AI confidence against real outcomes. Next similar error? Faster, more accurate.",
-      stat: "Confidence calibration",
-      hero: false,
-    },
-  ];
-
-  return (
-    <section className="py-24 border-t border-inari-border bg-inari-card/20">
-      <div className="mx-auto max-w-6xl px-6">
-        {/* Header */}
-        <div className="mb-14 text-center max-w-2xl mx-auto">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">How it works</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
-            A system that fixes itself.
-          </h2>
-          <p className="mt-4 text-fg-base">
-            Not a pipeline — a loop. If anything fails at any stage, it retries with what it learned.
-            If a fix ships and regresses, it reverts and starts over.
-          </p>
-        </div>
-
-        {/* ── Loop diagram: ring on desktop, vertical on mobile ──────────── */}
-
-        {/* Desktop: circular loop */}
-        <div className="hidden lg:block relative mb-12">
-          {/* Central connector ring — SVG */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true">
-            <svg viewBox="0 0 700 420" className="w-full max-w-[700px] h-auto">
-              {/* Orbit path — a rounded rectangle following the card positions */}
-              <rect
-                x="60" y="40" width="580" height="340" rx="170" ry="170"
-                fill="none"
-                stroke="url(#loopGradient)"
-                strokeWidth="1.5"
-                strokeDasharray="8 6"
-                opacity="0.35"
-              />
-              {/* Animated gradient on the loop line */}
-              <defs>
-                <linearGradient id="loopGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.6" />
-                  <stop offset="50%" stopColor="#9F67FF" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#7C3AED" stopOpacity="0.6" />
-                </linearGradient>
-              </defs>
-              {/* Loop arrow: Learn → Capture (bottom-left curve) */}
-              <path
-                d="M 130 350 Q 60 300 90 200"
-                fill="none"
-                stroke="#7C3AED"
-                strokeWidth="1.5"
-                opacity="0.4"
-                markerEnd="url(#arrowhead)"
-              />
-              <defs>
-                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                  <polygon points="0 0, 8 3, 0 6" fill="#7C3AED" opacity="0.6" />
-                </marker>
-              </defs>
-            </svg>
-          </div>
-
-          {/* Top row: Capture, Diagnose, Fix, Verify */}
-          <div className="relative grid grid-cols-4 gap-4 mb-4">
-            {stages.slice(0, 4).map((s) => (
-              <LoopStageCard key={s.n} stage={s} />
-            ))}
-          </div>
-
-          {/* Bottom row: Ship, Watch, Learn (right-aligned to mirror the loop) */}
-          <div className="relative grid grid-cols-4 gap-4">
-            <div /> {/* empty col to offset */}
-            {stages.slice(4, 7).map((s) => (
-              <LoopStageCard key={s.n} stage={s} />
-            ))}
-          </div>
-        </div>
-
-        {/* Mobile: vertical timeline with loop-back arrow */}
-        <div className="lg:hidden mb-12">
-          <div className="relative pl-8 border-l-2 border-dashed border-inari-accent/20 space-y-6">
-            {stages.map((s) => (
-              <div key={s.n} className="relative">
-                {/* Timeline dot */}
-                <div className={`absolute -left-[25px] top-1 flex h-5 w-5 items-center justify-center rounded-full ${
-                  s.hero ? "bg-inari-accent" : "bg-inari-accent/20"
-                }`}>
-                  <span className="text-[9px] font-bold text-white">{s.n.replace("0", "")}</span>
-                </div>
-                <div className={`rounded-xl border p-5 ${
-                  s.hero
-                    ? "border-inari-accent/40 bg-inari-accent/5 shadow-[0_0_30px_rgba(124,58,237,0.08)]"
-                    : "border-inari-border bg-inari-card/40"
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-fg-strong">{s.title}</h3>
-                    <span className="text-[10px] font-mono text-inari-accent bg-inari-accent/10 px-2 py-0.5 rounded-full">{s.stat}</span>
-                  </div>
-                  <p className="text-xs text-zinc-500 font-medium mb-1">{s.sub}</p>
-                  <p className="text-sm text-fg-base leading-relaxed">{s.desc}</p>
-                </div>
-              </div>
-            ))}
-            {/* Loop-back indicator */}
-            <div className="relative">
-              <div className="absolute -left-[25px] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-inari-accent/20">
-                <RotateCcw className="h-2.5 w-2.5 text-inari-accent" />
-              </div>
-              <p className="text-sm text-zinc-500 italic pl-1 pt-1">Back to Capture — the loop continues.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Verify callout — differentiator */}
-        <div className="rounded-xl border border-inari-accent/30 bg-inari-accent/5 px-6 py-6 mb-6">
-          <div className="flex items-start gap-4 max-w-3xl mx-auto">
-            <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-inari-accent text-white mt-0.5">
-              <Eye className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-fg-strong font-semibold mb-1">Other tools suggest fixes. InariWatch proves they work.</p>
-              <p className="text-sm text-fg-base leading-relaxed">
-                Deploys to staging, replays your users&apos; exact sessions, compares API responses field-by-field,
-                and has AI visually inspect before/after screenshots — before any code reaches production.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Failure path note */}
-        <p className="text-center text-sm text-zinc-500">
-          If anything fails at any stage, the system retries with what it learned.
-          If a shipped fix regresses, automatic rollback in under 30 seconds.
+        <p className="text-center text-[11px] text-fg-base/70 mt-6 max-w-md mx-auto">
+          Monitoring any other language? The kernel-level eBPF agent watches Python, Go, Rust and anything else — zero code changes.
         </p>
       </div>
     </section>
   );
 }
 
-/** A single stage card in the loop diagram */
-function LoopStageCard({ stage }: { stage: { icon: React.ReactNode; n: string; title: string; sub: string; desc: string; stat: string; hero: boolean } }) {
+// ── Quick install ─────────────────────────────────────────────────────────────
+
+function QuickInstall() {
   return (
-    <div className={`group relative rounded-xl border p-5 transition-colors ${
-      stage.hero
-        ? "border-inari-accent/40 bg-inari-accent/5 shadow-[0_0_30px_rgba(124,58,237,0.08)]"
-        : "border-inari-border bg-inari-card/40 hover:border-inari-accent/20"
-    }`}>
-      <div className="flex items-center gap-2.5 mb-2.5">
-        <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs ${
-          stage.hero ? "bg-inari-accent text-white" : "bg-inari-accent/10 text-inari-accent"
-        }`}>
-          {stage.icon}
-        </span>
-        <span className="text-xs font-mono text-zinc-500">{stage.n}</span>
-        <span className="ml-auto text-[10px] font-mono text-inari-accent bg-inari-accent/10 px-2 py-0.5 rounded-full">
-          {stage.stat}
-        </span>
-      </div>
-      <h3 className="font-semibold text-fg-strong text-base mb-0.5">{stage.title}</h3>
-      <p className="text-xs text-zinc-500 font-medium mb-2">{stage.sub}</p>
-      <p className="text-sm text-fg-base leading-relaxed">{stage.desc}</p>
-    </div>
-  );
-}
-
-// ── Auto-merge safety ─────────────────────────────────────────────────────────
-
-function AutoMergeSafety() {
-  const gates = [
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "CI + regression tests pass",
-      detail: "Existing tests + AI-generated regression test must all pass",
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "Confidence ≥ threshold",
-      detail: "Diagnosis must be clear — low-confidence fixes become draft PRs",
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "AI self-review ≥ 70/100",
-      detail: "A second AI reviews the fix like a senior engineer",
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "Security scan clean",
-      detail: "ESLint + pattern scan — zero HIGH severity findings",
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "Substrate replay verified",
-      detail: "Fix verified against the recorded I/O that caused the crash",
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-      label: "E2E staging passed",
-      detail: "Playwright tests pass against the app running with the fix",
-    },
-  ];
-
-  return (
-    <section className="py-20 border-t border-inari-border bg-inari-card/20">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-10 max-w-xl">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">
-            Auto-merge
-          </p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl leading-tight">
-            You sleep. We ship.{" "}
-            <span className="text-inari-accent">Safely.</span>
-          </h2>
-          <p className="mt-4 text-fg-base leading-relaxed">
-            11 safety gates — CI, regression tests, confidence, self-review, security scan, Substrate replay, E2E staging, and more — all must pass. Off by default.
-          </p>
-        </div>
-
-        <div className="max-w-2xl mx-auto space-y-4">
-            {/* Terminal */}
-            <div className="rounded-xl border border-inari-accent/25 bg-zinc-950 overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.08)]">
-              <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
-                <div className="flex gap-1.5">
-                  <div className="h-3 w-3 rounded-full bg-red-500/80" />
-                  <div className="h-3 w-3 rounded-full bg-yellow-500/70" />
-                  <div className="h-3 w-3 rounded-full bg-green-500/70" />
-                </div>
-                <span className="ml-2 font-mono text-xs text-zinc-500">
-                  03:47 — auto-merge triggered
-                </span>
-              </div>
-              <div className="p-5 font-mono text-sm leading-7 space-y-0.5">
-                <p className="text-zinc-600 text-xs uppercase tracking-wider mb-3">
-                  Evaluating safety gates...
-                </p>
-                <p>
-                  <span className="text-emerald-400">✓ </span>
-                  <span className="text-zinc-400">CI passed</span>
-                  <span className="text-zinc-600"> (3 checks)</span>
-                </p>
-                <p>
-                  <span className="text-emerald-400">✓ </span>
-                  <span className="text-zinc-400">Confidence </span>
-                  <span className="text-white font-semibold">94%</span>
-                  <span className="text-zinc-600"> ≥ 90% threshold</span>
-                </p>
-                <p>
-                  <span className="text-emerald-400">✓ </span>
-                  <span className="text-zinc-400">Self-review </span>
-                  <span className="text-white font-semibold">88/100</span>
-                  <span className="text-zinc-600"> — approved</span>
-                </p>
-                <p>
-                  <span className="text-emerald-400">✓ </span>
-                  <span className="text-zinc-400">Lines changed: </span>
-                  <span className="text-white font-semibold">12</span>
-                  <span className="text-zinc-600"> ≤ 50 max</span>
-                </p>
-                <p>
-                  <span className="text-emerald-400">✓ </span>
-                  <span className="text-zinc-400">Auto-merge enabled</span>
-                </p>
-                <br />
-                <p className="text-inari-accent font-semibold">
-                  → All gates passed — merging PR #62...
-                </p>
-                <p>
-                  <span className="text-emerald-400">✓ </span>
-                  <span className="text-zinc-300 font-semibold">
-                    Merged. Watching for regressions (10 min)
-                  </span>
-                </p>
-
-                {/* Monitoring progress bar */}
-                <div className="mt-4 pt-4 border-t border-inari-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-500">Post-merge monitoring</span>
-                    <span className="text-xs text-zinc-600">600s</span>
-                  </div>
-                  <div className="w-full bg-zinc-800 rounded-full h-1.5">
-                    <div className="bg-emerald-500 h-1.5 rounded-full w-full" />
-                  </div>
-                  <p className="text-xs text-zinc-600 mt-2">
-                    Sentry: <span className="text-emerald-400">ok</span>
-                    {"  "}Uptime: <span className="text-emerald-400">ok</span>
-                  </p>
-                </div>
-                <p className="text-emerald-400 font-semibold mt-2">
-                  ✓ No regressions detected — fix is stable.
-                </p>
-              </div>
-            </div>
-
-            {/* Auto-revert callout */}
-            <div className="rounded-xl border border-amber-900/30 bg-amber-950/10 p-5">
-              <div className="flex items-start gap-3">
-                <RotateCcw className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-300">
-                    Regression detected? We revert automatically.
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                    If Sentry catches the same error or uptime drops after a merge,
-                    InariWatch opens a revert PR and merges it — all within the
-                    10-minute monitoring window. You wake up to a stable main branch.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-xs text-zinc-600 text-center">
-              Auto-merge is off by default. You enable it per project, set your
-              own confidence threshold, and define the max diff size.{" "}
-              <Link href="/trust" className="text-inari-accent hover:text-inari-accent/80 underline underline-offset-2">
-                Read the full Trust Architecture →
-              </Link>
-            </p>
-          </div>
+    <section className="pb-20">
+      <div className="mx-auto max-w-2xl px-6">
+        <InstallSnippet />
       </div>
     </section>
   );
 }
 
-// ── Why not native alerts ─────────────────────────────────────────────────────
+// ── Integration logos row ─────────────────────────────────────────────────────
 
-function WhyNotNative() {
-  return (
-    <section className="py-24 border-t border-inari-border">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14 max-w-xl">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Better Together</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
-            They provide the signals. We provide the fix.
-          </h2>
-          <p className="mt-4 text-fg-base leading-relaxed">
-            InariWatch isn't here to replace GitHub, Vercel, or Sentry. They are best-in-class at what they do. InariWatch simply connects them into a unified brain, automatically correlating their signals and finding the root cause.
-          </p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 mb-12">
-          {/* Without */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
-            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-5">
-              The Foundation: Your Stack
-            </p>
-
-            <div className="space-y-3">
-              {[
-                { src: "GitHub", icon: "📧", text: "Workflow failed on main" },
-                { src: "Vercel", icon: "📧", text: "Production deploy errored" },
-                { src: "Sentry", icon: "📧", text: "TypeError: 23 new events" },
-              ].map((item) => (
-                <div
-                  key={item.src}
-                  className="flex items-start gap-3 rounded-lg border border-inari-border bg-inari-card p-3"
-                >
-                  <span>{item.icon}</span>
-                  <div>
-                    <span className="text-xs text-zinc-600 uppercase tracking-wider">
-                      {item.src}
-                    </span>
-                    <p className="text-sm text-fg-base mt-0.5">{item.text}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 space-y-1.5">
-              {[
-                "Sentry catches the exact error instantly",
-                "Vercel manages your deployments flawlessly",
-                "GitHub Actions runs your CI reliably",
-                "But these critical signals operate in silos.",
-              ].map((item, idx) => (
-                <div
-                  key={item}
-                  className="flex items-start gap-2 text-sm text-zinc-400"
-                >
-                  {idx === 3 ? (
-                    <span className="text-inari-accent mt-0.5">↳</span>
-                  ) : (
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-zinc-600 mt-0.5" />
-                  )}
-                  <span className={idx === 3 ? "text-fg-base" : ""}>{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* With InariWatch */}
-          <div className="rounded-xl border border-inari-accent/25 bg-inari-accent-dim p-6">
-            <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-5">
-              The Superpower: InariWatch
-            </p>
-
-            <div className="rounded-lg border border-inari-border bg-zinc-950 p-4 font-mono text-sm mb-4">
-              <p className="text-inari-accent font-semibold">
-                🔴 Deploy failure caused by TypeError
-              </p>
-              <p className="text-zinc-400 mt-2 text-xs leading-relaxed">
-                PR #61 modified session handling → deploy failed →<br />
-                TypeError at auth/session.ts:84 · 23 users affected
-              </p>
-              <p className="text-inari-accent text-xs mt-2">
-                PR #62 ready to merge → CI ✓
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              {[
-                "Signals automatically correlated across your stack",
-                "Root cause identified instantly",
-                "Fix prepared and validated",
-                "Issues resolved — even while you sleep",
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="flex items-center gap-2 text-sm text-fg-base"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-inari-accent" />
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Comparison table */}
-        <div className="overflow-hidden rounded-xl border border-inari-border">
-          <div className="grid grid-cols-3 border-b border-inari-border bg-inari-card px-4 py-3">
-            <div className="text-xs text-zinc-500 font-medium">Capability</div>
-            {["Datadog / PagerDuty", "InariWatch"].map((h, i) => (
-              <div key={h} className={`text-xs font-medium text-center ${i === 1 ? "text-inari-accent" : "text-zinc-500"}`}>{h}</div>
-            ))}
-          </div>
-          {[
-            { cap: "Writes code fix + regression test", dd: false, us: true },
-            { cap: "Code Intelligence (AST + embeddings + dependency graph)", dd: false, us: true },
-            { cap: "11 safety gates + E2E staging verification", dd: false, us: true },
-            { cap: "Substrate I/O replay verification", dd: false, us: true },
-            { cap: "Community fix network (crowdsourced)", dd: false, us: true },
-            { cap: "MCP server (25 tools for AI editors)", dd: false, us: true },
-            { cap: "Self-capture SDK (@inariwatch/capture)", dd: false, us: true },
-            { cap: "Fully open source (MIT)", dd: false, us: true },
-          ].map((row, idx) => (
-            <div key={row.cap} className={`grid grid-cols-3 border-b border-inari-border last:border-0 px-4 py-3 ${idx % 2 === 0 ? "bg-inari-bg" : "bg-inari-card/30"}`}>
-              <span className="text-sm text-fg-base">{row.cap}</span>
-              {[row.dd, row.us].map((val, i) => (
-                <div key={i} className="flex items-center justify-center">
-                  {typeof val === "boolean" ? (
-                    val
-                      ? <CheckCircle2 className={`h-4 w-4 ${i === 1 ? "text-inari-accent" : "text-inari-accent/50"}`} />
-                      : <XCircle className="h-4 w-4 text-zinc-700 opacity-40" />
-                  ) : (
-                    <span className={`text-xs font-medium ${i === 1 ? "text-inari-accent" : "text-zinc-500"}`}>{val}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Integrations ──────────────────────────────────────────────────────────────
-
-function Integrations() {
-  const integrations: { name: string; icon: React.ReactNode }[] = [
+function TrustedBy() {
+  const items = [
+    {
+      name: "Capture",
+      icon: (
+        <Image
+          src="/logo-inari/favicon-96x96.png"
+          alt=""
+          width={20}
+          height={20}
+          className="h-5 w-5 shrink-0"
+        />
+      ),
+    },
     { name: "GitHub", icon: <GitHubIcon className="h-5 w-5" /> },
     { name: "Vercel", icon: <VercelIcon className="h-5 w-5" /> },
     { name: "Sentry", icon: <SentryIcon className="h-5 w-5" /> },
@@ -710,31 +221,23 @@ function Integrations() {
     { name: "Expo", icon: <ExpoIcon className="h-5 w-5" /> },
     { name: "PostgreSQL", icon: <PostgreSQLIcon className="h-5 w-5" /> },
     { name: "Uptime", icon: <UptimeIcon className="h-5 w-5" /> },
-    { name: "npm / Cargo", icon: <NpmIcon className="h-5 w-5" /> },
-    { name: "Capture SDK", icon: <Zap className="h-5 w-5 text-inari-accent" /> },
+    { name: "npm", icon: <NpmIcon className="h-5 w-5" /> },
   ];
 
   return (
-    <section id="integrations" className="py-16 border-t border-inari-border">
+    <section className="border-y border-inari-border py-14">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="text-center mb-10">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">9 Integrations</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
-            Monitors your entire stack
-          </h2>
-          <p className="mt-3 text-fg-base max-w-lg mx-auto">
-            All signals correlated into one brain. When Vercel fails and Sentry spikes at the same time, you get one alert — not three.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap justify-center gap-3">
-          {integrations.map((item) => (
+        <p className="text-center text-xs font-mono uppercase tracking-widest text-fg-base mb-10">
+          Watches your entire stack
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-6 text-fg-base">
+          {items.map((item) => (
             <div
               key={item.name}
-              className="flex items-center gap-2 rounded-full border border-inari-border bg-inari-card px-4 py-2 hover:border-inari-accent/30 transition-all"
+              className="flex items-center gap-2 opacity-70 hover:opacity-100 transition-opacity"
             >
-              <span className="shrink-0 text-zinc-400">{item.icon}</span>
-              <span className="text-sm font-medium text-fg-strong whitespace-nowrap">{item.name}</span>
+              <span className="shrink-0">{item.icon}</span>
+              <span className="text-sm font-medium">{item.name}</span>
             </div>
           ))}
         </div>
@@ -743,252 +246,847 @@ function Integrations() {
   );
 }
 
-// ── AI Features ───────────────────────────────────────────────────────────────
+// ── How it works (3 steps) ────────────────────────────────────────────────────
 
-function AIFeatures() {
-  const features = [
+// Fig 1 — Signal convergence: 6 sources → 1 unified alert
+function FigConvergence() {
+  const sources: Array<{ x: number; y: number; edge: [number, number]; hex: [number, number] }> = [
+    { x: 270, y: 160, edge: [258, 160],      hex: [182, 160] },
+    { x: 215, y: 255, edge: [209, 244.64],   hex: [171, 179] },
+    { x: 105, y: 255, edge: [111, 244.64],   hex: [149, 179] },
+    { x: 50,  y: 160, edge: [62, 160],       hex: [138, 160] },
+    { x: 105, y: 65,  edge: [111, 75.36],    hex: [149, 141] },
+    { x: 215, y: 65,  edge: [209, 75.36],    hex: [171, 141] },
+  ];
+
+  return (
+    <svg
+      viewBox="0 0 320 320"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-full h-full"
+    >
+      {/* Outer pulse rings — signal correlation field */}
+      <circle cx="160" cy="160" r="82" opacity="0.15" strokeDasharray="2 5" />
+      <circle cx="160" cy="160" r="60" opacity="0.25" strokeDasharray="2 4" />
+      <circle cx="160" cy="160" r="40" opacity="0.4" />
+
+      {/* Dashed signal paths flowing from sources toward center */}
+      {sources.map((s, i) => (
+        <line
+          key={i}
+          x1={s.edge[0]}
+          y1={s.edge[1]}
+          x2={s.hex[0]}
+          y2={s.hex[1]}
+          opacity="0.6"
+          strokeDasharray="3 3"
+        />
+      ))}
+
+      {/* Center hexagon — the unified alert */}
+      <path d="M185 160 L172.5 181.65 L147.5 181.65 L135 160 L147.5 138.35 L172.5 138.35 Z" />
+      {/* Exclamation mark inside hex */}
+      <line x1="160" y1="150" x2="160" y2="163" strokeWidth="1.6" />
+      <circle cx="160" cy="169" r="1.4" fill="currentColor" />
+
+      {/* 6 source nodes */}
+      {sources.map((s, i) => (
+        <g key={i}>
+          <circle cx={s.x} cy={s.y} r="13" />
+          <circle cx={s.x} cy={s.y} r="2.5" fill="currentColor" opacity="0.85" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+// Fig 2 — Code diff: AI reads stack trace and writes fix
+function FigDiff() {
+  return (
+    <svg
+      viewBox="0 0 320 320"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-full h-full"
+    >
+      {/* Back panel — "before" with the bug */}
+      <g opacity="0.45">
+        <rect x="35" y="45" width="200" height="195" rx="4" />
+        {/* Title bar */}
+        <line x1="35" y1="68" x2="235" y2="68" />
+        <circle cx="49" cy="56" r="2" />
+        <circle cx="59" cy="56" r="2" />
+        <circle cx="69" cy="56" r="2" />
+        {/* Line-number gutter */}
+        <line x1="68" y1="68" x2="68" y2="240" opacity="0.6" />
+        {/* Code lines */}
+        <line x1="82" y1="88"  x2="170" y2="88"  />
+        <line x1="82" y1="102" x2="205" y2="102" />
+        <line x1="90" y1="116" x2="180" y2="116" />
+        {/* Bug row with "−" gutter mark */}
+        <line x1="52" y1="130" x2="62"  y2="130" strokeWidth="1.6" />
+        <line x1="82" y1="130" x2="215" y2="130" strokeWidth="1.4" />
+        <line x1="90" y1="144" x2="158" y2="144" />
+        <line x1="82" y1="158" x2="190" y2="158" />
+        <line x1="82" y1="172" x2="150" y2="172" />
+        {/* Stack-trace tail (dashed) */}
+        <line x1="82" y1="190" x2="195" y2="190" opacity="0.5" strokeDasharray="2 2" />
+        <line x1="82" y1="204" x2="165" y2="204" opacity="0.5" strokeDasharray="2 2" />
+      </g>
+
+      {/* Front panel — "after" with the fix */}
+      <g>
+        <rect x="85" y="95" width="200" height="195" rx="4" />
+        {/* Title bar */}
+        <line x1="85" y1="118" x2="285" y2="118" />
+        <circle cx="99"  cy="106" r="2" />
+        <circle cx="109" cy="106" r="2" />
+        <circle cx="119" cy="106" r="2" />
+        {/* Line-number gutter */}
+        <line x1="118" y1="118" x2="118" y2="290" opacity="0.5" />
+        {/* Code lines */}
+        <line x1="132" y1="138" x2="220" y2="138" opacity="0.65" />
+        <line x1="132" y1="152" x2="250" y2="152" opacity="0.65" />
+        <line x1="140" y1="166" x2="225" y2="166" opacity="0.65" />
+        {/* Fix row with "+" gutter mark */}
+        <line x1="97"  y1="180" x2="109" y2="180" />
+        <line x1="103" y1="174" x2="103" y2="186" />
+        <line x1="132" y1="180" x2="265" y2="180" strokeWidth="1.4" />
+        <line x1="140" y1="194" x2="205" y2="194" opacity="0.65" />
+        <line x1="132" y1="208" x2="235" y2="208" opacity="0.65" />
+        <line x1="132" y1="222" x2="175" y2="222" opacity="0.65" />
+        <line x1="140" y1="236" x2="215" y2="236" opacity="0.65" />
+        <line x1="132" y1="250" x2="195" y2="250" opacity="0.65" />
+        <line x1="132" y1="264" x2="240" y2="264" opacity="0.65" />
+      </g>
+    </svg>
+  );
+}
+
+// Fig 3 — PR card with 11 safety checks all passing
+function FigGates() {
+  const gateBars = [155, 180, 138, 170, 150, 190, 142, 165, 155, 175, 160];
+  return (
+    <svg
+      viewBox="0 0 320 320"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-full h-full"
+    >
+      {/* PR card */}
+      <rect x="35" y="30" width="250" height="260" rx="4" />
+
+      {/* Header divider */}
+      <line x1="35" y1="66" x2="285" y2="66" />
+
+      {/* Git-branch icon on header */}
+      <circle cx="55" cy="45" r="3" />
+      <circle cx="55" cy="57" r="3" />
+      <line x1="55" y1="48" x2="55" y2="54" />
+      <circle cx="68" cy="48" r="2.5" />
+      <path d="M68 50.5 Q68 54 62 54" />
+
+      {/* PR title bars */}
+      <line x1="82" y1="44" x2="190" y2="44" />
+      <line x1="82" y1="53" x2="145" y2="53" opacity="0.4" />
+
+      {/* "Ready" status badge */}
+      <rect x="220" y="40" width="50" height="17" rx="8.5" />
+      <circle cx="230" cy="48.5" r="2.2" fill="currentColor" opacity="0.8" />
+      <line x1="237" y1="48.5" x2="262" y2="48.5" opacity="0.6" />
+
+      {/* Section label: "11 checks — all passed" */}
+      <line x1="50" y1="82" x2="82" y2="82" opacity="0.5" />
+      <circle cx="90" cy="82" r="2" fill="currentColor" opacity="0.6" />
+      <line x1="98" y1="82" x2="140" y2="82" opacity="0.5" />
+
+      {/* 11 check rows */}
+      {gateBars.map((w, i) => {
+        const y = 100 + i * 14;
+        return (
+          <g key={i}>
+            <circle cx="58" cy={y} r="5" />
+            <path
+              d={`M54.5 ${y} L57.2 ${y + 2.8} L62 ${y - 2.2}`}
+              strokeWidth="1.35"
+            />
+            <line x1="72" y1={y} x2={72 + w} y2={y} opacity="0.55" />
+          </g>
+        );
+      })}
+
+      {/* Divider before merge */}
+      <line x1="35" y1="258" x2="285" y2="258" opacity="0.3" />
+
+      {/* Merge button */}
+      <rect x="50" y="266" width="120" height="18" rx="4" />
+      <path d="M66 275 L72 281 L84 269" strokeWidth="1.5" />
+      <line x1="94" y1="275" x2="158" y2="275" opacity="0.55" />
+
+      {/* Timestamp */}
+      <line x1="200" y1="275" x2="270" y2="275" opacity="0.3" />
+    </svg>
+  );
+}
+
+function HowItWorks() {
+  const steps = [
     {
-      icon: <Wrench className="h-5 w-5" />,
-      title: "AI Code Remediation",
-      body: "Reads your repo, writes the fix + regression test, pushes a branch, waits for CI, retries up to 3x. 11 safety gates before auto-merge.",
-      tag: "Unique",
+      fig: "FIG 0.1",
+      title: "Capture",
+      body:
+        "Ingests alerts from Sentry, Vercel, GitHub, Datadog, Expo, and your own app. Correlates signals — one alert, not three.",
+      icon: <FigConvergence />,
     },
     {
-      icon: <Brain className="h-5 w-5" />,
-      title: "Code Intelligence",
-      body: "Tree-sitter AST + Voyage Code 3 embeddings + dependency graph. The AI knows your codebase — fixes match your conventions, not generic patterns.",
-      tag: "Code RAG",
+      fig: "FIG 0.2",
+      title: "Diagnose & fix",
+      body:
+        "AI reads the stack trace, your code, and past incidents. Generates a minimal fix plus a regression test that reproduces the bug.",
+      icon: <FigDiff />,
     },
     {
-      icon: <TestTube2 className="h-5 w-5" />,
-      title: "Regression Test Generation",
-      body: "Every fix ships with an AI-generated test that reproduces the bug. If the test fails, the fix is bad — retry automatically.",
-      tag: "Verification",
-    },
-    {
-      icon: <Zap className="h-5 w-5" />,
-      title: "Community Fix Network",
-      body: "When a fix passes CI and gets approved, the pattern joins the network. Next team with the same error gets an instant, proven fix.",
-      tag: "Network effect",
-    },
-    {
-      icon: <Shield className="h-5 w-5" />,
-      title: "Staging Verification",
-      body: "Every fix deploys to an ephemeral staging environment. A Playwright bot replays the exact user session that caused the crash. Fix verified before it touches production.",
-      tag: "Staging",
-    },
-    {
-      icon: <Hash className="h-5 w-5" />,
-      title: "Slack & Telegram Bot",
-      body: "14 commands, Fix It button, AI diagnosis, on-call management, deploy monitoring — all in-thread.",
-      tag: "Control surface",
-    },
-    {
-      icon: <GitPullRequest className="h-5 w-5" />,
-      title: "Pre-deploy Risk Assessment",
-      body: "AI reads every PR diff against your incident history and posts a risk score on GitHub before you merge.",
-      tag: "Prevention",
-    },
-    {
-      icon: <MessageSquare className="h-5 w-5" />,
-      title: "Ask Inari",
-      body: "\"What broke yesterday?\" Chat with your live monitoring data. Inari has full context — alerts, remediations, uptime.",
-      tag: "Ops copilot",
+      fig: "FIG 0.3",
+      title: "Verify & ship",
+      body:
+        "11 safety gates — CI, self-review, security scan, staging E2E. All green, auto-merge. One red, draft PR for you.",
+      icon: <FigGates />,
     },
   ];
 
   return (
-    <section id="features" className="py-20 border-t border-inari-border">
+    <section id="how" className="py-24 sm:py-32">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-10 text-center">
-          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">Platform</p>
-          <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl">
-            Not just monitoring. Automated fixing.
+        <div className="mx-auto max-w-2xl text-center mb-20">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-4">
+            How it works
+          </p>
+          <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong">
+            From error to merged PR<br />
+            in minutes — not days.
           </h2>
-          <p className="mt-3 text-fg-base max-w-lg mx-auto">
-            AI analysis included free. Bring your own key (Claude, OpenAI, Groq, Grok, DeepSeek, Gemini) for auto-fix.
+          <p className="mt-5 text-lg text-fg-base">
+            Not a pipeline — a loop. If a stage fails, it retries with what it learned.
+            If a shipped fix regresses, it auto-reverts to the last good Vercel deploy.
           </p>
         </div>
 
-        {/* Hero card — AI Remediation (the main feature) */}
-        <div className="mb-4 group rounded-xl border border-inari-accent/30 bg-inari-accent-dim p-8 transition-all hover:border-inari-accent/50 hover:shadow-[0_0_30px_rgba(124,58,237,0.1)]">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-inari-accent/30 bg-inari-accent/10 text-inari-accent">
-              {features[0].icon}
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h3 className="text-xl font-bold text-fg-strong">{features[0].title}</h3>
-                <span className="text-xs font-mono px-2 py-0.5 rounded-full text-inari-accent bg-inari-accent/10 border border-inari-accent/20">
-                  {features[0].tag}
-                </span>
-              </div>
-              <p className="text-fg-base leading-relaxed">{features[0].body}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Remaining features — grid */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {features.slice(1).map((f) => (
+        <div className="grid md:grid-cols-3">
+          {steps.map((s, i) => (
             <div
-              key={f.title}
-              className="group rounded-xl border border-inari-accent/20 bg-inari-accent-dim p-6 transition-all hover:border-inari-accent/40 hover:shadow-[0_0_24px_rgba(124,58,237,0.07)]"
+              key={s.fig}
+              className={`px-8 py-10 ${
+                i > 0 ? "md:border-l md:border-inari-border" : ""
+              }`}
             >
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-accent/30 bg-inari-accent/10 text-inari-accent">
-                  {f.icon}
-                </div>
-                <span className="text-xs font-mono px-2 py-0.5 rounded-full text-inari-accent bg-inari-accent/10 border border-inari-accent/20">
-                  {f.tag}
-                </span>
+              <p className="text-[10px] font-mono text-fg-base/50 tracking-[0.2em] uppercase mb-10">
+                {s.fig}
+              </p>
+              <div className="flex items-center justify-center h-56 mb-12 text-fg-base/60">
+                {s.icon}
               </div>
-              <h3 className="font-semibold text-fg-strong mb-2">{f.title}</h3>
-              <p className="text-sm text-fg-base leading-relaxed">{f.body}</p>
+              <h3 className="text-base font-semibold text-fg-strong mb-3">
+                {s.title}
+              </h3>
+              <p className="text-sm leading-relaxed text-fg-base">
+                {s.body}
+              </p>
             </div>
           ))}
-        </div>
-
-        <div className="mt-8 text-center">
-          <Link href="/docs#features" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors">
-            See all 14 features — on-call, uptime, anomaly detection, incident storms, and more
-            <ArrowRight className="inline ml-1 h-3.5 w-3.5" />
-          </Link>
         </div>
       </div>
     </section>
   );
 }
 
-// ── MCP Section ───────────────────────────────────────────────────────────────
+// ── Terminal preview ──────────────────────────────────────────────────────────
 
-function McpSection() {
-  const highlights = [
-    {
-      name: "ask_inari",
-      desc: "Ask natural language questions about your infrastructure. \"What broke yesterday?\" — Inari has the full context.",
-    },
-    {
-      name: "trigger_fix",
-      desc: "Full AI remediation: diagnose → read code → generate fix → self-review → push → CI → PR. Streams progress in real time.",
-    },
-    {
-      name: "get_root_cause",
-      desc: "Deep root cause analysis pulling Sentry stack traces, Vercel build logs, GitHub CI, and Substrate I/O recordings.",
-    },
-    {
-      name: "rollback_vercel",
-      desc: "Instantly roll back to the last successful production deployment. One command.",
-    },
+function TerminalPreview() {
+  const gates = [
+    { label: "auto_merge_enabled",  detail: "config",                     value: "on"          },
+    { label: "CI passed",           detail: "3 checks",                   value: null          },
+    { label: "Confidence",          detail: "≥ 90%",                      value: "94%"         },
+    { label: "Diff size",           detail: "≤ 500 lines",                value: "+47 −12"     },
+    { label: "Self-review",         detail: "≥ 70",                       value: "88/100"      },
+    { label: "Substrate simulate",  detail: "risk ≤ 40",                  value: "risk 12"     },
+    { label: "EAP chain",           detail: "Merkle · Ed25519",           value: "verified"    },
+    { label: "Prediction safe",     detail: "risk ≤ 40",                  value: "risk 8"      },
+    { label: "Security scan",       detail: "0 HIGH · 0 CRITICAL",        value: "clean"       },
+    { label: "Substrate replay",    detail: "I/O match",                  value: "100%"        },
+    { label: "Staging E2E",         detail: "12/12 tests",                value: "passed"      },
   ];
 
-  const editors = ["Claude Code", "Cursor", "Windsurf", "VS Code Copilot", "Codex CLI", "Gemini CLI"];
-
   return (
-    <section className="py-24 border-t border-inari-border">
-      <div className="mx-auto max-w-6xl px-6">
+    <section className="py-24">
+      <div className="mx-auto max-w-3xl px-6">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0a0a0c] overflow-hidden">
+          {/* Chrome */}
+          <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3">
+            <div className="flex gap-1.5">
+              <span className="h-3 w-3 rounded-full bg-[#ff5f57]/70" />
+              <span className="h-3 w-3 rounded-full bg-[#febc2e]/70" />
+              <span className="h-3 w-3 rounded-full bg-[#28c840]/70" />
+            </div>
+            <span className="font-mono text-xs text-white/25">
+              03:47 — auto-merge evaluating
+            </span>
+            <span className="ml-auto font-mono text-[11px] text-white/20">
+              trust: <span className="text-orange-400/70">Senior</span>
+            </span>
+          </div>
 
-        {/* Header */}
-        <div className="mb-14 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-          <div>
-            <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-3">MCP Server</p>
-            <h2 className="text-3xl font-bold text-fg-strong sm:text-4xl max-w-lg">
-              Your AI already knows what&apos;s broken
-            </h2>
-            <p className="mt-4 text-fg-base max-w-md">
-              One command connects InariWatch to any AI coding tool.
-              25 tools, 4 live data resources, 7 prompt workflows — your AI gets
-              full production context before you even ask.
+          {/* Output */}
+          <div className="p-6 font-mono text-[13px] leading-none space-y-0">
+            <p className="text-white/20 text-[11px] uppercase tracking-widest mb-5">
+              Running 11 safety gates…
+            </p>
+
+            {gates.map((g, i) => (
+              <div key={i} className="flex items-baseline gap-0 py-[5px] border-b border-white/[0.03] last:border-0">
+                <span className="text-emerald-400 mr-3 shrink-0">✓</span>
+                <span className="text-white/55 w-44 shrink-0">{g.label}</span>
+                {g.value && (
+                  <span className="text-white font-semibold mr-2">{g.value}</span>
+                )}
+                <span className="text-white/20 text-[11px]">{g.detail}</span>
+              </div>
+            ))}
+
+            <p className="mt-6 text-inari-accent">
+              → All 11 gates passed — merging PR #62…
+            </p>
+            <p className="mt-2.5">
+              <span className="text-emerald-400">✓</span>{" "}
+              <span className="text-white/60">Merged. Watching for regressions</span>{" "}
+              <span className="text-white/25 text-[11px]">(10 min window)</span>
             </p>
           </div>
-          {/* Editor compatibility badges */}
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {editors.map((e) => (
-              <div
-                key={e}
-                className="flex items-center gap-2 rounded-lg border border-inari-border bg-inari-card px-3 py-2 text-xs text-zinc-400"
-              >
-                <Code2 className="h-3.5 w-3.5 text-zinc-500" />
-                {e}
-              </div>
-            ))}
-          </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <p className="mt-4 text-center text-sm text-fg-base">
+          Auto-merge is off by default. You set the threshold, diff size, and trust level per project.
+        </p>
+      </div>
+    </section>
+  );
+}
 
-          {/* Left: setup snippet */}
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-inari-accent/25 bg-inari-card overflow-hidden shadow-[0_0_60px_rgba(124,58,237,0.06)]">
-              <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
-                <div className="flex gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
-                </div>
-                <span className="text-xs text-zinc-500 font-mono ml-1">terminal</span>
+// ── Platform showcase: Live remediation session ──────────────────────────────
+
+type StageStatus = "done" | "active" | "pending";
+type Stage = { label: string; status: StageStatus; time?: string };
+
+function StageDot({ status }: { status: StageStatus }) {
+  if (status === "done") {
+    return (
+      <div className="relative z-10 h-6 w-6 rounded-full bg-inari-card border-2 border-emerald-500/70 flex items-center justify-center">
+        <svg viewBox="0 0 12 12" className="h-3 w-3 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.2">
+          <path d="M3 6 L5.2 8.2 L9 4.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+    );
+  }
+  if (status === "active") {
+    return (
+      <div className="relative z-10 h-6 w-6 rounded-full bg-inari-card border-2 border-inari-accent flex items-center justify-center">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-inari-accent opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-inari-accent" />
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="relative z-10 h-6 w-6 rounded-full bg-inari-card border-2 border-fg-base/30" />
+  );
+}
+
+function DiffLine({
+  n,
+  kind,
+  children,
+}: {
+  n: number | string;
+  kind: "ctx" | "add" | "del";
+  children: React.ReactNode;
+}) {
+  const bg =
+    kind === "add"
+      ? "bg-emerald-500/10 border-l-2 border-emerald-500/60"
+      : kind === "del"
+      ? "bg-red-500/10 border-l-2 border-red-500/60"
+      : "border-l-2 border-transparent";
+  const marker =
+    kind === "add" ? <span className="text-emerald-600 dark:text-emerald-400">+</span>
+    : kind === "del" ? <span className="text-red-600 dark:text-red-400">−</span>
+    : <span className="text-fg-base/50"> </span>;
+  const numColor =
+    kind === "add" ? "text-emerald-600/80 dark:text-emerald-400/70"
+    : kind === "del" ? "text-red-600/80 dark:text-red-400/70"
+    : "text-fg-base/50";
+  return (
+    <div className={`flex items-start ${bg}`}>
+      <span className={`w-7 shrink-0 pr-2 text-right text-[10px] ${numColor}`}>{n}</span>
+      <span className="w-4 shrink-0 text-center">{marker}</span>
+      <span className="flex-1 pr-3 text-fg-base">{children}</span>
+    </div>
+  );
+}
+
+function Features() {
+  const stages: Stage[] = [
+    { label: "Diagnose",      status: "done",    time: "1.8s" },
+    { label: "Read code",     status: "done",    time: "4.2s" },
+    { label: "Generate fix",  status: "done",    time: "11.3s" },
+    { label: "Security scan", status: "done",    time: "2.1s" },
+    { label: "CI check",      status: "active",  time: "00:47" },
+    { label: "Merge",         status: "pending"               },
+  ];
+
+  return (
+    <section id="features" className="py-24 sm:py-32 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-4">
+            Platform
+          </p>
+          <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong">
+            Not just monitoring.<br />
+            Automated fixing.
+          </h2>
+          <p className="mt-5 text-lg text-fg-base">
+            An autonomous loop from error to merged PR. AI diagnoses, writes the
+            fix, runs every safety gate, and opens the PR — while you watch live.
+          </p>
+        </div>
+      </div>
+
+      {/* Live remediation session card */}
+      <div className="mx-auto max-w-6xl px-6 mt-16">
+        <div className="relative rounded-xl border border-inari-border bg-inari-card shadow-lg dark:shadow-2xl overflow-hidden">
+          {/* Top status bar */}
+          <div className="flex items-center justify-between border-b border-inari-border px-5 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+                <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">
+                  Live
+                </span>
               </div>
-              <div className="p-5 font-mono text-sm leading-7">
-                <p className="text-zinc-500 text-xs mb-3"># One command. Everything configured.</p>
-                <p><span className="text-inari-accent select-none">$ </span><span className="text-zinc-200">npx @inariwatch/mcp init</span></p>
-                <br />
-                <p className="text-zinc-600">  ✓ Claude Code configured</p>
-                <p className="text-zinc-600">  ✓ Cursor configured</p>
-                <p className="text-zinc-600">  ✓ @inariwatch/capture installed</p>
-                <p className="text-zinc-600">  ✓ Substrate I/O enabled</p>
-                <p className="text-zinc-600">  ✓ GitHub linked (via gh CLI)</p>
-                <br />
-                <p className="text-inari-accent">  Done! MCP + Capture + Substrate ready.</p>
+              <span className="text-fg-base/60">·</span>
+              <span className="text-[11px] text-fg-base">Autonomous remediation in progress</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-mono text-fg-base/80">ALT-0142</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 uppercase tracking-wider">
+                Critical
+              </span>
+              <span className="text-[11px] font-mono text-fg-base/80 tabular-nums">01:47</span>
+            </div>
+          </div>
+
+          {/* Main — Error details + Generated fix */}
+          <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x divide-inari-border">
+            {/* LEFT — Error */}
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-[10px] font-mono text-fg-base/70 uppercase tracking-[0.2em]">
+                  Incident
+                </span>
+                <span className="text-fg-base/50">·</span>
+                <span className="text-[10px] text-fg-base/70">via @inariwatch/capture</span>
+              </div>
+
+              <h3 className="text-sm font-semibold text-fg-strong mb-1 leading-snug">
+                TypeError: Cannot read property 'id' of null
+              </h3>
+              <p className="text-xs text-fg-base mb-4">
+                Thrown 12× in the last 2 min · 3 users affected · main @ a3f9d21
+              </p>
+
+              {/* Stack trace */}
+              <div className="rounded-md border border-inari-border bg-surface-inner p-3 font-mono text-[11px] leading-6">
+                <p className="text-fg-base/60">// stack trace</p>
+                <p className="text-fg-base">
+                  at <span className="text-inari-accent">requireUser</span>{" "}
+                  <span className="text-fg-base/70">(lib/session.ts:47)</span>
+                </p>
+                <p className="text-fg-base">
+                  at <span className="text-inari-accent">authMiddleware</span>{" "}
+                  <span className="text-fg-base/70">(lib/auth.ts:12)</span>
+                </p>
+                <p className="text-fg-base">
+                  at <span className="text-inari-accent">checkoutHandler</span>{" "}
+                  <span className="text-fg-base/70">(app/api/checkout.ts:8)</span>
+                </p>
+                <p className="text-fg-base/60">... 2 more frames</p>
+              </div>
+
+              <div className="mt-4 flex items-center gap-3 text-[11px] text-fg-base">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                  12 events
+                </span>
+                <span className="text-fg-base/50">·</span>
+                <span>first seen 14:02:33</span>
+                <span className="text-fg-base/50">·</span>
+                <span>3 users</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-lg border border-inari-border bg-inari-card p-3">
-                <p className="text-2xl font-bold text-fg-strong font-mono">21</p>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">tools</p>
+            {/* RIGHT — Generated fix */}
+            <div className="p-6 border-t md:border-t-0 border-inari-border">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-[10px] font-mono text-fg-base/70 uppercase tracking-[0.2em]">
+                  Proposed fix
+                </span>
               </div>
-              <div className="rounded-lg border border-inari-border bg-inari-card p-3">
-                <p className="text-2xl font-bold text-fg-strong font-mono">4</p>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">resources</p>
+
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] font-mono text-fg-strong">lib/session.ts</p>
+                <div className="flex items-center gap-2 text-[10px] font-mono tabular-nums">
+                  <span className="text-emerald-600 dark:text-emerald-400">+4</span>
+                  <span className="text-red-600 dark:text-red-400">−1</span>
+                </div>
               </div>
-              <div className="rounded-lg border border-inari-border bg-inari-card p-3">
-                <p className="text-2xl font-bold text-fg-strong font-mono">7</p>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">prompts</p>
+
+              {/* Diff view */}
+              <div className="rounded-md border border-inari-border bg-surface-inner overflow-hidden font-mono text-[11px] leading-5 py-1.5">
+                <DiffLine n={45} kind="ctx">
+                  export function <span className="text-inari-accent">requireUser</span>(req) {"{"}
+                </DiffLine>
+                <DiffLine n={46} kind="del">
+                  {"  "}return req.session.user;
+                </DiffLine>
+                <DiffLine n={46} kind="add">
+                  {"  "}if (!req.session?.user) {"{"}
+                </DiffLine>
+                <DiffLine n={47} kind="add">
+                  {"    "}throw new <span className="text-inari-accent">Unauthorized</span>();
+                </DiffLine>
+                <DiffLine n={48} kind="add">
+                  {"  "}{"}"}
+                </DiffLine>
+                <DiffLine n={49} kind="add">
+                  {"  "}return req.session.user;
+                </DiffLine>
+                <DiffLine n={50} kind="ctx">
+                  {"}"}
+                </DiffLine>
+              </div>
+
+              <div className="mt-4 flex items-center gap-3 text-[11px] text-fg-base flex-wrap">
+                <span>confidence</span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold tabular-nums">94%</span>
+                <span className="text-fg-base/50">·</span>
+                <span>regression test generated</span>
+                <span className="text-fg-base/50">·</span>
+                <span>branch <span className="font-mono text-fg-strong">inari/fix-ALT-0142</span></span>
               </div>
             </div>
           </div>
 
-          {/* Right: highlight tools */}
-          <div className="space-y-3">
-            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4">Highlight tools</p>
-            {highlights.map((t) => (
+          {/* Bottom — pipeline progress */}
+          <div className="border-t border-inari-border px-8 py-6">
+            <div className="flex items-center gap-2 mb-5">
+              <span className="text-[10px] font-mono text-fg-base/70 uppercase tracking-[0.2em]">
+                Pipeline
+              </span>
+              <span className="text-fg-base/50">·</span>
+              <span className="text-[10px] text-fg-base/70">
+                4 of 6 stages complete · 2 remaining
+              </span>
+            </div>
+
+            <div className="relative">
+              {/* Connector line behind dots */}
+              <div className="absolute left-3 right-3 top-3 h-px bg-inari-border" />
+
               <div
-                key={t.name}
-                className="flex gap-3 rounded-xl border border-inari-border bg-inari-card px-4 py-3 hover:border-inari-accent/30 transition-colors"
+                className="relative grid"
+                style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }}
               >
-                <div className="mt-0.5 shrink-0">
-                  <Wand2 className="h-4 w-4 text-inari-accent/60" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-mono text-inari-accent font-medium">{t.name}</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{t.desc}</p>
-                </div>
+                {stages.map((s) => (
+                  <div key={s.label} className="flex flex-col items-center gap-2">
+                    <StageDot status={s.status} />
+                    <span
+                      className={`text-[10px] font-medium text-center ${
+                        s.status === "pending"
+                          ? "text-fg-base/60"
+                          : s.status === "active"
+                          ? "text-inari-accent"
+                          : "text-fg-strong"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                    <span className="text-[9px] font-mono text-fg-base/60 tabular-nums">
+                      {s.time ?? "—"}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
-        <div className="mt-8 flex items-center gap-4">
-          <Link href="/docs#mcp-overview" className="text-sm text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1.5">
+        <p className="mt-6 text-center text-xs font-mono uppercase tracking-widest text-fg-base/60">
+          One session — from alert to merged PR
+        </p>
+      </div>
+    </section>
+  );
+}
+
+// ── Community Fix Network ─────────────────────────────────────────────────────
+
+type NetworkHeadlineStats = {
+  patterns:     number;
+  applications: number;
+  successRate:  number;
+  ratings:      number;
+};
+
+async function getNetworkHeadlineStats(): Promise<NetworkHeadlineStats | null> {
+  try {
+    const [patRes, fxRes, rtRes] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` }).from(errorPatterns),
+      db.select({
+        applications: sql<number>`coalesce(sum(${communityFixes.totalApplications}), 0)::int`,
+        success:      sql<number>`coalesce(sum(${communityFixes.successCount}), 0)::int`,
+      }).from(communityFixes),
+      db.select({ count: sql<number>`count(*)::int` }).from(fixRatings),
+    ]);
+    const applications = fxRes[0]?.applications ?? 0;
+    const success      = fxRes[0]?.success      ?? 0;
+    const successRate  = applications > 0 ? Math.round((success / applications) * 100) : 0;
+    return {
+      patterns:     patRes[0]?.count ?? 0,
+      applications,
+      successRate,
+      ratings:      rtRes[0]?.count ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function NetworkSection({ stats }: { stats: NetworkHeadlineStats | null }) {
+  return (
+    <section className="py-24 sm:py-32 border-t border-inari-border">
+      <div className="mx-auto max-w-5xl px-6">
+
+        {/* Header */}
+        <div className="text-center mx-auto max-w-2xl">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-4">
+            Community Fix Network
+          </p>
+          <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong leading-[1.05]">
+            One team fixes it.<br />
+            <span className="text-gradient-accent">Everyone benefits.</span>
+          </h2>
+          <p className="mt-5 text-lg text-fg-base">
+            When InariWatch fixes an error on your project, the pattern is anonymized and shared.
+            The next team with the same error sees an instant match — because someone already solved it.
+          </p>
+        </div>
+
+        {/* Live stats — hidden if DB query fails */}
+        {stats && (
+          <dl className="mt-12 rounded-xl border border-inari-border bg-inari-card grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-inari-border">
+            {[
+              { value: stats.patterns.toLocaleString(),     label: "error patterns"    },
+              { value: stats.applications.toLocaleString(), label: "fixes applied"     },
+              { value: `${stats.successRate}%`,             label: "success rate"      },
+              { value: stats.ratings.toLocaleString(),      label: "community ratings" },
+            ].map((s) => (
+              <div key={s.label} className="px-6 py-5 text-center">
+                <dd className="text-3xl font-semibold text-fg-strong font-mono tabular-nums">{s.value}</dd>
+                <dt className="mt-1 text-[10px] font-mono uppercase tracking-widest text-fg-base/70">{s.label}</dt>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        {/* "Match found" visual — shows the moment when a community fix is suggested */}
+        <div className="mt-8 mx-auto max-w-2xl rounded-xl border border-inari-border bg-inari-card overflow-hidden shadow-lg dark:shadow-2xl">
+          {/* Alert header */}
+          <div className="px-5 py-4 border-b border-inari-border">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
+              <span className="text-[10px] font-mono uppercase tracking-widest text-red-600 dark:text-red-400">
+                Critical
+              </span>
+              <span className="text-[10px] text-fg-base/60">· 2m ago</span>
+              <span className="ml-auto text-[10px] font-mono text-fg-base/50">via @inariwatch/capture</span>
+            </div>
+            <p className="text-sm font-semibold text-fg-strong">
+              TypeError: Cannot read properties of undefined
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-fg-base/70">
+              at getUserSession (lib/auth.ts:12)
+            </p>
+          </div>
+
+          {/* Match found banner */}
+          <div className="px-5 py-4 bg-inari-accent/[0.06] flex items-center gap-3">
+            <div className="h-7 w-7 rounded-full bg-inari-accent/15 border border-inari-accent/30 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-3.5 w-3.5 text-inari-accent" aria-hidden="true" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-mono uppercase tracking-widest text-inari-accent">
+                Match found in community network
+              </p>
+              <p className="mt-0.5 text-[11px] text-fg-base leading-snug">
+                <span className="font-semibold text-fg-strong">47 teams</span> fixed this ·
+                <span className="font-semibold text-fg-strong"> 96%</span> success ·
+                <span className="font-mono text-fg-base/80"> ~2.1s</span> avg fix
+              </p>
+            </div>
+            <span className="shrink-0 hidden sm:inline-flex items-center gap-1.5 rounded-md bg-inari-accent px-3 py-1.5 text-[11px] font-medium text-white">
+              Apply fix
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </span>
+          </div>
+        </div>
+
+        {/* CTA */}
+        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <Link
+            href="/network"
+            className="group inline-flex items-center gap-1.5 text-sm text-inari-accent hover:text-inari-accent/80 transition-colors"
+          >
+            Explore the full network
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+          </Link>
+          <span className="hidden sm:inline text-fg-base/30" aria-hidden="true">·</span>
+          <span className="text-xs font-mono text-fg-base/70">
+            Auto-contributed · anonymized · 60% success threshold
+          </span>
+        </div>
+
+      </div>
+    </section>
+  );
+}
+
+// ── MCP section ───────────────────────────────────────────────────────────────
+
+function McpSection() {
+  const editors = [
+    "Claude Code",
+    "Cursor",
+    "Windsurf",
+    "VS Code Copilot",
+    "Codex CLI",
+    "Gemini CLI",
+  ];
+
+  return (
+    <section className="py-24 sm:py-32 border-t border-inari-border">
+      <div className="mx-auto max-w-5xl px-6 text-center">
+        <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-4">
+          MCP Server
+        </p>
+        <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong">
+          Your AI editor<br />
+          already knows what broke.
+        </h2>
+        <p className="mt-5 text-lg text-fg-base max-w-2xl mx-auto">
+          One command connects InariWatch to any AI coding tool. 25 tools, 4 live
+          resources, 7 prompt workflows — your AI gets full production context
+          before you even ask.
+        </p>
+
+        <div className="mt-10 max-w-xl mx-auto">
+          <div className="rounded-xl border border-inari-border bg-inari-card overflow-hidden text-left">
+            <div className="flex items-center gap-2 border-b border-inari-border px-4 py-3">
+              <div className="flex gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" />
+                <span className="h-2.5 w-2.5 rounded-full bg-green-500/70" />
+              </div>
+              <span className="ml-2 text-xs text-fg-base font-mono">terminal</span>
+            </div>
+            <div className="p-5 font-mono text-sm">
+              <p className="text-fg-base/70 text-xs mb-2"># One command. Everything configured.</p>
+              <p>
+                <span className="text-inari-accent select-none">$ </span>
+                <span className="text-fg-strong">npx @inariwatch/mcp init</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
+          {editors.map((e) => (
+            <div
+              key={e}
+              className="flex items-center gap-2 rounded-full border border-inari-border bg-inari-card px-3 py-1.5 text-xs text-fg-base"
+            >
+              <Code2 className="h-3 w-3 text-inari-accent" />
+              {e}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-8">
+          <Link
+            href="/docs#mcp-overview"
+            className="inline-flex items-center gap-1.5 text-sm text-inari-accent hover:text-[#f97316] transition-colors"
+          >
             MCP docs — all 25 tools
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
-          <span className="text-zinc-700 text-sm">·</span>
-          <Link href="/docs#mcp-setup" className="text-sm text-zinc-500 hover:text-fg-strong dark:hover:text-zinc-300 transition-colors">
-            Setup guide
-          </Link>
         </div>
+      </div>
+    </section>
+  );
+}
 
+// ── Final CTA ─────────────────────────────────────────────────────────────────
+
+function FinalCta() {
+  return (
+    <section className="py-24 sm:py-32 border-t border-inari-border">
+      <div className="relative mx-auto max-w-3xl px-6 text-center">
+        <div className="absolute inset-0 bg-radial-fade pointer-events-none" aria-hidden />
+        <div className="relative">
+          <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong">
+            Sleep through incidents.
+          </h2>
+          <p className="mt-5 text-lg text-fg-base max-w-xl mx-auto">
+            Free in beta. No credit card. Set up in under a minute — InariWatch
+            starts watching your stack the moment you connect GitHub.
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link href="/register">
+              <Button variant="primary" size="lg" className="min-w-[180px]">
+                Start free
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href="/docs">
+              <Button variant="outline" size="lg" className="min-w-[180px]">
+                Read the docs
+              </Button>
+            </Link>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -998,21 +1096,38 @@ function McpSection() {
 
 function Footer() {
   return (
-    <footer className="border-t border-inari-border py-10">
-      <div className="mx-auto max-w-6xl px-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
-        <div className="flex items-center gap-2.5">
-          <Image src="/logo-inari/favicon-96x96.png" alt="InariWatch" width={28} height={28} />
-          <span className="font-mono text-fg-base uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
-        </div>
-        <div className="flex items-center gap-6 text-sm text-zinc-500">
-          <Link href="/docs" className="hover:text-fg-base transition-colors">Docs</Link>
-          <Link href="/download" className="hover:text-fg-base transition-colors">Mobile App</Link>
-          <Link href="/trust" className="hover:text-fg-base transition-colors">Trust</Link>
-          <Link href="/status" className="hover:text-fg-base transition-colors">Status</Link>
-          <Link href="/blog" className="hover:text-fg-base transition-colors">Blog</Link>
-          <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noopener noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
-          <Link href="/privacy" className="hover:text-fg-base transition-colors">Privacy</Link>
-          <Link href="/terms" className="hover:text-fg-base transition-colors">Terms</Link>
+    <footer className="border-t border-inari-border py-12">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <Image
+              src="/logo-inari/favicon-96x96.png"
+              alt="InariWatch"
+              width={24}
+              height={24}
+            />
+            <span className="font-mono text-sm text-fg-base">
+              inariwatch · built in MX
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-fg-base">
+            <Link href="/docs" className="hover:text-fg-strong transition-colors">Docs</Link>
+            <Link href="/pricing" className="hover:text-fg-strong transition-colors">Pricing</Link>
+            <Link href="/download" className="hover:text-fg-strong transition-colors">Mobile</Link>
+            <Link href="/trust" className="hover:text-fg-strong transition-colors">Trust</Link>
+            <Link href="/status" className="hover:text-fg-strong transition-colors">Status</Link>
+            <Link href="/blog" className="hover:text-fg-strong transition-colors">Blog</Link>
+            <a
+              href="https://github.com/orbita-pos/inariwatch"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-fg-strong transition-colors"
+            >
+              GitHub
+            </a>
+            <Link href="/privacy" className="hover:text-fg-strong transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-fg-strong transition-colors">Terms</Link>
+          </div>
         </div>
       </div>
     </footer>
@@ -1021,20 +1136,41 @@ function Footer() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function LandingPage() {
+async function getLatestPost(): Promise<LatestPost> {
+  try {
+    const rows = await db
+      .select({ slug: blogPosts.slug, title: blogPosts.title })
+      .from(blogPosts)
+      .where(eq(blogPosts.isPublished, true))
+      .orderBy(desc(blogPosts.publishedAt))
+      .limit(1);
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default async function LandingPage() {
+  const [latestPost, networkStats] = await Promise.all([
+    getLatestPost(),
+    getNetworkHeadlineStats(),
+  ]);
+
   return (
     <div className="min-h-screen bg-inari-bg">
-      <Nav />
+      <MarketingNav />
       <main>
-        <Hero />
+        <Hero latestPost={latestPost} />
+        <RuntimeStrip />
+        <QuickInstall />
         <DemoVideo />
-        <StatsBar />
-        <RemediationWalkthrough />
-        <AutoMergeSafety />
-        <Integrations />
-        <AIFeatures />
+        <TrustedBy />
+        <HowItWorks />
+        <TerminalPreview />
+        <Features />
+        <NetworkSection stats={networkStats} />
         <McpSection />
-        <WhyNotNative />
+        <FinalCta />
       </main>
       <Footer />
     </div>

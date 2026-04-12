@@ -180,7 +180,7 @@ export default async function AIMetricsPage() {
   if (projectIds.length === 0) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <p className="text-zinc-500">No projects found. Create a project to see AI metrics.</p>
+        <p className="text-fg-base/60">No projects found. Create a project to see AI metrics.</p>
       </div>
     );
   }
@@ -201,52 +201,52 @@ export default async function AIMetricsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <div className="flex items-center gap-2 text-sm text-zinc-500 mb-1">
+          <div className="flex items-center gap-2 text-sm text-fg-base/60 mb-1">
             <Link href="/analytics" className="hover:text-fg-base transition-colors">Analytics</Link>
-            <ChevronRight className="h-3 w-3" />
+            <ChevronRight className="h-3 w-3" aria-hidden="true" />
             <span className="text-fg-base">AI Metrics</span>
           </div>
           <h1 className="text-2xl font-bold text-fg-strong flex items-center gap-2">
-            <Brain className="h-6 w-6 text-inari-accent" />
+            <Brain className="h-6 w-6 text-inari-accent" aria-hidden="true" />
             AI Performance Metrics
           </h1>
-          <p className="text-sm text-zinc-500 mt-1">Last 30 days — how well the AI pipeline is performing</p>
+          <p className="text-sm text-fg-base/60 mt-1">Last 30 days — how well the AI pipeline is performing</p>
         </div>
       </div>
 
       {overall.total === 0 ? (
         <div className="rounded-xl border border-line bg-surface-1 p-12 text-center">
-          <Brain className="h-10 w-10 text-zinc-400 mx-auto mb-4" />
+          <Brain className="h-10 w-10 text-fg-base/30 mx-auto mb-4" aria-hidden="true" />
           <p className="text-fg-base font-medium">No AI remediations yet</p>
-          <p className="text-sm text-zinc-500 mt-1">Trigger a fix on an alert to see metrics here.</p>
+          <p className="text-sm text-fg-base/60 mt-1">Trigger a fix on an alert to see metrics here.</p>
         </div>
       ) : (
         <>
           {/* ── KPI Cards ────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <KPI
-              icon={<Target className="h-4 w-4" />}
+              icon={<Target className="h-4 w-4" aria-hidden="true" />}
               label="Success Rate"
               value={`${successRate}%`}
               detail={`${overall.completed} of ${overall.total} fixes succeeded`}
               accent={successRate >= 80 ? "good" : successRate >= 50 ? "warn" : "bad"}
             />
             <KPI
-              icon={<GitMerge className="h-4 w-4" />}
+              icon={<GitMerge className="h-4 w-4" aria-hidden="true" />}
               label="Auto-Merge Rate"
               value={`${autoMergeRate}%`}
               detail={`${overall.auto_merged} auto-merged, ${overall.draft_pr} draft PRs`}
               accent={autoMergeRate >= 50 ? "good" : "neutral"}
             />
             <KPI
-              icon={<Shield className="h-4 w-4" />}
+              icon={<Shield className="h-4 w-4" aria-hidden="true" />}
               label="Post-Deploy Pass"
               value={postDeployPassRate > 0 ? `${postDeployPassRate}%` : "—"}
               detail={`${overall.monitoring_passed} passed, ${overall.monitoring_reverted} reverted`}
               accent={postDeployPassRate >= 90 ? "good" : postDeployPassRate >= 70 ? "warn" : "neutral"}
             />
             <KPI
-              icon={<Brain className="h-4 w-4" />}
+              icon={<Brain className="h-4 w-4" aria-hidden="true" />}
               label="Avg Confidence"
               value={`${overall.avg_confidence}%`}
               detail={`${overall.with_tests} fixes included regression tests`}
@@ -258,27 +258,27 @@ export default async function AIMetricsPage() {
           {(mttr.ai_count > 0 || mttr.human_count > 0) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               <div className="rounded-xl border border-line bg-surface-1 p-5">
-                <div className="flex items-center gap-2 text-sm text-zinc-500 mb-3">
-                  <Clock className="h-4 w-4" />
+                <div className="flex items-center gap-2 text-sm text-fg-base/60 mb-3">
+                  <Clock className="h-4 w-4" aria-hidden="true" />
                   MTTR — Human (manual resolution)
                 </div>
                 <p className="text-3xl font-bold text-fg-strong">
                   {mttr.human_mttr_sec > 0 ? duration(mttr.human_mttr_sec) : "—"}
                 </p>
-                <p className="text-xs text-zinc-500 mt-1">{mttr.human_count} alerts resolved manually</p>
+                <p className="text-xs text-fg-base/60 mt-1">{mttr.human_count} alerts resolved manually</p>
               </div>
               <div className="rounded-xl border border-inari-accent/30 bg-inari-accent/5 p-5">
                 <div className="flex items-center gap-2 text-sm text-inari-accent mb-3">
-                  <Zap className="h-4 w-4" />
+                  <Zap className="h-4 w-4" aria-hidden="true" />
                   MTTR — AI (automated fixes)
                 </div>
                 <p className="text-3xl font-bold text-inari-accent">
                   {mttr.ai_mttr_sec > 0 ? duration(mttr.ai_mttr_sec) : "—"}
                 </p>
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-xs text-fg-base/60 mt-1">
                   {mttr.ai_count} alerts fixed by AI
                   {mttr.human_mttr_sec > 0 && mttr.ai_mttr_sec > 0 && mttr.human_mttr_sec > mttr.ai_mttr_sec && (
-                    <span className="ml-2 text-green-500 font-medium">
+                    <span className="ml-2 text-green-600 dark:text-green-400 font-medium">
                       {Math.round(mttr.human_mttr_sec / mttr.ai_mttr_sec)}x faster
                     </span>
                   )}
@@ -290,7 +290,7 @@ export default async function AIMetricsPage() {
           {/* ── Daily Activity Chart ──────────────────────────────────────── */}
           <div className="rounded-xl border border-line bg-surface-1 p-5 mb-8">
             <h2 className="text-sm font-medium text-fg-base mb-4 flex items-center gap-2">
-              <Activity className="h-4 w-4 text-zinc-400" />
+              <Activity className="h-4 w-4 text-fg-base/50" aria-hidden="true" />
               Daily Remediation Activity (30 days)
             </h2>
             <div className="flex items-end gap-[3px]">
@@ -303,16 +303,16 @@ export default async function AIMetricsPage() {
                     <div className="flex w-full flex-col-reverse" style={{ height: `${BAR_H}px` }}>
                       {completedH > 0 && <div className="w-full rounded-t-sm bg-green-500/70" style={{ height: `${completedH}px` }} />}
                       {failedH > 0 && <div className="w-full bg-red-400/70" style={{ height: `${failedH}px` }} />}
-                      {otherH > 0 && <div className="w-full bg-zinc-300 dark:bg-zinc-600" style={{ height: `${otherH}px` }} />}
+                      {otherH > 0 && <div className="w-full bg-fg-base/20" style={{ height: `${otherH}px` }} />}
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
+            <div className="flex items-center gap-4 mt-3 text-xs text-fg-base/60">
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500/70" /> Completed</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-400/70" /> Failed</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-zinc-300 dark:bg-zinc-600" /> Other</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-fg-base/20" /> Other</span>
             </div>
           </div>
 
@@ -320,7 +320,7 @@ export default async function AIMetricsPage() {
           {weeklyTrend.length > 1 && (
             <div className="rounded-xl border border-line bg-surface-1 p-5 mb-8">
               <h2 className="text-sm font-medium text-fg-base mb-4 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-zinc-400" />
+                <TrendingUp className="h-4 w-4 text-fg-base/50" aria-hidden="true" />
                 Weekly Success Rate Trend (12 weeks)
               </h2>
               <div className="flex items-end gap-2">
@@ -329,14 +329,14 @@ export default async function AIMetricsPage() {
                   const isGood = w.success_rate >= 80;
                   return (
                     <div key={w.week} className="flex flex-1 flex-col items-center" title={`Week of ${w.week}: ${w.success_rate}% success (${w.completed}/${w.total})`}>
-                      <div className="text-[10px] text-zinc-500 mb-1">{w.success_rate}%</div>
+                      <div className="text-[10px] text-fg-base/40 mb-1">{w.success_rate}%</div>
                       <div className="flex w-full flex-col justify-end" style={{ height: `${BAR_H}px` }}>
                         <div
                           className={`w-full rounded-t-sm ${isGood ? "bg-green-500/70" : "bg-amber-400/70"}`}
                           style={{ height: `${h}px` }}
                         />
                       </div>
-                      <div className="text-[10px] text-zinc-500 mt-1">{w.week.slice(5)}</div>
+                      <div className="text-[10px] text-fg-base/40 mt-1">{w.week.slice(5)}</div>
                     </div>
                   );
                 })}
@@ -348,7 +348,7 @@ export default async function AIMetricsPage() {
           {gateStats.total_with_gates > 0 && (
             <div className="rounded-xl border border-line bg-surface-1 p-5 mb-8">
               <h2 className="text-sm font-medium text-fg-base mb-4 flex items-center gap-2">
-                <Shield className="h-4 w-4 text-zinc-400" />
+                <Shield className="h-4 w-4 text-fg-base/50" aria-hidden="true" />
                 Safety Gate Pass Rates
               </h2>
               <div className="space-y-3">
@@ -366,19 +366,19 @@ export default async function AIMetricsPage() {
             <div className="space-y-2">
               {byStatus.map((s) => (
                 <div key={s.status} className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-500 w-32 truncate font-mono">{s.status}</span>
-                  <div className="flex-1 bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
+                  <span className="text-xs text-fg-base/60 w-32 truncate font-mono">{s.status}</span>
+                  <div className="flex-1 bg-surface-inner rounded-full h-2">
                     <div
                       className={`h-2 rounded-full ${
                         s.status === "completed" ? "bg-green-500" :
                         s.status === "failed" ? "bg-red-400" :
-                        s.status === "cancelled" ? "bg-zinc-400" :
+                        s.status === "cancelled" ? "bg-fg-base/30" :
                         "bg-inari-accent/60"
                       }`}
                       style={{ width: `${Math.max((s.count / overall.total) * 100, 2)}%` }}
                     />
                   </div>
-                  <span className="text-xs text-zinc-500 w-16 text-right">{s.count} ({pct(s.count, overall.total)})</span>
+                  <span className="text-xs text-fg-base/60 w-16 text-right">{s.count} ({pct(s.count, overall.total)})</span>
                 </div>
               ))}
             </div>
@@ -398,27 +398,27 @@ function KPI({ icon, label, value, detail, accent }: {
   detail: string;
   accent: "good" | "warn" | "bad" | "neutral";
 }) {
-  const border = accent === "good" ? "border-green-200 dark:border-green-800"
-    : accent === "warn" ? "border-amber-200 dark:border-amber-800"
-    : accent === "bad" ? "border-red-200 dark:border-red-800"
+  const border = accent === "good" ? "border-green-500/20"
+    : accent === "warn" ? "border-amber-500/20"
+    : accent === "bad" ? "border-red-500/20"
     : "border-line";
-  const bg = accent === "good" ? "bg-green-50 dark:bg-green-950/20"
-    : accent === "warn" ? "bg-amber-50 dark:bg-amber-950/20"
-    : accent === "bad" ? "bg-red-50 dark:bg-red-950/20"
+  const bg = accent === "good" ? "bg-green-500/5"
+    : accent === "warn" ? "bg-amber-500/5"
+    : accent === "bad" ? "bg-red-500/5"
     : "bg-surface-1";
   const valueColor = accent === "good" ? "text-green-600 dark:text-green-400"
     : accent === "warn" ? "text-amber-600 dark:text-amber-400"
-    : accent === "bad" ? "text-red-500"
+    : accent === "bad" ? "text-red-600 dark:text-red-400"
     : "text-fg-strong";
 
   return (
     <div className={`rounded-xl border ${border} ${bg} px-4 py-4`}>
-      <div className="flex items-center gap-1.5 text-xs text-zinc-500 mb-2">
+      <div className="flex items-center gap-1.5 text-xs text-fg-base/60 mb-2">
         {icon}
         {label}
       </div>
       <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>
-      <p className="text-xs text-zinc-500 mt-1">{detail}</p>
+      <p className="text-xs text-fg-base/60 mt-1">{detail}</p>
     </div>
   );
 }
@@ -429,14 +429,14 @@ function GateBar({ label, value, total }: { label: string; value: number; total:
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-zinc-500 w-44 truncate">{label}</span>
-      <div className="flex-1 bg-zinc-100 dark:bg-zinc-800 rounded-full h-2.5">
+      <span className="text-xs text-fg-base/60 w-44 truncate">{label}</span>
+      <div className="flex-1 bg-surface-inner rounded-full h-2.5">
         <div
           className={`h-2.5 rounded-full transition-all ${isGood ? "bg-green-500" : "bg-amber-400"}`}
           style={{ width: `${Math.max(rate, 2)}%` }}
         />
       </div>
-      <span className={`text-xs font-medium w-12 text-right ${isGood ? "text-green-600 dark:text-green-400" : "text-amber-500"}`}>
+      <span className={`text-xs font-medium w-12 text-right ${isGood ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
         {rate}%
       </span>
     </div>

@@ -61,7 +61,7 @@ export function InviteMembersDialog({ open, onClose, organizationId, orgName }: 
             <div>
               <label htmlFor="inv-email" className="text-sm font-medium text-fg-base">Email address</label>
               <div className="relative mt-1.5">
-                <Mail className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                <Mail className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-base/60" aria-hidden="true" />
                 <input
                   id="inv-email"
                   type="email"
@@ -69,7 +69,7 @@ export function InviteMembersDialog({ open, onClose, organizationId, orgName }: 
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="colleague@company.com"
                   autoFocus
-                  className="h-10 w-full rounded-lg border border-line bg-surface-inner pl-9 pr-3 text-sm text-fg-strong placeholder:text-zinc-500 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                  className="h-10 w-full rounded-lg border border-line bg-surface-inner pl-9 pr-3 text-sm text-fg-strong placeholder:text-fg-base/40 outline-none focus:border-inari-accent/40 focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                 />
               </div>
             </div>
@@ -88,12 +88,12 @@ export function InviteMembersDialog({ open, onClose, organizationId, orgName }: 
             </div>
 
             {error && (
-              <p className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">{error}</p>
+              <p role="alert" className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-400">{error}</p>
             )}
 
             {success && (
-              <p className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-400">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 {success}
               </p>
             )}
@@ -101,14 +101,14 @@ export function InviteMembersDialog({ open, onClose, organizationId, orgName }: 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={handleClose}>Done</Button>
               <Button type="submit" variant="primary" disabled={pending || !email.trim()}>
-                {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send invite"}
+                {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Send invite"}
               </Button>
             </div>
           </form>
 
           <Dialog.Close asChild>
-            <button className="absolute right-4 top-4 text-zinc-500 hover:text-fg-strong transition-colors" aria-label="Close">
-              <X className="h-4 w-4" />
+            <button type="button" className="absolute right-4 top-4 text-fg-base/60 hover:text-fg-strong transition-colors" aria-label="Close">
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </Dialog.Close>
         </Dialog.Content>

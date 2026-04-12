@@ -76,6 +76,13 @@ export interface AILogContext {
   alertId?: string | null;
   remediationSessionId?: string | null;
   isPlatformKey?: boolean;
+  /**
+   * Cents pre-reserved against the platform AI budget kill-switch via
+   * `reservePlatformBudget()`. The usage logger reconciles by adding
+   * (actual - reserved) to the counter on success, or refunds the full
+   * reserved amount on error. Pass 0 / omit when not pre-reserving.
+   */
+  reservedPlatformCents?: number;
 }
 
 export interface CallAIOpts {
@@ -119,6 +126,7 @@ export async function callAI(
           outputTokens: response.usage.outputTokens,
           cachedInputTokens: response.usage.cachedInputTokens,
           isPlatformKey: opts.log!.isPlatformKey ?? false,
+          reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
           durationMs: Date.now() - t0,
         }).catch(() => {});
       }).catch(() => {});
@@ -138,6 +146,7 @@ export async function callAI(
           inputTokens: 0,
           outputTokens: 0,
           isPlatformKey: opts.log!.isPlatformKey ?? false,
+          reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
           error: err instanceof Error ? err.message : String(err),
           durationMs: Date.now() - t0,
         }).catch(() => {});

@@ -15,19 +15,23 @@ export function ChannelToggle({ channelId, isActive }: { channelId: string; isAc
 
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={isActive}
+      aria-label="Toggle notification channel"
       onClick={handleToggle}
       disabled={isPending}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
         isActive
           ? "border-inari-accent/30 bg-inari-accent/20"
-          : "border-zinc-700 bg-line"
+          : "border-fg-base/20 bg-line"
       } ${isPending ? "opacity-50" : "cursor-pointer"}`}
     >
       <span
         className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${
           isActive
             ? "translate-x-4 bg-inari-accent"
-            : "translate-x-0.5 bg-zinc-600"
+            : "translate-x-0.5 bg-fg-base/40"
         }`}
       />
     </button>
@@ -46,12 +50,13 @@ export function ChannelDeleteButton({ channelId }: { channelId: string }) {
 
   return (
     <button
+      type="button"
       onClick={handleDelete}
       disabled={isPending}
-      className="text-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50"
-      title="Remove channel"
+      className="text-fg-base/50 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+      aria-label="Remove channel"
     >
-      {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+      {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
     </button>
   );
 }
@@ -82,7 +87,7 @@ export function SeverityFilter({
       value={minSeverity}
       onChange={handleChange}
       disabled={isPending}
-      className={`rounded-md border border-line-medium bg-surface-dim px-2 py-1 text-xs text-zinc-400 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors ${
+      className={`rounded-md border border-line-medium bg-surface-dim px-2 py-1 text-xs text-fg-base/60 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors ${
         isPending ? "opacity-50" : "cursor-pointer"
       }`}
       title="Minimum severity to notify"

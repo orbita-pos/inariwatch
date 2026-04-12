@@ -1,9 +1,16 @@
-import { db, projects, projectIntegrations, apiKeys } from "@/lib/db";
+import { db, projects, projectIntegrations } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
-import { callAI } from "@/lib/ai/client";
 import type { McpUser } from "../auth";
 import { userCanAccessProject } from "../helpers";
+
+const RISK_ASSESSMENT_PROMPT = `You are a senior SRE reviewing a pull request for deployment risk. Analyze the diff and return:
+1. Risk Level: Low / Medium / High
+2. Key Findings (bullet points)
+3. Risky Patterns (auth changes, DB migrations, env vars, etc.)
+4. Recommendation
+
+Be concise.`;
 
 export async function execute(
   args: Record<string, unknown>,
@@ -58,48 +65,26 @@ export async function execute(
     const diff = await prResp.text();
     const truncatedDiff = diff.slice(0, 8000);
 
-    // Get AI key
-    const AI_SERVICES = ["claude", "openai", "grok", "deepseek", "gemini"];
-    const keys = await db.select().from(apiKeys).where(eq(apiKeys.userId, user.userId));
-    const aiKey = keys.find((k) => AI_SERVICES.includes(k.service));
-
-    if (!aiKey) {
-      return JSON.stringify(
-        {
-          project: project.name,
-          pr_number: prNumber,
-          diff_lines: diff.split("\n").length,
-          note: "No AI key configured. Add one in Settings to enable risk assessment.",
-        },
-        null,
-        2
-      );
-    }
-
-    const decryptedKey = decrypt(aiKey.keyEncrypted);
-
-    const systemPrompt = `You are a senior SRE reviewing a pull request for deployment risk. Analyze the diff and return:
-1. Risk Level: Low / Medium / High
-2. Key Findings (bullet points)
-3. Risky Patterns (auth changes, DB migrations, env vars, etc.)
-4. Recommendation
-
-Be concise.`;
-
-    const result = await callAI(decryptedKey, systemPrompt, [
-      { role: "user", content: `PR #${prNumber} in ${repo}:\n\n${truncatedDiff}` },
-    ]);
-
-    return JSON.stringify(
-      {
-        project: project.name,
-        pr_number: prNumber,
-        repo,
-        risk_assessment: result,
+    // Sampling-first: let the client LLM assess the risk
+    return JSON.stringify({
+      project: project.name,
+      pr_number: prNumber,
+      repo,
+      diff_lines: diff.split("\n").length,
+      _sampling_request: {
+        description: "Assess the deployment risk of this PR using the diff below.",
+        systemPrompt: RISK_ASSESSMENT_PROMPT,
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `PR #${prNumber} in ${repo}:\n\n${truncatedDiff}`,
+          },
+        }],
+        context: { project: projectSlug, pr_number: prNumber, tool: "assess_risk" },
+        maxTokens: 2000,
       },
-      null,
-      2
-    );
+    }, null, 2);
   } catch (e) {
     return `Error: ${e instanceof Error ? e.message : "unknown"}`;
   }

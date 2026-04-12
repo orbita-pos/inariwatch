@@ -314,11 +314,19 @@ function extractImports(content: string): string {
   return imports.length > 0 ? imports.join("\n") : "";
 }
 
-/** Detect project stack from dependency names. */
+/**
+ * Detect project stack from dependency names across languages.
+ *
+ * Accepts a flat list of library/framework identifiers. Callers are responsible
+ * for extracting these from the project's manifest: package.json for Node,
+ * requirements.txt / pyproject.toml for Python, go.mod for Go, Cargo.toml for
+ * Rust, pom.xml / build.gradle for Java. Case-sensitive exact match.
+ */
 export function getStackInstructions(deps: string[]): string {
   const instructions: string[] = [];
   const depSet = new Set(deps);
 
+  // ── JavaScript / TypeScript ORMs ─────────────────────────────────────────
   if (depSet.has("drizzle-orm"))
     instructions.push("This project uses Drizzle ORM. Use Drizzle's query builder (eq, ilike, and, or, sql template literals) for all database queries. NEVER use sql.raw() with user input — use parameterized helpers like sql`...${value}` or the typed query builder.");
   if (depSet.has("@prisma/client") || depSet.has("prisma"))
@@ -331,16 +339,82 @@ export function getStackInstructions(deps: string[]): string {
     instructions.push("This project uses Knex. Use its query builder chain. Use .where() with objects for parameterized queries.");
   if (depSet.has("mongoose") || depSet.has("mongodb"))
     instructions.push("This project uses MongoDB/Mongoose. Use model methods with query objects. Never pass unsanitized user input to $where or $regex operators.");
+
+  // ── JavaScript / TypeScript frameworks ──────────────────────────────────
   if (depSet.has("next"))
     instructions.push("This project uses Next.js (App Router). Server components fetch data directly. API routes use NextResponse. Use server actions for mutations.");
+  if (depSet.has("nuxt"))
+    instructions.push("This project uses Nuxt 3. Use server routes in server/api/. Use useFetch/useAsyncData for data. Nitro handles deployment.");
+  if (depSet.has("@remix-run/react") || depSet.has("@remix-run/node"))
+    instructions.push("This project uses Remix. Use loaders for GET and actions for POST/PUT/DELETE. Data flows through loader → useLoaderData.");
+  if (depSet.has("@sveltejs/kit"))
+    instructions.push("This project uses SvelteKit. Use load functions for data and form actions for mutations. Use hooks.server.ts for middleware.");
+  if (depSet.has("astro"))
+    instructions.push("This project uses Astro. Use .astro files with frontmatter for server logic. Use API routes in pages/api/ for endpoints.");
+  if (depSet.has("vite"))
+    instructions.push("This project uses Vite. Check vite.config.ts for build configuration. Use import.meta.env for env vars.");
   if (depSet.has("express"))
     instructions.push("This project uses Express. Use req.params, req.query, req.body for input. Use middleware pattern for shared logic.");
   if (depSet.has("fastify"))
     instructions.push("This project uses Fastify. Use request.params, request.query, request.body. Use schema validation for input.");
   if (depSet.has("hono"))
     instructions.push("This project uses Hono. Use c.req.query(), c.req.param(), c.req.json() for input.");
+  if (depSet.has("koa"))
+    instructions.push("This project uses Koa. Use ctx.query, ctx.params, ctx.request.body for input. Use async middleware.");
   if (depSet.has("@neondatabase/serverless"))
     instructions.push("This project uses Neon serverless driver (@neondatabase/serverless). Use the neon() HTTP driver with sql template tags from drizzle-orm — do NOT use the pg driver directly.");
+
+  // ── Python frameworks ────────────────────────────────────────────────────
+  if (depSet.has("django") || depSet.has("Django"))
+    instructions.push("This project uses Django. Use Django ORM (Model.objects.filter, .get, .create) with parameterized lookups. NEVER use .raw() or .extra(where=) with user input — use F expressions and Q objects. Always use CSRF middleware for forms.");
+  if (depSet.has("flask") || depSet.has("Flask"))
+    instructions.push("This project uses Flask. Use request.args, request.form, request.json for input. Use Flask-SQLAlchemy or SQLAlchemy Core with bound parameters — NEVER f-string SQL. Use Jinja2's autoescape for templates.");
+  if (depSet.has("fastapi") || depSet.has("FastAPI"))
+    instructions.push("This project uses FastAPI. Define Pydantic models for request/response — NEVER accept raw dict inputs. Use Depends() for dependency injection. Use async endpoints with async DB drivers.");
+  if (depSet.has("sqlalchemy") || depSet.has("SQLAlchemy"))
+    instructions.push("This project uses SQLAlchemy. Use session.query() or select() with ORM classes. For raw queries use text() with :bindparam, NEVER string concatenation.");
+  if (depSet.has("pydantic"))
+    instructions.push("This project uses Pydantic for validation. Define strict BaseModel classes with typed fields. Use Field() constraints and validators.");
+  if (depSet.has("starlette"))
+    instructions.push("This project uses Starlette. Use request.query_params, request.path_params, await request.json() for input.");
+
+  // ── Go frameworks ────────────────────────────────────────────────────────
+  if (depSet.has("github.com/gin-gonic/gin") || depSet.has("gin-gonic/gin"))
+    instructions.push("This project uses Gin (Go). Use c.Bind(), c.ShouldBindJSON(), c.Query(), c.Param() for input. Use database/sql with db.QueryContext and prepared statements — NEVER string-format SQL.");
+  if (depSet.has("github.com/labstack/echo") || depSet.has("labstack/echo"))
+    instructions.push("This project uses Echo (Go). Use c.Bind() for typed input. Use database/sql with prepared statements.");
+  if (depSet.has("github.com/gofiber/fiber") || depSet.has("gofiber/fiber"))
+    instructions.push("This project uses Fiber (Go). Use c.BodyParser() for typed input. Use database/sql or an ORM with parameterized queries.");
+  if (depSet.has("gorm.io/gorm") || depSet.has("gorm"))
+    instructions.push("This project uses GORM (Go). Use db.Where(condition, value) with placeholders — NEVER fmt.Sprintf into SQL. Use First, Find, Create, Save, Delete methods.");
+  if (depSet.has("github.com/jmoiron/sqlx") || depSet.has("sqlx"))
+    instructions.push("This project uses sqlx (Go). Use db.Select, db.Get with ? placeholders or :named binds. NEVER string-interpolate queries.");
+
+  // ── Rust frameworks ──────────────────────────────────────────────────────
+  if (depSet.has("axum"))
+    instructions.push("This project uses Axum (Rust). Use typed extractors: Path<T>, Query<T>, Json<T>, State<T>. Return impl IntoResponse. Use sqlx query!() macro for compile-time checked SQL.");
+  if (depSet.has("actix-web"))
+    instructions.push("This project uses Actix Web (Rust). Use web::Path, web::Query, web::Json for typed extraction. Use sqlx or diesel with parameterized queries.");
+  if (depSet.has("rocket"))
+    instructions.push("This project uses Rocket (Rust). Use #[get], #[post] with typed parameters and Form/Json guards. Use sqlx or diesel — never raw string SQL.");
+  if (depSet.has("sqlx"))
+    instructions.push("This project uses sqlx (Rust). Use query!(), query_as!() macros for compile-time checked queries with $1, $2 placeholders. NEVER use format!() for SQL.");
+  if (depSet.has("diesel"))
+    instructions.push("This project uses Diesel (Rust). Use the query DSL — filter, select, insert_into. Avoid sql_query() with user input.");
+
+  // ── Java / Kotlin frameworks ─────────────────────────────────────────────
+  if (depSet.has("spring-boot-starter-web") || depSet.has("org.springframework.boot"))
+    instructions.push("This project uses Spring Boot. Use @RestController with @RequestParam, @PathVariable, @RequestBody for input. Use @Valid for validation. Use JpaRepository or JdbcTemplate with ? placeholders — NEVER string concat SQL.");
+  if (depSet.has("spring-data-jpa") || depSet.has("jpa"))
+    instructions.push("This project uses Spring Data JPA. Use derived queries or @Query with :named parameters. NEVER concatenate user input into JPQL.");
+  if (depSet.has("hibernate"))
+    instructions.push("This project uses Hibernate. Use Criteria API or HQL with setParameter(). Avoid string-building queries.");
+
+  // ── Ruby frameworks ──────────────────────────────────────────────────────
+  if (depSet.has("rails") || depSet.has("actionpack"))
+    instructions.push("This project uses Ruby on Rails. Use ActiveRecord query methods (where, find_by, joins) with hash conditions or ? placeholders. NEVER use string interpolation in where clauses.");
+  if (depSet.has("sinatra"))
+    instructions.push("This project uses Sinatra. Use params[] for input. Use Sequel or ActiveRecord for DB access with parameterized queries.");
 
   return instructions.length > 0 ? instructions.join("\n") : "";
 }

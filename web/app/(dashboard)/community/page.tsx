@@ -76,21 +76,23 @@ export default async function CommunityPage({
   return (
     <div className="mx-auto max-w-[800px]">
       <h1 className="text-2xl font-semibold mb-1">Community Fix Patterns</h1>
-      <p className="text-sm text-zinc-500 mb-6">
+      <p className="text-sm text-fg-base/60 mb-6">
         Browse error patterns and community-contributed fixes from the Fix Replay database.
       </p>
 
       {/* Search + filter */}
-      <form className="flex gap-2 mb-6">
+      <form role="search" aria-label="Search patterns" className="flex gap-2 mb-6">
         <input
           name="q"
           type="text"
+          aria-label="Search patterns"
           placeholder="Search patterns..."
           defaultValue={q ?? ""}
-          className="flex-1 rounded-lg border border-line bg-surface-inner px-3 py-2 text-sm text-fg-base placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:border-line-medium focus:outline-none"
+          className="flex-1 rounded-lg border border-line bg-surface-inner px-3 py-2 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-line-medium focus:outline-none"
         />
         <select
           name="category"
+          aria-label="Filter by category"
           defaultValue={category ?? ""}
           className="rounded-lg border border-line bg-surface-inner px-3 py-2 text-sm text-fg-base"
         >
@@ -110,7 +112,7 @@ export default async function CommunityPage({
       {/* Results */}
       {enriched.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface p-8 text-center">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-fg-base/60">
             {q ? "No patterns match your search." : "No patterns yet. Patterns are added automatically when AI remediation succeeds."}
           </p>
         </div>
@@ -141,27 +143,27 @@ export default async function CommunityPage({
                           {row.language}
                         </span>
                       )}
-                      <span className="text-xs text-zinc-600">
+                      <span className="text-xs text-fg-base/60">
                         {row.occurrence_count} occurrence{row.occurrence_count !== 1 ? "s" : ""}
                       </span>
-                      <span className="text-xs text-zinc-600">
+                      <span className="text-xs text-fg-base/60">
                         {row.fix_count} fix{row.fix_count !== 1 ? "es" : ""}
                       </span>
                     </div>
                   </div>
                   {successRate !== null && (
                     <div className="text-right shrink-0">
-                      <span className={`text-lg font-bold ${successRate >= 70 ? "text-green-400" : successRate >= 40 ? "text-amber-400" : "text-zinc-500"}`}>
+                      <span className={`text-lg font-bold ${successRate >= 70 ? "text-green-600 dark:text-green-400" : successRate >= 40 ? "text-amber-600 dark:text-amber-400" : "text-fg-base/60"}`}>
                         {successRate}%
                       </span>
-                      <p className="text-xs text-zinc-600">success</p>
+                      <p className="text-xs text-fg-base/60">success</p>
                     </div>
                   )}
                 </div>
                 {row.topFix && (
                   <div className="mt-3 border-t border-line pt-3">
-                    <p className="text-xs text-zinc-500 mb-1">Top fix:</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    <p className="text-xs text-fg-base/60 mb-1">Top fix:</p>
+                    <p className="text-xs text-fg-base/60">
                       {row.topFix.fixApproach.slice(0, 200)}
                     </p>
                   </div>

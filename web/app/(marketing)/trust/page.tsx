@@ -1,21 +1,33 @@
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowRight, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarketingNav } from "../marketing-nav";
 import type { Metadata } from "next";
 
+const PAGE_TITLE       = "Trust Architecture — InariWatch";
+const PAGE_DESCRIPTION = "11 safety gates, 4 trust levels, and 36 security checks between an AI diagnosis and your production code. Zero autonomy by default — earned through a proven track record.";
+const PAGE_URL         = "https://inariwatch.com/trust";
+
 export const metadata: Metadata = {
-  title: "Trust Architecture — InariWatch",
-  description:
-    "11 safety gates, 4 trust levels, and 36 security checks between an AI diagnosis and your production code. Zero autonomy by default — earned through a proven track record.",
-  alternates: { canonical: "https://inariwatch.com/trust" },
+  title:       PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates:  { canonical: PAGE_URL },
   openGraph: {
-    title: "Trust Architecture — InariWatch",
-    description: "11 safety gates, 4 trust levels, and 36 security checks between an AI diagnosis and your production code.",
-    url: "https://inariwatch.com/trust",
-    images: [{ url: "/screenshots/auto-merge-gates.png", width: 1200, height: 630, alt: "InariWatch safety gates" }],
+    type:        "website",
+    url:         PAGE_URL,
+    siteName:    "InariWatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images:      [{ url: "/screenshots/auto-merge-gates.png", width: 1200, height: 630, alt: "InariWatch safety gates pipeline" }],
   },
-  twitter: { card: "summary_large_image", title: "Trust Architecture — InariWatch", images: ["/screenshots/auto-merge-gates.png"] },
+  twitter: {
+    card:        "summary_large_image",
+    site:        "@inariwatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images:      ["/screenshots/auto-merge-gates.png"],
+  },
 };
 
 // ── Layer data ──────────────────────────────────────────────────────────────
@@ -148,9 +160,9 @@ const TRUST_LEVELS = [
   {
     level: 0,
     name: "ROOKIE",
-    color: "text-zinc-500",
-    border: "border-zinc-700",
-    bg: "bg-zinc-900/50",
+    color: "text-fg-base",
+    border: "border-line",
+    bg: "bg-surface-dim",
     auto: "Draft PR only",
     gates: "Human approves every merge",
     requirement: "Starting state",
@@ -158,63 +170,94 @@ const TRUST_LEVELS = [
   {
     level: 1,
     name: "APPRENTICE",
-    color: "text-amber-400",
-    border: "border-amber-900/50",
-    bg: "bg-amber-950/20",
+    color: "text-amber-600 dark:text-amber-400",
+    border: "border-amber-600/30 dark:border-amber-900/50",
+    bg: "bg-amber-500/5 dark:bg-amber-950/20",
     auto: "Auto-merge enabled",
     gates: "Confidence \u2265 90% \u00b7 Review \u2265 70 \u00b7 \u2264 50 lines",
-    requirement: "\u2265 3 fixes, \u2265 50% success rate",
+    requirement: "\u2265 3 fixes, \u2265 50% success, \u2265 7 days old",
   },
   {
     level: 2,
     name: "TRUSTED",
-    color: "text-cyan-400",
-    border: "border-cyan-900/50",
-    bg: "bg-cyan-950/20",
+    color: "text-cyan-600 dark:text-cyan-400",
+    border: "border-cyan-600/30 dark:border-cyan-900/50",
+    bg: "bg-cyan-500/5 dark:bg-cyan-950/20",
     auto: "Expanded autonomy",
     gates: "Confidence \u2265 80% \u00b7 Review \u2265 70 \u00b7 \u2264 100 lines",
-    requirement: "\u2265 5 fixes, \u2265 70% success rate",
+    requirement: "\u2265 5 fixes, \u2265 70% success, \u2265 14 days old",
   },
   {
     level: 3,
     name: "EXPERT",
-    color: "text-green-400",
-    border: "border-green-900/50",
-    bg: "bg-green-950/20",
+    color: "text-emerald-600 dark:text-emerald-400",
+    border: "border-emerald-600/30 dark:border-emerald-900/50",
+    bg: "bg-emerald-500/5 dark:bg-emerald-950/20",
     auto: "Full auto-merge",
     gates: "Confidence \u2265 70% \u00b7 Review \u2265 70 \u00b7 \u2264 200 lines",
-    requirement: "\u2265 10 fixes, \u2265 85% success rate",
+    requirement: "\u2265 10 fixes, \u2265 85% success, \u2265 30 days old",
   },
 ];
 
 const STRESS_TESTS = [
-  { name: "Webhook Storm", result: "p95 <400ms, 0% error" },
-  { name: "MCP Rate Limits", result: "All 3 tiers enforced" },
-  { name: "SSE Streaming", result: "50 connections stable" },
-  { name: "Alert Dedup", result: "Accurate under load" },
-  { name: "Auth Brute Force", result: "Rate limiting enforced" },
-  { name: "Cron Fan-out", result: "No race conditions" },
-  { name: "DB Saturation", result: "Neon stable at 400 q/s" },
-  { name: "Push Pipeline", result: "Serial delivery stable" },
-  { name: "Auto-Heal", result: "Single heal, cooldown works" },
-  { name: "Full Incident", result: "10/10 phases, 100% checks" },
+  { name: "Webhook Storm",         result: "Burst ingestion stable" },
+  { name: "MCP Rate Limits",       result: "All 3 tiers enforced" },
+  { name: "SSE Streaming",         result: "50 connections stable" },
+  { name: "Alert Dedup",           result: "Accurate under load" },
+  { name: "Auth Brute Force",      result: "Rate limiting enforced" },
+  { name: "Cron Fan-out",          result: "No race conditions" },
+  { name: "Neon Saturation",       result: "DB stable under load" },
+  { name: "Push Pipeline",         result: "Serial delivery stable" },
+  { name: "Auto-Heal",             result: "Single heal, cooldown works" },
+  { name: "Full Incident",         result: "10/10 phases, 100% checks" },
+  { name: "Chaos · Incident",      result: "Mixed valid/malformed payloads" },
+  { name: "Chaos · MCP Storm",     result: "200 concurrent mixed calls" },
+  { name: "Chaos · Tenant Isolation", result: "Cross-workspace latency safe" },
+  { name: "Chaos · SSE",           result: "Abrupt disconnects handled" },
 ];
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+const jsonLd = {
+  "@context":   "https://schema.org",
+  "@type":      "TechArticle",
+  "@id":        `${PAGE_URL}/#article`,
+  headline:     "Trust Architecture — 11 safety gates between AI and production",
+  description:  PAGE_DESCRIPTION,
+  url:          PAGE_URL,
+  author:       { "@type": "Organization", name: "InariWatch", url: "https://inariwatch.com" },
+  publisher: {
+    "@type": "Organization",
+    name:    "InariWatch",
+    logo:    { "@type": "ImageObject", url: "https://inariwatch.com/logo-inari/favicon-96x96.png" },
+  },
+  image:        "https://inariwatch.com/screenshots/auto-merge-gates.png",
+  about: [
+    { "@type": "Thing", name: "AI code remediation safety" },
+    { "@type": "Thing", name: "Autonomous code review gates" },
+    { "@type": "Thing", name: "Trust level progression" },
+  ],
+};
+
 export default function TrustPage() {
   return (
     <div className="min-h-screen bg-page text-fg-base">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <MarketingNav opaque />
+
+      <main>
 
       {/* ── Hero ──────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden pt-32 pb-24 sm:pt-40 sm:pb-32">
-        <div className="absolute inset-0 bg-grid opacity-30" />
-        <div className="absolute inset-0 bg-radial-fade" />
+        <div className="absolute inset-0 bg-grid opacity-30" aria-hidden="true" />
+        <div className="absolute inset-0 bg-radial-fade" aria-hidden="true" />
 
         <div className="relative mx-auto max-w-4xl px-6 text-center">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-inari-accent/30 bg-inari-accent/10 px-4 py-1.5">
-            <Shield className="h-3.5 w-3.5 text-inari-accent" />
+            <Shield className="h-3.5 w-3.5 text-inari-accent" aria-hidden="true" />
             <span className="text-xs font-mono text-inari-accent tracking-wide">
               TRUST ARCHITECTURE
             </span>
@@ -242,31 +285,31 @@ export default function TrustPage() {
                   <div className={`h-9 w-9 sm:h-11 sm:w-11 rounded-full border flex items-center justify-center ${
                     l.alwaysOn
                       ? "border-inari-accent/40 bg-inari-accent/5"
-                      : "border-dashed border-zinc-600 bg-zinc-800/30"
+                      : "border-dashed border-line-medium bg-surface-dim"
                   }`}>
                     <span className={`font-mono text-[10px] sm:text-xs font-bold ${
-                      l.alwaysOn ? "text-inari-accent" : "text-zinc-500"
+                      l.alwaysOn ? "text-inari-accent" : "text-fg-base/60"
                     }`}>
                       {l.n}
                     </span>
                   </div>
-                  <span className="text-[8px] sm:text-[9px] text-zinc-600 font-mono uppercase tracking-wider max-w-[60px] text-center leading-tight hidden sm:block">
+                  <span className="text-[8px] sm:text-[9px] text-fg-base/60 font-mono uppercase tracking-wider max-w-[60px] text-center leading-tight hidden sm:block">
                     {l.gate}
                   </span>
                 </div>
                 {i < LAYERS.length - 1 && (
-                  <div className="w-3 sm:w-6 h-px bg-gradient-to-r from-inari-accent/40 to-inari-accent/10 mx-0.5" />
+                  <div className="w-3 sm:w-6 h-px bg-gradient-to-r from-inari-accent/40 to-inari-accent/10 mx-0.5" aria-hidden="true" />
                 )}
               </div>
             ))}
           </div>
-          <div className="mt-6 flex items-center justify-center gap-6 text-[10px] text-zinc-600 font-mono">
+          <div className="mt-6 flex items-center justify-center gap-6 text-[10px] text-fg-base/70 font-mono">
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full border border-inari-accent/40 bg-inari-accent/5" />
+              <span className="h-2.5 w-2.5 rounded-full border border-inari-accent/40 bg-inari-accent/5" aria-hidden="true" />
               Always on
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full border border-dashed border-zinc-600 bg-zinc-800/30" />
+              <span className="h-2.5 w-2.5 rounded-full border border-dashed border-line-medium bg-surface-dim" aria-hidden="true" />
               Activates with infrastructure
             </span>
           </div>
@@ -293,7 +336,7 @@ export default function TrustPage() {
                     <p className="font-mono text-[10px] text-inari-accent tracking-[0.2em] uppercase">
                       Gate {layer.n}
                     </p>
-                    <p className="font-mono text-xs text-zinc-500 uppercase tracking-wider">
+                    <p className="font-mono text-xs text-fg-base/70 uppercase tracking-wider">
                       {layer.gate}
                     </p>
                   </div>
@@ -304,9 +347,9 @@ export default function TrustPage() {
                 </h2>
 
                 {!layer.alwaysOn && (
-                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-dashed border-zinc-700 bg-zinc-800/30 px-3 py-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
-                    <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-dashed border-line-medium bg-surface-dim px-3 py-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-fg-base/50" aria-hidden="true" />
+                    <span className="text-[10px] font-mono text-fg-base/70 uppercase tracking-wider">
                       Activates with infrastructure
                     </span>
                   </div>
@@ -337,17 +380,17 @@ export default function TrustPage() {
             STRESS TESTED
           </p>
           <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-fg-strong text-center mb-4">
-            10 scenarios. 10 passed.
+            14 scenarios. 14 passed.
           </h2>
           <p className="text-sm text-fg-base text-center max-w-2xl mx-auto mb-12">
-            Every layer of the infrastructure is validated with k6 load tests against the production stack.
-            Webhook storms, database saturation, concurrent SSE, brute force protection, and a full incident lifecycle — all passing.
+            Every layer of the infrastructure is validated with a k6 suite (10 load + 4 chaos) against the production stack.
+            Webhook storms, DB saturation, concurrent SSE, brute force protection, full incident lifecycle, and fault-injection chaos — all passing.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {STRESS_TESTS.map((t) => (
               <div key={t.name} className="flex items-center justify-between rounded-lg border border-line bg-surface-dim px-4 py-3">
                 <span className="text-sm text-fg-base">{t.name}</span>
-                <span className="font-mono text-xs text-green-400">{t.result}</span>
+                <span className="font-mono text-xs text-emerald-600 dark:text-emerald-400">{t.result}</span>
               </div>
             ))}
           </div>
@@ -392,70 +435,48 @@ export default function TrustPage() {
       {/* ── Comparison ────────────────────────────────────────────── */}
       <section className="border-t border-line-subtle bg-page">
         <div className="mx-auto max-w-4xl px-6 py-24 sm:py-32">
-          <p className="font-mono text-[10px] text-zinc-500 tracking-[0.3em] uppercase mb-8 text-center">
+          <p className="font-mono text-[10px] text-fg-base/70 tracking-[0.3em] uppercase mb-8 text-center">
             PERSPECTIVE
           </p>
           <div className="grid gap-6 sm:grid-cols-2">
-            <div className="rounded-xl border border-red-300/30 dark:border-red-900/30 bg-red-50 dark:bg-red-950/10 p-6">
-              <p className="font-mono text-xs text-red-600/70 dark:text-red-400/70 uppercase tracking-wider mb-3">
+            <div className="rounded-xl border border-red-300/40 dark:border-red-900/30 bg-red-50 dark:bg-red-950/10 p-6">
+              <p className="font-mono text-xs text-red-700 dark:text-red-400/70 uppercase tracking-wider mb-3">
                 Dev hotfix at 3 AM
               </p>
               <ul className="space-y-2 text-sm text-fg-base">
-                <li className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">-</span>
-                  No second reviewer
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">-</span>
-                  &ldquo;Skip CI, it&apos;s urgent&rdquo;
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">-</span>
-                  No security scan
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">-</span>
-                  No post-merge monitoring
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">-</span>
-                  Revert is manual if it breaks
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">-</span>
-                  Cognitive load at lowest point
-                </li>
+                {[
+                  "No second reviewer",
+                  "\u201CSkip CI, it\u2019s urgent\u201D",
+                  "No security scan",
+                  "No post-merge monitoring",
+                  "Revert is manual if it breaks",
+                  "Cognitive load at lowest point",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <span className="text-red-600 dark:text-red-400 mt-0.5" aria-hidden="true">−</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
               </ul>
             </div>
             <div className="rounded-xl border border-inari-accent/30 bg-inari-accent/5 p-6">
-              <p className="font-mono text-xs text-inari-accent/70 uppercase tracking-wider mb-3">
+              <p className="font-mono text-xs text-inari-accent uppercase tracking-wider mb-3">
                 InariWatch auto-fix
               </p>
               <ul className="space-y-2 text-sm text-fg-base">
-                <li className="flex items-start gap-2">
-                  <span className="text-inari-accent mt-0.5">+</span>
-                  36-check security scan on every fix
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-inari-accent mt-0.5">+</span>
-                  AI self-review (score + recommendation)
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-inari-accent mt-0.5">+</span>
-                  Full CI must pass (3 retries)
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-inari-accent mt-0.5">+</span>
-                  Pre-deploy prediction engine
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-inari-accent mt-0.5">+</span>
-                  10-min post-merge monitor + auto-revert
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-inari-accent mt-0.5">+</span>
-                  Consistent process, always — earned trust levels
-                </li>
+                {[
+                  "36-check security scan on every fix",
+                  "AI self-review (score + recommendation)",
+                  "Full CI must pass (3 retries)",
+                  "Pre-deploy prediction engine",
+                  "10-min post-merge monitor + auto-revert",
+                  "Consistent process, always \u2014 earned trust levels",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <span className="text-inari-accent mt-0.5" aria-hidden="true">+</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
@@ -465,7 +486,7 @@ export default function TrustPage() {
       {/* ── CTA ───────────────────────────────────────────────────── */}
       <section className="border-t border-line-subtle bg-surface">
         <div className="relative mx-auto max-w-4xl px-6 py-24 sm:py-32 text-center">
-          <div className="absolute inset-0 bg-radial-fade opacity-30" />
+          <div className="absolute inset-0 bg-radial-fade opacity-30" aria-hidden="true" />
           <div className="relative">
             <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-fg-strong">
               Safer than your 3 AM hotfix.
@@ -478,13 +499,13 @@ export default function TrustPage() {
               <Link href="/register">
                 <Button variant="primary" className="px-8 py-3">
                   Start free
-                  <ArrowRight className="ml-2 h-4 w-4" />
+                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
                 </Button>
               </Link>
               <Link href="/docs">
                 <Button
                   variant="outline"
-                  className="px-8 py-3 border-line-medium text-fg-base hover:text-fg-strong hover:border-line"
+                  className="px-8 py-3 border-line-medium"
                 >
                   Read the docs
                 </Button>
@@ -493,6 +514,45 @@ export default function TrustPage() {
           </div>
         </div>
       </section>
+
+      </main>
+
+      {/* Footer — matches landing page */}
+      <footer className="border-t border-inari-border py-12">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <Image
+                src="/logo-inari/favicon-96x96.png"
+                alt=""
+                width={24}
+                height={24}
+              />
+              <span className="font-mono text-sm text-fg-base">
+                inariwatch · built in MX
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-fg-base">
+              <Link href="/docs"    className="hover:text-fg-strong transition-colors">Docs</Link>
+              <Link href="/pricing" className="hover:text-fg-strong transition-colors">Pricing</Link>
+              <Link href="/download" className="hover:text-fg-strong transition-colors">Mobile</Link>
+              <Link href="/trust"   className="hover:text-fg-strong transition-colors">Trust</Link>
+              <Link href="/status"  className="hover:text-fg-strong transition-colors">Status</Link>
+              <Link href="/blog"    className="hover:text-fg-strong transition-colors">Blog</Link>
+              <a
+                href="https://github.com/orbita-pos/inariwatch-capture"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-fg-strong transition-colors"
+              >
+                GitHub
+              </a>
+              <Link href="/privacy" className="hover:text-fg-strong transition-colors">Privacy</Link>
+              <Link href="/terms"   className="hover:text-fg-strong transition-colors">Terms</Link>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -513,19 +573,22 @@ function MetricCard({
   return (
     <div className="relative w-full max-w-[280px]">
       <div className={`aspect-square rounded-2xl border p-6 flex flex-col items-center justify-center text-center ${
-        alwaysOn ? "border-line bg-surface-dim" : "border-dashed border-zinc-700 bg-zinc-900/30"
+        alwaysOn ? "border-line bg-surface-dim" : "border-dashed border-line-medium bg-surface-dim"
       }`}>
         <p className={`font-mono text-5xl sm:text-6xl font-bold tracking-tight ${
-          alwaysOn ? "text-fg-strong" : "text-zinc-500"
+          alwaysOn ? "text-fg-strong" : "text-fg-base/60"
         }`}>
           {metric}
         </p>
-        <p className="mt-2 font-mono text-xs text-zinc-500 uppercase tracking-wider">
+        <p className="mt-2 font-mono text-xs text-fg-base/70 uppercase tracking-wider">
           {label}
         </p>
-        <div className={`mt-4 h-px w-12 ${alwaysOn ? "bg-inari-accent/30" : "bg-zinc-700"}`} />
+        <div
+          className={`mt-4 h-px w-12 ${alwaysOn ? "bg-inari-accent/40" : "bg-line-medium"}`}
+          aria-hidden="true"
+        />
         <p className={`mt-3 font-mono text-[10px] uppercase tracking-[0.15em] ${
-          alwaysOn ? "text-inari-accent/50" : "text-zinc-600"
+          alwaysOn ? "text-inari-accent/70" : "text-fg-base/60"
         }`}>
           {gate}
         </p>
@@ -551,11 +614,11 @@ function TrustLevelVisual() {
             <p className={`font-mono text-xs font-bold tracking-wider ${t.color}`}>
               {t.name}
             </p>
-            <p className="text-[11px] text-zinc-500 mt-0.5">{t.auto}</p>
-            <p className="text-[10px] text-zinc-600 font-mono mt-0.5">
+            <p className="text-[11px] text-fg-base mt-0.5">{t.auto}</p>
+            <p className="text-[10px] text-fg-base/70 font-mono mt-0.5">
               {t.gates}
             </p>
-            <p className="text-[10px] text-zinc-700 font-mono mt-0.5">
+            <p className="text-[10px] text-fg-base/60 font-mono mt-0.5">
               {t.requirement}
             </p>
           </div>

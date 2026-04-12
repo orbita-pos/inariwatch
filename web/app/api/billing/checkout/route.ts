@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, users } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { stripe, isStripeConfigured, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_ANNUAL } from "@/lib/stripe";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 
 /**
  * POST /api/billing/checkout
@@ -20,6 +21,17 @@ import { stripe, isStripeConfigured, STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_
  * a webhook to /api/billing/webhook which activates their Pro plan.
  */
 export async function POST(req: Request) {
+  // Rate limit: 10 checkout attempts per minute per IP — prevents Stripe
+  // customer creation spam.
+  const ip = extractClientIp(req);
+  const rl = await checkWebhookRateLimit(ip, 60_000, 10);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter ?? 60) } }
+    );
+  }
+
   if (!isStripeConfigured() || !stripe) {
     return NextResponse.json(
       { error: "Billing is not configured. Set STRIPE_SECRET_KEY and price IDs." },
@@ -62,16 +74,44 @@ export async function POST(req: Request) {
   let customerId = user.stripeCustomerId;
 
   if (!customerId) {
+    // Race-safe customer creation: create the Stripe customer, then atomically
+    // claim it. If we lose the race against a concurrent request, delete our
+    // orphan and use the winner's customer instead.
     const customer = await stripe.customers.create({
       email: userEmail,
       metadata: { userId },
     });
-    customerId = customer.id;
 
-    await db
+    const claimed = await db
       .update(users)
-      .set({ stripeCustomerId: customerId })
-      .where(eq(users.id, userId));
+      .set({ stripeCustomerId: customer.id })
+      .where(and(eq(users.id, userId), isNull(users.stripeCustomerId)))
+      .returning({ stripeCustomerId: users.stripeCustomerId });
+
+    if (claimed.length === 0) {
+      // Lost the race — another concurrent request already set one.
+      // Delete our orphan customer in Stripe and re-fetch the winner.
+      try {
+        await stripe.customers.del(customer.id);
+      } catch (delErr) {
+        console.error("[checkout] failed to delete orphan customer:", delErr);
+      }
+      const [refreshed] = await db
+        .select({ stripeCustomerId: users.stripeCustomerId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      customerId = refreshed?.stripeCustomerId ?? null;
+    } else {
+      customerId = claimed[0].stripeCustomerId;
+    }
+
+    if (!customerId) {
+      return NextResponse.json(
+        { error: "Failed to create or claim customer" },
+        { status: 500 }
+      );
+    }
   }
 
   const baseUrl =

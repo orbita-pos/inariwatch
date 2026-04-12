@@ -1,27 +1,43 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, X } from "lucide-react";
 
 export function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
 
   const copy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        throw new Error("Clipboard API unavailable");
+      }
+      setState("copied");
+    } catch {
+      setState("error");
+    } finally {
+      setTimeout(() => setState("idle"), 2000);
+    }
   };
 
   return (
     <button
+      type="button"
       onClick={copy}
-      className="text-zinc-500 hover:text-zinc-200 transition-colors"
-      aria-label="Copy install command"
+      className="text-white/25 hover:text-white/60 transition-colors"
+      aria-label={
+        state === "copied" ? "Copied to clipboard"
+        : state === "error" ? "Copy failed — select manually"
+        : "Copy install command"
+      }
     >
-      {copied ? (
-        <Check className="h-4 w-4 text-green-400" />
+      {state === "copied" ? (
+        <Check className="h-4 w-4 text-green-400" aria-hidden="true" />
+      ) : state === "error" ? (
+        <X className="h-4 w-4 text-red-400" aria-hidden="true" />
       ) : (
-        <Copy className="h-4 w-4" />
+        <Copy className="h-4 w-4" aria-hidden="true" />
       )}
     </button>
   );

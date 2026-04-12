@@ -3,7 +3,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, projects, projectIntegrations, users, PLAN_LIMITS } from "@/lib/db";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { generateWebhookSecret } from "@/lib/webhooks/shared";
 import { logAudit } from "@/lib/audit";
@@ -138,18 +138,16 @@ export async function connectIntegration(
 
       // Only enforce limit if this is a new integration, not an update
       if (allIntegrations.length === 0) {
-        let totalIntegrations = 0;
-        for (const pid of userProjectIds) {
-          const [result] = await db
-            .select({ count: count() })
-            .from(projectIntegrations)
-            .where(eq(projectIntegrations.projectId, pid));
-          totalIntegrations += result.count;
-        }
+        // Single aggregate query — was an O(N) loop before, hot under viral load.
+        const [result] = await db
+          .select({ count: count() })
+          .from(projectIntegrations)
+          .where(inArray(projectIntegrations.projectId, userProjectIds));
+        const totalIntegrations = result.count;
 
         if (totalIntegrations >= limits.maxIntegrations) {
           return {
-            error: `Your account allows ${limits.maxIntegrations} integrations. Contact support if you need more.`,
+            error: `Your ${plan} plan allows ${limits.maxIntegrations} integrations. Upgrade to Pro for ${PLAN_LIMITS.pro.maxIntegrations}.`,
           };
         }
       }
@@ -229,6 +227,83 @@ export async function connectIntegration(
       const { config: resolvedConfig, error } = await resolveConfig(service, apiKey);
       if (error) return { error };
       config = { ...resolvedConfig, appKey };
+    } else if (service === "netlify" || service === "cloudflare-pages" || service === "render") {
+      // Hosting providers — validate via the RollbackProvider registry so the
+      // check matches the runtime behavior exactly.
+      const token = formData.get("token") as string;
+      if (!token) return { error: "Token is required." };
+
+      // Slug format used by Netlify, Cloudflare Pages, and Render for
+      // project/service names. Validating up-front prevents arbitrary strings
+      // from leaking into URLs (Render builds `https://${projectName}.onrender.com`)
+      // and into Slack/MCP responses where they'd be displayed verbatim.
+      const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+      // Netlify Site IDs and Cloudflare Account IDs are 32-char hex (with dashes for
+      // Netlify). Render service IDs are `srv-` followed by alphanumerics.
+      const NETLIFY_SITE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const CF_ACCOUNT_ID_RE = /^[0-9a-f]{32}$/i;
+      const RENDER_SERVICE_ID_RE = /^srv-[a-zA-Z0-9]+$/;
+
+      type HostingConfig = {
+        service: "netlify" | "cloudflare-pages" | "render";
+        token: string;
+        projectName: string;
+        siteId?: string;
+        accountId?: string;
+        serviceId?: string;
+      };
+
+      const providerConfig: HostingConfig = { service, token, projectName: "" };
+
+      if (service === "netlify") {
+        const siteId = formData.get("siteId") as string;
+        if (!siteId) return { error: "Site ID is required." };
+        if (!NETLIFY_SITE_ID_RE.test(siteId)) {
+          return { error: "Invalid Site ID format. Expected a UUID like 12345678-abcd-efgh-ijkl-mnopqrstuvwx." };
+        }
+        providerConfig.siteId = siteId;
+        providerConfig.projectName = siteId;
+      } else if (service === "cloudflare-pages") {
+        const accountId = formData.get("accountId") as string;
+        const projectName = formData.get("projectName") as string;
+        if (!accountId) return { error: "Account ID is required." };
+        if (!projectName) return { error: "Project Name is required." };
+        if (!CF_ACCOUNT_ID_RE.test(accountId)) {
+          return { error: "Invalid Account ID format. Expected 32 hex characters." };
+        }
+        if (!SLUG_RE.test(projectName)) {
+          return { error: "Invalid Project Name. Use lowercase letters, numbers, and dashes (max 63 chars)." };
+        }
+        providerConfig.accountId = accountId;
+        providerConfig.projectName = projectName;
+      } else if (service === "render") {
+        const serviceId = formData.get("serviceId") as string;
+        const projectName = formData.get("projectName") as string;
+        if (!serviceId) return { error: "Service ID is required." };
+        if (!projectName) return { error: "Service Name is required." };
+        if (!RENDER_SERVICE_ID_RE.test(serviceId)) {
+          return { error: "Invalid Service ID format. Expected 'srv-' followed by alphanumeric characters." };
+        }
+        if (!SLUG_RE.test(projectName)) {
+          return { error: "Invalid Service Name. Use lowercase letters, numbers, and dashes (max 63 chars)." };
+        }
+        providerConfig.serviceId = serviceId;
+        providerConfig.projectName = projectName;
+      }
+
+      // Validate via provider.checkPermissions() — same code the runtime uses.
+      try {
+        const { getRollbackProvider } = await import("@/lib/providers/rollback");
+        const provider = getRollbackProvider(providerConfig);
+        const ok = await provider.checkPermissions();
+        if (!ok) {
+          return { error: `Invalid ${service} credentials — check token and IDs.` };
+        }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : `Failed to validate ${service} credentials.` };
+      }
+
+      config = { ...providerConfig };
     } else {
       const token = formData.get("token") as string;
       if (!token) return { error: "Token is required." };

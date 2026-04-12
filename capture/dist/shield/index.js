@@ -4,14 +4,18 @@
  * Import this module to automatically hook dangerous sinks (database queries,
  * shell commands, file operations) and detect when unsanitized user input reaches them.
  *
- * Usage (auto, recommended for Next.js):
+ * Usage (auto — any framework with instrumentation or a Web API request entrypoint):
  *   import "@inariwatch/capture/shield"
  *
- * Usage (middleware, for Express/Fastify):
+ * Usage (middleware — Express, Fastify, Koa, Hono, Connect):
  *   import { shield } from "@inariwatch/capture/shield"
  *   app.use(shield())
  *   // or with block mode:
  *   app.use(shield({ mode: "block" }))
+ *
+ * Usage (Web Request object — Remix loaders, SvelteKit, Astro, Cloudflare Workers):
+ *   import { markRequestTainted } from "@inariwatch/capture/shield"
+ *   markRequestTainted(request)
  */
 import { hookSinks } from "./sinks.js";
 import { shieldMiddleware } from "./sources.js";

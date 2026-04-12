@@ -19,7 +19,7 @@ import { rateLimit } from "@/lib/auth-rate-limit";
 import { runSlackRemediation } from "@/lib/slack/remediation-bridge";
 import { waitUntil } from "@vercel/functions";
 import { getErrorTrends } from "@/lib/services/alerts.service";
-import { rollbackToDeployment } from "@/lib/services/vercel.service";
+import { rollbackProjectDeploy } from "@/lib/services/alert-rollback";
 import { gatherChatContext, buildContextString, SYSTEM_OPS } from "@/lib/services/chat.service";
 
 export const runtime = "nodejs";
@@ -465,13 +465,21 @@ async function handleRollback(userId: string, projectSlug: string | undefined, r
   if (!pIds.includes(project.id)) return NextResponse.json({ response_type: "ephemeral", text: "Access denied." });
 
   waitUntil((async () => {
-    try {
-      const result = await rollbackToDeployment(project.id);
-      const blocks = buildRollbackBlocks(project.name, result);
-      await postToResponseUrl(responseUrl, { response_type: "in_channel", blocks });
-    } catch (e) {
-      await postToResponseUrl(responseUrl, { text: `Rollback failed: ${e instanceof Error ? e.message : "unknown"}` });
+    const result = await rollbackProjectDeploy({
+      projectId: project.id,
+      userId,
+      source: "slack",
+    });
+    if (result.error) {
+      await postToResponseUrl(responseUrl, { text: `Rollback failed: ${result.error}` });
+      return;
     }
+    const blocks = buildRollbackBlocks(project.name, {
+      deploymentId: result.deploymentId,
+      url: result.url,
+      provider: result.provider,
+    });
+    await postToResponseUrl(responseUrl, { response_type: "in_channel", blocks });
   })());
 
   return NextResponse.json({ response_type: "ephemeral", text: ":arrows_counterclockwise: Rolling back..." });

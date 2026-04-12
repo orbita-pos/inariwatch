@@ -15,9 +15,9 @@ function relativeTime(iso: string): string {
 }
 
 const SEVERITY_ICON = {
-  critical: <Zap        className="h-3.5 w-3.5 text-red-500" />,
-  warning:  <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />,
-  info:     <Info       className="h-3.5 w-3.5 text-blue-400" />,
+  critical: <Zap           className="h-3.5 w-3.5 text-red-500" aria-hidden="true" />,
+  warning:  <AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500" aria-hidden="true" />,
+  info:     <Info          className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" aria-hidden="true" />,
 };
 
 const SEVERITY_DOT = {
@@ -54,10 +54,10 @@ export function NotificationsBell({ unreadCount }: NotificationsBellProps) {
       <Popover.Trigger asChild>
         <button
           type="button"
-          className="relative flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:text-fg-strong hover:bg-surface-inner transition-colors"
-          title="Notifications"
+          className="relative flex h-8 w-8 items-center justify-center rounded-md text-fg-base/60 hover:text-fg-strong hover:bg-surface-inner transition-colors"
+          aria-label="Notifications"
         >
-          <Bell className="h-4 w-4" />
+          <Bell className="h-4 w-4" aria-hidden="true" />
           {unreadCount > 0 && (
             <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-inari-accent px-1 text-[9px] font-bold text-white leading-none">
               {unreadCount > 99 ? "99+" : unreadCount}
@@ -84,14 +84,14 @@ export function NotificationsBell({ unreadCount }: NotificationsBellProps) {
           <div className="max-h-80 overflow-y-auto">
             {pending && (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-fg-base/60" aria-hidden="true" />
               </div>
             )}
 
             {!pending && items.length === 0 && (
               <div className="flex flex-col items-center justify-center py-10 gap-2">
-                <Bell className="h-6 w-6 text-zinc-600" />
-                <p className="text-sm text-zinc-500">No notifications</p>
+                <Bell className="h-6 w-6 text-fg-base/60" aria-hidden="true" />
+                <p className="text-sm text-fg-base/60">No notifications</p>
               </div>
             )}
 
@@ -115,7 +115,7 @@ export function NotificationsBell({ unreadCount }: NotificationsBellProps) {
                   <p className={`text-sm truncate leading-tight ${item.isRead ? "text-fg-base" : "text-fg-strong font-medium"}`}>
                     {item.title}
                   </p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">{relativeTime(item.createdAt)}</p>
+                  <p className="text-[11px] text-fg-base/60 mt-0.5">{relativeTime(item.createdAt)}</p>
                 </div>
               </Link>
             ))}
@@ -127,10 +127,10 @@ export function NotificationsBell({ unreadCount }: NotificationsBellProps) {
               <Link
                 href="/alerts"
                 onClick={() => setOpen(false)}
-                className="flex items-center justify-center gap-1.5 text-xs text-zinc-500 hover:text-fg-base transition-colors"
+                className="flex items-center justify-center gap-1.5 text-xs text-fg-base/60 hover:text-fg-base transition-colors"
               >
                 View all alerts
-                <ArrowRight className="h-3 w-3" />
+                <ArrowRight className="h-3 w-3" aria-hidden="true" />
               </Link>
             </div>
           )}

@@ -13,7 +13,7 @@ export function ExportButton() {
         window.location.href = "/api/alerts/export";
       }}
     >
-      <Download className="h-3.5 w-3.5" />
+      <Download className="h-3.5 w-3.5" aria-hidden="true" />
       Export CSV
     </Button>
   );

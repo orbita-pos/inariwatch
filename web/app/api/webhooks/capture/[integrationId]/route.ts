@@ -6,6 +6,8 @@ import {
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
+import { rateLimit } from "@/lib/auth-rate-limit";
+import { PLAN_LIMITS } from "@/lib/db";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 import { db } from "@/lib/db";
 import { substrateRecordings } from "@/lib/db/schema";
@@ -43,19 +45,45 @@ export async function POST(
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
     return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
 
-  // Rate limiting
+  // Fast-path: reject unsigned probes BEFORE the DB lookup. This saves
+  // a `loadIntegration` round-trip on every unauthenticated request.
+  // Real callers always send `x-capture-signature`; if the header is
+  // missing or malformed, we know the request is invalid without touching
+  // the database.
+  const sigHeader = req.headers.get("x-capture-signature") ?? "";
+  if (!sigHeader || !sigHeader.startsWith("sha256=")) {
+    return NextResponse.json({ error: "Missing or invalid signature header" }, { status: 401 });
+  }
+
+  // IP rate limiting (anti-DOS)
   const ip = extractClientIp(req);
-  const rateLimit = await checkWebhookRateLimit(ip);
-  if (!rateLimit.allowed) {
+  const ipRl = await checkWebhookRateLimit(ip);
+  if (!ipRl.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+      { status: 429, headers: { "Retry-After": String(ipRl.retryAfter) } }
     );
   }
 
   const integ = await loadIntegration(integrationId);
   if (!integ) {
     return NextResponse.json({ error: "Integration not found" }, { status: 404 });
+  }
+
+  // Per-project daily events cap. Counts ALL ingestion sources (capture +
+  // sentry + vercel + github + datadog + expo) against the same counter so
+  // a noisy app can't bypass by switching sources. Free 50K/day, Pro 500K/day.
+  const plan = integ.userPlan ?? "free";
+  const dailyCap = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.free).maxCaptureEventsPerDay;
+  const dayRl = await rateLimit("capture-daily", integ.projectId, {
+    windowMs: 86_400_000,
+    max: dailyCap,
+  });
+  if (!dayRl.allowed) {
+    return NextResponse.json(
+      { error: "Daily event cap reached for this project" },
+      { status: 429, headers: { "Retry-After": String(dayRl.retryAfterSeconds ?? 3600) } }
+    );
   }
 
   if (integ.service !== "capture") {
@@ -78,9 +106,8 @@ export async function POST(
     return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   }
 
-  // Verify HMAC signature
-  const sig = req.headers.get("x-capture-signature") ?? "";
-  const sigHex = sig.startsWith("sha256=") ? sig.slice(7) : sig;
+  // Verify HMAC signature (header existence already checked above as fast-path)
+  const sigHex = sigHeader.slice(7); // strip "sha256=" prefix
   if (!sigHex || !verifySignature(body, sigHex, secret, "sha256")) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }

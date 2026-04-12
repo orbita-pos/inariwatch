@@ -17,20 +17,22 @@ export const metadata: Metadata = { title: "Alerts" };
 
 const SEV_DOT: Record<string, string> = {
   critical: "bg-inari-accent",
-  warning:  "bg-amber-400",
-  info:     "bg-blue-400",
+  warning:  "bg-amber-500",
+  info:     "bg-blue-500",
 };
 const SEV_TEXT: Record<string, string> = {
   critical: "text-inari-accent",
-  warning:  "text-amber-400",
-  info:     "text-blue-400",
+  warning:  "text-amber-600 dark:text-amber-400",
+  info:     "text-blue-600 dark:text-blue-400",
 };
 const SEV_BAR: Record<string, string> = {
   critical: "bg-inari-accent",
-  warning:  "bg-amber-400",
-  info:     "bg-blue-400",
+  warning:  "bg-amber-500",
+  info:     "bg-blue-500",
 };
 
+// Source filter — all supported ingestion sources
+const VALID_SOURCES = ["github", "vercel", "sentry", "datadog", "expo", "capture", "uptime", "postgres", "npm"] as const;
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -58,7 +60,7 @@ export default async function AlertsPage({
   }
   if (statusFilter === "open")     conditions.push(eq(alerts.isResolved, false));
   if (statusFilter === "resolved") conditions.push(eq(alerts.isResolved, true));
-  if (sourceFilter !== "all" && ["github", "vercel", "sentry", "uptime", "postgres", "npm"].includes(sourceFilter)) {
+  if (sourceFilter !== "all" && (VALID_SOURCES as readonly string[]).includes(sourceFilter)) {
     conditions.push(arrayOverlaps(alerts.sourceIntegrations, [sourceFilter]));
   }
   if (searchQuery.trim()) conditions.push(ilike(alerts.title, `%${searchQuery.trim()}%`));
@@ -87,16 +89,16 @@ export default async function AlertsPage({
             <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Alerts</h1>
             <LiveIndicator />
           </div>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-fg-base">
             {allAlerts.length} alert{allAlerts.length !== 1 ? "s" : ""}{hasActiveFilters ? " (filtered)" : ""}
           </p>
         </div>
 
         {allAlerts.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <Chip dot="bg-amber-400" label={`${unread} unread`} />
+            <Chip dot="bg-amber-500" label={`${unread} unread`} />
             <Chip dot="bg-inari-accent" label={`${critical} critical`} />
-            <Chip dot="bg-green-500" label={`${open} open`} />
+            <Chip dot="bg-emerald-500" label={`${open} open`} />
             <ExportButton />
           </div>
         )}
@@ -108,20 +110,20 @@ export default async function AlertsPage({
       {/* ── List ───────────────────────────────────────────────────────── */}
       {allAlerts.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line py-16 text-center">
-          <CheckCircle2 className="h-5 w-5 text-zinc-700" />
-          <p className="text-sm font-medium text-zinc-500">
+          <CheckCircle2 className="h-5 w-5 text-fg-base/50" aria-hidden="true" />
+          <p className="text-sm font-medium text-fg-strong">
             {hasActiveFilters ? "No alerts match your filters" : "No alerts yet"}
           </p>
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-fg-base">
             {hasActiveFilters ? (
-              <Link href="/alerts" className="text-zinc-400 underline underline-offset-2 transition-colors hover:text-fg-strong">
+              <Link href="/alerts" className="text-inari-accent underline underline-offset-2 transition-colors hover:text-inari-accent/80">
                 Clear all filters
               </Link>
             ) : hasIntegrations ? (
               "InariWatch is watching your integrations."
             ) : (
               <>
-                <Link href="/integrations" className="text-zinc-400 underline underline-offset-2 transition-colors hover:text-fg-strong">
+                <Link href="/integrations" className="text-inari-accent underline underline-offset-2 transition-colors hover:text-inari-accent/80">
                   Connect an integration
                 </Link>{" "}
                 to start receiving alerts.
@@ -130,63 +132,74 @@ export default async function AlertsPage({
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-line">
+        <ul className="overflow-hidden rounded-xl border border-line divide-y divide-line-subtle bg-surface">
           {allAlerts.map((alert) => (
-            <Link
-              key={alert.id}
-              href={`/alerts/${alert.id}`}
-              className="group relative flex items-center gap-4 border-b border-line-subtle bg-surface px-4 py-3.5 transition-colors last:border-0 hover:bg-black/[0.025] dark:hover:bg-white/[0.025]"
-            >
-              {/* Severity bar */}
-              <span className={`absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full opacity-60 ${SEV_BAR[alert.severity] ?? "bg-zinc-700"}`} />
+            <li key={alert.id}>
+              <Link
+                href={`/alerts/${alert.id}`}
+                className="group relative flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.025]"
+                aria-label={`${alert.severity} alert: ${alert.title}`}
+              >
+                {/* Severity bar */}
+                <span
+                  className={`absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full opacity-60 ${SEV_BAR[alert.severity] ?? "bg-line-medium"}`}
+                  aria-hidden="true"
+                />
 
-              {/* Dot */}
-              <span className={`ml-1 h-2 w-2 shrink-0 rounded-full ${SEV_DOT[alert.severity] ?? "bg-zinc-600"}`} />
+                {/* Dot */}
+                <span
+                  className={`ml-1 h-2 w-2 shrink-0 rounded-full ${SEV_DOT[alert.severity] ?? "bg-line-medium"}`}
+                  aria-hidden="true"
+                />
 
-              {/* Content */}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  {!alert.isRead && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent" />
-                  )}
-                  <p className="truncate text-sm font-medium text-fg-base transition-colors group-hover:text-fg-strong">
-                    {alert.title}
+                {/* Content */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    {!alert.isRead && (
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-inari-accent"
+                        aria-label="unread"
+                      />
+                    )}
+                    <p className="truncate text-sm font-medium text-fg-base transition-colors group-hover:text-fg-strong">
+                      {alert.title}
+                    </p>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-base/70">
+                    <span className={`font-medium ${SEV_TEXT[alert.severity] ?? "text-fg-base"}`}>
+                      {alert.severity}
+                    </span>
+                    {alert.body && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="truncate">{alert.body}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Source badges */}
+                <div className="hidden shrink-0 items-center gap-1 md:flex">
+                  {alert.sourceIntegrations.slice(0, 2).map((src) => (
+                    <span key={src} className="rounded border border-line-medium bg-surface-dim px-1.5 py-0.5 font-mono text-xs text-fg-base">
+                      {src}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Time + status */}
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-xs text-fg-base/70 transition-colors group-hover:text-fg-base">
+                    {formatRelativeTime(alert.createdAt)}
+                  </p>
+                  <p className={`text-xs ${alert.isResolved ? "text-fg-base/60" : "text-amber-600 dark:text-amber-400"}`}>
+                    {alert.isResolved ? "resolved" : "open"}
                   </p>
                 </div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-600">
-                  <span className={`font-medium ${SEV_TEXT[alert.severity] ?? "text-zinc-500"}`}>
-                    {alert.severity}
-                  </span>
-                  {alert.body && (
-                    <>
-                      <span>·</span>
-                      <span className="truncate">{alert.body}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Source badges */}
-              <div className="hidden shrink-0 items-center gap-1 md:flex">
-                {alert.sourceIntegrations.slice(0, 2).map((src) => (
-                  <span key={src} className="rounded border border-line-medium bg-surface-dim px-1.5 py-0.5 font-mono text-xs text-zinc-600">
-                    {src}
-                  </span>
-                ))}
-              </div>
-
-              {/* Time + status */}
-              <div className="shrink-0 text-right">
-                <p className="font-mono text-xs text-zinc-600 transition-colors group-hover:text-zinc-500">
-                  {formatRelativeTime(alert.createdAt)}
-                </p>
-                <p className={`text-xs ${alert.isResolved ? "text-zinc-700" : "text-amber-500/80"}`}>
-                  {alert.isResolved ? "resolved" : "open"}
-                </p>
-              </div>
-            </Link>
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -197,8 +210,8 @@ export default async function AlertsPage({
 function Chip({ dot, label }: { dot: string; label: string }) {
   return (
     <div className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5">
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-      <span className="text-xs tabular-nums text-zinc-400">{label}</span>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />
+      <span className="text-xs tabular-nums text-fg-base">{label}</span>
     </div>
   );
 }

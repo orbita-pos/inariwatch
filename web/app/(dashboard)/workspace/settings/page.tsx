@@ -64,8 +64,8 @@ export default async function WorkspaceSettingsPage() {
         <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">
           Workspace settings
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Manage settings for <span className="font-medium text-zinc-400">{org.name}</span>.
+        <p className="mt-1 text-sm text-fg-base/60">
+          Manage settings for <span className="font-medium text-fg-base">{org.name}</span>.
         </p>
       </div>
 
@@ -98,10 +98,10 @@ export default async function WorkspaceSettingsPage() {
           )}
         </Row>
         <Row label="Slug">
-          <span className="font-mono text-sm text-zinc-500">{org.slug}</span>
+          <span className="font-mono text-sm text-fg-base/60">{org.slug}</span>
         </Row>
         <Row label="Created">
-          <span className="font-mono text-sm text-zinc-500">{createdDate}</span>
+          <span className="font-mono text-sm text-fg-base/60">{createdDate}</span>
         </Row>
       </Section>
 
@@ -126,14 +126,14 @@ export default async function WorkspaceSettingsPage() {
                   <div className="flex items-center gap-1.5">
                     <p className="truncate text-sm font-medium text-fg-base">{displayName}</p>
                     {isThisOwner && (
-                      <Crown className="h-3 w-3 shrink-0 text-amber-500" />
+                      <Crown className="h-3 w-3 shrink-0 text-amber-500" aria-hidden="true" />
                     )}
                     {isCurrentUser && (
-                      <span className="text-[10px] text-zinc-500">(you)</span>
+                      <span className="text-[10px] text-fg-base/60">(you)</span>
                     )}
                   </div>
                   {member.name && member.email && (
-                    <p className="truncate text-xs text-zinc-500">{member.email}</p>
+                    <p className="truncate text-xs text-fg-base/60">{member.email}</p>
                   )}
                 </div>
 
@@ -180,10 +180,10 @@ export default async function WorkspaceSettingsPage() {
                     >
                       <button
                         type="submit"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
-                        title="Remove member"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/60 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                        aria-label={`Remove ${displayName} from workspace`}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
                     </form>
                   )}
@@ -197,11 +197,11 @@ export default async function WorkspaceSettingsPage() {
       {/* ── Danger zone ───────────────────────────────────────────────────── */}
       <Section title="Danger zone">
         {isOwner ? (
-          <div className="flex items-center justify-between rounded-lg border border-red-950/40 bg-red-950/10 px-4 py-3.5 my-1">
+          <div className="flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3.5 my-1">
             <div>
               <p className="text-sm font-medium text-fg-base">Delete workspace</p>
-              <p className="mt-0.5 text-sm text-zinc-500">
-                Permanently delete <span className="font-medium text-zinc-400">{org.name}</span> and all its data.
+              <p className="mt-0.5 text-sm text-fg-base/60">
+                Permanently delete <span className="font-medium text-fg-base">{org.name}</span> and all its data.
               </p>
             </div>
             <form
@@ -213,7 +213,7 @@ export default async function WorkspaceSettingsPage() {
             >
               <button
                 type="submit"
-                className="rounded-lg border border-red-900/20 px-3 py-1.5 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+                className="rounded-lg border border-red-500/20 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
               >
                 Delete
               </button>
@@ -223,8 +223,8 @@ export default async function WorkspaceSettingsPage() {
           <div className="flex items-center justify-between rounded-lg border border-line bg-surface-dim px-4 py-3.5 my-1">
             <div>
               <p className="text-sm font-medium text-fg-base">Leave workspace</p>
-              <p className="mt-0.5 text-sm text-zinc-500">
-                Remove yourself from <span className="font-medium text-zinc-400">{org.name}</span>.
+              <p className="mt-0.5 text-sm text-fg-base/60">
+                Remove yourself from <span className="font-medium text-fg-base">{org.name}</span>.
               </p>
             </div>
             <form
@@ -253,7 +253,7 @@ export default async function WorkspaceSettingsPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-[11px] font-medium uppercase tracking-widest text-zinc-600">{title}</h2>
+      <h2 className="mb-3 text-[11px] font-medium uppercase tracking-widest text-fg-base/60">{title}</h2>
       <div className="overflow-hidden rounded-xl border border-line bg-surface px-5 divide-y divide-line-subtle">
         {children}
       </div>
@@ -264,7 +264,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3.5">
-      <span className="w-28 shrink-0 text-sm text-zinc-500">{label}</span>
+      <span className="w-28 shrink-0 text-sm text-fg-base/60">{label}</span>
       <div className="flex-1">{children}</div>
     </div>
   );
@@ -274,7 +274,7 @@ function RoleBadge({ role }: { role: string }) {
   const styles: Record<string, string> = {
     owner: "bg-amber-500/10 text-amber-600 border-amber-500/20",
     admin: "bg-inari-accent/10 text-inari-accent border-inari-accent/20",
-    member: "bg-zinc-500/10 text-zinc-500 border-zinc-500/20",
+    member: "bg-surface-dim text-fg-base/70 border-line",
   };
   const labels: Record<string, string> = {
     owner: "Owner",

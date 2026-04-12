@@ -26,11 +26,12 @@ export function GenerateDesktopTokenButton() {
   return (
     <div className="space-y-2">
       <button
+        type="button"
         onClick={handleGenerate}
         disabled={isPending}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-fg-base/60 hover:border-fg-base/30 hover:text-fg-base transition-all disabled:opacity-50"
       >
-        <RefreshCw className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`} />
+        <RefreshCw className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`} aria-hidden="true" />
         {isPending ? "Generating…" : token ? "Regenerate token" : "Generate token"}
       </button>
 
@@ -38,11 +39,12 @@ export function GenerateDesktopTokenButton() {
         <div className="flex items-center gap-2 rounded-lg border border-line-medium bg-surface px-3 py-2">
           <p className="flex-1 font-mono text-[12px] text-fg-base break-all">{token}</p>
           <button
+            type="button"
             onClick={handleCopy}
-            className="shrink-0 text-zinc-600 hover:text-fg-base transition-colors"
-            title="Copy token"
+            className="shrink-0 text-fg-base/50 hover:text-fg-base transition-colors"
+            aria-label="Copy token"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
           </button>
         </div>
       )}

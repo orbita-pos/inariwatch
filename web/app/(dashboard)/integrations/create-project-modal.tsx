@@ -36,18 +36,18 @@ export function CreateProjectModal({ children, organizationId }: { children: Rea
               <Dialog.Title className="text-base font-semibold text-fg-strong">
                 New project
               </Dialog.Title>
-              <Dialog.Description className="mt-0.5 text-xs text-zinc-500">
+              <Dialog.Description className="mt-0.5 text-xs text-fg-base/60">
                 A project groups your integrations and alerts together.
               </Dialog.Description>
             </div>
-            <Dialog.Close className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-fg-base transition-colors">
-              <X className="h-4 w-4" />
+            <Dialog.Close className="rounded-lg p-1.5 text-fg-base/50 hover:bg-surface-dim hover:text-fg-base transition-colors">
+              <X aria-hidden="true" className="h-4 w-4" />
             </Dialog.Close>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs font-mono text-fg-base/60 uppercase tracking-wider mb-1.5">
                 Project name
               </label>
               <input
@@ -56,26 +56,26 @@ export function CreateProjectModal({ children, organizationId }: { children: Rea
                 placeholder="my-app"
                 required
                 autoFocus
-                className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
               />
-              <p className="mt-1 text-xs text-zinc-600">
+              <p className="mt-1 text-xs text-fg-base/50">
                 The slug is auto-generated from the name.
               </p>
             </div>
 
             <div>
-              <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider mb-1.5">
-                Description <span className="normal-case text-zinc-700">(optional)</span>
+              <label className="block text-xs font-mono text-fg-base/60 uppercase tracking-wider mb-1.5">
+                Description <span className="normal-case text-fg-base/40">(optional)</span>
               </label>
               <input
                 name="description"
                 type="text"
                 placeholder="Production Next.js app"
-                className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder-zinc-400 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
+                className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
               />
             </div>
 
-            {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
+            {error && <p className="text-xs text-red-600 dark:text-red-400 font-mono">{error}</p>}
 
             <div className="flex gap-3 pt-2">
               <Dialog.Close asChild>

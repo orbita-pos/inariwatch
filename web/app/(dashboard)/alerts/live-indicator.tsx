@@ -36,13 +36,14 @@ export function LiveIndicator() {
   }, [router]);
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5" aria-live="polite" aria-label={connected ? "Live updates connected" : "Connecting to live updates"}>
       <span
+        aria-hidden="true"
         className={`h-1.5 w-1.5 rounded-full ${
-          connected ? "bg-green-400 animate-pulse" : "bg-zinc-600"
+          connected ? "bg-emerald-500 animate-pulse" : "bg-fg-base/30"
         }`}
       />
-      <span className="text-xs text-zinc-600">
+      <span className="text-xs text-fg-base/60">
         {connected ? "Live" : "Connecting…"}
       </span>
     </div>

@@ -25,11 +25,24 @@ function detectProject() {
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
     const usesTypescript = !!allDeps["typescript"] || existsSync(join(cwd, "tsconfig.json"));
     const hasSrcDir = existsSync(join(cwd, "src"));
+    // Meta-frameworks first (they often include underlying tools as transitive deps).
     let framework = "node";
     if (allDeps["next"])
         framework = "nextjs";
+    else if (allDeps["nuxt"] || allDeps["nuxt3"])
+        framework = "nuxt";
+    else if (allDeps["@remix-run/react"] || allDeps["@remix-run/node"] || allDeps["@remix-run/serve"])
+        framework = "remix";
+    else if (allDeps["@sveltejs/kit"])
+        framework = "sveltekit";
+    else if (allDeps["astro"])
+        framework = "astro";
+    else if (allDeps["fastify"])
+        framework = "fastify";
     else if (allDeps["express"])
         framework = "express";
+    else if (allDeps["vite"])
+        framework = "vite";
     let packageManager = "npm";
     if (existsSync(join(cwd, "pnpm-lock.yaml")))
         packageManager = "pnpm";
@@ -114,6 +127,124 @@ function setupNextjs(project) {
         ].join("\n"));
         success(`Created instrumentation.${ext}`);
     }
+}
+// --- Vite setup (covers Vite, Remix, SvelteKit) ---
+const VITE_CONFIG_FILES = [
+    "vite.config.ts",
+    "vite.config.mts",
+    "vite.config.js",
+    "vite.config.mjs",
+    "vite.config.cjs",
+];
+function findConfigFile(names) {
+    for (const f of names) {
+        const p = join(cwd, f);
+        if (existsSync(p)) {
+            return { path: p, content: readFileSync(p, "utf-8") };
+        }
+    }
+    return null;
+}
+function setupVite(framework) {
+    const found = findConfigFile(VITE_CONFIG_FILES);
+    if (!found) {
+        warn(`No vite.config found. Add manually:`);
+        log(`  import { inariwatchVite } from "@inariwatch/capture/vite"`);
+        log(`  plugins: [inariwatchVite(), ...]`);
+        return;
+    }
+    if (found.content.includes("@inariwatch/capture")) {
+        info(`${basename(found.path)} already has @inariwatch/capture`);
+        return;
+    }
+    const importLine = `import { inariwatchVite } from "@inariwatch/capture/vite"\n`;
+    let newContent = importLine + found.content;
+    // Try to insert into an existing `plugins: [ ... ]` array.
+    const pluginsRegex = /plugins\s*:\s*\[/;
+    if (pluginsRegex.test(newContent)) {
+        newContent = newContent.replace(pluginsRegex, "plugins: [inariwatchVite(), ");
+        writeFileSync(found.path, newContent);
+        success(`Updated ${basename(found.path)} — added inariwatchVite() to plugins[]`);
+    }
+    else {
+        warn(`Could not auto-insert plugin into ${basename(found.path)}. Add manually:`);
+        log(`  import { inariwatchVite } from "@inariwatch/capture/vite"`);
+        log(`  plugins: [inariwatchVite(), ...]`);
+    }
+    // Remix/SvelteKit apps typically don't need an instrumentation file — the
+    // Vite plugin handles build-time injection and capture auto-inits at runtime.
+    if (framework === "remix" || framework === "sveltekit") {
+        info(`Add \`import "@inariwatch/capture/auto"\` at the top of your server entry.`);
+    }
+}
+// --- Nuxt setup ---
+function setupNuxt() {
+    const nuxtConfigs = ["nuxt.config.ts", "nuxt.config.mjs", "nuxt.config.js"];
+    const found = findConfigFile(nuxtConfigs);
+    if (!found) {
+        warn(`No nuxt.config found. Add manually:`);
+        log(`  modules: ["@inariwatch/capture/nuxt"]`);
+        return;
+    }
+    if (found.content.includes("@inariwatch/capture")) {
+        info(`${basename(found.path)} already has @inariwatch/capture`);
+        return;
+    }
+    const modulesRegex = /modules\s*:\s*\[/;
+    let newContent;
+    if (modulesRegex.test(found.content)) {
+        newContent = found.content.replace(modulesRegex, `modules: ["@inariwatch/capture/nuxt", `);
+    }
+    else {
+        // Insert a new modules array. Works for defineNuxtConfig({ ... }) form.
+        const openBrace = /defineNuxtConfig\s*\(\s*\{/;
+        if (openBrace.test(found.content)) {
+            newContent = found.content.replace(openBrace, `defineNuxtConfig({\n  modules: ["@inariwatch/capture/nuxt"],`);
+        }
+        else {
+            warn(`Could not auto-insert module into ${basename(found.path)}. Add manually:`);
+            log(`  modules: ["@inariwatch/capture/nuxt"]`);
+            return;
+        }
+    }
+    writeFileSync(found.path, newContent);
+    success(`Updated ${basename(found.path)} — added @inariwatch/capture/nuxt to modules[]`);
+}
+// --- Astro setup ---
+function setupAstro() {
+    const astroConfigs = ["astro.config.ts", "astro.config.mjs", "astro.config.js"];
+    const found = findConfigFile(astroConfigs);
+    if (!found) {
+        warn(`No astro.config found. Add manually:`);
+        log(`  import { inariwatchVite } from "@inariwatch/capture/vite"`);
+        log(`  export default defineConfig({ vite: { plugins: [inariwatchVite()] } })`);
+        return;
+    }
+    if (found.content.includes("@inariwatch/capture")) {
+        info(`${basename(found.path)} already has @inariwatch/capture`);
+        return;
+    }
+    const importLine = `import { inariwatchVite } from "@inariwatch/capture/vite"\n`;
+    let newContent = importLine + found.content;
+    // Look for existing vite.plugins array inside the config.
+    const vitePluginsRegex = /vite\s*:\s*\{\s*[^}]*plugins\s*:\s*\[/;
+    if (vitePluginsRegex.test(newContent)) {
+        newContent = newContent.replace(/plugins\s*:\s*\[/, "plugins: [inariwatchVite(), ");
+        writeFileSync(found.path, newContent);
+        success(`Updated ${basename(found.path)} — added inariwatchVite() to vite.plugins[]`);
+        return;
+    }
+    // Look for an existing vite: { ... } block and inject plugins inside.
+    const viteRegex = /vite\s*:\s*\{/;
+    if (viteRegex.test(newContent)) {
+        newContent = newContent.replace(viteRegex, "vite: {\n    plugins: [inariwatchVite()],");
+        writeFileSync(found.path, newContent);
+        success(`Updated ${basename(found.path)} — added vite.plugins with inariwatchVite()`);
+        return;
+    }
+    warn(`Could not auto-insert plugin into ${basename(found.path)}. Add manually:`);
+    log(`  import { inariwatchVite } from "@inariwatch/capture/vite"`);
+    log(`  export default defineConfig({ vite: { plugins: [inariwatchVite()] } })`);
 }
 // --- Express / Node setup ---
 function setupNode(project) {
@@ -263,6 +394,20 @@ async function main() {
         case "nextjs":
             setupNextjs(project);
             break;
+        case "nuxt":
+            setupNuxt();
+            break;
+        case "remix":
+        case "sveltekit":
+        case "vite":
+            setupVite(project.framework);
+            break;
+        case "astro":
+            setupAstro();
+            break;
+        case "fastify":
+        case "express":
+        case "node":
         default: setupNode(project);
     }
     const projectName = basename(cwd);

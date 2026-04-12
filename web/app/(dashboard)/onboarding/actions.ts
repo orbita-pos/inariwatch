@@ -2,8 +2,8 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { db, projects, users, PLAN_LIMITS } from "@/lib/db";
+import { eq, count } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 export async function createProjectForOnboarding(
@@ -16,6 +16,29 @@ export async function createProjectForOnboarding(
 
     const trimmed = name.trim();
     if (!trimmed) return { error: "Project name is required." };
+
+    // Plan limit check — same logic as web/app/(dashboard)/projects/actions.ts
+    // (the dashboard "create project" path). Onboarding is the first place
+    // a free user creates a project, so this is also the first place we can
+    // surface the limit.
+    const [owner] = await db
+      .select({ plan: users.plan })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const plan = owner?.plan ?? "free";
+    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+
+    const [projectCount] = await db
+      .select({ count: count() })
+      .from(projects)
+      .where(eq(projects.userId, userId));
+
+    if (projectCount.count >= limits.maxProjects) {
+      return {
+        error: `Your ${plan} plan allows ${limits.maxProjects} projects. Upgrade to Pro for ${PLAN_LIMITS.pro.maxProjects}.`,
+      };
+    }
 
     const slug = trimmed
       .toLowerCase()

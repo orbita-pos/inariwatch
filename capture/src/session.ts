@@ -92,7 +92,8 @@ export async function initSession(
   try {
     // Dynamic import — rrweb is an optional peer dependency
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rrweb: any = await import("rrweb")
+    const pkg = "rrweb"
+    const rrweb: any = await import(/* webpackIgnore: true */ pkg)
     const record = rrweb.record || rrweb.default?.record
 
     if (!record) {

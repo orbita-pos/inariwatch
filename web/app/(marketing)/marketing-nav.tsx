@@ -4,7 +4,6 @@ import Link from "next/link";
 import Image from "next/image";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
@@ -12,54 +11,69 @@ export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
 
   useEffect(() => {
     if (opaque) return;
-    const handler = () => setScrolled(window.scrollY > 40);
+    const handler = () => setScrolled(window.scrollY > 8);
+    handler();
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
   }, [opaque]);
 
   return (
     <nav
-      className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${
+      className={`fixed top-0 inset-x-0 z-50 transition-colors duration-200 ${
         scrolled
-          ? "border-b border-inari-border bg-inari-bg/90 backdrop-blur-md"
+          ? "border-b border-inari-border bg-inari-bg/80 backdrop-blur-md"
           : "border-b border-transparent bg-transparent"
       }`}
     >
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+        {/* Logo — left */}
         <Link href="/" className="flex items-center gap-2.5">
           <Image
             src="/logo-inari/favicon-96x96.png"
             alt="InariWatch"
-            width={36}
-            height={36}
+            width={26}
+            height={26}
             className="shrink-0"
           />
-          <span className={`font-mono font-bold uppercase tracking-widest text-sm transition-colors ${scrolled ? "text-fg-strong" : "!text-white"}`}>
-            INARIWATCH
+          <span className="font-display font-semibold tracking-tight text-[15px] text-fg-strong">
+            Inariwatch
           </span>
         </Link>
 
-        <div className={`hidden items-center gap-6 text-sm md:flex transition-colors ${scrolled ? "text-fg-base" : "!text-white/80"}`}>
-          <Link href="/#integrations" className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Integrations</Link>
-          <Link href="/#features"     className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Features</Link>
-          <Link href="/trust"         className={`transition-colors ${scrolled ? "hover:text-inari-accent" : "hover:!text-white"}`}>Trust</Link>
-          <Link href="/network"      className={`transition-colors ${scrolled ? "hover:text-inari-accent" : "hover:!text-white"}`}>Network</Link>
-          <Link href="/pricing"      className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Pricing</Link>
-          <Link href="/docs"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Docs</Link>
-          <Link href="/blog"          className={`transition-colors ${scrolled ? "hover:text-fg-strong" : "hover:!text-white"}`}>Blog</Link>
-        </div>
+        {/* Right cluster — nav links + separator + auth */}
+        <div className="flex items-center gap-5">
+          <div className="hidden items-center gap-6 text-sm md:flex text-fg-base">
+            <Link href="/pricing" className="hover:text-fg-strong transition-colors">
+              Pricing
+            </Link>
+            <Link href="/docs" className="hover:text-fg-strong transition-colors">
+              Docs
+            </Link>
+            <Link href="/trust" className="hover:text-fg-strong transition-colors">
+              Trust
+            </Link>
+            <Link href="/blog" className="hover:text-fg-strong transition-colors">
+              Blog
+            </Link>
+          </div>
 
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          <Link href="/login">
-            <Button
-              variant="outline"
-              size="sm"
-              className={scrolled ? "" : "!border-white/30 !text-white hover:!bg-white/10 hover:!border-white/50 !bg-white/5"}
+          <div className="hidden h-5 w-px bg-inari-border md:block" aria-hidden />
+
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <Link
+              href="/login"
+              className="hidden text-sm text-fg-base hover:text-fg-strong transition-colors sm:inline"
             >
-              Sign in
-            </Button>
-          </Link>
+              Log in
+            </Link>
+            <Link
+              href="/register"
+              className="inline-flex items-center rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors bg-[#0a0a0c] text-white hover:bg-[#1a1a1f] dark:bg-white dark:text-[#0a0a0c] dark:hover:bg-white/90"
+            >
+              Sign up
+            </Link>
+          </div>
         </div>
       </div>
     </nav>

@@ -24,6 +24,7 @@ import * as assessRisk from "./tools/assess-risk";
 import * as getPostmortem from "./tools/get-postmortem";
 import * as searchCommunityFixes from "./tools/search-community-fixes";
 import * as triggerFix from "./tools/trigger-fix";
+import * as rollbackDeploy from "./tools/rollback-deploy";
 import * as rollbackVercel from "./tools/rollback-vercel";
 import * as silenceAlert from "./tools/silence-alert";
 import * as submitFeedback from "./tools/submit-feedback";
@@ -54,7 +55,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   get_postmortem: getPostmortem,
   search_community_fixes: searchCommunityFixes,
   trigger_fix: triggerFix,
-  rollback_vercel: rollbackVercel,
+  rollback_deploy: rollbackDeploy,
+  rollback_vercel: rollbackVercel, // legacy alias — same execute path
   silence_alert: silenceAlert,
   submit_feedback: submitFeedback,
   run_check: runCheck,
@@ -226,34 +228,37 @@ export async function POST(request: Request) {
 
     const context = params.context as Record<string, string> | undefined;
     const content = params.content as { text?: string } | undefined;
-    const alertId = context?.alert_id;
     const analysis = content?.text;
+    const alertId = context?.alert_id;
 
-    if (!alertId || !analysis) {
+    if (!analysis) {
       return NextResponse.json(
-        jsonrpcError(id, -32602, "context.alert_id and content.text required"),
+        jsonrpcError(id, -32602, "content.text is required"),
         { headers: CORS_HEADERS }
       );
     }
 
-    // Ownership check: verify alert belongs to user's project
-    const [alert] = await db.select({ id: alerts.id, projectId: alerts.projectId }).from(alerts).where(eq(alerts.id, alertId)).limit(1);
-    if (!alert) {
-      return NextResponse.json(jsonrpcError(id, -32602, "Alert not found"), { headers: CORS_HEADERS });
-    }
-    const [proj] = await db.select({ id: projects.id }).from(projects).where(
-      and(eq(projects.id, alert.projectId), eq(projects.userId, user.userId))
-    ).limit(1);
-    if (!proj) {
-      return NextResponse.json(jsonrpcError(id, -32600, "Alert does not belong to your projects."), { headers: CORS_HEADERS });
+    // For alert-based tools (get_root_cause, simulate_fix), persist the analysis
+    if (alertId) {
+      const [alert] = await db.select({ id: alerts.id, projectId: alerts.projectId }).from(alerts).where(eq(alerts.id, alertId)).limit(1);
+      if (!alert) {
+        return NextResponse.json(jsonrpcError(id, -32602, "Alert not found"), { headers: CORS_HEADERS });
+      }
+      const [proj] = await db.select({ id: projects.id }).from(projects).where(
+        and(eq(projects.id, alert.projectId), eq(projects.userId, user.userId))
+      ).limit(1);
+      if (!proj) {
+        return NextResponse.json(jsonrpcError(id, -32600, "Alert does not belong to your projects."), { headers: CORS_HEADERS });
+      }
+
+      await db.update(alerts).set({ aiReasoning: analysis }).where(eq(alerts.id, alertId));
     }
 
-    await db.update(alerts).set({ aiReasoning: analysis }).where(eq(alerts.id, alertId));
-
+    // For non-alert tools (ask_inari, assess_risk) — acknowledge without persistence
     return NextResponse.json(
       jsonrpc(id, {
         role: "assistant",
-        content: { type: "text", text: "Analysis stored successfully." },
+        content: { type: "text", text: alertId ? "Analysis stored successfully." : "Acknowledged." },
         model: "client-provided",
       }),
       { headers: CORS_HEADERS }

@@ -12,6 +12,7 @@
 
 import { db, aiUsageLogs } from "@/lib/db";
 import { computeCost } from "./pricing";
+import { reconcilePlatformSpend } from "./spend-guard";
 
 export type AiFeature =
   | "auto-analyze"
@@ -37,6 +38,13 @@ export interface LogAiUsageInput {
   outputTokens: number;
   cachedInputTokens?: number;
   isPlatformKey?: boolean;
+  /**
+   * Cents pre-reserved against the platform AI budget via
+   * `reservePlatformBudget()`. Used by `reconcilePlatformSpend()` after the
+   * call completes to adjust the daily counter by (actual - reserved).
+   * Pass 0 (or omit) when the caller didn't pre-reserve.
+   */
+  reservedPlatformCents?: number;
   error?: string | null;
   durationMs?: number | null;
 }
@@ -73,6 +81,21 @@ export async function logAiUsage(input: LogAiUsageInput): Promise<void> {
       error: input.error ?? null,
       durationMs: input.durationMs ?? null,
     });
+
+    // Reconcile platform spend kill-switch counter. Only when the call
+    // actually used the platform key — BYOK calls don't touch the counter.
+    //
+    // Three cases:
+    //   - Success with reservation: delta = (actual - reserved), can be ±
+    //   - Error with reservation:   delta = (0 - reserved), refunds
+    //   - Success without reserve:  delta = actual, charges full
+    if (input.isPlatformKey) {
+      const actualCents = cost > 0 ? Math.ceil(cost * 100) : 0;
+      const estCents = input.reservedPlatformCents ?? 0;
+      if (actualCents > 0 || estCents > 0) {
+        await reconcilePlatformSpend(estCents, actualCents);
+      }
+    }
   } catch (err) {
     // Never crash the feature over logging failure.
     console.error("[ai-usage-logger] Failed to log usage:", err);

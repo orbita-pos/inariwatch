@@ -28,21 +28,21 @@ const CATEGORY_MAP: Record<string, string> = {
 };
 
 const BADGE_STYLES: Record<string, string> = {
-  http: "bg-blue-900/40 text-blue-400",
-  db: "bg-purple-900/40 text-purple-400",
-  fs: "bg-emerald-900/40 text-emerald-400",
-  time: "bg-amber-900/40 text-amber-400",
-  random: "bg-amber-900/40 text-amber-400",
-  dns: "bg-cyan-900/40 text-cyan-400",
-  process: "bg-zinc-800 text-zinc-400",
-  exception: "bg-red-900/40 text-red-400",
-  marker: "bg-zinc-800 text-zinc-500",
+  http:      "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  db:        "bg-purple-500/10 text-purple-700 dark:text-purple-400",
+  fs:        "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  time:      "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  random:    "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  dns:       "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
+  process:   "bg-surface-dim text-fg-base/60",
+  exception: "bg-red-500/10 text-red-700 dark:text-red-400",
+  marker:    "bg-surface-dim text-fg-base/50",
 };
 
 const DOT_COLORS: Record<string, string> = {
   http: "bg-blue-400", db: "bg-purple-400", fs: "bg-emerald-400",
   time: "bg-amber-400", random: "bg-amber-400", dns: "bg-cyan-400",
-  process: "bg-zinc-500", exception: "bg-red-400", marker: "bg-zinc-600",
+  process: "bg-fg-base/40", exception: "bg-red-400", marker: "bg-fg-base/30",
 };
 
 function getCategory(event: RecordingEvent): string {
@@ -135,12 +135,12 @@ export function RecordingViewer(props: ViewerProps) {
         <h1 className="text-lg font-semibold text-fg-strong">
           <span className="text-inari-accent">Recording</span> Inspector
         </h1>
-        <div className="flex gap-6 mt-2 text-sm text-zinc-500 flex-wrap">
-          <span><strong className="text-zinc-300">ID:</strong> {props.recordingId}</span>
-          <span><strong className="text-zinc-300">Command:</strong> {props.command}</span>
-          <span><strong className="text-zinc-300">Runtime:</strong> {props.runtime}</span>
-          <span><strong className="text-zinc-300">Duration:</strong> {props.durationMs}ms</span>
-          <span><strong className="text-zinc-300">Events:</strong> {props.eventCount}</span>
+        <div className="flex gap-6 mt-2 text-sm text-fg-base/60 flex-wrap">
+          <span><strong className="text-fg-base">ID:</strong> {props.recordingId}</span>
+          <span><strong className="text-fg-base">Command:</strong> {props.command}</span>
+          <span><strong className="text-fg-base">Runtime:</strong> {props.runtime}</span>
+          <span><strong className="text-fg-base">Duration:</strong> {props.durationMs}ms</span>
+          <span><strong className="text-fg-base">Events:</strong> {props.eventCount}</span>
         </div>
       </div>
 
@@ -154,11 +154,13 @@ export function RecordingViewer(props: ViewerProps) {
           ]).map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
+              aria-pressed={activeTab === tab.id}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? "border-inari-accent text-inari-accent"
-                  : "border-transparent text-zinc-500 hover:text-fg-base"
+                  : "border-transparent text-fg-base/60 hover:text-fg-base"
               }`}
             >
               {tab.label}
@@ -191,16 +193,20 @@ export function RecordingViewer(props: ViewerProps) {
           className="bg-surface border border-line rounded-md px-3 py-1.5 text-sm text-fg-base w-60 focus:outline-none focus:border-inari-accent"
         />
         <button
+          type="button"
           onClick={() => setActiveCategory("all")}
-          className={`text-xs px-3 py-1 rounded-md border transition-colors ${activeCategory === "all" ? "bg-inari-accent border-inari-accent text-white" : "border-line text-zinc-500 hover:text-fg-base"}`}
+          aria-pressed={activeCategory === "all"}
+          className={`text-xs px-3 py-1 rounded-md border transition-colors ${activeCategory === "all" ? "bg-inari-accent border-inari-accent text-white" : "border-line text-fg-base/60 hover:text-fg-base"}`}
         >
           All
         </button>
         {allCategories.map((cat) => (
           <button
             key={cat}
+            type="button"
             onClick={() => setActiveCategory(cat)}
-            className={`text-xs px-3 py-1 rounded-md border transition-colors ${activeCategory === cat ? "bg-inari-accent border-inari-accent text-white" : "border-line text-zinc-500 hover:text-fg-base"}`}
+            aria-pressed={activeCategory === cat}
+            className={`text-xs px-3 py-1 rounded-md border transition-colors ${activeCategory === cat ? "bg-inari-accent border-inari-accent text-white" : "border-line text-fg-base/60 hover:text-fg-base"}`}
           >
             {cat} ({statCounts[cat] ?? 0})
           </button>
@@ -212,13 +218,13 @@ export function RecordingViewer(props: ViewerProps) {
         {Object.entries(statCounts).map(([cat, count]) => (
           <div key={cat} className="bg-surface border border-line rounded-lg px-4 py-2">
             <span className="text-xl font-bold text-fg-strong">{count}</span>
-            <span className="text-xs text-zinc-500 uppercase ml-2">{cat}</span>
+            <span className="text-xs text-fg-base/60 uppercase ml-2">{cat}</span>
           </div>
         ))}
       </div>
 
       {/* Timeline bar (hidden on session-only tab) */}
-      <div className={`relative mx-8 h-1 bg-zinc-800 rounded-full mb-4 ${activeTab === "session" ? "hidden" : ""}`}>
+      <div className={`relative mx-8 h-1 bg-surface-dim rounded-full mb-4 ${activeTab === "session" ? "hidden" : ""}`}>
         {events.map((e) => {
           const ev = e as RecordingEvent;
           const cat = getCategory(ev);
@@ -228,10 +234,13 @@ export function RecordingViewer(props: ViewerProps) {
           return (
             <div
               key={ev.seq}
-              className={`absolute w-2 h-2 rounded-full -top-0.5 cursor-pointer hover:scale-150 transition-transform ${DOT_COLORS[cat] ?? "bg-zinc-500"}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`Event #${ev.seq}: ${getSummary(ev)}`}
+              className={`absolute w-2 h-2 rounded-full -top-0.5 cursor-pointer hover:scale-150 transition-transform ${DOT_COLORS[cat] ?? "bg-fg-base/40"}`}
               style={{ left: `${Math.min(pct, 99)}%` }}
               onClick={() => setSelectedSeq(ev.seq)}
-              title={`#${ev.seq} ${getSummary(ev)}`}
+              onKeyDown={(e) => e.key === "Enter" && setSelectedSeq(ev.seq)}
             />
           );
         })}
@@ -242,7 +251,7 @@ export function RecordingViewer(props: ViewerProps) {
         {/* Event list */}
         <div className="flex-1 overflow-y-auto px-8 pb-8">
           {filteredEvents.length === 0 ? (
-            <p className="text-center text-zinc-500 py-16">No events match your filter.</p>
+            <p className="text-center text-fg-base/60 py-16">No events match your filter.</p>
           ) : (
             filteredEvents.map((e) => {
               const ev = e as RecordingEvent;
@@ -254,14 +263,14 @@ export function RecordingViewer(props: ViewerProps) {
                   onClick={() => setSelectedSeq(ev.seq)}
                   className={`flex items-start gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${isSelected ? "bg-inari-accent/10 border border-inari-accent/30" : "hover:bg-surface-inner"}`}
                 >
-                  <span className="text-xs text-zinc-600 min-w-[50px] text-right font-mono tabular-nums pt-0.5">
+                  <span className="text-xs text-fg-base/50 min-w-[50px] text-right font-mono tabular-nums pt-0.5">
                     {formatTime(ev.timestamp_ns, baseNs)}
                   </span>
-                  <span className={`text-xs px-2 py-0.5 rounded min-w-[60px] text-center font-medium ${BADGE_STYLES[cat] ?? "bg-zinc-800 text-zinc-400"}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded min-w-[60px] text-center font-medium ${BADGE_STYLES[cat] ?? "bg-surface-dim text-fg-base/60"}`}>
                     {cat}
                   </span>
                   <span className="text-sm text-fg-base flex-1 truncate">{getSummary(ev)}</span>
-                  <span className="text-xs text-zinc-600 font-mono">#{ev.seq}</span>
+                  <span className="text-xs text-fg-base/50 font-mono">#{ev.seq}</span>
                 </div>
               );
             })
@@ -275,15 +284,15 @@ export function RecordingViewer(props: ViewerProps) {
               <h3 className="text-sm font-semibold text-inari-accent">
                 #{selectedEvent.seq} — {selectedEvent.kind.type}
               </h3>
-              <button onClick={() => setSelectedSeq(null)} className="text-zinc-500 hover:text-fg-strong text-lg">
-                &times;
+              <button type="button" onClick={() => setSelectedSeq(null)} aria-label="Close detail panel" className="text-fg-base/60 hover:text-fg-strong text-lg leading-none">
+                <span aria-hidden="true">&times;</span>
               </button>
             </div>
-            <pre className="bg-zinc-950 border border-line rounded-lg p-4 text-xs text-zinc-300 overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className="bg-surface-dim border border-line rounded-lg p-4 text-xs text-fg-base overflow-x-auto whitespace-pre-wrap break-all">
               {JSON.stringify(selectedEvent.kind, null, 2)}
             </pre>
             {selectedEvent.parent_seq != null && (
-              <p className="mt-3 text-xs text-zinc-500">
+              <p className="mt-3 text-xs text-fg-base/60">
                 Parent: <button onClick={() => setSelectedSeq(selectedEvent.parent_seq!)} className="text-inari-accent hover:underline">#{selectedEvent.parent_seq}</button>
               </p>
             )}

@@ -115,35 +115,36 @@ export function PushNotificationsButton() {
   return (
     <div>
       {status === "enabled" ? (
-        <span className="inline-flex items-center gap-1.5 text-[12px] text-green-400">
-          <Check className="h-3.5 w-3.5" />
+        <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-600 dark:text-emerald-400">
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
           Push notifications enabled
         </span>
       ) : status === "denied" ? (
-        <span className="inline-flex items-center gap-1.5 text-[12px] text-zinc-500">
-          <BellOff className="h-3.5 w-3.5" />
+        <span className="inline-flex items-center gap-1.5 text-[12px] text-fg-base/60">
+          <BellOff className="h-3.5 w-3.5" aria-hidden="true" />
           Notifications blocked in browser settings
         </span>
       ) : (
         <button
+          type="button"
           onClick={handleEnable}
           disabled={status === "loading"}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:border-zinc-600 hover:text-fg-base transition-all disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line-medium bg-transparent px-3 py-1.5 text-[12px] font-medium text-fg-base/60 hover:border-fg-base/30 hover:text-fg-base transition-all disabled:opacity-40"
         >
           {status === "loading" ? (
             <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
               Enabling...
             </>
           ) : (
             <>
-              <Bell className="h-3.5 w-3.5" />
+              <Bell className="h-3.5 w-3.5" aria-hidden="true" />
               Enable push notifications
             </>
           )}
         </button>
       )}
-      {error && <p className="mt-1.5 text-[12px] text-red-400">{error}</p>}
+      {error && <p className="mt-1.5 text-[12px] text-red-600 dark:text-red-400" role="alert">{error}</p>}
     </div>
   );
 }

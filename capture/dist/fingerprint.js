@@ -15,12 +15,15 @@
 //  10. Strip version numbers (v1.2.3)
 //  11. Collapse whitespace, trim
 //  12. SHA-256 → hex string (64 chars)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let cryptoModule = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getNodeCrypto() {
     if (cryptoModule)
         return cryptoModule;
     try {
-        cryptoModule = await import("crypto");
+        const pkg = "node:crypto";
+        cryptoModule = await import(/* webpackIgnore: true */ pkg);
         return cryptoModule;
     }
     catch {

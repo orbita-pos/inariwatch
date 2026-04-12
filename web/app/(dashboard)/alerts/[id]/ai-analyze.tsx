@@ -5,15 +5,15 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { analyzeAlert } from "./ai-actions";
 
 interface Props {
-  alertId: string;
-  hasAIKey: boolean;
+  alertId:     string;
+  hasAIKey:    boolean;
   aiReasoning: string | null;
 }
 
 export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
-  const [result, setResult] = useState(aiReasoning);
-  const [error, setError] = useState("");
-  const [isPending, start] = useTransition();
+  const [result, setResult]   = useState(aiReasoning);
+  const [error, setError]     = useState("");
+  const [isPending, start]    = useTransition();
 
   const handleAnalyze = () => {
     setError("");
@@ -29,13 +29,18 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
 
   if (!hasAIKey && !result) {
     return (
-      <section className="rounded-xl border border-line bg-surface overflow-hidden">
+      <section
+        aria-labelledby="ai-analysis-heading"
+        className="rounded-xl border border-line bg-surface overflow-hidden"
+      >
         <div className="flex items-center gap-2 border-b border-line px-5 py-3">
-          <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
-          <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">AI Analysis</span>
+          <Sparkles className="h-3.5 w-3.5 text-fg-base/60" aria-hidden="true" />
+          <h2 id="ai-analysis-heading" className="text-xs font-medium uppercase tracking-wider text-fg-base/70">
+            AI Analysis
+          </h2>
         </div>
         <div className="px-5 py-5 text-center">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-fg-base">
             Add a Claude or OpenAI key in{" "}
             <a href="/settings" className="text-inari-accent hover:underline">
               Settings → AI
@@ -48,11 +53,19 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
   }
 
   return (
-    <section className="rounded-xl border border-line bg-surface overflow-hidden">
+    <section
+      aria-labelledby="ai-analysis-heading"
+      className="rounded-xl border border-line bg-surface overflow-hidden"
+    >
       <div className="flex items-center justify-between border-b border-line px-5 py-3">
         <div className="flex items-center gap-2">
-          <Sparkles className={`h-3.5 w-3.5 ${result ? "text-inari-accent" : "text-zinc-600"}`} />
-          <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">AI Analysis</span>
+          <Sparkles
+            className={`h-3.5 w-3.5 ${result ? "text-inari-accent" : "text-fg-base/60"}`}
+            aria-hidden="true"
+          />
+          <h2 id="ai-analysis-heading" className="text-xs font-medium uppercase tracking-wider text-fg-base/70">
+            AI Analysis
+          </h2>
           {result && (
             <span className="rounded-full bg-inari-accent/10 px-2 py-0.5 text-[10px] font-medium text-inari-accent">
               Ready
@@ -62,18 +75,21 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
 
         {hasAIKey && (
           <button
+            type="button"
             onClick={handleAnalyze}
             disabled={isPending}
-            className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-fg-strong hover:border-zinc-600 transition-all disabled:opacity-50"
+            aria-busy={isPending}
+            aria-describedby="ai-analysis-heading"
+            className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-fg-base hover:text-fg-strong hover:border-line hover:bg-surface transition-all disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
           >
             {isPending ? (
               <>
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                 Analyzing…
               </>
             ) : (
               <>
-                <Sparkles className="h-3 w-3" />
+                <Sparkles className="h-3 w-3" aria-hidden="true" />
                 {result ? "Re-analyze" : "Analyze"}
               </>
             )}
@@ -81,16 +97,16 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
         )}
       </div>
 
-      <div className="px-5 py-5">
+      <div className="px-5 py-5" aria-live="polite">
         {isPending && !result && (
-          <div className="flex items-center gap-2 text-sm text-zinc-600">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <div role="status" className="flex items-center gap-2 text-sm text-fg-base">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             Thinking…
           </div>
         )}
 
         {error && (
-          <p className="text-sm text-red-400 font-mono">{error}</p>
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400 font-mono">{error}</p>
         )}
 
         {result && !isPending && (
@@ -98,8 +114,8 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
         )}
 
         {!result && !isPending && !error && (
-          <p className="text-sm text-zinc-600">
-            Click "Analyze" to get AI-powered root cause analysis and remediation steps.
+          <p className="text-sm text-fg-base/70">
+            Click &ldquo;Analyze&rdquo; to get AI-powered root cause analysis and remediation steps.
           </p>
         )}
       </div>

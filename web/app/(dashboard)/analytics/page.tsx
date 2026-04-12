@@ -23,8 +23,8 @@ const SEV_DOT: Record<string, string> = {
 };
 const SEV_TEXT: Record<string, string> = {
   critical: "text-inari-accent",
-  warning:  "text-amber-400",
-  info:     "text-blue-400",
+  warning:  "text-amber-600 dark:text-amber-400",
+  info:     "text-blue-600 dark:text-blue-400",
 };
 const SEV_BAR_COLOR: Record<string, string> = {
   critical: "bg-inari-accent/70",
@@ -200,12 +200,12 @@ export default async function AnalyticsPage() {
       <div className="space-y-6">
         <PageHeader />
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line py-16 text-center">
-          <BarChart3 className="h-5 w-5 text-zinc-700" />
-          <p className="text-sm font-medium text-zinc-500">No data yet</p>
-          <p className="text-sm text-zinc-600">
+          <BarChart3 className="h-5 w-5 text-fg-base/30" aria-hidden="true" />
+          <p className="text-sm font-medium text-fg-base/60">No data yet</p>
+          <p className="text-sm text-fg-base/50">
             {!hasProjects ? (
               <>
-                <Link href="/integrations" className="text-zinc-400 underline underline-offset-2 transition-colors hover:text-fg-strong">
+                <Link href="/integrations" className="text-fg-base/60 underline underline-offset-2 transition-colors hover:text-fg-strong">
                   Connect an integration
                 </Link>{" "}
                 to start generating analytics.
@@ -242,7 +242,7 @@ export default async function AnalyticsPage() {
             {(["critical", "warning", "info"] as const).map((sev) => (
               <div key={sev} className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${SEV_DOT[sev]}`} />
-                <span className="text-xs capitalize text-zinc-500">{sev}</span>
+                <span className="text-xs capitalize text-fg-base/60">{sev}</span>
               </div>
             ))}
           </div>
@@ -259,7 +259,7 @@ export default async function AnalyticsPage() {
 
             return (
               <div key={day} className="flex flex-1 flex-col items-center gap-1">
-                <span className="text-[10px] tabular-nums text-zinc-700">
+                <span className="text-[10px] tabular-nums text-fg-base/40">
                   {total > 0 ? total : ""}
                 </span>
                 <div className="flex w-full flex-col justify-end overflow-hidden rounded-t" style={{ height: `${BAR_MAX_HEIGHT}px` }}>
@@ -270,7 +270,7 @@ export default async function AnalyticsPage() {
                   </div>
                   {barH === 0 && <div className="w-full rounded-t bg-black/[0.04] dark:bg-white/[0.03]" style={{ height: "2px" }} />}
                 </div>
-                <span className="text-[10px] whitespace-nowrap text-zinc-700">{formatShortDate(day)}</span>
+                <span className="text-[10px] whitespace-nowrap text-fg-base/40">{formatShortDate(day)}</span>
               </div>
             );
           })}
@@ -284,7 +284,7 @@ export default async function AnalyticsPage() {
         <section className="overflow-hidden rounded-xl border border-line bg-surface p-5">
           <h2 className="mb-4 text-sm font-semibold text-fg-base">By source</h2>
           {sourceRaw.length === 0 ? (
-            <p className="text-sm text-zinc-600">No source data available.</p>
+            <p className="text-sm text-fg-base/50">No source data available.</p>
           ) : (
             <div className="space-y-3">
               {sourceRaw.map((src) => {
@@ -293,7 +293,7 @@ export default async function AnalyticsPage() {
                   <div key={src.source} className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-sm capitalize text-fg-base">{src.source}</span>
-                      <span className="font-mono text-xs tabular-nums text-zinc-500">{src.count}</span>
+                      <span className="font-mono text-xs tabular-nums text-fg-base/60">{src.count}</span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.06]">
                       <div className="h-1.5 rounded-full bg-inari-accent/50" style={{ width: `${pct}%` }} />
@@ -309,7 +309,7 @@ export default async function AnalyticsPage() {
         <section className="overflow-hidden rounded-xl border border-line bg-surface p-5">
           <h2 className="mb-4 text-sm font-semibold text-fg-base">By severity</h2>
           {severityDist.length === 0 ? (
-            <p className="text-sm text-zinc-600">No severity data available.</p>
+            <p className="text-sm text-fg-base/50">No severity data available.</p>
           ) : (
             <div className="space-y-3">
               {(["critical", "warning", "info"] as const).map((sev) => {
@@ -324,8 +324,8 @@ export default async function AnalyticsPage() {
                         <span className={`text-sm capitalize ${SEV_TEXT[sev]}`}>{sev}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs tabular-nums text-zinc-500">{sevCount}</span>
-                        <span className="font-mono text-[10px] tabular-nums text-zinc-700">{pct.toFixed(0)}%</span>
+                        <span className="font-mono text-xs tabular-nums text-fg-base/60">{sevCount}</span>
+                        <span className="font-mono text-[10px] tabular-nums text-fg-base/40">{pct.toFixed(0)}%</span>
                       </div>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.06]">
@@ -348,10 +348,10 @@ export default async function AnalyticsPage() {
             <h2 className="text-sm font-semibold text-fg-base">AI Remediation</h2>
             <div className="flex items-center gap-4">
               <Link href="/analytics/ai-usage" className="text-xs text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1">
-                BYOK usage <ArrowUpRight className="h-3 w-3" />
+                BYOK usage <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
               </Link>
               <Link href="/analytics/ai" className="text-xs text-inari-accent hover:text-inari-accent/80 transition-colors flex items-center gap-1">
-                Full AI metrics <ArrowUpRight className="h-3 w-3" />
+                Full AI metrics <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
               </Link>
             </div>
           </div>
@@ -381,18 +381,18 @@ export default async function AnalyticsPage() {
         <section className="overflow-hidden rounded-xl border border-line bg-surface p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-fg-base">Response time comparison</h2>
-            <span className="text-xs text-zinc-500">last 30 days · resolved alerts</span>
+            <span className="text-xs text-fg-base/60">last 30 days · resolved alerts</span>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-line bg-surface-dim p-4 space-y-1.5">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">Human</span>
+              <span className="text-[10px] font-medium uppercase tracking-widest text-fg-base/50">Human</span>
               <div className="font-mono text-3xl font-semibold tabular-nums text-fg-strong">
                 {humanMttrSec > 0 ? formatDuration(humanMttrSec) : "—"}
               </div>
-              <div className="text-xs text-zinc-500">avg to resolve manually</div>
+              <div className="text-xs text-fg-base/60">avg to resolve manually</div>
               {humanMttrCount > 0 && (
-                <div className="text-[11px] text-zinc-700">{humanMttrCount} alert{humanMttrCount !== 1 ? "s" : ""}</div>
+                <div className="text-[11px] text-fg-base/40">{humanMttrCount} alert{humanMttrCount !== 1 ? "s" : ""}</div>
               )}
             </div>
 
@@ -401,16 +401,16 @@ export default async function AnalyticsPage() {
               <div className="font-mono text-3xl font-semibold tabular-nums text-violet-700 dark:text-violet-300">
                 {aiMttrSec > 0 ? formatDuration(aiMttrSec) : "—"}
               </div>
-              <div className="text-xs text-zinc-500">avg with AI remediation</div>
+              <div className="text-xs text-fg-base/60">avg with AI remediation</div>
               {aiMttrCount > 0 && (
-                <div className="text-[11px] text-zinc-700">{aiMttrCount} alert{aiMttrCount !== 1 ? "s" : ""}</div>
+                <div className="text-[11px] text-fg-base/40">{aiMttrCount} alert{aiMttrCount !== 1 ? "s" : ""}</div>
               )}
             </div>
           </div>
 
           {speedupFactor !== null && speedupFactor >= 2 && (
             <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 dark:border-violet-500/10 dark:bg-violet-950/20 px-4 py-2.5">
-              <Zap className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" />
+              <Zap className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden="true" />
               <span className="text-sm text-violet-700 dark:text-violet-300">
                 AI resolves incidents{" "}
                 <span className="font-semibold">{speedupFactor}× faster</span>{" "}
@@ -422,10 +422,10 @@ export default async function AnalyticsPage() {
           {costSaved > 0 && (
             <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 dark:border-green-500/10 dark:bg-green-950/20 px-4 py-2.5">
               <div className="flex items-center gap-2.5">
-                <DollarSign className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                <DollarSign className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" aria-hidden="true" />
                 <span className="text-sm text-green-700 dark:text-green-300">
                   Estimated engineering cost saved{" "}
-                  <span className="text-[11px] text-zinc-600">· @${ENGINEER_RATE_PER_HOUR}/hr · last 30 days</span>
+                  <span className="text-[11px] text-fg-base/50">· @${ENGINEER_RATE_PER_HOUR}/hr · last 30 days</span>
                 </span>
               </div>
               <span className="font-mono text-sm font-semibold tabular-nums text-green-600 dark:text-green-400">
@@ -446,13 +446,13 @@ function PageHeader() {
     <div className="flex items-start justify-between gap-4">
       <div>
         <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Analytics</h1>
-        <p className="mt-1 text-sm text-zinc-500">Alert trends over the last 14 days</p>
+        <p className="mt-1 text-sm text-fg-base/60">Alert trends over the last 14 days</p>
       </div>
       <Link
         href="/alerts"
-        className="flex shrink-0 items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-fg-base"
+        className="flex shrink-0 items-center gap-1 text-xs text-fg-base/60 transition-colors hover:text-fg-base"
       >
-        View alerts <ArrowUpRight className="h-3.5 w-3.5" />
+        View alerts <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
       </Link>
     </div>
   );
@@ -470,9 +470,9 @@ function MiniStat({ label, value, sub, accent }: { label: string; value: string;
   const valColor = accent === "good" ? "text-green-600 dark:text-green-400" : accent === "warn" ? "text-amber-600 dark:text-amber-400" : "text-fg-strong";
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">{label}</span>
+      <span className="text-[10px] font-medium uppercase tracking-widest text-fg-base/50">{label}</span>
       <span className={`font-mono text-2xl font-semibold tabular-nums ${valColor}`}>{value}</span>
-      <span className="text-[11px] text-zinc-600">{sub}</span>
+      <span className="text-[11px] text-fg-base/50">{sub}</span>
     </div>
   );
 }
@@ -490,25 +490,25 @@ function StatCard({
 }) {
   const numColor =
     accent === "critical" ? "text-inari-accent" :
-    accent === "warning"  ? "text-amber-400" :
-    accent === "good"     ? "text-green-400" :
+    accent === "warning"  ? "text-amber-600 dark:text-amber-400" :
+    accent === "good"     ? "text-green-600 dark:text-green-400" :
     "text-fg-strong";
   const borderColor =
     accent === "critical" ? "border-inari-accent/20" :
-    accent === "warning"  ? "border-amber-200 dark:border-amber-900/40" :
-    accent === "good"     ? "border-green-200 dark:border-green-900/40" :
+    accent === "warning"  ? "border-amber-500/20" :
+    accent === "good"     ? "border-green-500/20" :
     "border-line";
   const bg =
     accent === "critical" ? "bg-inari-accent-dim" :
-    accent === "warning"  ? "bg-amber-50 dark:bg-amber-950/20" :
-    accent === "good"     ? "bg-green-50 dark:bg-green-950/20" :
+    accent === "warning"  ? "bg-amber-500/5" :
+    accent === "good"     ? "bg-green-500/5" :
     "bg-surface";
 
   return (
     <div className={`flex flex-col gap-1.5 rounded-xl border ${borderColor} ${bg} px-4 py-4`}>
-      <span className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-widest text-fg-base/60">{label}</span>
       <span className={`font-mono text-3xl font-semibold leading-none tabular-nums ${numColor}`}>{value}</span>
-      <span className="text-xs text-zinc-600">{description}</span>
+      <span className="text-xs text-fg-base/50">{description}</span>
     </div>
   );
 }

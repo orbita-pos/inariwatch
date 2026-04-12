@@ -60,9 +60,26 @@ function isBlockedWrite(path: string): boolean {
 // ── Command Safety ──────────────────────────────────────────────────────────
 
 const ALLOWED_COMMANDS = [
-  "npm", "npx", "node", "tsc", "git", "cat", "ls", "grep", "find",
-  "mkdir", "cp", "head", "tail", "wc", "diff", "echo", "pwd", "which",
-  "pnpm", "yarn", "bun",
+  // Unix basics
+  "cat", "ls", "grep", "find", "mkdir", "cp", "head", "tail", "wc", "diff",
+  "echo", "pwd", "which", "env", "test", "true", "false",
+  // Version control
+  "git",
+  // Node.js ecosystem
+  "npm", "npx", "node", "tsc", "pnpm", "yarn", "bun", "deno", "tsx",
+  // Python ecosystem
+  "python", "python3", "pip", "pip3", "poetry", "uv", "pipenv",
+  "pytest", "mypy", "ruff", "black", "flake8",
+  // Go ecosystem
+  "go", "gofmt", "golangci-lint",
+  // Rust ecosystem
+  "cargo", "rustc", "rustfmt", "clippy-driver",
+  // Java ecosystem
+  "java", "javac", "mvn", "gradle", "./gradlew", "./mvnw",
+  // Ruby ecosystem
+  "ruby", "bundle", "rake", "rspec",
+  // Build systems
+  "make", "cmake", "ninja",
 ];
 
 const BLOCKED_PATTERNS = [
@@ -162,18 +179,18 @@ const CONTAINER_TOOLS: ToolDefinition[] = [
   },
   {
     name: "run_command",
-    description: "Run a shell command in the repo directory. Use for verification: 'npx tsc --noEmit', 'npm run build', 'npm test'. ALWAYS verify your fix compiles before calling submit_fix.",
+    description: "Run a shell command in the repo directory. Use for verification — pick the right tool for the project's language: 'npx tsc --noEmit' and 'npm run build' for TS/JS, 'pytest' or 'python -m mypy' for Python, 'go build ./...' and 'go test ./...' for Go, 'cargo check' and 'cargo test' for Rust, 'mvn verify' or './gradlew build' for Java. ALWAYS verify your fix compiles/passes before calling submit_fix.",
     input_schema: {
       type: "object",
       properties: {
-        command: { type: "string", description: "Shell command to run (e.g. 'npx tsc --noEmit', 'npm run build')" },
+        command: { type: "string", description: "Shell command to run. Examples: 'npx tsc --noEmit', 'pytest tests/', 'go build ./...', 'cargo check', 'mvn verify'" },
       },
       required: ["command"],
     },
   },
   {
     name: "submit_fix",
-    description: "Signal that the fix is complete and verified. ONLY call this AFTER npx tsc --noEmit and npm run build pass successfully. List every file you modified.",
+    description: "Signal that the fix is complete and verified. ONLY call this AFTER the project's compile/build step passed (tsc/build for Node, go build for Go, cargo check for Rust, pytest/mypy for Python, mvn/gradle for Java). List every file you modified.",
     input_schema: {
       type: "object",
       properties: {
@@ -430,27 +447,33 @@ You have tools to explore, modify, and VERIFY code:
 - search_code: Search for patterns using grep
 - list_directory: List directory contents
 - write_file: Write/modify files (apply your fix)
-- run_command: Run shell commands (tsc, build, test)
+- run_command: Run shell commands (compile, build, test)
 - submit_fix: Signal completion (ONLY after verification)
 
 WORKFLOW:
-1. Read the file(s) mentioned in the error/stack trace
-2. Check imports to understand what libraries the project uses
-3. Read package.json if you need to know the tech stack
-4. Apply your fix using write_file with COMPLETE file contents
-5. VERIFY: run_command "npx tsc --noEmit" — MUST pass
-6. VERIFY: run_command "npm run build" — MUST pass (if applicable)
-7. OPTIONAL: run_command "npm test" — non-blocking
-8. If tsc or build FAILS, read the error, fix it with write_file, and re-verify
-9. When ALL checks pass, call submit_fix with the list of files you changed
+1. Identify the project's language/stack — check for package.json (Node), requirements.txt/pyproject.toml (Python), go.mod (Go), Cargo.toml (Rust), pom.xml/build.gradle (Java). Use list_directory or read_file at the repo root.
+2. Read the file(s) mentioned in the error/stack trace.
+3. Check imports to understand what libraries the project uses.
+4. Apply your fix using write_file with COMPLETE file contents.
+5. VERIFY with the right command for the project's language:
+   - TypeScript: "npx tsc --noEmit" MUST pass
+   - JavaScript: "npm run build --if-present"
+   - Python: "python -m mypy ." (if configured) or "python -m compileall ."
+   - Go: "go build ./..." MUST succeed
+   - Rust: "cargo check" MUST succeed
+   - Java: "mvn compile" or "./gradlew build"
+6. VERIFY build (if the project has a build step): "npm run build", "go build", "cargo build", "mvn package", "./gradlew build".
+7. OPTIONAL tests (non-blocking): "npm test", "pytest", "go test ./...", "cargo test", "mvn test".
+8. If verification FAILS, read the error, fix it with write_file, and re-verify.
+9. When verification passes, call submit_fix with the list of files you changed.
 
 CRITICAL RULES:
-- NEVER call submit_fix before tsc passes
-- Use the same libraries and APIs the project already uses (check imports)
-- If the project uses an ORM (Drizzle, Prisma), use its query builder — never raw SQL
-- Make MINIMUM changes to fix the bug — do not refactor unrelated code
-- Never modify .env files, lock files, migrations, or CI workflows
-- If tsc fails, DO NOT give up — read the error message and fix the issue
+- NEVER call submit_fix before the language-appropriate compile/type-check step passes.
+- Use the same libraries and APIs the project already uses (check imports).
+- If the project uses an ORM, use its query builder — never raw SQL with user input.
+- Make MINIMUM changes to fix the bug — do not refactor unrelated code.
+- Never modify .env files, lock files, migrations, or CI workflows.
+- If verification fails, DO NOT give up — read the error message and fix the issue.
 
 Respond ONLY with tool calls. Do not output free text.`;
 }
@@ -466,9 +489,16 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
     { role: "user", content: errorContext },
   ];
 
-  let tscPassed = false;
+  // Verification flags — compile-check, build, and tests. Each is set when a
+  // run_command matching the respective pattern succeeds (exit code 0).
+  // Patterns cover TypeScript/JavaScript, Python, Go, Rust, Java.
+  let compilePassed = false;
   let buildPassed = false;
   let testsPassed = false;
+
+  const COMPILE_CHECK_RE = /\btsc\b|\bmypy\b|\bpython\s+-m\s+compileall\b|\bgo\s+build\b|\bcargo\s+check\b|\bmvn\s+compile\b|\bgradlew\s+(build|compile)/;
+  const BUILD_RE = /\bnpm\s+run\s+build\b|\bpnpm\s+build\b|\byarn\s+build\b|\bbun\s+run\s+build\b|\bnext\s+build\b|\bvite\s+build\b|\bcargo\s+build\b|\bgo\s+build\b|\bmvn\s+(package|install)\b|\bgradlew\s+assemble\b/;
+  const TEST_RE = /\bnpm\s+test\b|\bpnpm\s+test\b|\byarn\s+test\b|\bpytest\b|\bmvn\s+test\b|\bgradlew\s+test\b|\bgo\s+test\b|\bcargo\s+test\b|\brspec\b|\bvitest\b|\bjest\b/;
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("container_turn", { turn, maxTurns: MAX_TURNS });
@@ -515,10 +545,10 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
         if (toolUse.name === "run_command") {
           const cmd = (toolUse.input as { command: string }).command;
           const exitCode = result.match(/^Exit code: (\d+)/)?.[1];
-          if (cmd.includes("tsc") && exitCode === "0") tscPassed = true;
-          if (cmd.includes("tsc") && exitCode !== "0") tscPassed = false;
-          if (cmd.includes("build") && exitCode === "0") buildPassed = true;
-          if (cmd.includes("test") && exitCode === "0") testsPassed = true;
+          const passed = exitCode === "0";
+          if (COMPILE_CHECK_RE.test(cmd)) compilePassed = passed;
+          if (BUILD_RE.test(cmd) && passed) buildPassed = true;
+          if (TEST_RE.test(cmd) && passed) testsPassed = true;
 
           emit("container_exec", {
             turn, command: cmd, exitCode: parseInt(exitCode ?? "-1"),
@@ -547,7 +577,7 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
           emit("container_done", {
             turns: turn,
             files: files.map((f) => f.path),
-            verified: tscPassed,
+            verified: compilePassed,
             testsPassed,
           });
 
@@ -555,7 +585,7 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
             explanation: submission.explanation,
             files,
             turns: turn,
-            verified: tscPassed && buildPassed,
+            verified: compilePassed && buildPassed,
             testsPassed,
           };
         }

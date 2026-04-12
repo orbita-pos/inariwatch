@@ -1,6 +1,7 @@
 /**
  * Diagnosis service — AI root cause analysis.
- * Used by: MCP get_root_cause, dashboard ai-actions.
+ * Used by: dashboard ai-actions (callAI server-side).
+ * MCP get_root_cause imports prompts only (DIAGNOSIS_PROMPT, buildAnalyzePrompt) for sampling.
  * Source of truth for prompt + analysis logic.
  */
 

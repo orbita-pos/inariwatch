@@ -1,7 +1,5 @@
-import { db, alerts, substrateRecordings, apiKeys } from "@/lib/db";
+import { db, alerts, substrateRecordings } from "@/lib/db";
 import { eq } from "drizzle-orm";
-import { decrypt } from "@/lib/crypto";
-import { callAI } from "@/lib/ai/client";
 import type { McpUser } from "../auth";
 import { userCanAccessProject } from "../helpers";
 
@@ -48,49 +46,26 @@ export async function execute(
     }, null, 2);
   }
 
-  // Get AI key
-  const AI_SERVICES = ["claude", "openai", "grok", "deepseek", "gemini"];
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.userId, user.userId));
-  const aiKey = keys.find((k) => AI_SERVICES.includes(k.service));
-
-  if (!aiKey) {
-    return JSON.stringify({
-      alert_id: alertId,
-      recording_events: recording.eventCount,
-      fix_description: fixDescription,
-      _sampling_request: {
-        description: "No AI key configured. Use your client LLM to simulate this fix.",
-        systemPrompt: SIMULATION_PROMPT,
-        messages: [{
-          role: "user",
-          content: {
-            type: "text",
-            text: `Alert: ${alert.title}\nSeverity: ${alert.severity}\n\nI/O Recording (${recording.eventCount} events):\n${recording.context ?? JSON.stringify(recording.events ?? []).slice(0, 3000)}\n\nProposed fix:\n${fixDescription}`,
-          },
-        }],
-        maxTokens: 2000,
-      },
-    }, null, 2);
-  }
-
-  const decryptedKey = decrypt(aiKey.keyEncrypted);
   const recordingContext = recording.context ?? JSON.stringify(recording.events ?? []).slice(0, 4000);
 
-  try {
-    const result = await callAI(decryptedKey, SIMULATION_PROMPT, [{
-      role: "user",
-      content: `Alert: ${alert.title}\nSeverity: ${alert.severity}\nStack: ${(alert.body ?? "").slice(0, 1000)}\n\nI/O Recording (${recording.eventCount} events, ${recording.durationMs}ms):\n${recordingContext}\n\nProposed fix:\n${fixDescription}`,
-    }]);
-
-    return JSON.stringify({
-      alert_id: alertId,
-      title: alert.title,
-      recording_events: recording.eventCount,
-      fix_description: fixDescription,
-      simulation: result,
-      source: "ai",
-    }, null, 2);
-  } catch (e) {
-    return `Error running simulation: ${e instanceof Error ? e.message : "unknown"}`;
-  }
+  // Sampling-first: let the client LLM simulate the fix
+  return JSON.stringify({
+    alert_id: alertId,
+    title: alert.title,
+    recording_events: recording.eventCount,
+    fix_description: fixDescription,
+    _sampling_request: {
+      description: "Simulate whether this fix resolves the bug using the I/O recording below.",
+      systemPrompt: SIMULATION_PROMPT,
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: `Alert: ${alert.title}\nSeverity: ${alert.severity}\nStack: ${(alert.body ?? "").slice(0, 1000)}\n\nI/O Recording (${recording.eventCount} events, ${recording.durationMs}ms):\n${recordingContext}\n\nProposed fix:\n${fixDescription}`,
+        },
+      }],
+      context: { alert_id: alertId, tool: "simulate_fix" },
+      maxTokens: 2000,
+    },
+  }, null, 2);
 }

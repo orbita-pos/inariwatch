@@ -10,13 +10,13 @@ const CAT_COLORS: Record<string, string> = {
   build_error:   "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   ci_error:      "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   infrastructure:"bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  unknown:       "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  unknown:       "bg-surface-dim text-fg-base/60",
 };
 
 function rateColor(rate: number) {
-  if (rate >= 70) return "text-emerald-500";
-  if (rate >= 40) return "text-amber-400";
-  return "text-zinc-400";
+  if (rate >= 70) return "text-emerald-600 dark:text-emerald-400";
+  if (rate >= 40) return "text-amber-600 dark:text-amber-400";
+  return "text-fg-base/50";
 }
 
 export default async function FleetPage() {

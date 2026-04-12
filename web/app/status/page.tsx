@@ -6,9 +6,27 @@ import {
 import { eq, desc, gte, and, ne, inArray, sql } from "drizzle-orm";
 import type { Metadata } from "next";
 
+const PAGE_TITLE       = "InariWatch Status";
+const PAGE_DESCRIPTION = "Real-time operational status of the InariWatch platform — dashboard, MCP server, webhook ingestion, AI engine, bots, notifications, and cron jobs.";
+const PAGE_URL         = "https://inariwatch.com/status";
+
 export const metadata: Metadata = {
-  title: "InariWatch Status",
-  description: "Real-time operational status of the InariWatch platform.",
+  title:       PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates:  { canonical: PAGE_URL },
+  openGraph: {
+    type:        "website",
+    url:         PAGE_URL,
+    siteName:    "InariWatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+  },
+  twitter: {
+    card:        "summary_large_image",
+    site:        "@inariwatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+  },
 };
 
 export const revalidate = 60;
@@ -209,18 +227,25 @@ export default async function StatusPage() {
       <main className="mx-auto max-w-[760px] px-5 py-10">
         {/* Overall status */}
         <div className="mb-10">
-          <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-3"
+            role="status"
+            aria-live="polite"
+            aria-label={
+              overallStatus === "operational" ? "All systems operational"
+              : overallStatus === "degraded" ? "Degraded performance"
+              : "Partial system outage"
+            }
+          >
             <div
               className="h-2.5 w-2.5 rounded-full"
               style={{
-                backgroundColor: overallStatus === "operational" ? "#76AD2A"
-                  : overallStatus === "degraded" ? "#FAA72A" : "#E04343",
+                backgroundColor: overallStatus === "operational" ? "#5E8B1F"
+                  : overallStatus === "degraded" ? "#C77700" : "#C23535",
               }}
+              aria-hidden="true"
             />
-            <h1 className="text-[28px] font-semibold" style={{
-              color: overallStatus === "operational" ? "#76AD2A"
-                : overallStatus === "degraded" ? "#FAA72A" : "#E04343",
-            }}>
+            <h1 className="text-[28px] font-semibold" style={{ color: "#141413" }}>
               {overallStatus === "operational" ? "All Systems Operational"
                 : overallStatus === "degraded" ? "Degraded Performance" : "Partial System Outage"}
             </h1>
@@ -250,11 +275,11 @@ export default async function StatusPage() {
                     <div className="space-y-3">
                       {updates.slice(0, 4).map((update) => (
                         <div key={update.id}>
-                          <p className="text-xs font-semibold" style={{ color: INCIDENT_COLORS[update.status] ?? "#87867F" }}>
+                          <p className="text-xs font-semibold" style={{ color: INCIDENT_COLORS[update.status] ?? "#6B6A62" }}>
                             {INCIDENT_LABELS[update.status] ?? update.status}
                           </p>
-                          <p className="text-xs mt-0.5" style={{ color: "#87867F" }}>{update.message}</p>
-                          <p className="text-[10px] mt-0.5" style={{ color: "#B0AFA8" }}>
+                          <p className="text-xs mt-0.5" style={{ color: "#6B6A62" }}>{update.message}</p>
+                          <p className="text-[10px] mt-0.5" style={{ color: "#8F8D85" }}>
                             {update.createdAt.toLocaleString("en-US", {
                               month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                             })}
@@ -281,13 +306,19 @@ export default async function StatusPage() {
                     {service.name}
                   </span>
                 </div>
-                <span className="text-sm" style={{ color: "#76AD2A" }}>
+                <span className="text-sm" style={{ color: "#5E8B1F" }}>
                   Operational
                 </span>
               </div>
 
               {/* 90-day uptime bar */}
-              <div className="flex items-center gap-[1.5px]">
+              <div
+                className="flex items-center gap-[1.5px]"
+                role="img"
+                aria-label={`${service.name} — 90 day uptime history${
+                  aggregateUptime !== null ? `, ${aggregateUptime.toFixed(2)}% overall` : ""
+                }`}
+              >
                 {aggregateBars.map((day, j) => (
                   <div
                     key={j}
@@ -306,15 +337,16 @@ export default async function StatusPage() {
                       : day.status === "degraded" ? "Partial issues"
                       : "Outage"
                     }`}
+                    aria-hidden="true"
                   />
                 ))}
               </div>
               <div className="flex items-center justify-between mt-1.5">
-                <span className="text-[11px]" style={{ color: "#B0AFA8" }}>90 days ago</span>
-                <span className="text-[11px]" style={{ color: "#B0AFA8" }}>
+                <span className="text-[11px]" style={{ color: "#8F8D85" }}>90 days ago</span>
+                <span className="text-[11px]" style={{ color: "#8F8D85" }}>
                   {aggregateUptime !== null ? `${aggregateUptime.toFixed(2)} % uptime` : ""}
                 </span>
-                <span className="text-[11px]" style={{ color: "#B0AFA8" }}>Today</span>
+                <span className="text-[11px]" style={{ color: "#8F8D85" }}>Today</span>
               </div>
             </div>
           ))}
@@ -328,7 +360,7 @@ export default async function StatusPage() {
 
           {pastByDate.size === 0 && activeIncidents.length === 0 ? (
             <div className="py-4">
-              <p className="text-sm" style={{ color: "#87867F" }}>
+              <p className="text-sm" style={{ color: "#6B6A62" }}>
                 No incidents reported in the past 7 days.
               </p>
             </div>
@@ -353,20 +385,20 @@ export default async function StatusPage() {
                       <div className="space-y-2.5">
                         {updates.map((update) => (
                           <div key={update.id}>
-                            <p className="text-xs font-semibold" style={{ color: INCIDENT_COLORS[update.status] ?? "#87867F" }}>
+                            <p className="text-xs font-semibold" style={{ color: INCIDENT_COLORS[update.status] ?? "#6B6A62" }}>
                               {INCIDENT_LABELS[update.status] ?? update.status}
                               {" "}
-                              <span className="font-normal" style={{ color: "#B0AFA8" }}>
+                              <span className="font-normal" style={{ color: "#8F8D85" }}>
                                 - {update.createdAt.toLocaleString("en-US", {
                                   month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                                 })}
                               </span>
                             </p>
-                            <p className="text-xs mt-0.5" style={{ color: "#87867F" }}>{update.message}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#6B6A62" }}>{update.message}</p>
                           </div>
                         ))}
                         {updates.length === 0 && (
-                          <p className="text-xs" style={{ color: "#87867F" }}>
+                          <p className="text-xs" style={{ color: "#6B6A62" }}>
                             Resolved — {incident.resolvedAt?.toLocaleString("en-US", {
                               month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                             })}
@@ -392,12 +424,10 @@ export default async function StatusPage() {
                 <Link
                   key={p.slug}
                   href={`/status/${p.slug}`}
-                  className="flex items-center justify-between py-2.5 px-3 rounded-md transition-colors"
-                  style={{ backgroundColor: "transparent" }}
-                  onMouseEnter={undefined}
+                  className="flex items-center justify-between py-2.5 px-3 rounded-md transition-colors hover:bg-black/[0.03]"
                 >
                   <span className="text-sm" style={{ color: "#141413" }}>{p.title}</span>
-                  <span className="text-xs" style={{ color: "#87867F" }}>&rarr;</span>
+                  <span className="text-xs" style={{ color: "#6B6A62" }} aria-hidden="true">&rarr;</span>
                 </Link>
               ))}
             </div>
@@ -408,17 +438,17 @@ export default async function StatusPage() {
       {/* Footer */}
       <footer className="mt-6" style={{ borderTop: "1px solid #DEDCD1" }}>
         <div className="mx-auto max-w-[760px] px-5 py-8 flex items-center justify-between">
-          <span className="text-xs" style={{ color: "#B0AFA8" }}>
+          <span className="text-xs" style={{ color: "#8F8D85" }}>
             Powered by InariWatch
           </span>
           <div className="flex items-center gap-5">
-            <Link href="/" className="text-xs transition-colors" style={{ color: "#87867F" }}>
+            <Link href="/" className="text-xs transition-colors" style={{ color: "#6B6A62" }}>
               Home
             </Link>
-            <Link href="/trust" className="text-xs transition-colors" style={{ color: "#87867F" }}>
+            <Link href="/trust" className="text-xs transition-colors" style={{ color: "#6B6A62" }}>
               Trust
             </Link>
-            <Link href="/docs" className="text-xs transition-colors" style={{ color: "#87867F" }}>
+            <Link href="/docs" className="text-xs transition-colors" style={{ color: "#6B6A62" }}>
               Docs
             </Link>
           </div>

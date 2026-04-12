@@ -20,17 +20,28 @@ import {
   Info,
 } from "lucide-react";
 
+const PAGE_TITLE       = "Docs — InariWatch";
+const PAGE_DESCRIPTION = "Documentation for InariWatch — CLI, integrations, AI providers, MCP server, Slack and Telegram bots, and the web dashboard.";
+const PAGE_URL         = "https://inariwatch.com/docs";
+
 export const metadata: Metadata = {
-  title: "Docs — InariWatch",
-  description: "Documentation for InariWatch — CLI, integrations, AI setup, and the web dashboard.",
-  alternates: { canonical: "https://inariwatch.com/docs" },
+  title:       PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates:  { canonical: PAGE_URL },
   openGraph: {
-    title: "Docs — InariWatch",
-    description: "Documentation for InariWatch — CLI, integrations, AI setup, and the web dashboard.",
-    url: "https://inariwatch.com/docs",
-    images: [{ url: "/demo-poster.png", width: 1200, height: 630, alt: "InariWatch docs" }],
+    type:        "website",
+    url:         PAGE_URL,
+    siteName:    "InariWatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
   },
-  twitter: { card: "summary_large_image", title: "Docs — InariWatch", images: ["/demo-poster.png"] },
+  twitter: {
+    card:        "summary_large_image",
+    site:        "@inariwatch",
+    title:       PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+  },
 };
 
 // ── Sidebar nav config ─────────────────────────────────────────────────────────
@@ -51,7 +62,7 @@ const NAV = [
       { id: "cli-config",     label: "Configuration" },
       { id: "cli-daemon",     label: "Daemon" },
       { id: "cli-autofix",    label: "Auto-fix" },
-      { id: "cli-mcp",        label: "MCP Server" },
+      { id: "cli-mcp",        label: "MCP Server (deprecated)" },
       { id: "cli-rollback",   label: "Rollback" },
       { id: "cli-dev",        label: "Dev Mode" },
       { id: "cli-cron",       label: "Cron Scheduler" },
@@ -62,6 +73,9 @@ const NAV = [
     items: [
       { id: "int-github",    label: "GitHub" },
       { id: "int-vercel",    label: "Vercel" },
+      { id: "int-netlify",   label: "Netlify" },
+      { id: "int-cloudflare-pages", label: "Cloudflare Pages" },
+      { id: "int-render",    label: "Render" },
       { id: "int-sentry",    label: "Sentry" },
       { id: "int-datadog",   label: "Datadog" },
       { id: "int-expo",      label: "Expo" },
@@ -92,7 +106,6 @@ const NAV = [
       { id: "auto-heal",       label: "Auto-Heal" },
       { id: "staging-env",     label: "Staging Env Vars" },
       { id: "community-fixes", label: "Community Fixes" },
-      { id: "analytics-mttr",  label: "MTTR comparison" },
     ],
   },
   {
@@ -112,7 +125,7 @@ const NAV = [
     items: [
       { id: "telegram-setup",    label: "Setup" },
       { id: "telegram-commands", label: "Commands (15)" },
-      { id: "telegram-actions",  label: "Button actions (11)" },
+      { id: "telegram-actions",  label: "Button actions (10)" },
       { id: "telegram-auto",     label: "Auto-delivery" },
     ],
   },
@@ -233,21 +246,21 @@ function P({ children }: { children: React.ReactNode }) {
 
 function CodeBlock({ children, label }: { children: string; label?: string }) {
   return (
-    <div className="my-4 overflow-hidden rounded-lg border border-line bg-zinc-100 dark:bg-zinc-950">
+    <div className="my-4 overflow-hidden rounded-lg border border-line bg-surface-inner">
       {label && (
         <div className="border-b border-line px-4 py-2 flex items-center justify-between">
-          <span className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider">{label}</span>
+          <span className="font-mono text-[11px] text-fg-base/70 uppercase tracking-wider">{label}</span>
           <CopyButton text={children.trim()} />
         </div>
       )}
-      <pre className="overflow-x-auto p-4 font-mono text-sm text-zinc-700 dark:text-zinc-300 leading-6 whitespace-pre">{children.trim()}</pre>
+      <pre className="overflow-x-auto p-4 font-mono text-sm text-fg-strong leading-6 whitespace-pre">{children.trim()}</pre>
     </div>
   );
 }
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:text-zinc-200">
+    <code className="rounded bg-surface-inner border border-line-subtle px-1.5 py-0.5 font-mono text-xs text-fg-strong">
       {children}
     </code>
   );
@@ -296,7 +309,7 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
         <thead>
           <tr className="border-b border-line bg-surface-inner">
             {head.map((h) => (
-              <th key={h} className="px-4 py-2.5 text-left font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wider">
+              <th key={h} className="px-4 py-2.5 text-left font-medium text-fg-base/70 text-xs uppercase tracking-wider">
                 {h}
               </th>
             ))}
@@ -306,7 +319,7 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
           {rows.map((row, i) => (
             <tr key={i} className={i % 2 === 0 ? "bg-surface" : "bg-surface-inner/40"}>
               {row.map((cell, j) => (
-                <td key={j} className="px-4 py-2.5 text-zinc-600 dark:text-zinc-400 font-mono text-xs">
+                <td key={j} className="px-4 py-2.5 text-fg-base font-mono text-xs">
                   {cell}
                 </td>
               ))}
@@ -327,12 +340,12 @@ export default function DocsPage() {
         .docs-sidebar::-webkit-scrollbar { width: 3px; }
         .docs-sidebar::-webkit-scrollbar-track { background: transparent; }
         .docs-sidebar::-webkit-scrollbar-thumb {
-          background: rgba(124,58,237,0.25);
+          background: rgba(234,88,12,0.25);
           border-radius: 9999px;
           transition: background 0.2s;
         }
-        .docs-sidebar:hover::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.55); }
-        .docs-sidebar { scrollbar-width: thin; scrollbar-color: rgba(124,58,237,0.25) transparent; }
+        .docs-sidebar:hover::-webkit-scrollbar-thumb { background: rgba(234,88,12,0.55); }
+        .docs-sidebar { scrollbar-width: thin; scrollbar-color: rgba(234,88,12,0.25) transparent; }
       `}</style>
       <MarketingNav opaque />
 
@@ -344,7 +357,7 @@ export default function DocsPage() {
             <div className="py-6 space-y-6">
               {NAV.map((section) => (
                 <div key={section.group}>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-fg-base/80">
                     {section.group}
                   </p>
                   <ul className="space-y-0.5">
@@ -352,9 +365,9 @@ export default function DocsPage() {
                       <li key={item.id}>
                         <a
                           href={`#${item.id}`}
-                          className="flex items-center gap-1.5 rounded px-2 py-1 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-fg-base"
+                          className="flex items-center gap-1.5 rounded px-2 py-1 text-sm text-fg-base/70 transition-colors hover:bg-surface-inner hover:text-fg-strong"
                         >
-                          <ChevronRight className="h-3 w-3 shrink-0 opacity-40" />
+                          <ChevronRight className="h-3 w-3 shrink-0 opacity-40" aria-hidden="true" />
                           {item.label}
                         </a>
                       </li>
@@ -475,7 +488,6 @@ cargo build --release
                 ["inariwatch daemon start|stop|status",     "Control the background daemon"],
                 ["inariwatch daemon uninstall",             "Remove the background service"],
                 ["inariwatch agent-stats",                  "Show AI agent track record, trust level, and auto-merge gates"],
-                ["inariwatch serve-mcp",                    "Start an MCP server over stdio (Claude Code, Cursor, etc.)"],
                 ["inariwatch rollback vercel",              "Interactive rollback — pick a previous deployment to restore"],
                 ["inariwatch dev",                          "Local dev mode — catch errors, diagnose with AI, apply fixes to local files"],
               ]}
@@ -584,54 +596,18 @@ inariwatch config --auto-merge true  # also merge PRs when all safety gates pass
             />
 
             {/* ────────────────────────────────────────────────────────────────
-                CLI MCP SERVER
+                CLI MCP SERVER — deprecated, redirect to hosted
             ──────────────────────────────────────────────────────────────── */}
 
             <SectionHeading id="cli-mcp">CLI — MCP Server</SectionHeading>
-            <P>
-              InariWatch exposes an <strong>MCP (Model Context Protocol) server</strong> that gives your AI editor direct access
-              to your alerts, integrations, and infrastructure actions — without leaving your code.
-              Works with <strong>Claude Code</strong>, <strong>Cursor</strong>, <strong>Windsurf</strong>, <strong>VS Code</strong>, and any MCP-compatible client.
-            </P>
-            <P>
-              The MCP server has two tiers of tools: <strong>read tools</strong> to query alerts and run checks,
-              and <strong>action tools</strong> that let the AI autonomously fix issues, roll back deploys, and silence alerts.
-            </P>
-
-            <SubHeading id="cli-mcp-connect">Connecting to your editor</SubHeading>
-            <P>Add InariWatch to your <InlineCode>.mcp.json</InlineCode> (project-level) or your editor&apos;s global MCP config:</P>
-            <CodeBlock label=".mcp.json">{`{
-  "mcpServers": {
-    "inariwatch": {
-      "command": "inariwatch",
-      "args": ["serve-mcp"]
-    }
-  }
-}`}</CodeBlock>
-            <P>
-              For <strong>Cursor</strong>: Settings → MCP → Add server → paste the config above.<br />
-              For <strong>Claude Code</strong>: save as <InlineCode>.mcp.json</InlineCode> in your project root or <InlineCode>~/.claude/settings.json</InlineCode> globally.<br />
-              Then reload your editor — InariWatch starts automatically when the AI needs it.
-            </P>
-
-            <SubHeading id="cli-mcp-tools">Available tools</SubHeading>
-            <Table
-              head={["Tool", "Type", "Description"]}
-              rows={[
-                ["query_alerts",    "read",   "Fetch recent alerts from local DB. Filterable by project, severity, and limit."],
-                ["get_status",      "read",   "List configured projects and active integrations."],
-                ["run_check",       "read",   "Trigger one monitoring cycle and return any new alerts found."],
-                ["get_root_cause",  "action", "Deep AI analysis of an alert: root cause, confidence, impact, and prevention steps. Pulls context from Sentry, Vercel, and GitHub in parallel."],
-                ["trigger_fix",     "action", "Full autonomous remediation: diagnose → read code → AI fix → self-review → branch → CI wait → PR → optional auto-merge. Supports dry_run to preview without side effects."],
-                ["rollback_vercel", "action", "Roll back a Vercel project to the last successful production deployment. Accepts an optional deployment ID."],
-                ["get_build_logs",  "action", "Fetch Vercel build logs for a deployment with error extraction. Defaults to the latest failed deploy."],
-                ["silence_alert",   "action", "Mark an alert as read in the local database."],
-              ]}
-            />
-            <Callout type="tip">
-              With the MCP server active you can tell your editor: <em>&ldquo;Fix that Sentry error&rdquo;</em> — the AI will call <InlineCode>query_alerts</InlineCode> to find it,
-              then <InlineCode>trigger_fix</InlineCode> to diagnose, generate a fix, push a branch, wait for CI, and open a PR — all without leaving your editor.
+            <Callout type="warn">
+              The local <InlineCode>inariwatch serve-mcp</InlineCode> command has been <strong>deprecated</strong>. Use the hosted MCP server at{" "}
+              <InlineCode>mcp.inariwatch.com</InlineCode> instead — it has the full 25-tool surface, OAuth, and works with any MCP-compatible client without running a local process.
             </Callout>
+            <P>
+              See the <a href="#mcp-overview" className="text-inari-accent underline underline-offset-2">MCP Server section below</a> for setup instructions and the full tool catalog.
+              The fastest path is <InlineCode>npx @inariwatch/mcp init</InlineCode> — it auto-detects Claude Code, Cursor, Windsurf, VS Code Copilot, Codex CLI, and Gemini CLI, and wires them up in one command.
+            </P>
 
             {/* ────────────────────────────────────────────────────────────────
                 CLI ROLLBACK
@@ -807,6 +783,14 @@ Rolling back…
 
             <SectionHeading id="int-vercel">Integration — Vercel</SectionHeading>
             <P>InariWatch monitors your Vercel deployments and can trigger instant rollbacks on production failures.</P>
+            <Callout type="info">
+              Vercel is one of <strong>four supported hosting providers</strong>. Every feature below —
+              webhook receiver, auto-rollback, auto-heal, deploy notifications, 15-min health check,
+              dashboard rollback button, Slack <InlineCode>/rollback</InlineCode>, MCP <InlineCode>rollback_deploy</InlineCode>,
+              and AI diagnosis with build logs — works identically on <a href="#int-netlify" className="text-inari-accent underline underline-offset-2">Netlify</a>,
+              {" "}<a href="#int-cloudflare-pages" className="text-inari-accent underline underline-offset-2">Cloudflare Pages</a>, and
+              {" "}<a href="#int-render" className="text-inari-accent underline underline-offset-2">Render</a>.
+            </Callout>
 
             <SubHeading id="int-vercel-token">Getting a token</SubHeading>
             <StepList steps={[
@@ -833,6 +817,135 @@ Rolling back…
                 ["Instant rollback",              "—",        "On demand"],
               ]}
             />
+
+            <SectionHeading id="int-netlify">Integration — Netlify</SectionHeading>
+            <P>
+              InariWatch receives webhooks from Netlify for failed deploys, alerts you, and can roll back
+              to the last successful deploy — same UX as Vercel, just a different host.
+            </P>
+
+            <SubHeading id="int-netlify-token">Getting a token</SubHeading>
+            <StepList steps={[
+              {
+                title: "Open Netlify → User settings → Applications",
+                body: <><a href="https://app.netlify.com/user/applications/personal" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">app.netlify.com/user/applications/personal <ExternalLink className="h-3 w-3" /></a></>,
+              },
+              {
+                title: "Create a Personal Access Token",
+                body: <>Give it a name like <InlineCode>inariwatch</InlineCode>. The token needs <strong>Deploys: Read/Write</strong> and <strong>Sites: Read</strong>.</>,
+              },
+              {
+                title: "Find your Site ID",
+                body: <>Go to your site → <strong>Site settings → General → Site information</strong>. The Site ID looks like <InlineCode>12345678-abcd-efgh-ijkl-mnopqrstuvwx</InlineCode>.</>,
+              },
+              {
+                title: "Connect in InariWatch",
+                body: <>Integrations → <strong>Connect Netlify</strong> → paste token + Site ID. InariWatch validates the token and registers a webhook automatically.</>,
+              },
+            ]} />
+
+            <SubHeading id="int-netlify-monitors">What InariWatch monitors</SubHeading>
+            <Table
+              head={["Alert", "Severity", "Default"]}
+              rows={[
+                ["Failed production deploy",    "Critical", "On"],
+                ["Failed deploy-preview",       "Warning",  "Off"],
+                ["Build logs in AI diagnosis",  "—",        "On (via Netlify log API)"],
+                ["Instant rollback (API + UI)", "—",        "On demand"],
+                ["Auto-rollback on webhook",    "—",        "On (when autoRollback enabled)"],
+                ["Auto-heal on uptime down",    "—",        "On (when autoHeal enabled)"],
+              ]}
+            />
+
+            <SectionHeading id="int-cloudflare-pages">Integration — Cloudflare Pages</SectionHeading>
+            <P>
+              Full parity with Vercel and Netlify: deploy alerts, one-click rollback, auto-heal, and
+              AI diagnosis enriched with Cloudflare build logs.
+            </P>
+
+            <SubHeading id="int-cf-token">Getting a token</SubHeading>
+            <StepList steps={[
+              {
+                title: "Open Cloudflare → My Profile → API Tokens",
+                body: <><a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">dash.cloudflare.com/profile/api-tokens <ExternalLink className="h-3 w-3" /></a></>,
+              },
+              {
+                title: "Create a Custom Token",
+                body: (
+                  <Table
+                    head={["Permission", "Access"]}
+                    rows={[
+                      ["Account → Cloudflare Pages", "Edit"],
+                      ["Account → Account Settings", "Read"],
+                    ]}
+                  />
+                ),
+              },
+              {
+                title: "Find your Account ID",
+                body: <>It&apos;s shown in the right sidebar of your Cloudflare dashboard under <strong>Account Details</strong>.</>,
+              },
+              {
+                title: "Connect in InariWatch",
+                body: <>Integrations → <strong>Connect Cloudflare Pages</strong> → paste token, Account ID, and Project Name (must match the Pages project slug exactly).</>,
+              },
+            ]} />
+
+            <SubHeading id="int-cf-monitors">What InariWatch monitors</SubHeading>
+            <Table
+              head={["Alert", "Severity", "Default"]}
+              rows={[
+                ["Failed production deployment",   "Critical", "On"],
+                ["Failed preview deployment",      "Warning",  "Off"],
+                ["Build logs in AI diagnosis",     "—",        "On (via history/logs endpoint)"],
+                ["Instant rollback (API + UI)",    "—",        "On demand"],
+                ["Auto-rollback on webhook",       "—",        "On (when autoRollback enabled)"],
+                ["Auto-heal on uptime down",       "—",        "On (when autoHeal enabled)"],
+              ]}
+            />
+
+            <SectionHeading id="int-render">Integration — Render</SectionHeading>
+            <P>
+              Render is fully supported for deploy alerts, rollback, and auto-heal. The only caveat is
+              that Render does not expose build logs via its public REST API, so AI diagnosis runs
+              without the build output — everything else is identical.
+            </P>
+
+            <SubHeading id="int-render-token">Getting a token</SubHeading>
+            <StepList steps={[
+              {
+                title: "Open Render → Account Settings → API Keys",
+                body: <><a href="https://dashboard.render.com/account/api-keys" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">dashboard.render.com/account/api-keys <ExternalLink className="h-3 w-3" /></a></>,
+              },
+              {
+                title: "Create an API Key",
+                body: <>Render API keys have full account access. Store it in a password manager — it&apos;s only shown once.</>,
+              },
+              {
+                title: "Find your Service ID",
+                body: <>Open the service in the Render dashboard. The Service ID is in the URL: <InlineCode>dashboard.render.com/web/<strong>srv-abc123...</strong></InlineCode></>,
+              },
+              {
+                title: "Connect in InariWatch",
+                body: <>Integrations → <strong>Connect Render</strong> → paste API key, Service ID, and a display name.</>,
+              },
+            ]} />
+
+            <SubHeading id="int-render-monitors">What InariWatch monitors</SubHeading>
+            <Table
+              head={["Alert", "Severity", "Default"]}
+              rows={[
+                ["Failed deploy (build_failed)", "Critical", "On"],
+                ["Instant rollback (API + UI)",  "—",        "On demand"],
+                ["Auto-rollback on webhook",     "—",        "On (when autoRollback enabled)"],
+                ["Auto-heal on uptime down",     "—",        "On (when autoHeal enabled)"],
+                ["Build logs in AI diagnosis",   "—",        "Not available (Render has no public log API)"],
+              ]}
+            />
+            <Callout type="info">
+              Render logs live in their dashboard and are not exposed via the REST API. AI diagnosis
+              still runs — it just uses Sentry, GitHub CI, and Substrate context instead of build output.
+            </Callout>
 
             <SectionHeading id="int-sentry">Integration — Sentry</SectionHeading>
             <P>InariWatch polls Sentry every 5 minutes for new issues and regressions in your projects.</P>
@@ -1052,12 +1165,13 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
             <SubHeading id="int-capture-install">Quick start (zero config)</SubHeading>
             <CodeBlock label="One command">{`npx @inariwatch/capture`}</CodeBlock>
             <P>
-              Auto-detects your framework (Next.js, Express, Node.js), installs the SDK, and sets up
-              instrumentation. If you have an InariWatch account, the CLI opens a browser to authorize
-              and automatically writes <InlineCode>INARIWATCH_DSN</InlineCode> to your <InlineCode>.env</InlineCode> — no manual copy-paste.
+              Auto-detects your framework (Next.js, Nuxt, Remix, SvelteKit, Astro, Vite, Express, Fastify, Node), installs
+              the SDK, and sets up instrumentation for whichever stack it finds. If you have an InariWatch account,
+              the CLI opens a browser to authorize and automatically writes <InlineCode>INARIWATCH_DSN</InlineCode> to
+              your <InlineCode>.env</InlineCode> — no manual copy-paste.
             </P>
             <StepList steps={[
-              { title: "Framework setup", body: "Detects Next.js, Express, or plain Node.js. Installs the package, modifies next.config.ts, and creates instrumentation.ts automatically." },
+              { title: "Framework setup", body: "Detects 9 frameworks (Next, Nuxt, Remix, SvelteKit, Astro, Vite, Express, Fastify, Node). Installs the package and wires the right plugin automatically." },
               { title: "Browser authorization", body: "Opens app.inariwatch.com/cli/verify in your browser. Click Authorize — takes 5 seconds." },
               { title: "DSN written automatically", body: "INARIWATCH_DSN is written to .env.local (or .env). No signup or dashboard visit required." },
             ]} />
@@ -1065,8 +1179,15 @@ https://raw.githubusercontent.com/my-org/my-app/main/Cargo.toml`}</CodeBlock>
               No account? No problem. Skip the browser step and errors print to your terminal in local mode. You can connect to your dashboard later by running <InlineCode>npx @inariwatch/capture</InlineCode> again.
             </Callout>
 
-            <SubHeading id="int-capture-setup">Next.js setup</SubHeading>
-            <P>One line in your existing config file:</P>
+            <SubHeading id="int-capture-frameworks">Framework setup</SubHeading>
+            <P>
+              Pick the section that matches your stack. All plugins inject git context
+              (commit, branch, message) at build time and mark capture as external on
+              server bundles so its <InlineCode>node:</InlineCode> builtin imports never leak into
+              client or edge chunks.
+            </P>
+
+            <SubHeading id="int-capture-next">Next.js</SubHeading>
             <CodeBlock label="next.config.ts">{`import { withInariWatch } from "@inariwatch/capture/next"
 export default withInariWatch(nextConfig)`}</CodeBlock>
             <P>And create <InlineCode>instrumentation.ts</InlineCode>:</P>
@@ -1075,10 +1196,89 @@ import { captureRequestError } from "@inariwatch/capture"
 
 export const onRequestError = captureRequestError`}</CodeBlock>
 
-            <SubHeading id="int-capture-node">Any Node.js app</SubHeading>
+            <SubHeading id="int-capture-vite">Vite (Remix, SvelteKit, SolidStart, Qwik)</SubHeading>
+            <P>
+              Remix, SvelteKit, SolidStart, and Qwik all build with Vite under the hood, so the same plugin works for all of them.
+            </P>
+            <CodeBlock label="vite.config.ts">{`import { defineConfig } from "vite"
+import { inariwatchVite } from "@inariwatch/capture/vite"
+
+export default defineConfig({
+  plugins: [inariwatchVite()],
+})`}</CodeBlock>
+
+            <SubHeading id="int-capture-nuxt">Nuxt 3</SubHeading>
+            <CodeBlock label="nuxt.config.ts">{`export default defineNuxtConfig({
+  modules: ["@inariwatch/capture/nuxt"],
+})`}</CodeBlock>
+            <P>
+              The Nuxt module injects git context into <InlineCode>runtimeConfig.inariwatch</InlineCode> and marks
+              capture as a Nitro external so it stays out of edge bundles.
+            </P>
+
+            <SubHeading id="int-capture-astro">Astro</SubHeading>
+            <CodeBlock label="astro.config.mjs">{`import { defineConfig } from "astro/config"
+import { inariwatchVite } from "@inariwatch/capture/vite"
+
+export default defineConfig({
+  vite: { plugins: [inariwatchVite()] },
+})`}</CodeBlock>
+
+            <SubHeading id="int-capture-webpack">webpack (CRA, Vue CLI, Angular, raw webpack)</SubHeading>
+            <CodeBlock label="webpack.config.js">{`const { withInariWatchWebpack } = require("@inariwatch/capture/webpack")
+
+module.exports = withInariWatchWebpack({
+  // your existing webpack config
+})`}</CodeBlock>
+
+            <SubHeading id="int-capture-express">Express, Fastify, Koa, Hono, or any Node.js app</SubHeading>
             <CodeBlock label="CLI flag">{`node --import @inariwatch/capture/auto app.js`}</CodeBlock>
             <P>Or in your package.json:</P>
             <CodeBlock label="package.json">{`{ "scripts": { "start": "node --import @inariwatch/capture/auto src/index.js" } }`}</CodeBlock>
+            <P>
+              The <InlineCode>/auto</InlineCode> entrypoint reads <InlineCode>INARIWATCH_DSN</InlineCode> from the
+              environment, starts the SDK before your app boots, and registers unhandled-rejection / uncaught-exception
+              listeners. Works with Bun and Deno in Node-compat mode too.
+            </P>
+
+            <SubHeading id="int-capture-python">Python, Go, Rust, or anything non-Node</SubHeading>
+            <P>
+              For non-Node projects, use InariWatch&apos;s HTTP webhook ingest directly — no SDK required.
+              Send JSON events to your project&apos;s capture endpoint and they show up in the dashboard
+              alongside Node-captured errors.
+            </P>
+            <CodeBlock label="Python (requests)">{`import requests, traceback, os
+
+def capture(err: Exception):
+    requests.post(os.environ["INARIWATCH_DSN"], json={
+        "type": "exception",
+        "message": str(err),
+        "stack": traceback.format_exc(),
+        "environment": os.environ.get("ENVIRONMENT", "production"),
+    })
+
+try:
+    risky_operation()
+except Exception as e:
+    capture(e)
+    raise`}</CodeBlock>
+            <CodeBlock label="Go (net/http)">{`import "net/http"
+import "encoding/json"
+import "bytes"
+
+func capture(err error, stack string) {
+    body, _ := json.Marshal(map[string]interface{}{
+        "type":    "exception",
+        "message": err.Error(),
+        "stack":   stack,
+    })
+    http.Post(os.Getenv("INARIWATCH_DSN"), "application/json", bytes.NewReader(body))
+}`}</CodeBlock>
+            <P>
+              Alternatively, run your app with the eBPF Agent installed — it captures errors at the
+              kernel level, language-agnostic, zero code changes. See the
+              {" "}<a href="#ebpf-agent" className="text-inari-accent underline">eBPF Agent section</a> below.
+            </P>
 
             <SubHeading id="int-capture-env">Environment variables</SubHeading>
             <P>
@@ -1137,7 +1337,7 @@ export const onRequestError = captureRequestError`}</CodeBlock>
                 ["Tags", "Set via setTag() — custom key-value pairs", "feature=checkout, plan=pro"],
               ]}
             />
-            <p className="text-sm text-zinc-500 mt-2">
+            <p className="text-sm text-fg-base mt-2">
               Sensitive data is scrubbed automatically: Bearer tokens, JWTs, passwords, API keys, credit card numbers,
               connection strings, and auth headers are all redacted before leaving your app.
             </p>
@@ -1148,7 +1348,11 @@ export const onRequestError = captureRequestError`}</CodeBlock>
               rows={[
                 ["@inariwatch/capture", "SDK — init, captureException, captureLog, flush"],
                 ["@inariwatch/capture/auto", "Auto-init on import — config from env vars"],
+                ["@inariwatch/capture/browser", "Browser entry — error + unhandled rejection listeners"],
                 ["@inariwatch/capture/next", "Next.js plugin — withInariWatch()"],
+                ["@inariwatch/capture/vite", "Vite plugin — inariwatchVite() (Vite + Remix + SvelteKit + Astro + SolidStart + Qwik)"],
+                ["@inariwatch/capture/webpack", "webpack wrapper — withInariWatchWebpack() (CRA, Vue CLI, Angular)"],
+                ["@inariwatch/capture/nuxt", "Nuxt 3 module — add to modules: []"],
                 ["@inariwatch/capture/shield", "Runtime security — source-to-sink attack detection"],
               ]}
             />
@@ -1339,18 +1543,13 @@ enable_security = false    # needs CONFIG_BPF_LSM in kernel`}</CodeBlock>
             <P>Restart after editing:</P>
             <CodeBlock label="Shell">{`sudo systemctl restart inariwatch-agent`}</CodeBlock>
 
-            <SubHeading id="int-agent-verify">Verification (cosign + SLSA)</SubHeading>
+            <SubHeading id="int-agent-verify">Release verification</SubHeading>
             <P>
-              All releases are signed with <a href="https://github.com/sigstore/cosign" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">cosign<ExternalLink className="h-3 w-3" /></a> (keyless
-              via Sigstore) and include <a href="https://slsa.dev/spec/v1.0/levels#build-l3" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">SLSA Level 3<ExternalLink className="h-3 w-3" /></a> provenance
-              attestation. Verify before install:
+              The install script pins release binaries by SHA-256 and will refuse to install a tampered file.
+              Supply-chain signing via <a href="https://github.com/sigstore/cosign" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">cosign<ExternalLink className="h-3 w-3" aria-hidden="true" /></a> and{" "}
+              <a href="https://slsa.dev/spec/v1.0/levels#build-l3" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">SLSA Level 3<ExternalLink className="h-3 w-3" aria-hidden="true" /></a> provenance
+              attestation are planned for the 1.0 release.
             </P>
-            <CodeBlock label="Verify signature">{`cosign verify-blob \\
-  --certificate inariwatch-agent-x86_64.pem \\
-  --signature inariwatch-agent-x86_64.sig \\
-  --certificate-identity-regexp "https://github.com/orbita-pos/inariwatch-agent" \\
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-  inariwatch-agent-x86_64`}</CodeBlock>
 
             <SubHeading id="int-agent-manage">Service management</SubHeading>
             <CodeBlock label="Shell">{`sudo systemctl status inariwatch-agent       # check running state
@@ -1364,7 +1563,7 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
             <SubHeading id="int-agent-performance">Performance</SubHeading>
             <ul className="mb-4 space-y-1.5 text-sm text-fg-base">
               {[
-                "~200-300 events/second throughput",
+                "~250 events/second throughput (measured)",
                 "~88% LZ4 compression ratio",
                 "< 1% CPU overhead",
                 "~48 MB RAM",
@@ -1434,12 +1633,12 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
             <Table
               head={["Model", "Context", "Best for"]}
               rows={[
-                ["claude-sonnet-4-5 (recommended)", "200k", "Remediation, correlation, analysis"],
-                ["claude-haiku-4-5",                "200k", "Fast analysis, lower cost"],
-                ["claude-opus-4-5",                 "200k", "Complex repos, maximum quality"],
+                ["claude-sonnet-4-6 (recommended)",   "200k", "Remediation, correlation, chat"],
+                ["claude-haiku-4-5-20251001",         "200k", "Fast analysis, lower cost"],
+                ["claude-opus-4-6",                   "200k", "Complex repos, maximum quality"],
               ]}
             />
-            <CodeBlock label="CLI">{`inariwatch config --ai-key sk-ant-api03-... --model claude-sonnet-4-5-20251022`}</CodeBlock>
+            <CodeBlock label="CLI">{`inariwatch config --ai-key sk-ant-api03-... --model claude-sonnet-4-6`}</CodeBlock>
 
             <SectionHeading id="ai-openai">AI — OpenAI</SectionHeading>
             <StepList steps={[
@@ -1456,12 +1655,13 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
             <Table
               head={["Model", "Best for"]}
               rows={[
-                ["gpt-4o (recommended)", "Balanced quality and speed"],
-                ["gpt-4o-mini",          "Lower cost, faster responses"],
-                ["o1-mini",              "Complex reasoning tasks"],
+                ["gpt-5.4 (recommended)", "Flagship — code fixes, remediation"],
+                ["gpt-5-mini",            "Reasoning + long-form writing (postmortems)"],
+                ["gpt-4.1-mini",          "1M context, balanced analysis"],
+                ["gpt-4o-mini",           "Fast & cheap — alert analysis, chat"],
               ]}
             />
-            <CodeBlock label="CLI">{`inariwatch config --ai-key sk-proj-... --model gpt-4o`}</CodeBlock>
+            <CodeBlock label="CLI">{`inariwatch config --ai-key sk-proj-... --model gpt-4o-mini`}</CodeBlock>
 
             <SectionHeading id="ai-grok">AI — Grok (xAI)</SectionHeading>
             <StepList steps={[
@@ -1475,12 +1675,20 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               },
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Grok." },
             ]} />
-            <CodeBlock label="CLI">{`inariwatch config --ai-key xai-... --model grok-beta`}</CodeBlock>
+            <Table
+              head={["Model", "Best for"]}
+              rows={[
+                ["grok-3-beta (recommended)", "Most capable — remediation & postmortems"],
+                ["grok-2-1212",               "Balanced chat and analysis"],
+                ["grok-2-mini-1212",          "Fast & cheap — alert analysis"],
+              ]}
+            />
+            <CodeBlock label="CLI">{`inariwatch config --ai-key xai-... --model grok-3-beta`}</CodeBlock>
 
             <SectionHeading id="ai-groq">AI — Groq (Llama)</SectionHeading>
             <P>
-              Groq runs Llama 3.1 at ~800 tokens/second — 5-10x faster than other providers.
-              Best for ultra-fast diagnostics (&lt;500ms response time).
+              Groq runs Llama 3.1 at very high throughput — several times faster than other providers.
+              Best for ultra-fast alert analysis and chat where latency matters more than absolute quality.
             </P>
             <StepList steps={[
               {
@@ -1493,6 +1701,14 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               },
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Groq (Llama)." },
             ]} />
+            <Table
+              head={["Model", "Best for"]}
+              rows={[
+                ["llama-3.1-70b-versatile", "Fast analysis & chat (recommended)"],
+                ["llama-3.1-8b-instant",    "Ultra-fast, lowest cost"],
+                ["mixtral-8x7b-32768",      "Mixture-of-experts balanced"],
+              ]}
+            />
             <CodeBlock label="CLI">{`inariwatch config --ai-key gsk_... --model llama-3.1-70b-versatile`}</CodeBlock>
 
             <SectionHeading id="ai-deepseek">AI — DeepSeek</SectionHeading>
@@ -1507,6 +1723,13 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               },
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select DeepSeek." },
             ]} />
+            <Table
+              head={["Model", "Best for"]}
+              rows={[
+                ["deepseek-chat",      "V3 — fast analysis, chat, postmortems"],
+                ["deepseek-reasoner",  "R1 — deep reasoning, remediation"],
+              ]}
+            />
             <CodeBlock label="CLI">{`inariwatch config --ai-key sk-... --model deepseek-chat`}</CodeBlock>
 
             <SectionHeading id="ai-gemini">AI — Gemini (Google)</SectionHeading>
@@ -1521,7 +1744,15 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               },
               { title: "Paste into InariWatch", body: "Settings → AI analysis → Add key → Select Gemini." },
             ]} />
-            <CodeBlock label="CLI">{`inariwatch config --ai-key AIza... --model gemini-2.0-flash`}</CodeBlock>
+            <Table
+              head={["Model", "Best for"]}
+              rows={[
+                ["gemini-1.5-pro",    "Remediation & postmortems (recommended)"],
+                ["gemini-1.5-flash",  "Fast analysis & chat"],
+                ["gemini-2.0-flash",  "Latest — fast, experimental"],
+              ]}
+            />
+            <CodeBlock label="CLI">{`inariwatch config --ai-key AIza... --model gemini-1.5-pro`}</CodeBlock>
 
             {/* ────────────────────────────────────────────────────────────────
                 AUTONOMOUS MODE
@@ -1535,7 +1766,7 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
             <StepList steps={[
               { title: "Enable", body: "Project Settings → Auto-Merge → toggle Autonomous mode (amber)." },
               { title: "Critical alert arrives", body: "AI diagnosis runs automatically, then the full pipeline: read code → generate fix → self-review → push → CI → PR." },
-              { title: "Safety gates apply", body: "All 8 gates must pass for auto-merge. If any gate fails, a draft PR is created for manual review instead." },
+              { title: "Safety gates apply", body: "All 11 gates must pass for auto-merge. If any gate fails, a draft PR is created for manual review instead." },
             ]} />
             <Callout type="warn">
               Autonomous mode requires auto-merge to be enabled. All existing safety gates (confidence, self-review, CI, lines changed, Substrate risk, EAP verification) still apply.
@@ -1583,9 +1814,9 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               Total downtime: ~90 seconds.
             </P>
             <StepList steps={[
-              { title: "Enable", body: "Project Settings → Auto-Merge → toggle Auto-heal (red). Requires a Vercel integration for rollback." },
+              { title: "Enable", body: "Project Settings → Auto-Merge → toggle Auto-heal (red). Requires a hosting integration (Vercel, Netlify, Cloudflare Pages, or Render)." },
               { title: "Uptime detects failure", body: "3 consecutive ping failures (not just 1) confirm the site is down. Prevents false positives." },
-              { title: "Rollback", body: "Automatically rolls back to the last successful Vercel deploy. Site is back online in ~30 seconds." },
+              { title: "Rollback", body: "Automatically rolls back to the last successful deploy on whichever host the project uses. Site is back online in ~30 seconds." },
               { title: "AI fix", body: "Remediation starts in background. When the fix is ready, a new deploy replaces the rollback with everything + the fix." },
               { title: "Cooldown", body: "10-minute cooldown between auto-heal triggers prevents loops if the issue is not code-related (DB down, DNS, etc.)." },
             ]} />
@@ -1697,7 +1928,7 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
                 ["/inariwatch trends [days]", "Error trends: top recurring errors, period comparison (default: 7 days)"],
                 ["/inariwatch ask <question>", "Ask Inari AI about your infrastructure in natural language"],
                 ["/inariwatch uptime", "Check all uptime monitors with status codes and response times"],
-                ["/inariwatch rollback <project>", "Rollback Vercel to previous production deployment"],
+                ["/inariwatch rollback <project>", "Rollback to previous production deploy on any supported host (Vercel, Netlify, CF Pages, Render)"],
                 ["/inariwatch maintenance <project> <mins>", "Create a maintenance window (suppresses alerts)"],
                 ["/inariwatch maintenance list", "Show active maintenance windows"],
                 ["/inariwatch search <error text>", "Search community fix network for known solutions"],
@@ -1796,7 +2027,7 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
                 ["/trends [days]", "Error trends: top errors, period comparison"],
                 ["/ask QUESTION", "Ask Inari AI about your infrastructure"],
                 ["/uptime", "Check all uptime monitors"],
-                ["/rollback PROJECT", "Rollback Vercel to previous deployment"],
+                ["/rollback PROJECT", "Rollback to previous deploy on any supported host (Vercel, Netlify, CF Pages, Render)"],
                 ["/maintenance PROJECT MINS", "Create a maintenance window"],
                 ["/maintenance list", "Show active maintenance windows"],
                 ["/search ERROR", "Search community fix network"],
@@ -1806,7 +2037,7 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               ]}
             />
 
-            <SubHeading id="telegram-actions">Button Actions (11)</SubHeading>
+            <SubHeading id="telegram-actions">Button Actions (10)</SubHeading>
             <P>Inline buttons appear on alert messages and remediation updates:</P>
             <Table
               head={["Button", "What it does"]}
@@ -2493,7 +2724,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
             <SubHeading id="mcp-setup">Setup</SubHeading>
             <p className="font-medium">Option A — One command (recommended)</p>
             <CodeBlock label="Auto-detect & configure">{`npx @inariwatch/mcp init`}</CodeBlock>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-fg-base">
               Detects installed AI tools, opens the browser to authenticate, and writes config files automatically.
               Pass <code>--token inari_xxxxx</code> to skip browser auth.
             </p>
@@ -2516,7 +2747,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
             />
 
             <p className="mt-4 font-medium">Option C — OAuth (zero-token setup)</p>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-fg-base">
               Tools that support OAuth 2.1 can discover InariWatch automatically via{" "}
               <code>https://mcp.inariwatch.com/api/mcp/.well-known/oauth-authorization-server</code>.
               Click &quot;Connect&quot; in your tool, approve in the browser, done. PKCE (S256) enforced.
@@ -2531,14 +2762,14 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["query_alerts", "List recent alerts by project/severity", "read", "200/min"],
                 ["get_status", "Projects, integrations, alert counts", "read", "200/min"],
                 ["get_uptime", "Current uptime status for all monitors", "read", "200/min"],
-                ["get_build_logs", "Vercel deployment build logs", "read", "200/min"],
+                ["get_build_logs", "Build logs for any host (Vercel, Netlify, Cloudflare Pages)", "read", "200/min"],
                 ["get_substrate_context", "I/O recording context for an alert", "read", "200/min"],
                 ["get_root_cause", "AI-powered root cause analysis", "read", "30/min"],
                 ["assess_risk", "Pre-deploy risk assessment for a PR", "read", "30/min"],
                 ["get_postmortem", "Generate or retrieve a post-mortem", "read", "200/min"],
                 ["search_community_fixes", "Search community fix network", "read", "30/min"],
                 ["trigger_fix", "Start AI remediation pipeline (SSE streaming)", "execute", "5/min"],
-                ["rollback_vercel", "Roll back to previous deployment ⚠️", "execute", "5/min"],
+                ["rollback_deploy", "Host-agnostic rollback (Vercel, Netlify, CF Pages, Render) ⚠️", "execute", "5/min"],
                 ["silence_alert", "Mark alert as read/resolved", "write", "200/min"],
                 ["acknowledge_alert", "Mark alert as read (acknowledged)", "write", "200/min"],
                 ["reopen_alert", "Reopen a resolved alert", "write", "200/min"],
@@ -2556,9 +2787,10 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               ]}
             />
 
-            <p className="mt-2 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-fg-base">
               Tools include MCP annotations (<code>readOnlyHint</code>, <code>destructiveHint</code>) so AI clients
-              know when to ask for confirmation. <code>rollback_vercel</code> is marked destructive.
+              know when to ask for confirmation. <code>rollback_deploy</code> and its legacy alias
+              {" "}<code>rollback_vercel</code> are both marked destructive.
             </p>
 
             <SubHeading id="mcp-resources">Resources (4)</SubHeading>
@@ -2577,7 +2809,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               ]}
             />
 
-            <p className="mt-2 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-fg-base">
               Subscribe via <code>resources/subscribe</code>. Receive{" "}
               <code>notifications/resources/updated</code> via the SSE endpoint at{" "}
               <code>GET /api/mcp/events</code> when subscribed resources change (polled every 10s).
@@ -2616,7 +2848,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               ]}
             />
 
-            <p className="mt-2 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-fg-base">
               Tokens can have an expiration date (30d / 90d / 1y / never). Usage stats are visible in{" "}
               <strong>Settings &rarr; MCP usage</strong> (calls/day, top tools, latency, error rate).
               All MCP calls are logged in the audit trail.
@@ -2809,22 +3041,26 @@ Authorization: Bearer rdr_your_token_here`}</CodeBlock>
 
             <SectionHeading id="ref-stress-tests">Reference — Stress Testing</SectionHeading>
             <P>
-              InariWatch infrastructure is validated with a 10-scenario k6 stress test suite that runs against
-              the production stack. All scenarios pass as of April 2026.
+              InariWatch infrastructure is validated with a 14-scenario k6 suite (10 load + 4 chaos) that runs against
+              the production stack. All scenarios pass.
             </P>
             <Table
-              head={["#", "Scenario", "What it validates", "Result"]}
+              head={["#", "Scenario", "What it validates"]}
               rows={[
-                ["1", "Webhook Storm", "Capture webhook ingestion under burst load, rate limiting", "p95 <400ms, 0% error"],
-                ["2", "MCP Rate Limits", "3 rate limit tiers enforced (cheap 200/min, moderate 30/min, expensive 5/min)", "All tiers enforced"],
-                ["3", "SSE Streaming", "50 concurrent Server-Sent Event connections, reconnection", "Connections stable"],
-                ["4", "Alert Dedup", "Fingerprinting accuracy, deduplication under concurrent writes, storm detection", "Dedup working"],
-                ["5", "Auth Brute Force", "Login rate limiting (5/60s), device flow poll protection", "Rate limiting enforced"],
-                ["6", "Cron Fan-out", "7 sub-pollers in parallel, overlap handling, no race conditions", "No race conditions"],
-                ["7", "Neon Saturation", "DB concurrency: webhooks + MCP + cron simultaneously (~400 queries/s)", "Neon stable under load"],
-                ["8", "Push Serialization", "Push notification pipeline under critical alert burst", "Pipeline stable"],
-                ["9", "Auto-Heal", "3 consecutive failures trigger single heal, 10-min cooldown, race condition safety", "Single heal, cooldown works"],
-                ["10", "Full Incident", "End-to-end: deploy failure \u2192 error burst \u2192 uptime down \u2192 auto-heal \u2192 MCP verify \u2192 recovery", "10/10 phases, 100% checks"],
+                ["1",  "Webhook Storm",         "Capture webhook ingestion under burst load, rate limiting"],
+                ["2",  "MCP Rate Limits",       "3 rate limit tiers (cheap 200/min, moderate 30/min, expensive 5/min)"],
+                ["3",  "SSE Streaming",         "50 concurrent Server-Sent Event connections, reconnection"],
+                ["4",  "Alert Dedup",           "Fingerprinting, deduplication under concurrent writes, storm detection"],
+                ["5",  "Auth Brute Force",      "Login rate limiting, device flow poll protection"],
+                ["6",  "Cron Fan-out",          "7 sub-pollers in parallel, overlap handling"],
+                ["7",  "Neon Saturation",       "DB concurrency: webhooks + MCP + cron simultaneously"],
+                ["8",  "Push Serialization",    "Push notification pipeline under critical alert burst"],
+                ["9",  "Auto-Heal",             "3 consecutive failures trigger single heal, cooldown, race safety"],
+                ["10", "Full Incident",         "End-to-end: deploy fail → error burst → uptime down → auto-heal → verify"],
+                ["11", "Chaos · Incident",      "Full incident with mixed valid/malformed payloads + concurrent cron + storm"],
+                ["12", "Chaos · MCP Storm",     "200 concurrent MCP calls mixing all 3 rate limit tiers"],
+                ["13", "Chaos · Tenant Isolation", "Flood one workspace, verify another's latency stays normal"],
+                ["14", "Chaos · SSE",           "50+ SSE connections with random abrupt disconnects"],
               ]}
             />
             <P>
@@ -2834,14 +3070,14 @@ Authorization: Bearer rdr_your_token_here`}</CodeBlock>
             </P>
 
             {/* Bottom nav */}
-            <div className="mt-16 flex items-center justify-between border-t border-line pt-8 text-sm text-zinc-500">
-              <Link href="/" className="flex items-center gap-1.5 hover:text-fg-base transition-colors">
-                <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+            <div className="mt-16 flex items-center justify-between border-t border-line pt-8 text-sm text-fg-base">
+              <Link href="/" className="flex items-center gap-1.5 hover:text-fg-strong transition-colors">
+                <ChevronRight className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
                 Home
               </Link>
               <Link href="/register" className="flex items-center gap-1.5 text-inari-accent hover:text-inari-accent/80 transition-colors">
                 Start free
-                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
             </div>
 
@@ -2849,18 +3085,39 @@ Authorization: Bearer rdr_your_token_here`}</CodeBlock>
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="border-t border-inari-border py-8 mt-4">
-        <div className="mx-auto max-w-6xl px-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
-          <div className="flex items-center gap-2.5">
-            <Image src="/logo-inari/favicon-96x96.png" alt="InariWatch" width={24} height={24} />
-            <span className="font-mono text-fg-base uppercase tracking-widest text-xs font-semibold">INARIWATCH</span>
-          </div>
-          <div className="flex items-center gap-6 text-sm text-zinc-500">
-            <Link href="/"        className="hover:text-fg-base transition-colors">Home</Link>
-            <a href="https://github.com/sponsors/orbita-pos" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">Sponsor</a>
-            <Link href="/docs"    className="hover:text-fg-base transition-colors">Docs</Link>
-            <a href="https://github.com/orbita-pos/inariwatch" target="_blank" rel="noreferrer" className="hover:text-fg-base transition-colors">GitHub</a>
+      {/* Footer — matches landing page */}
+      <footer className="border-t border-inari-border py-12">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <Image
+                src="/logo-inari/favicon-96x96.png"
+                alt=""
+                width={24}
+                height={24}
+              />
+              <span className="font-mono text-sm text-fg-base">
+                inariwatch · built in MX
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-fg-base">
+              <Link href="/docs"    className="hover:text-fg-strong transition-colors">Docs</Link>
+              <Link href="/pricing" className="hover:text-fg-strong transition-colors">Pricing</Link>
+              <Link href="/download" className="hover:text-fg-strong transition-colors">Mobile</Link>
+              <Link href="/trust"   className="hover:text-fg-strong transition-colors">Trust</Link>
+              <Link href="/status"  className="hover:text-fg-strong transition-colors">Status</Link>
+              <Link href="/blog"    className="hover:text-fg-strong transition-colors">Blog</Link>
+              <a
+                href="https://github.com/orbita-pos/inariwatch-capture"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-fg-strong transition-colors"
+              >
+                GitHub
+              </a>
+              <Link href="/privacy" className="hover:text-fg-strong transition-colors">Privacy</Link>
+              <Link href="/terms"   className="hover:text-fg-strong transition-colors">Terms</Link>
+            </div>
           </div>
         </div>
       </footer>

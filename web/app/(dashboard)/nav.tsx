@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity } from "lucide-react";
 
-type NavItem = { href: string; label: string; icon: React.ElementType; exact?: boolean; badge?: number };
+type NavItem  = { href: string; label: string; icon: React.ElementType; exact?: boolean; badge?: number };
 type NavGroup = { label?: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
@@ -16,9 +16,9 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Monitor",
     items: [
-      { href: "/alerts",    label: "Alerts",     icon: Bell },
-      { href: "/on-call",   label: "On-Call",    icon: Phone },
-      { href: "/analytics", label: "Analytics",  icon: BarChart3 },
+      { href: "/alerts",    label: "Alerts",    icon: Bell },
+      { href: "/on-call",   label: "On-Call",   icon: Phone },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
     ],
   },
   {
@@ -37,7 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Learn",
     items: [
-      { href: "/community",       label: "Community",  icon: Users, exact: true },
+      { href: "/community",       label: "Community",   icon: Users,    exact: true },
       { href: "/community/fleet", label: "Fleet Stats", icon: Activity },
     ],
   },
@@ -55,32 +55,42 @@ function NavLink({ href, label, icon: Icon, exact, badge }: NavItem) {
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={`group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all ${
         active
-          ? "bg-inari-accent/10 text-inari-accent font-medium dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-violet-500 dark:text-white dark:shadow-[0_2px_10px_rgba(124,58,237,0.35)]"
-          : "text-zinc-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.05] hover:text-fg-base"
+          ? "bg-inari-accent/10 text-inari-accent font-medium"
+          : "text-fg-base/60 hover:bg-black/[0.04] dark:hover:bg-white/[0.05] hover:text-fg-base"
       }`}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="flex-1">{label}</span>
       {badge != null && badge > 0 && (
         <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
           {badge > 99 ? "99+" : badge}
+          <span className="sr-only"> unread alerts</span>
         </span>
       )}
     </Link>
   );
 }
 
-export function SidebarNav({ unreadAlerts = 0, isAdmin = false, activeOrgId }: { unreadAlerts?: number; isAdmin?: boolean; activeOrgId?: string | null }) {
+export function SidebarNav({
+  unreadAlerts = 0,
+  isAdmin = false,
+  activeOrgId,
+}: {
+  unreadAlerts?: number;
+  isAdmin?: boolean;
+  activeOrgId?: string | null;
+}) {
   const settingsHref = activeOrgId ? "/workspace/settings" : "/settings";
 
   return (
-    <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+    <nav aria-label="Main navigation" className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
       {NAV_GROUPS.map((group, i) => (
         <div key={i}>
           {group.label && (
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-fg-base/40">
               {group.label}
             </p>
           )}

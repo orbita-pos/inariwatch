@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { satoshi, clashDisplay } from "./fonts";
 
-const BASE_URL = "https://inariwatch.com";
+const BASE_URL           = "https://inariwatch.com";
+const DEFAULT_TITLE       = "InariWatch — AI Monitoring That Fixes Your Code";
+const DEFAULT_DESCRIPTION = "AI-powered monitoring for developers. InariWatch watches GitHub, Vercel, Sentry and more — then reads your code and writes the fix autonomously.";
 
 export const metadata: Metadata = {
   metadataBase:  new URL(BASE_URL),
-  title:         { default: "InariWatch — Developer Monitoring", template: "%s | InariWatch" },
-  description:   "InariWatch monitors GitHub, Vercel, Sentry and more. When something needs attention, you get one intelligent alert — not six.",
-  keywords:      ["developer monitoring", "alerting", "github", "vercel", "sentry", "devops"],
+  title:         { default: DEFAULT_TITLE, template: "%s | InariWatch" },
+  description:   DEFAULT_DESCRIPTION,
   alternates:    { canonical: BASE_URL },
 
   icons: {
@@ -21,30 +23,23 @@ export const metadata: Metadata = {
     shortcut: "/logo-inari/favicon.ico",
   },
 
-  manifest: "/site.webmanifest",
+  manifest: "/logo-inari/site.webmanifest",
 
   openGraph: {
     type:        "website",
     url:         BASE_URL,
     siteName:    "InariWatch",
-    title:       "InariWatch — Developer Monitoring",
-    description: "Proactive alerts for GitHub, Vercel, Sentry and more. One intelligent alert instead of six.",
-    images: [
-      {
-        url:    "/logo-inari/web-app-manifest-512x512.png",
-        width:  512,
-        height: 512,
-        alt:    "InariWatch logo",
-      },
-    ],
+    title:       DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
   },
 
   twitter: {
     card:        "summary_large_image",
     site:        "@inariwatch",
-    title:       "InariWatch — Developer Monitoring",
-    description: "Proactive alerts for GitHub, Vercel, Sentry and more.",
-    images:      ["/logo-inari/web-app-manifest-512x512.png"],
+    title:       DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
   },
 
   robots: {
@@ -58,23 +53,39 @@ const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
     {
-      "@type":       "Organization",
-      "@id":         `${BASE_URL}/#organization`,
-      name:          "InariWatch",
-      url:           BASE_URL,
-      logo:          `${BASE_URL}/logo-inari/favicon-96x96.png`,
-      description:   "Developer monitoring platform. Proactive alerts for GitHub, Vercel, Sentry and more.",
+      "@type":     "Organization",
+      "@id":       `${BASE_URL}/#organization`,
+      name:        "InariWatch",
+      url:         BASE_URL,
+      logo:        `${BASE_URL}/logo-inari/favicon-96x96.png`,
+      description: "AI-powered monitoring for developers. Watches GitHub, Vercel, Sentry and more — then writes the fix autonomously.",
+      sameAs: [
+        "https://github.com/orbita-pos/inariwatch-capture",
+        "https://twitter.com/inariwatch",
+      ],
     },
     {
-      "@type":       "WebSite",
-      "@id":         `${BASE_URL}/#website`,
-      url:           BASE_URL,
-      name:          "InariWatch",
-      publisher:     { "@id": `${BASE_URL}/#organization` },
-      potentialAction: {
-        "@type":       "SearchAction",
-        target:        `${BASE_URL}/alerts?q={search_term_string}`,
-        "query-input": "required name=search_term_string",
+      "@type":   "WebSite",
+      "@id":     `${BASE_URL}/#website`,
+      url:       BASE_URL,
+      name:      "InariWatch",
+      publisher: { "@id": `${BASE_URL}/#organization` },
+    },
+    {
+      "@type":              "SoftwareApplication",
+      "@id":                `${BASE_URL}/#software`,
+      name:                 "InariWatch",
+      applicationCategory:  "DeveloperApplication",
+      operatingSystem:      "Any",
+      description:          DEFAULT_DESCRIPTION,
+      url:                  BASE_URL,
+      publisher:            { "@id": `${BASE_URL}/#organization` },
+      offers: {
+        "@type":        "Offer",
+        price:          "0",
+        priceCurrency:  "USD",
+        availability:   "https://schema.org/InStock",
+        description:    "Free during beta — full access, no credit card",
       },
     },
   ],
@@ -82,8 +93,18 @@ const jsonLd = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${satoshi.variable} ${clashDisplay.variable}`}
+      suppressHydrationWarning
+    >
       <head>
+        {/* Theme init — must run before any CSS evaluates to prevent light→dark flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark')t='dark';document.documentElement.classList.add(t);document.documentElement.style.colorScheme=t;}catch(e){document.documentElement.classList.add('dark');}})();`,
+          }}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

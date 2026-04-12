@@ -11,16 +11,17 @@
  */
 export declare function shieldMiddleware(): (req: Record<string, unknown>, _res: unknown, next: () => void) => void;
 /**
- * Mark a Next.js/Web API Request object's inputs as tainted.
- * Call this in instrumentation.ts or middleware.ts.
+ * Mark a Web API Request object's inputs as tainted.
+ * Works with any framework that passes a Fetch-compatible Request: Next.js,
+ * Remix, SvelteKit, Astro, Hono, Cloudflare Workers, Deno, Bun, etc.
+ *
+ * Call this in instrumentation.ts, middleware.ts, or your framework's
+ * equivalent request entrypoint.
  *
  * Usage: markRequestTainted(request)
  */
 export declare function markRequestTainted(request: {
     url?: string;
-    nextUrl?: {
-        searchParams?: URLSearchParams;
-    };
     headers?: {
         get?: (key: string) => string | null;
         forEach?: (fn: (v: string, k: string) => void) => void;

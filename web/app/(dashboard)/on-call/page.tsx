@@ -65,15 +65,15 @@ export default async function OnCallPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">On-Call</h1>
-          <p className="mt-1 text-sm text-zinc-500">Who&apos;s on-call right now across your projects.</p>
+          <p className="mt-1 text-sm text-fg-base/60">Who&apos;s on-call right now across your projects.</p>
         </div>
       </div>
 
       {onCallStatus.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line py-16 text-center">
-          <Phone className="mx-auto mb-3 h-8 w-8 text-zinc-700" />
-          <p className="text-sm font-medium text-zinc-400">No projects yet</p>
-          <p className="mt-1 text-sm text-zinc-600">Create a project to configure on-call schedules.</p>
+          <Phone className="mx-auto mb-3 h-8 w-8 text-fg-base/40" aria-hidden="true" />
+          <p className="text-sm font-medium text-fg-base/60">No projects yet</p>
+          <p className="mt-1 text-sm text-fg-base/50">Create a project to configure on-call schedules.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-line divide-y divide-line-subtle">
@@ -83,35 +83,36 @@ export default async function OnCallPage() {
             return (
               <div key={project.id} className="flex items-center gap-4 bg-surface px-5 py-4">
                 <div
+                  aria-hidden="true"
                   className={`flex h-2.5 w-2.5 shrink-0 rounded-full ${
                     onCallUser
-                      ? "bg-emerald-400 animate-pulse"
+                      ? "bg-emerald-500 animate-pulse"
                       : hasSchedule
-                      ? "bg-amber-400"
-                      : "bg-zinc-600"
+                      ? "bg-amber-500"
+                      : "bg-fg-base/30"
                   }`}
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-fg-base">{project.name}</p>
                   {onCallUser ? (
-                    <p className="text-xs text-emerald-400 font-medium">
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                       {onCallUser.name ?? onCallUser.email} is on-call
                       {scheduleName && (
-                        <span className="text-zinc-600 font-normal"> · {scheduleName}</span>
+                        <span className="text-fg-base/50 font-normal"> · {scheduleName}</span>
                       )}
                     </p>
                   ) : hasSchedule ? (
-                    <p className="text-xs text-amber-400">Schedule configured, no one on-call now</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">Schedule configured, no one on-call now</p>
                   ) : (
-                    <p className="text-xs text-zinc-600">No schedule configured</p>
+                    <p className="text-xs text-fg-base/50">No schedule configured</p>
                   )}
                 </div>
                 <Link
                   href={`/projects/${project.slug}#on-call`}
-                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-fg-base transition-colors shrink-0"
+                  className="flex items-center gap-1 text-xs text-fg-base/60 hover:text-fg-base transition-colors shrink-0"
                 >
-                  Configure
-                  <ArrowUpRight className="h-3.5 w-3.5" />
+                  Configure<span className="sr-only"> {project.name} on-call</span>
+                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </Link>
               </div>
             );
@@ -121,10 +122,10 @@ export default async function OnCallPage() {
 
       <div className="rounded-xl border border-line bg-surface px-5 py-4">
         <div className="flex items-start gap-3">
-          <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
+          <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-fg-base/60" aria-hidden="true" />
           <div>
             <p className="text-sm font-medium text-fg-base">Configure on-call schedules</p>
-            <p className="mt-0.5 text-xs text-zinc-500">
+            <p className="mt-0.5 text-xs text-fg-base/60">
               Set up rotations, time slots, and overrides from each project&apos;s settings page.
             </p>
           </div>

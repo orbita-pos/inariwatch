@@ -239,16 +239,20 @@ export function buildDeployBlocks(
 export function buildDeployFollowUpBlocks(
   healthy: boolean,
   errorCount: number,
+  deploySource?: string,
 ): KnownBlock[] {
+  const label = deploySource && deploySource !== "vercel"
+    ? ` (${escapeSlack(deploySource)})`
+    : "";
   if (healthy) {
     return [{
       type: "section",
-      text: { type: "mrkdwn", text: `:white_check_mark: Deploy looks healthy. ${errorCount} errors in monitoring window.` },
+      text: { type: "mrkdwn", text: `:white_check_mark: Deploy${label} looks healthy. ${errorCount} errors in monitoring window.` },
     }];
   }
   return [{
     type: "section",
-    text: { type: "mrkdwn", text: `:warning: Deploy may be causing issues. ${errorCount} errors detected in monitoring window.` },
+    text: { type: "mrkdwn", text: `:warning: Deploy${label} may be causing issues. ${errorCount} errors detected in monitoring window.` },
   }];
 }
 
@@ -660,18 +664,21 @@ export function buildUptimeBlocks(
 
 export function buildRollbackBlocks(
   projectName: string,
-  result: { uid: string; url: string | null; created: string },
+  result: { deploymentId?: string; url?: string; provider?: string },
 ): KnownBlock[] {
+  const providerLabel = result.provider ? ` on ${result.provider}` : "";
   return [
     {
       type: "header",
-      text: { type: "plain_text", text: "✓ Rollback Complete", emoji: true },
+      text: { type: "plain_text", text: `✓ Rollback Complete${providerLabel}`, emoji: true },
     },
     {
       type: "section",
       fields: [
         { type: "mrkdwn", text: `*Project*\n${escapeSlack(projectName)}` },
-        { type: "mrkdwn", text: `*Deployment*\n${result.uid.slice(0, 12)}` },
+        ...(result.deploymentId
+          ? [{ type: "mrkdwn" as const, text: `*Deployment*\n${result.deploymentId.slice(0, 12)}` }]
+          : []),
       ],
     },
     ...(result.url ? [{

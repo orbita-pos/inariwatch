@@ -1,7 +1,14 @@
 export default function Loading() {
   return (
-    <div className="mx-auto max-w-[680px] space-y-8 animate-pulse">
-      <div className="flex items-center gap-3">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label="Loading project"
+      className="mx-auto max-w-[680px] space-y-8 animate-pulse"
+    >
+      <span className="sr-only">Loading project details…</span>
+
+      <div className="flex items-center gap-3" aria-hidden="true">
         <div className="h-8 w-8 rounded-lg bg-black/[0.08] dark:bg-white/[0.05]" />
         <div className="space-y-2">
           <div className="h-6 w-48 rounded bg-black/[0.08] dark:bg-white/[0.05]" />
@@ -9,7 +16,7 @@ export default function Loading() {
         </div>
       </div>
 
-      <div>
+      <div aria-hidden="true">
         <div className="mb-3 flex items-center justify-between">
           <div className="h-3 w-28 rounded bg-black/[0.08] dark:bg-white/[0.05]" />
           <div className="h-7 w-20 rounded-lg bg-black/[0.08] dark:bg-white/[0.05]" />

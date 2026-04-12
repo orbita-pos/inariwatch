@@ -112,7 +112,7 @@ async function fetchSentryContext(
   return { stackTrace, issueDetails };
 }
 
-// ── Vercel ──────────────────────────────────────────────────────────────────
+// ── Vercel (fast path — direct API) ─────────────────────────────────────────
 
 async function fetchVercelContext(
   token: string,
@@ -129,6 +129,47 @@ async function fetchVercelContext(
 
   if (!deploymentId) return null;
   return getDeploymentBuildLogs(token, teamId, deploymentId);
+}
+
+// ── Hosting provider build logs (Netlify, CF Pages, Render) ─────────────────
+//
+// Uses the RollbackProvider abstraction to fetch build logs for any hosting
+// provider the project has connected. Extracts the deployment ID from the
+// alert body — each host's webhook writes it as "Deploy ID:" or
+// "Deployment ID:" in the alert body text.
+
+async function fetchHostingContextFromProvider(
+  projectId: string,
+  alert: AlertInfo,
+): Promise<string | null> {
+  // Match the patterns our webhook receivers write into alert bodies.
+  const patterns = [
+    /Deploy(?:ment)? ID:\s*([A-Za-z0-9_-]+)/i,
+    /deployment:([A-Za-z0-9_-]+)/i,
+  ];
+  let deploymentId: string | null = null;
+  for (const p of patterns) {
+    const m = alert.body.match(p);
+    if (m) {
+      deploymentId = m[1];
+      break;
+    }
+  }
+  if (!deploymentId) return null;
+
+  try {
+    const { findHostingProvider } = await import("@/lib/services/auto-rollback");
+    const { getRollbackProvider } = await import("@/lib/providers/rollback");
+    const providerConfig = await findHostingProvider(projectId);
+    if (!providerConfig) return null;
+    const provider = getRollbackProvider(providerConfig);
+    return await provider.getBuildLogs(deploymentId);
+  } catch (e) {
+    aiLog.warn("hosting_context_failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
 }
 
 // ── GitHub CI ───────────────────────────────────────────────────────────────
@@ -183,6 +224,118 @@ async function fetchDatadogContext(
   }
 }
 
+// ── Language / framework detection from manifest files ──────────────────────
+//
+// Pure parsers live in ./manifest-parsers.ts so they can be unit-tested
+// without pulling in the db/gh dependencies this file imports. We re-export
+// them here so existing callers keep importing from context-gatherer.
+
+import type { ProjectDeps } from "./manifest-parsers";
+import {
+  parsePackageJson,
+  parsePyprojectToml,
+  parseRequirementsTxt,
+  parseCargoToml,
+  parseGoMod,
+  parsePomXml,
+  parseBuildGradle,
+  parseGemfile,
+} from "./manifest-parsers";
+
+export {
+  parsePackageJson,
+  parsePyprojectToml,
+  parseRequirementsTxt,
+  parseCargoToml,
+  parseGoMod,
+  parsePomXml,
+  parseBuildGradle,
+  parseGemfile,
+} from "./manifest-parsers";
+export type { ProjectLanguage, ProjectDeps } from "./manifest-parsers";
+
+/**
+ * Detect a project's primary language and extract its dependency list by
+ * reading whichever manifest file exists at the repo root. Tries package.json,
+ * pyproject.toml, requirements.txt, Cargo.toml, go.mod, pom.xml, build.gradle,
+ * Gemfile in that order — stops at the first hit.
+ *
+ * The returned `deps` list is intended to be fed into
+ * `getStackInstructions()` from prompts.ts, which switches instructions on
+ * framework name regardless of language.
+ */
+export async function gatherProjectDeps(
+  token: string,
+  owner: string,
+  repo: string,
+  ref: string,
+): Promise<ProjectDeps> {
+  const tryRead = async (file: string): Promise<string | null> => {
+    try { return await gh.getFileContent(token, owner, repo, file, ref); }
+    catch { return null; }
+  };
+
+  // 1. Node.js / TypeScript — package.json
+  const pkgRaw = await tryRead("package.json");
+  if (pkgRaw) {
+    const result = parsePackageJson(pkgRaw);
+    if (result) return result;
+  }
+
+  // 2. Python — pyproject.toml (Poetry/PEP 621)
+  const pyprojectRaw = await tryRead("pyproject.toml");
+  if (pyprojectRaw) {
+    const result = parsePyprojectToml(pyprojectRaw);
+    if (result) return result;
+  }
+
+  // 3. Python — requirements.txt
+  const reqRaw = await tryRead("requirements.txt");
+  if (reqRaw) {
+    const result = parseRequirementsTxt(reqRaw);
+    if (result) return result;
+  }
+
+  // 4. Rust — Cargo.toml
+  const cargoRaw = await tryRead("Cargo.toml");
+  if (cargoRaw) {
+    const result = parseCargoToml(cargoRaw);
+    if (result) return result;
+  }
+
+  // 5. Go — go.mod
+  const goRaw = await tryRead("go.mod");
+  if (goRaw) {
+    const result = parseGoMod(goRaw);
+    if (result) return result;
+  }
+
+  // 6. Java — pom.xml
+  const pomRaw = await tryRead("pom.xml");
+  if (pomRaw) {
+    const result = parsePomXml(pomRaw);
+    if (result) return result;
+  }
+
+  // 7. Java / Kotlin — build.gradle (any flavor)
+  for (const gradleFile of ["build.gradle", "build.gradle.kts"]) {
+    const raw = await tryRead(gradleFile);
+    if (raw) {
+      const result = parseBuildGradle(raw, gradleFile);
+      if (result) return result;
+    }
+  }
+
+  // 8. Ruby — Gemfile
+  const gemfileRaw = await tryRead("Gemfile");
+  if (gemfileRaw) {
+    const result = parseGemfile(gemfileRaw);
+    if (result) return result;
+  }
+
+  return { language: "unknown", deps: [], source: null };
+}
+
 // ── Master orchestrator ──────────────────────────────────────────────────────
 
 export async function gatherRemediationContext(
@@ -227,7 +380,7 @@ export async function gatherRemediationContext(
     })());
   }
 
-  // Vercel
+  // Vercel (fast path — direct Vercel API for Vercel-sourced alerts)
   const vercelInteg = integrations.find((i) => i.service === "vercel");
   if (vercelInteg && alert.sourceIntegrations.includes("vercel")) {
     tasks.push((async () => {
@@ -239,6 +392,29 @@ export async function gatherRemediationContext(
         result.vercelBuildLogs = await withServiceHealth("vercel", () => fetchVercelContext(token, teamId, alert, projectName));
         emit("context", { source: "vercel", status: result.vercelBuildLogs ? "found" : "empty" });
       }
+    })());
+  }
+
+  // Other hosting providers (Netlify, Cloudflare Pages, Render) — uses the
+  // RollbackProvider abstraction via findHostingProvider. Runs only when the
+  // alert originated from a non-Vercel host, so we don't double-fetch for
+  // projects that have multiple hosts connected.
+  const nonVercelHostingSources = alert.sourceIntegrations.filter((s) =>
+    s === "netlify" || s === "cloudflare-pages" || s === "render",
+  );
+  if (nonVercelHostingSources.length > 0) {
+    tasks.push((async () => {
+      const source = nonVercelHostingSources[0];
+      emit("context", { source, status: "fetching" });
+      const logs = await withServiceHealth(source, () =>
+        fetchHostingContextFromProvider(integrations[0]?.projectId ?? "", alert),
+      );
+      // Reuse the same result field so downstream prompt building just sees
+      // "build logs" regardless of which host provided them.
+      if (logs) {
+        result.vercelBuildLogs = logs;
+      }
+      emit("context", { source, status: logs ? "found" : "empty" });
     })());
   }
 

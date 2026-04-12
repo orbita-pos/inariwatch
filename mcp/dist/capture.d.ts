@@ -1,4 +1,4 @@
-export type ProjectType = "nextjs" | "node" | "unknown";
+export type ProjectType = "nextjs" | "nuxt" | "remix" | "sveltekit" | "astro" | "vite" | "express" | "fastify" | "node" | "unknown";
 export type ProjectInfo = {
     type: ProjectType;
     hasCapture: boolean;

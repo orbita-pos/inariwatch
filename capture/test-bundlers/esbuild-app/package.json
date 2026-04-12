@@ -1,0 +1,14 @@
+{
+  "name": "test-esbuild",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/entry.js --bundle --platform=node --format=esm --outfile=dist/out.mjs"
+  },
+  "dependencies": {
+    "@inariwatch/capture": "file:../.."
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  }
+}
