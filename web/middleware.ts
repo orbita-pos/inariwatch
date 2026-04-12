@@ -50,7 +50,7 @@ export function middleware(req: NextRequest) {
   }
 
   // Install subdomain rewrite — install.inariwatch.com → /api/install
-  // Serves the eBPF agent installer script from the public distribution repo.
+  // Serves the InariWatch Agent installer script from the public distribution repo.
   // Usage: curl -sf https://install.inariwatch.com | sh
   if (host.startsWith("install.")) {
     const url = req.nextUrl.clone();

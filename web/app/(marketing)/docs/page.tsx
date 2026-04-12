@@ -84,7 +84,7 @@ const NAV = [
       { id: "int-npm",       label: "npm / Cargo" },
       { id: "int-capture",   label: "@inariwatch/capture" },
       { id: "int-shield",    label: "Shield (runtime security)" },
-      { id: "int-agent",     label: "eBPF Agent (kernel-level)" },
+      { id: "int-agent",     label: "InariWatch Agent (kernel-level)" },
     ],
   },
   {
@@ -1275,9 +1275,9 @@ func capture(err error, stack string) {
     http.Post(os.Getenv("INARIWATCH_DSN"), "application/json", bytes.NewReader(body))
 }`}</CodeBlock>
             <P>
-              Alternatively, run your app with the eBPF Agent installed — it captures errors at the
+              Alternatively, run your app with the InariWatch Agent installed — it captures errors at the
               kernel level, language-agnostic, zero code changes. See the
-              {" "}<a href="#ebpf-agent" className="text-inari-accent underline">eBPF Agent section</a> below.
+              {" "}<a href="#int-agent" className="text-inari-accent underline">InariWatch Agent section</a> below.
             </P>
 
             <SubHeading id="int-capture-env">Environment variables</SubHeading>
@@ -1434,26 +1434,26 @@ app.use(shield({ mode: "block" })) // block threats`}</CodeBlock>
             </P>
 
             {/* ────────────────────────────────────────────────────────────────
-                eBPF AGENT
+                INARIWATCH AGENT
             ──────────────────────────────────────────────────────────────── */}
 
-            <SectionHeading id="int-agent">eBPF Agent — Kernel-level observability</SectionHeading>
+            <SectionHeading id="int-agent">InariWatch Agent — Kernel-level observability</SectionHeading>
             <P>
-              The InariWatch eBPF Agent captures <strong>everything that happens in your kernel</strong> —
+              The InariWatch Agent captures <strong>everything that happens in your kernel</strong> —
               process execution, network connections, file access, DNS queries, TLS plaintext, and security
-              events (LSM hooks) — without requiring any SDK in your code. It&apos;s language-agnostic: works
-              with Node.js, Python, Go, Java, Rust, or any production process.
+              events (LSM hooks) — without requiring any SDK in your code. It uses eBPF under the hood
+              and is language-agnostic: works with Node.js, Python, Go, Java, Rust, or any production process.
             </P>
             <P>
               While <InlineCode>@inariwatch/capture</InlineCode> catches application errors from within
-              your code, the eBPF agent watches your <em>entire server</em> from the kernel. It detects
+              your code, the InariWatch Agent watches your <em>entire server</em> from the kernel. It detects
               threats that code-level instrumentation cannot see — SSRF to cloud metadata endpoints, reverse
               shells, web shell uploads, container escapes, sensitive file reads, and more.
             </P>
 
             <SubHeading id="int-agent-install">Quick install</SubHeading>
             <P>
-              Create an integration at <strong>Dashboard → Integrations → eBPF Agent</strong> to get your
+              Create an integration at <strong>Dashboard → Integrations → InariWatch Agent</strong> to get your
               credentials, then run this one-liner on your Linux server (as root):
             </P>
             <CodeBlock label="One-line installer">{`curl -sf https://install.inariwatch.com | sudo sh -s -- \\

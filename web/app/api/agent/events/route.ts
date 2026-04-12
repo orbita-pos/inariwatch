@@ -12,7 +12,7 @@ import type { AgentBatch } from "@/lib/agent/types";
 /**
  * POST /api/agent/events
  *
- * Receives batched events from the InariWatch eBPF Agent.
+ * Receives batched events from the InariWatch Agent.
  * Events are sent as JSON (optionally LZ4 compressed — handled by middleware if needed).
  *
  * Auth: Bearer token (HMAC-SHA256 of agent_id with integration webhook secret)

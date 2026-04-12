@@ -1,7 +1,7 @@
 /**
  * GET /api/install
  *
- * Serves the InariWatch eBPF agent installer script from the public
+ * Serves the InariWatch Agent installer script from the public
  * distribution repo. Accessible via install.inariwatch.com (middleware
  * rewrites the host to this route).
  *

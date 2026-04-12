@@ -147,7 +147,7 @@ const SERVICE_CONFIG: Record<string, {
   agent: {
     tokenLabel: "",
     placeholder: "",
-    note: "No token needed. We'll generate credentials for the eBPF agent. Install with: curl -sf https://install.inariwatch.com | sh",
+    note: "No token needed. We'll generate credentials for the InariWatch Agent. Install with: curl -sf https://install.inariwatch.com | sh",
     mode: "agent" as never,
   },
 };
@@ -236,7 +236,7 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                 ) : cfg && (cfg.mode as string) === "agent" ? (
                   <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5">
                     <p className="text-xs text-fg-base/60 leading-relaxed">
-                      No token needed. Click Connect and we&apos;ll generate credentials for the eBPF agent.
+                      No token needed. Click Connect and we&apos;ll generate credentials for the InariWatch Agent.
                     </p>
                     <p className="mt-2 text-xs text-fg-base/50">
                       Install on your server:

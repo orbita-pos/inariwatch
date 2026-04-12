@@ -121,7 +121,7 @@ const CATALOG = [
   },
   {
     service: "agent",
-    label:   "eBPF Agent",
+    label:   "InariWatch Agent",
     desc:    "Kernel-level observability — process, network, filesystem, DNS, TLS, syscall, security",
     icon:    AgentIcon,
     mode:    "web" as const,

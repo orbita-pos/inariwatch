@@ -61,7 +61,7 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 | `orbita-pos/inariwatch-action` | PUBLIC | GitHub Action for PR risk assessment |
 | `orbita-pos/eap` | **PRIVATE** | EAP: Merkle + Ed25519 cryptographic verification (6 Rust crates) |
 | `orbita-pos/substrate` | **PRIVATE** | Substrate: I/O recording + deterministic replay (10 Rust crates) |
-| `orbita-pos/inariwatch-agent` | **PRIVATE** | eBPF Agent: kernel-level observability (C + Rust, 50 files) |
+| `orbita-pos/inariwatch-agent` | **PRIVATE** | InariWatch Agent: kernel-level observability via eBPF (C + Rust, 50 files) |
 
 **Rules:**
 - Never make `inariwatch`, `eap`, `substrate`, or `inariwatch-agent` public — these contain core IP
@@ -101,7 +101,7 @@ The Hetzner server runs 5 services alongside each other:
 | Node.js AI worker | 9401 | `inari-worker` (systemd) | Runs container agent AI loop on localhost Docker |
 | Redis | 6379 | Docker container | Remediation state, job queue (Hetzner-local) |
 | Caddy | 443 | systemd | TLS termination, routes `/worker/*` → 9401, rest → 9400 |
-| eBPF Agent | — | `inariwatch-agent` (binary) | Kernel-level observability, sends events to InariWatch cloud |
+| InariWatch Agent | — | `inariwatch-agent` (binary) | Kernel-level observability via eBPF, sends events to InariWatch cloud |
 
 **Cron scheduler** (built into Go server): 5 jobs trigger Vercel routes with `Bearer CRON_SECRET`. Replaces cron-job.org.
 
@@ -404,7 +404,7 @@ Outputs `.webm` to `scripts/demo-output/`. Convert to GIF:
 & "$env:TEMP\convert.bat"
 ```
 
-## eBPF Agent (`orbita-pos/inariwatch-agent`)
+## InariWatch Agent (`orbita-pos/inariwatch-agent`)
 
 Kernel-level observability agent. Installed on the user's server with `curl -sf https://install.inariwatch.com | sh`. Zero code changes, language-agnostic (Node.js, Python, Go, Java, anything).
 

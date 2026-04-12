@@ -1,5 +1,5 @@
 /**
- * eBPF Agent event processor.
+ * InariWatch Agent event processor.
  *
  * Analyzes batches of kernel-level events for security threats,
  * anomalies, and performance issues. Creates alerts via the

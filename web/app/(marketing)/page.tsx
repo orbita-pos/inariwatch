@@ -179,7 +179,7 @@ function RuntimeStrip() {
           ))}
         </div>
         <p className="text-center text-[11px] text-fg-base/70 mt-6 max-w-md mx-auto">
-          Monitoring any other language? The kernel-level eBPF agent watches Python, Go, Rust and anything else — zero code changes.
+          Monitoring any other language? The InariWatch Agent watches Python, Go, Rust and anything else — zero code changes.
         </p>
       </div>
     </section>

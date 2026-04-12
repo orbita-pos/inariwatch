@@ -1,5 +1,5 @@
 /**
- * Event types from the InariWatch eBPF Agent.
+ * Event types from the InariWatch Agent.
  *
  * These mirror the Rust #[repr(C,packed)] structs in crates/events/src/types.rs.
  * The agent sends batches of these events compressed with LZ4 over HTTPS.

@@ -42,7 +42,7 @@ const SHARED_FEATURES = [
   "VS Code extension",
   "Mobile + desktop apps",
   "MCP server (25 tools)",
-  "Capture SDK + eBPF Agent",
+  "Capture SDK + InariWatch Agent",
   "Status page automation",
   "Workspace + team invites",
 ];
