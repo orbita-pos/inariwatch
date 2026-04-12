@@ -27,6 +27,22 @@ export const metadata: Metadata = { title: "Integrations" };
 // ── Integration catalog ────────────────────────────────────────────────────────
 
 const CATALOG = [
+  // ── InariWatch own products (first — our differentiator) ────────────────
+  {
+    service: "capture",
+    label:   "Capture SDK",
+    desc:    "Catch errors from your app with @inariwatch/capture — zero deps, zero config",
+    icon:    CaptureIcon,
+    mode:    "web" as const,
+  },
+  {
+    service: "agent",
+    label:   "InariWatch Agent",
+    desc:    "Kernel-level observability — process, network, filesystem, DNS, TLS, syscall, security",
+    icon:    AgentIcon,
+    mode:    "web" as const,
+  },
+  // ── Third-party integrations ────────────────────────────────────────────
   {
     service: "github",
     label:   "GitHub",
@@ -110,20 +126,6 @@ const CATALOG = [
     label:   "Expo",
     desc:    "EAS Build failures, OTA update rollbacks, app crashes",
     icon:    ExpoIcon,
-    mode:    "web" as const,
-  },
-  {
-    service: "capture",
-    label:   "Capture SDK",
-    desc:    "Catch errors from your app with @inariwatch/capture — zero deps, zero config",
-    icon:    CaptureIcon,
-    mode:    "web" as const,
-  },
-  {
-    service: "agent",
-    label:   "InariWatch Agent",
-    desc:    "Kernel-level observability — process, network, filesystem, DNS, TLS, syscall, security",
-    icon:    AgentIcon,
     mode:    "web" as const,
   },
 ];
