@@ -27,31 +27,6 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
     });
   };
 
-  if (!hasAIKey && !result) {
-    return (
-      <section
-        aria-labelledby="ai-analysis-heading"
-        className="rounded-xl border border-line bg-surface overflow-hidden"
-      >
-        <div className="flex items-center gap-2 border-b border-line px-5 py-3">
-          <Sparkles className="h-3.5 w-3.5 text-fg-base/60" aria-hidden="true" />
-          <h2 id="ai-analysis-heading" className="text-xs font-medium uppercase tracking-wider text-fg-base/70">
-            AI Analysis
-          </h2>
-        </div>
-        <div className="px-5 py-5 text-center">
-          <p className="text-sm text-fg-base">
-            Add a Claude or OpenAI key in{" "}
-            <a href="/settings" className="text-inari-accent hover:underline">
-              Settings → AI
-            </a>{" "}
-            to get root cause analysis and remediation steps.
-          </p>
-        </div>
-      </section>
-    );
-  }
-
   return (
     <section
       aria-labelledby="ai-analysis-heading"
@@ -73,28 +48,26 @@ export function AIAnalyzePanel({ alertId, hasAIKey, aiReasoning }: Props) {
           )}
         </div>
 
-        {hasAIKey && (
-          <button
-            type="button"
-            onClick={handleAnalyze}
-            disabled={isPending}
-            aria-busy={isPending}
-            aria-describedby="ai-analysis-heading"
-            className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-fg-base hover:text-fg-strong hover:border-line hover:bg-surface transition-all disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
-          >
-            {isPending ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                Analyzing…
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-3 w-3" aria-hidden="true" />
-                {result ? "Re-analyze" : "Analyze"}
-              </>
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleAnalyze}
+          disabled={isPending}
+          aria-busy={isPending}
+          aria-describedby="ai-analysis-heading"
+          className="flex items-center gap-1.5 rounded-lg border border-line-medium bg-surface-dim px-3 py-1.5 text-xs font-medium text-fg-base hover:text-fg-strong hover:border-line hover:bg-surface transition-all disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
+        >
+          {isPending ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              Analyzing…
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-3 w-3" aria-hidden="true" />
+              {result ? "Re-analyze" : "Analyze"}
+            </>
+          )}
+        </button>
       </div>
 
       <div className="px-5 py-5" aria-live="polite">

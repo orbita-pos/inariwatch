@@ -270,7 +270,7 @@ export function RemediationPanel({
 
   // ── Gate states ──────────────────────────────────────────────────────────────
   // Don't show panel if no AI key or no GitHub integration
-  if (!hasAIKey || !hasGitHub) {
+  if (!hasGitHub) {
     return (
       <section
         aria-labelledby="remediation-heading"
@@ -284,9 +284,7 @@ export function RemediationPanel({
         </div>
         <div className="px-5 py-4">
           <p className="text-sm text-fg-base">
-            {!hasAIKey
-              ? "Add an AI key in Settings to enable automated fixes."
-              : "Connect a GitHub integration to enable automated fixes."}
+            Connect a GitHub integration to enable automated fixes.
           </p>
         </div>
       </section>

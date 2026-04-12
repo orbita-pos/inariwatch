@@ -483,13 +483,11 @@ function PlanCard({
               <Brain className="h-5 w-5 text-fg-base/50" aria-hidden="true" />
             )}
             <h2 className="text-base font-semibold text-fg-strong">
-              {plan === "pro" ? "Pro Plan" : "Free Plan"}
+              Beta Plan
             </h2>
-            {plan === "free" && (
-              <span className="ml-2 text-xs text-fg-base/60">
-                Upgrade for 10x more
-              </span>
-            )}
+            <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+              Pro features included
+            </span>
           </div>
           <div className="text-xs text-fg-base/60">
             Resets in {daysUntilReset} {daysUntilReset === 1 ? "day" : "days"}

@@ -1,16 +1,17 @@
 /**
  * Platform AI spend kill-switch.
  *
- * Caps the total daily cost of platform-funded AI calls (free-tier
- * auto-analyze, fallback paths, etc). Once the cap is hit, free AI calls
- * throw PlatformBudgetExceededError until midnight UTC.
+ * Caps the total daily cost of ALL platform-funded AI calls (auto-analyze,
+ * chat, remediation, postmortem, risk assessment, correlation, prediction).
+ * Once the cap is hit, platform-funded calls throw PlatformBudgetExceededError
+ * until midnight UTC. Users with their own BYOK key are unaffected.
  *
  * Pattern: pre-reservation. Callers reserve an estimated cost before
  * making the AI call. After the call, usage-logger.ts reconciles by
  * adding (actual - estimate). This eliminates the race window where N
  * parallel calls all pass a read-only check before any has incremented.
  *
- * Tunable via PLATFORM_AI_DAILY_CAP_CENTS env var (default 2000 = $20/day).
+ * Tunable via PLATFORM_AI_DAILY_CAP_CENTS env var (default 10000 = $100/day).
  *
  * Failure modes:
  *   - Redis unavailable → fail OPEN (per-user quotas in quota.ts still
@@ -23,7 +24,7 @@
 import { incrDailyCounterCents, getDailyCounterCents } from "@/lib/redis";
 
 const COUNTER_KEY = "platform_ai_spend_cents";
-const DEFAULT_CAP_CENTS = 2000; // $20/day
+const DEFAULT_CAP_CENTS = 10000; // $100/day
 
 function getCapCents(): number {
   const env = process.env.PLATFORM_AI_DAILY_CAP_CENTS;

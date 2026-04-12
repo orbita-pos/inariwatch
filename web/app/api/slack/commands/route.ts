@@ -391,7 +391,7 @@ async function handleAsk(userId: string, question: string, responseUrl: string) 
       const { getUserAIKey } = await import("@/lib/ai/get-key");
       const aiKey = await getUserAIKey(userId);
       if (!aiKey) {
-        await postToResponseUrl(responseUrl, { text: "No AI key configured. Add one in Settings → AI analysis." });
+        await postToResponseUrl(responseUrl, { text: "AI is temporarily unavailable. Please try again later." });
         return;
       }
 

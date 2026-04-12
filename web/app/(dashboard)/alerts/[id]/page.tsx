@@ -136,7 +136,7 @@ export default async function AlertDetailPage({
   // via lib/ai/quota.ts, not here. ProGate is kept as a passthrough in case
   // gating is reintroduced later.
   const isPro            = true;
-  const hasAIKey         = aiKeyRows.length > 0;
+  const hasAIKey         = true; // Platform AI always available; BYOK is optional
   const hasGitHub        = githubRows.length > 0;
   const hasSentry        = sentryRows.length > 0;
   const latestRemediation = remediationRows[0];
@@ -361,7 +361,7 @@ function AiSkippedBanner({ reason }: { reason: string }) {
     },
     quota: {
       title: "Monthly AI quota reached",
-      body: "You've used your monthly auto-analysis quota. Resets on the 1st, or upgrade to Pro for 10x more.",
+      body: "You've used your monthly auto-analysis quota. Resets on the 1st of next month.",
     },
     no_key: {
       title: "No AI key configured",

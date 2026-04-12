@@ -240,12 +240,10 @@ export function AIKeySection({ hasKey, provider, savedProviders, modelPrefs }: P
           <Sparkles className="h-4 w-4 text-fg-base/50" aria-hidden="true" />
         </div>
         <div>
-          <p className="text-sm font-medium text-fg-base">AI analysis key</p>
+          <p className="text-sm font-medium text-fg-base">Custom AI Key <span className="text-fg-base/40 font-normal">(Optional)</span></p>
           <p className="mt-0.5 text-xs text-fg-base/50">
-            Paste a key from Claude (<span className="font-mono">sk-ant-…</span>), OpenAI (
-            <span className="font-mono">sk-…</span>), Grok (<span className="font-mono">xai-…</span>),
-            DeepSeek (<span className="font-mono">sk-…</span>), or Gemini (
-            <span className="font-mono">AIza…</span>). Stored securely and never shared.
+            All AI features work out of the box. Add your own key to use specific models
+            (Claude, Grok, DeepSeek) or for higher rate limits. Stored securely and never shared.
           </p>
         </div>
       </div>

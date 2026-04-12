@@ -170,7 +170,13 @@ export async function assessPRRisk(
 ): Promise<void> {
   // Get AI key
   const aiKey = await getProjectOwnerAIKey(projectId);
-  if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK — skip for free tier
+  if (!aiKey) return;
+  if (aiKey.isPlatformKey) {
+    try {
+      const { reservePlatformBudget } = await import("./spend-guard");
+      await reservePlatformBudget(5);
+    } catch { return; }
+  }
 
   // Resolve project owner for cost attribution.
   const [proj] = await db

@@ -40,7 +40,7 @@ export function PostmortemPanel({
   }
 
   // Only show for resolved alerts with AI key
-  if (!isResolved || !hasAIKey) return null;
+  if (!isResolved) return null;
 
   return (
     <section

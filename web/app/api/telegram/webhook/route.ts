@@ -317,7 +317,7 @@ async function cmdAsk(botToken: string, chatId: string, userId: string, projectI
   try {
     const { getUserAIKey } = await import("@/lib/ai/get-key");
     const aiKey = await getUserAIKey(userId);
-    if (!aiKey) { await sendMessage(botToken, chatId, "No AI key configured. Add one in Settings → AI."); return; }
+    if (!aiKey) { await sendMessage(botToken, chatId, "AI is temporarily unavailable. Please try again later."); return; }
 
     const ctx = await gatherChatContext(projectIds);
     const context = buildContextString(ctx);

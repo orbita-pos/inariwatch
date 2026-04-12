@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 const PAGE_TITLE       = "Terms of Service — InariWatch";
 const PAGE_DESCRIPTION = "Terms and conditions for using InariWatch.";
 const PAGE_URL         = "https://inariwatch.com/terms";
-const LAST_UPDATED     = "April 11, 2026";
+const LAST_UPDATED     = "April 12, 2026";
 
 export const metadata: Metadata = {
   title:       PAGE_TITLE,
@@ -39,7 +39,9 @@ export default function TermsPage() {
         <Section title="1. Acceptance">
           <p>
             By creating an account or using InariWatch (&quot;the Service&quot;), you agree to these Terms.
-            If you do not agree, do not use the Service. The Service is operated by Jesus Bernal (&quot;we&quot;, &quot;us&quot;).
+            If you do not agree, do not use the Service. The Service is operated by Jesus Bernal,
+            based in Mexico (&quot;we&quot;, &quot;us&quot;). For legal inquiries, contact{" "}
+            <a href="mailto:info@jesusbr.com" className="text-inari-accent hover:underline">info@jesusbr.com</a>.
           </p>
         </Section>
 
@@ -47,7 +49,9 @@ export default function TermsPage() {
           <p>
             InariWatch is a developer monitoring platform available at{" "}
             <a href="https://inariwatch.com" className="text-inari-accent hover:underline">inariwatch.com</a>.
-            We offer a free tier and a paid Pro tier (see <Link href="/pricing" className="text-inari-accent hover:underline">Pricing</Link> for current plans).
+            The Service is currently in <strong>beta</strong>. During beta, all users have access to Pro-level features
+            and quotas at no cost. When beta ends, we will introduce a paid Pro tier (see <Link href="/pricing" className="text-inari-accent hover:underline">Pricing</Link> for
+            planned pricing). Features, quotas, and pricing may change during and after beta.
             We provide the Service as-is and may change, suspend, or discontinue any part of it at any time with reasonable notice.
           </p>
           <p>
@@ -92,12 +96,13 @@ export default function TermsPage() {
 
         <Section title="6. AI features">
           <p>
-            InariWatch uses AI models to analyze alerts and suggest remediations. Alert auto-analyses are
-            platform-funded using GPT-4o-mini for users on both Free and Pro tiers. Advanced features —
-            AI remediations, Ask Inari chat, and postmortems — require you to connect your own API key from
-            a supported provider (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, or Google Gemini). You are
-            responsible for complying with the terms of service of your chosen AI provider, and your provider
-            bills you directly for usage.
+            InariWatch uses AI models to analyze alerts and suggest remediations. All AI features — auto-analysis,
+            chat, remediation, postmortems, and risk assessment — are platform-funded and work out of the box
+            without requiring your own API key. We use OpenAI models (GPT-4o-mini for analysis, GPT-5.4 for
+            code fixes) to power these features. Optionally, you may connect your own API key from a supported
+            provider (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, or Google Gemini) to use specific models or
+            for higher rate limits. If you bring your own key, you are responsible for complying with the terms
+            of service of your chosen AI provider, and your provider bills you directly for that usage.
           </p>
           <p className="mt-2">
             AI-generated content may be inaccurate or incomplete. You are solely responsible for any action
@@ -108,9 +113,11 @@ export default function TermsPage() {
 
         <Section title="7. Billing and subscriptions">
           <p>
-            The Free tier is free forever and does not require a credit card. InariWatch Pro is a paid
-            subscription billed monthly or annually via <a href="https://stripe.com" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">Stripe</a>.
-            Current prices are listed at <Link href="/pricing" className="text-inari-accent hover:underline">inariwatch.com/pricing</Link>.
+            <strong>During beta:</strong> all features are free. No credit card is required. When beta ends,
+            InariWatch Pro will be a paid subscription billed monthly or annually via{" "}
+            <a href="https://stripe.com" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">Stripe</a>.
+            Planned prices are listed at <Link href="/pricing" className="text-inari-accent hover:underline">inariwatch.com/pricing</Link>.
+            We will notify all users by email at least 30 days before billing begins.
           </p>
           <p className="mt-2">
             <strong>Auto-renewal.</strong> Pro subscriptions renew automatically at the end of each billing

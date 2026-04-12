@@ -47,8 +47,7 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     .limit(1);
 
   // Check quota before making the AI call.
-  // Platform key calls don't count against user quota (they're our cost).
-  if (proj && !aiKey.isPlatformKey) {
+  if (proj) {
     try {
       await assertWithinQuota(proj.userId, "auto-analyze");
     } catch (err) {
@@ -113,8 +112,8 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     .set({ aiReasoning: reasoning })
     .where(eq(alerts.id, alert.id));
 
-  // Increment quota only after successful call (and only for BYOK, not platform key)
-  if (proj && !aiKey.isPlatformKey) {
+  // Increment quota after successful call
+  if (proj) {
     incrementQuota(proj.userId, "auto-analyze").catch(() => {});
   }
 

@@ -91,7 +91,13 @@ export async function generatePostmortem(alertId: string, userId: string): Promi
   if (alert.postmortem) return;
 
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
-  if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK
+  if (!aiKey) return;
+  if (aiKey.isPlatformKey) {
+    try {
+      const { reservePlatformBudget } = await import("./spend-guard");
+      await reservePlatformBudget(5);
+    } catch { return; }
+  }
 
   // Quota check
   try {
@@ -161,7 +167,13 @@ export async function generatePostmortemInternal(alertId: string): Promise<void>
     .limit(1);
 
   const aiKey = await getProjectOwnerAIKey(alert.projectId);
-  if (!aiKey || aiKey.isPlatformKey) return; // Requires BYOK
+  if (!aiKey) return;
+  if (aiKey.isPlatformKey) {
+    try {
+      const { reservePlatformBudget } = await import("./spend-guard");
+      await reservePlatformBudget(5);
+    } catch { return; }
+  }
 
   const [remediation] = await db
     .select()

@@ -79,7 +79,7 @@ const FAQS = [
   },
   {
     q: "Do I need my own AI key?",
-    a: "Only for advanced features. Auto-analyses are platform-funded (we pay for GPT-4o-mini) on both Free and Pro. For AI remediations, Ask Inari chat, and postmortems you bring your own key (Claude, OpenAI, Groq, DeepSeek, Gemini, or Grok) — your AI provider bills you directly for usage. Pro unlocks higher monthly quotas on top.",
+    a: "No. All AI features — auto-analysis, chat, remediation, postmortems — work out of the box. We fund the AI (GPT-4o-mini for analysis, GPT-5.4 for code fixes). Optionally, add your own key in Settings to use a specific provider (Claude, Grok, DeepSeek) or for higher rate limits.",
   },
   {
     q: "Why $12 — what's the catch?",
@@ -170,8 +170,8 @@ export default function PricingPage() {
             </h1>
 
             <p className="mt-6 text-lg text-fg-base max-w-2xl mx-auto leading-relaxed">
-              Same features in both plans — Pro just gives you more AI. No credit card to start.
-              Upgrade when you need it. Cancel anytime.
+              All Pro features are free during beta. No credit card needed.
+              When we launch, Pro will be $12/month. Early users get a special rate.
             </p>
           </div>
         </section>
@@ -229,9 +229,12 @@ export default function PricingPage() {
 
               {/* Pro plan */}
               <div className="rounded-2xl border-2 border-inari-accent/40 bg-inari-card p-8 flex flex-col relative">
-                <div className="absolute -top-3 left-6">
+                <div className="absolute -top-3 left-6 flex gap-2">
                   <span className="bg-inari-accent text-white text-xs font-mono font-bold px-3 py-1 rounded-full uppercase tracking-wider">
                     Recommended
+                  </span>
+                  <span className="bg-emerald-500 text-white text-xs font-mono font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                    Free during beta
                   </span>
                 </div>
 
@@ -241,11 +244,12 @@ export default function PricingPage() {
                     <h3 className="text-xl font-bold text-fg-strong">Pro</h3>
                   </div>
                   <div className="mt-2 flex items-baseline gap-1">
-                    <span className="text-5xl font-bold text-fg-strong font-mono">$12</span>
-                    <span className="text-fg-base text-sm">/month</span>
+                    <span className="text-5xl font-bold text-fg-strong font-mono line-through opacity-40">$12</span>
+                    <span className="text-3xl font-bold text-emerald-500 font-mono ml-2">$0</span>
+                    <span className="text-fg-base text-sm">/month during beta</span>
                   </div>
                   <p className="mt-2 text-sm text-fg-base">
-                    Or <span className="text-inari-accent font-semibold">$120/year</span> — save $24 (2 months free)
+                    Will be <span className="text-inari-accent font-semibold">$12/month</span> or <span className="text-inari-accent font-semibold">$120/year</span> after beta
                   </p>
                 </div>
 
@@ -279,7 +283,7 @@ export default function PricingPage() {
 
                 <Link href="/register">
                   <Button variant="primary" className="w-full py-3">
-                    Upgrade to Pro
+                    Get started — free during beta
                     <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
                   </Button>
                 </Link>
@@ -287,24 +291,23 @@ export default function PricingPage() {
 
             </div>
 
-            {/* BYOK callout — critical for honesty */}
-            <div className="mt-6 rounded-xl border border-inari-border bg-inari-card p-5 flex items-start gap-3">
-              <Sparkles className="h-4 w-4 text-inari-accent shrink-0 mt-0.5" aria-hidden="true" />
+            {/* AI callout */}
+            <div className="mt-6 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-5 flex items-start gap-3">
+              <Sparkles className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
-                <p className="text-sm font-semibold text-fg-strong">Bring your own AI key for advanced features</p>
+                <p className="text-sm font-semibold text-fg-strong">All AI features included — no API key required</p>
                 <p className="mt-1 text-xs text-fg-base leading-relaxed">
-                  Auto-analyses are platform-funded (we pay for GPT-4o-mini) on both plans. For AI remediations,
-                  Ask Inari chat, and postmortems you connect your own key from Claude, OpenAI, Groq, DeepSeek,
-                  Gemini or Grok. Your provider bills you directly.
+                  Every feature works out of the box. We fund the AI (GPT-4o-mini for analysis, GPT-5.4 for code fixes).
+                  Optionally, bring your own key from Claude, Grok, or DeepSeek to use specific models.
                 </p>
               </div>
             </div>
 
             {/* Shared features list */}
             <div className="mt-6 rounded-xl border border-inari-border bg-inari-card p-8">
-              <h3 className="text-sm font-semibold text-fg-strong mb-1">Same features in both plans</h3>
+              <h3 className="text-sm font-semibold text-fg-strong mb-1">Included in every account</h3>
               <p className="text-xs text-fg-base mb-5">
-                Free users get the full product. Pro just unlocks more monthly AI usage.
+                All features available during beta. No credit card, no API key needed.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {SHARED_FEATURES.map((f) => (

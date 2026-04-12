@@ -224,17 +224,24 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const alertFingerprint = computeErrorFingerprint(alert.title, alert.body);
   await updateSession(sessionId, { fingerprint: alertFingerprint });
 
-  // Get AI key
+  // Get AI key — platform key fallback funds all users (quotas + spend guard protect)
   const aiKey = await getProjectOwnerAIKey(session.projectId);
-  if (!aiKey) { await fail(sessionId, emit, "No AI key configured. Add one in Settings."); return; }
-  // HARD BLOCK: code remediation is BYOK-only and MUST stay that way.
-  // A single remediation session can make 10-40 AI calls and cost $0.25–$2.
-  // The platform AI daily budget ($20/day) cannot absorb this — one bad
-  // session would exhaust the entire free-tier auto-analyze budget.
-  // If you EVER remove this guard, you MUST add `reservePlatformBudget()`
-  // calls (~30¢ each) before every callAI inside this function, AND
-  // expect free-tier remediation to be DOSed by the budget cap regularly.
-  if (aiKey.isPlatformKey) { await fail(sessionId, emit, "Code remediation requires your own AI key. Add one in Settings → AI analysis."); return; }
+  if (!aiKey) { await fail(sessionId, emit, "AI is temporarily unavailable. Please try again later."); return; }
+  // Platform-funded remediation: reserve budget upfront ($1.00 covers a full session).
+  // Per-user quotas (3/month free, 25/month pro) still enforce below.
+  if (aiKey.isPlatformKey) {
+    try {
+      const { reservePlatformBudget } = await import("./spend-guard");
+      await reservePlatformBudget(100);
+    } catch (err) {
+      const { PlatformBudgetExceededError } = await import("./spend-guard");
+      if (err instanceof PlatformBudgetExceededError) {
+        await fail(sessionId, emit, "AI budget limit reached for today. Try again tomorrow or add your own AI key in Settings for unlimited access.");
+        return;
+      }
+      throw err;
+    }
+  }
 
   // Check quota before starting (remediations are expensive)
   try {
@@ -244,8 +251,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     const { QuotaExceededError } = await import("./quota");
     if (err instanceof QuotaExceededError) {
       await fail(sessionId, emit,
-        `You've reached your monthly remediation limit (${err.used}/${err.limit} on ${err.plan} plan). ` +
-        (err.plan === "free" ? "Upgrade to Pro for 25 remediations/month at $12/mo." : "Contact support.")
+        `You've reached your monthly remediation limit (${err.used}/${err.limit}). Quota resets on the 1st of next month.`
       );
       return;
     }

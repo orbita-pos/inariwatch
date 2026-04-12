@@ -135,27 +135,19 @@ Rules:
 5. Never invent alerts or incidents that aren't in the data.
 6. Keep responses under 300 words.${dataContext}${alertContext}`;
 
-    // Get user's AI key
-    const { apiKeys } = await import("@/lib/db");
-    const [aiKey] = await database
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.userId, userId))
-      .limit(1);
+    // Get user's AI key (falls back to platform key for users without BYOK)
+    const { getUserAIKey } = await import("@/lib/ai/get-key");
+    const resolvedKey = await getUserAIKey(userId);
 
     let response: string;
-    if (aiKey?.keyEncrypted) {
-      const { decrypt } = await import("@/lib/crypto");
-      const key = decrypt(aiKey.keyEncrypted);
-      const { detectProvider } = await import("@/lib/ai/client");
-      const provider = ((aiKey.metadata as Record<string, string>)?.provider as import("@/lib/ai/client").AIProvider) || detectProvider(key);
-      response = await callAI(key, systemPrompt, [{ role: "user", content: question }], {
+    if (resolvedKey) {
+      response = await callAI(resolvedKey.key, systemPrompt, [{ role: "user", content: question }], {
         maxTokens: 500,
         timeout: 30000,
-        provider,
+        provider: resolvedKey.provider,
       });
     } else {
-      response = "No AI key configured. Add your API key in InariWatch Settings → AI Keys.";
+      response = "AI is temporarily unavailable. Please try again later.";
     }
 
     // Post response

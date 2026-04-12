@@ -138,63 +138,42 @@ export function BillingSection({ billing }: { billing: BillingInfo }) {
     );
   }
 
-  // ── Free user: show upgrade CTA ────────────────────────────────────────────
+  // ── Beta: all users have Pro features ───────────────────────────────────────
   return (
     <div className="rounded-xl border border-line bg-surface-dim overflow-hidden">
       <div className="px-5 py-4 border-b border-line">
-        <h3 className="text-base font-semibold text-fg-strong">Free Plan</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-semibold text-fg-strong">Beta Plan</h3>
+          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+            All Pro features included
+          </span>
+        </div>
         <p className="text-xs text-fg-base/60 mt-0.5">
-          Generous free tier for indie devs. Upgrade for 10x more AI usage.
+          You have full access to all Pro features during beta at no cost.
         </p>
       </div>
 
       <div className="px-5 py-4">
-        <div className="rounded-lg border border-inari-accent/30 bg-inari-accent/5 p-4 mb-4">
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.04] p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="h-5 w-5 text-inari-accent" aria-hidden="true" />
-            <h4 className="text-sm font-semibold text-fg-strong">Upgrade to Pro</h4>
+            <Sparkles className="h-5 w-5 text-emerald-500" aria-hidden="true" />
+            <h4 className="text-sm font-semibold text-fg-strong">What you get during beta</h4>
           </div>
-          <ul className="space-y-1 text-sm text-fg-base mb-4">
-            <li>• 3,000 auto-analyses (10x more)</li>
-            <li>• 25 AI remediations (8x more)</li>
-            <li>• 500 chat messages (5x more)</li>
+          <ul className="space-y-1 text-sm text-fg-base">
+            <li>• 3,000 auto-analyses/month</li>
+            <li>• 25 AI remediations/month</li>
+            <li>• 500 chat messages/month</li>
             <li>• 30 PR predictions, 50 postmortems</li>
-            <li>• Email support</li>
+            <li>• All AI features — no API key required</li>
           </ul>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => handleUpgrade("monthly")}
-              disabled={isPending}
-              className="rounded-md border border-inari-accent/40 bg-transparent px-3 py-2 text-xs hover:bg-inari-accent/10 transition-colors disabled:opacity-50"
-            >
-              <div className="font-semibold text-fg-strong">$12/mo</div>
-              <div className="text-fg-base/60 mt-0.5">Monthly</div>
-            </button>
-            <button
-              onClick={() => handleUpgrade("annual")}
-              disabled={isPending}
-              className="rounded-md border-2 border-inari-accent bg-inari-accent/10 px-3 py-2 text-xs hover:bg-inari-accent/20 transition-colors disabled:opacity-50 relative"
-            >
-              <span className="absolute -top-2 right-1 bg-inari-accent text-bg-base text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase">
-                Save $24
-              </span>
-              <div className="font-semibold text-fg-strong">$120/yr</div>
-              <div className="text-inari-accent mt-0.5">2 months free</div>
-            </button>
-          </div>
         </div>
 
-        <Link
-          href="/pricing"
-          className="flex items-center justify-center gap-1 text-xs text-fg-base/60 hover:text-fg-base transition-colors"
-        >
-          See full pricing details <ArrowRight className="h-3 w-3" aria-hidden="true" />
-        </Link>
-
-        {error && (
-          <p className="mt-3 text-xs text-red-600 dark:text-red-400 text-center" role="alert">{error}</p>
-        )}
+        <div className="rounded-lg border border-line bg-surface-inner p-3">
+          <p className="text-xs text-fg-base/60 text-center">
+            After beta, Pro will be <span className="font-semibold text-fg-base">$12/month</span> or{" "}
+            <span className="font-semibold text-fg-base">$120/year</span>. Early beta users will get a special rate.
+          </p>
+        </div>
       </div>
     </div>
   );

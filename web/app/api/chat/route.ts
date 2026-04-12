@@ -19,24 +19,38 @@ export async function POST(req: NextRequest) {
   if (!userMessage) return new Response("No message", { status: 400 });
 
   const aiKey = await getUserAIKey(userId);
-  if (!aiKey || aiKey.isPlatformKey) {
+  if (!aiKey) {
     return Response.json({
       role: "assistant",
-      content: "Ask Inari requires your own AI API key. Add one in **Settings → AI analysis**. Supported providers: Claude, OpenAI, Grok, DeepSeek, and Gemini.",
+      content: "AI is temporarily unavailable. Please try again later.",
     });
   }
 
-  // Defense-in-depth: enforce per-user chat quota even though chat is BYOK-only
-  // today. If the BYOK gate above is ever removed (intentionally or by bug),
-  // this still caps platform-funded usage to the configured limit.
+  // Platform budget reserve for non-BYOK users
+  if (aiKey.isPlatformKey) {
+    try {
+      const { reservePlatformBudget } = await import("@/lib/ai/spend-guard");
+      await reservePlatformBudget(2);
+    } catch (err) {
+      const { PlatformBudgetExceededError } = await import("@/lib/ai/spend-guard");
+      if (err instanceof PlatformBudgetExceededError) {
+        return Response.json({
+          role: "assistant",
+          content: "AI budget limit reached for today. Add your own AI key in Settings for unlimited access.",
+        });
+      }
+      throw err;
+    }
+  }
+
+  // Enforce per-user chat quota
   try {
     await assertWithinQuota(userId, "chat");
   } catch (err) {
     if (err instanceof QuotaExceededError) {
       return Response.json({
         role: "assistant",
-        content: `You've used your monthly Ask Inari quota (${err.used}/${err.limit} on ${err.plan} plan). ` +
-          (err.plan === "free" ? "Upgrade to Pro for 5x more messages." : "Contact support."),
+        content: `You've used your monthly Ask Inari quota (${err.used}/${err.limit}). Quota resets on the 1st of next month.`,
       });
     }
     throw err;

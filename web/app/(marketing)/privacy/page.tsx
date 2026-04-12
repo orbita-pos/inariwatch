@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 const PAGE_TITLE       = "Privacy Policy — InariWatch";
 const PAGE_DESCRIPTION = "How InariWatch collects, uses, and protects your data.";
 const PAGE_URL         = "https://inariwatch.com/privacy";
-const LAST_UPDATED     = "April 11, 2026";
+const LAST_UPDATED     = "April 12, 2026";
 
 export const metadata: Metadata = {
   title:       PAGE_TITLE,
@@ -38,7 +38,7 @@ export default function PrivacyPage() {
 
         <Section title="1. Overview">
           <p>
-            InariWatch (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) is operated by Jesus Bernal. This policy explains
+            InariWatch (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) is operated by Jesus Bernal, based in Mexico. This policy explains
             what data we collect when you use InariWatch at{" "}
             <a href="https://inariwatch.com" className="text-inari-accent hover:underline">inariwatch.com</a>{" "}
             and{" "}
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
           <p><strong>Account data:</strong> your name and email address when you register, and OAuth profile info (name, email, avatar) if you sign in with GitHub, Google, or GitLab.</p>
           <p><strong>Authentication data:</strong> hashed passwords, 2FA secrets (encrypted), session tokens, and password reset tokens. Session cookies (<InlineCode>next-auth.session-token</InlineCode>) are set with a 30-day expiry and are required for the app to function.</p>
           <p><strong>Integration data:</strong> webhook payloads and API responses from services you connect (GitHub, Vercel, Sentry, Datadog, Expo, and others). This may include stack traces, deployment logs, and error messages from your systems. All integration credentials are stored encrypted.</p>
-          <p><strong>AI API keys:</strong> keys you provide under Settings (Anthropic, OpenAI, Groq, Grok, DeepSeek, Google Gemini) are stored encrypted and used only to make requests on your behalf. We never share them or use them for any other purpose.</p>
+          <p><strong>AI API keys (optional):</strong> all AI features work without your own key — we use our platform API key (OpenAI) to power them. If you optionally provide your own key under Settings (Anthropic, OpenAI, Groq, Grok, DeepSeek, Google Gemini), it is stored encrypted and used only to make requests on your behalf. We never share keys or use them for any other purpose.</p>
           <p><strong>Billing data:</strong> if you subscribe to InariWatch Pro, payment is processed by <a href="https://stripe.com" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">Stripe</a>. We store your Stripe customer ID, subscription status, and plan tier — we never see or store your payment card details.</p>
           <p><strong>Notification data:</strong> configuration for your notification channels (email, Telegram, Slack, browser push). Webhook endpoints and secrets are stored encrypted.</p>
           <p><strong>Email interaction data:</strong> alert notification emails include an open-tracking pixel and click-tracking links so we can show you whether notifications were received. This data is stored in your account and visible to you in the app.</p>
@@ -85,7 +85,8 @@ export default function PrivacyPage() {
             <li><strong>Vercel</strong> — application hosting and edge functions.</li>
             <li><strong>Resend</strong> — transactional email delivery.</li>
             <li><strong>Stripe</strong> — subscription billing for InariWatch Pro. Card details are handled exclusively by Stripe; we never see or store them.</li>
-            <li><strong>AI providers</strong> — when you use AI features, requests are sent to the provider whose key you configured (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, Google Gemini). We do not store AI responses beyond what is shown in the app.</li>
+            <li><strong>Upstash</strong> — Redis caching for rate limiting, AI response caching, and deduplication. No personal data is stored — only counters, fingerprints, and cached AI analysis text.</li>
+            <li><strong>AI providers</strong> — AI features use our platform OpenAI key by default. If you provide your own key, requests are sent to that provider instead (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, Google Gemini). Alert data (error messages, stack traces) is sent to the AI provider for analysis. We store AI responses only as shown in the app (e.g., alert diagnosis, postmortems).</li>
             <li><strong>GitHub / Google / GitLab</strong> — optional OAuth sign-in. We only store the provider account ID, email, and name returned by the provider.</li>
             <li><strong>Plausible Analytics</strong> — privacy-friendly, cookieless analytics. No personal data is collected. See <a href="https://plausible.io/privacy" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">plausible.io/privacy</a>.</li>
             <li><strong>Telegram / Slack</strong> — if you configure these as notification channels, alert data is sent to your Telegram bot or Slack webhook.</li>
@@ -133,16 +134,38 @@ export default function PrivacyPage() {
             <a href="mailto:info@jesusbr.com" className="text-inari-accent hover:underline">info@jesusbr.com</a>{" "}
             or delete your account directly from Settings.
           </p>
+          <p className="mt-2">
+            <strong>For EU/EEA residents (GDPR):</strong> we process your data based on contractual necessity
+            (providing the Service) and legitimate interest (security, abuse prevention). You have the right to
+            data portability, the right to restrict processing, and the right to lodge a complaint with your
+            local supervisory authority. We do not make automated decisions that produce legal effects concerning
+            you — AI features generate suggestions, not binding actions.
+          </p>
+          <p className="mt-2">
+            <strong>For California residents (CCPA):</strong> we do not sell your personal information. You have
+            the right to know what data we collect, request deletion, and opt out of any future sale of personal
+            information. To exercise these rights, email{" "}
+            <a href="mailto:info@jesusbr.com" className="text-inari-accent hover:underline">info@jesusbr.com</a>.
+          </p>
         </Section>
 
-        <Section title="10. Changes to this policy">
+        <Section title="10. International data transfers">
+          <p>
+            Your data may be processed in different countries depending on which services are involved: the United
+            States (Vercel, Neon, OpenAI, Stripe, Resend, Upstash), Germany (Hetzner), and other locations where
+            our third-party providers operate. By using the Service, you consent to these transfers. We rely on
+            each provider&apos;s own data protection measures and, where applicable, Standard Contractual Clauses.
+          </p>
+        </Section>
+
+        <Section title="11. Changes to this policy">
           <p>
             We may update this policy occasionally. We will notify registered users by email of any
             material changes. Continued use of the service after changes constitutes acceptance.
           </p>
         </Section>
 
-        <Section title="11. Contact">
+        <Section title="12. Contact">
           <p>
             Questions? Email us at{" "}
             <a href="mailto:info@jesusbr.com" className="text-inari-accent hover:underline">info@jesusbr.com</a>.

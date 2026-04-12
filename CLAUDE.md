@@ -61,9 +61,10 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 | `orbita-pos/inariwatch-action` | PUBLIC | GitHub Action for PR risk assessment |
 | `orbita-pos/eap` | **PRIVATE** | EAP: Merkle + Ed25519 cryptographic verification (6 Rust crates) |
 | `orbita-pos/substrate` | **PRIVATE** | Substrate: I/O recording + deterministic replay (10 Rust crates) |
+| `orbita-pos/inariwatch-agent` | **PRIVATE** | eBPF Agent: kernel-level observability (C + Rust, 50 files) |
 
 **Rules:**
-- Never make `inariwatch`, `eap`, or `substrate` public — these contain core IP
+- Never make `inariwatch`, `eap`, `substrate`, or `inariwatch-agent` public — these contain core IP
 - When updating `capture/`, `mcp/`, or `vscode/` in this monorepo, the public mirrors should also be updated
 - Public repos must never reference internal paths, private infra, or secrets
 - npm packages (`@inariwatch/capture`, `@inariwatch/mcp`) publish from the public repos
@@ -73,7 +74,7 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 - **Framework:** Next.js 15 (App Router), TypeScript
 - **Database:** PostgreSQL via Neon + Drizzle ORM
 - **Auth:** NextAuth (credentials + Google)
-- **AI:** Multi-provider BYOK — Claude, OpenAI, Groq, Grok, DeepSeek, Gemini (6 providers); MCP uses sampling-first (client LLM does analysis, BYOK only for remediation)
+- **AI:** Platform-funded (all features work out of the box via PLATFORM_AI_KEY) + optional BYOK — Claude, OpenAI, Groq, Grok, DeepSeek, Gemini (6 providers); MCP uses sampling-first (client LLM does analysis)
 - **Deploy:** Vercel
 - **Email:** Resend (SMTP via Nodemailer)
 - **Push notifications:** Web Push API + mobile push (Expo)
@@ -92,7 +93,7 @@ The project follows an **open-core** strategy: the monorepo is private, and only
 
 ## Hetzner infrastructure (CX22 — 2 vCPU, 4GB RAM)
 
-The Hetzner server runs 4 services alongside each other:
+The Hetzner server runs 5 services alongside each other:
 
 | Service | Port | Process | Purpose |
 |---|---|---|---|
@@ -100,6 +101,7 @@ The Hetzner server runs 4 services alongside each other:
 | Node.js AI worker | 9401 | `inari-worker` (systemd) | Runs container agent AI loop on localhost Docker |
 | Redis | 6379 | Docker container | Remediation state, job queue (Hetzner-local) |
 | Caddy | 443 | systemd | TLS termination, routes `/worker/*` → 9401, rest → 9400 |
+| eBPF Agent | — | `inariwatch-agent` (binary) | Kernel-level observability, sends events to InariWatch cloud |
 
 **Cron scheduler** (built into Go server): 5 jobs trigger Vercel routes with `Bearer CRON_SECRET`. Replaces cron-job.org.
 
@@ -128,7 +130,7 @@ The Hetzner server runs 4 services alongside each other:
 ## Key features
 
 - **Alerts** — ingest from Sentry, Vercel, GitHub, Datadog, Expo, @inariwatch/capture via webhooks; free AI auto-analysis on arrival (GPT-4o-mini, no key required)
-- **Ask Inari** — chat interface for querying alert history and getting AI recommendations (BYOK on dashboard/Slack/Telegram; sampling-first on MCP — client LLM does the analysis)
+- **Ask Inari** — chat interface for querying alert history and getting AI recommendations (platform-funded on dashboard/Slack/Telegram; sampling-first on MCP — client LLM does the analysis)
 - **On-call scheduling** — rotation schedules per project, multi-level escalation policies, schedule overrides, timezone-aware
 - **Auto-merge gates** — 11 safety gates: auto_merge_enabled, CI pass, confidence (>= threshold), lines changed (<= max), self-review (>= 70), substrate_simulate (risk <= 40), eap_chain_verified, prediction_safe (risk <= 40), security_scan (zero HIGH findings), substrate_replay (I/O replay pass), e2e_staging (staging E2E pass)
 - **AI remediation** — full pipeline: diagnose → read code → generate fix → security scan → self-review → push → CI (3x retry) → PR → auto-merge gates → post-merge monitoring → escalation if failed; live terminal UI in dashboard
@@ -142,7 +144,7 @@ The Hetzner server runs 4 services alongside each other:
 - **Community fix network** — crowdsourced error fixes with success rates; when an error matches a known pattern, shows "47 teams fixed this, 96% success rate" with one-click apply; contribution pipeline anonymizes and strips PII; **auto-contributes** after successful post-merge monitoring (no manual approval needed)
 - **Escalation engine** — smart escalation to on-call when remediation fails; triggers: low confidence, fix failed, max retries, self-review rejected, regression detected
 - **Status page automation** — auto-creates incidents on critical alerts, updates during remediation, resolves on fix; links to public status pages
-- **Post-merge monitoring** — watches merged fixes for regressions (15-min health check); auto-reverts if regression detected
+- **Post-merge monitoring** — watches merged fixes for regressions (**10-min** health check, canary phases at 30s/60s/2min polling intervals — see `lib/ai/post-merge-monitor.ts:19`); auto-reverts if regression detected. Distinct from the Slack deploy health check (15 min, `lib/services/deploy-health-check.ts`) — do not confuse.
 - **Slack bot** — full control surface: alert delivery with AI diagnosis, [Fix It] button triggers remediation in-thread, 14 slash commands (status, alerts, fix, oncall, oncall swap, trends, ask, uptime, rollback, maintenance, maintenance list, search, integrations, link, help), 10 interactive button actions, Ask Inari AI chat via @mention, deploy monitoring with 15-min health check, incident storm threads with postmortem generation
 - **Telegram bot** — 15 commands (/start, /help, /link, /status, /alerts, /trends, /uptime, /oncall, /oncall swap, /ask, /rollback, /maintenance, /maintenance list, /search, /integrations, /fix_ID), 13 inline button callbacks, on-call tagging for critical alerts, auto-attached substrate recordings and community fixes
 - **VS Code extension** — inline diagnostics (squiggly lines from stack traces), AI diagnosis on hover, sidebar alert list grouped by file, status bar unread count, local mode (port 9222, no cloud needed)
@@ -165,7 +167,7 @@ All AI modules live in `web/lib/ai/`. Key files:
 |---|---|---|
 | AI client | `client.ts` | Multi-provider dispatcher (6 providers) |
 | Models | `models.ts` | Model definitions per provider |
-| Key resolver | `get-key.ts` | BYOK key lookup |
+| Key resolver | `get-key.ts` | Platform key + optional BYOK resolution |
 | Prompts | `prompts.ts` | Prompt SSOT for all AI operations |
 | Auto-analyze | `auto-analyze.ts` | Free AI analysis on alert arrival |
 | Correlate | `correlate.ts` | Cross-alert correlation |
@@ -268,7 +270,7 @@ Hosted at `mcp.inariwatch.com` (middleware rewrite → `POST /api/mcp`). Streama
 - **25 tools** — query_alerts, get_status, get_uptime, get_build_logs, get_substrate_context, get_root_cause, assess_risk, get_postmortem, search_community_fixes, trigger_fix, rollback_vercel, silence_alert, acknowledge_alert, reopen_alert, submit_feedback, run_check, ask_inari, get_error_trends, create_uptime_monitor, run_health_check, reproduce_bug, simulate_fix, verify_remediation, search_codebase, reindex_codebase
 - **4 resources** — alerts/critical, alerts/recent, status/overview, remediations/active
 - **7 prompts** — diagnose, status-report, fix-this, post-deploy-check, weekly-summary, production-health-check, daily-report
-- **Sampling-first:** 4 analysis tools (get_root_cause, ask_inari, assess_risk, simulate_fix) return `_sampling_request` with prompt + context for the client LLM to process. Server does zero AI calls for analysis. `trigger_fix` keeps BYOK for server-side remediation pipeline.
+- **Sampling-first:** 4 analysis tools (get_root_cause, ask_inari, assess_risk, simulate_fix) return `_sampling_request` with prompt + context for the client LLM to process. Server does zero AI calls for analysis. `trigger_fix` uses platform key (or user's BYOK key if configured) for server-side remediation pipeline.
 - **sampling/createMessage:** endpoint persists client LLM results to `aiReasoning` (alert-based tools) or acknowledges (non-alert tools)
 - **Auth:** Bearer tokens (SHA-256 hashed), OAuth 2.0 + PKCE, granular scopes (read/write/execute)
 - **Rate limits:** cheap (200/min), moderate (30/min), expensive (5/min) per tool
@@ -326,7 +328,7 @@ See `web/.env.example`. Key vars:
 - `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
 - `ENCRYPTION_KEY` — for encrypting API keys in DB
 - `CRON_SECRET` — authenticates cron requests (Go scheduler on Hetzner + legacy cron-job.org)
-- `PLATFORM_AI_KEY` — platform-level AI key for free auto-analysis
+- `PLATFORM_AI_KEY` — OpenAI key that funds ALL AI features for users without BYOK ($100/day budget cap)
 - `RESEND_API_KEY` — Resend email service
 - `ADMIN_EMAIL` — grants access to `/admin`
 - `APP_URL` — used for cron fan-out (fallback: `VERCEL_URL`)
@@ -402,6 +404,93 @@ Outputs `.webm` to `scripts/demo-output/`. Convert to GIF:
 & "$env:TEMP\convert.bat"
 ```
 
+## eBPF Agent (`orbita-pos/inariwatch-agent`)
+
+Kernel-level observability agent. Installed on the user's server with `curl -sf https://install.inariwatch.com | sh`. Zero code changes, language-agnostic (Node.js, Python, Go, Java, anything).
+
+**Stack (confirmed by Datadog, Cilium, Cloudflare, Falco, Pixie):**
+
+| Layer | Technology | Why |
+|---|---|---|
+| Kernel (eBPF) | **C** | BPF verifier designed for C. CO-RE, BTF, libbpf ecosystem. ~10 files, 50-120 lines each |
+| Userspace | **Rust** | Memory safety, static binary (musl), async with tokio. 95% of the code |
+| Bridge | **libbpf-rs v0.26 + libbpf-cargo v0.26** | CO-RE complete, skeleton generation, stable Rust. Meta uses in production |
+| Symbolization | **blazesym v0.2** | Meta uses at billions of requests/day |
+| Async ring buffer | **libbpf-async** | Tokio integration without blocking epoll_wait |
+
+**NOT Aya** — CO-RE incomplete (rustc doesn't emit required LLVM intrinsics), requires nightly, fewer program types.
+
+**Project structure:**
+```
+inariwatch-agent/          # ~50 files
+├── bpf/                   # C BPF programs
+│   ├── include/           # common.h, maps.h, events.h (shared C ↔ Rust)
+│   ├── process.bpf.c     # exec/exit/fork tracepoints
+│   ├── network.bpf.c     # TCP state, retransmit, sendmsg/recvmsg
+│   ├── filesystem.bpf.c  # vfs_open/write/unlink kprobes
+│   ├── dns.bpf.c         # UDP:53 raw capture (parsing in Rust, NOT kernel)
+│   ├── tls.bpf.c         # SSL_read/SSL_write uprobes
+│   ├── syscall.bpf.c     # raw_tracepoint dispatcher
+│   └── security.bpf.c    # LSM hooks (needs BPF LSM enabled in kernel)
+├── crates/
+│   ├── agent/             # Main binary, probe loader, TLS discovery, auto-updater
+│   ├── events/            # Event types, ring buffer consumer, batch accumulator, DNS parser
+│   ├── transport/         # HTTP client (reqwest), disk-backed overflow buffer
+│   └── common/            # Config (TOML + CLI + env), constants
+├── scripts/install.sh     # One-line installer (curl | sh)
+├── dist/                  # systemd service, default config template
+└── .github/workflows/     # CI/CD: cross-compile x86_64 + aarch64, GitHub Releases
+```
+
+**Probes status (tested on Hetzner, kernel 6.8.0):**
+
+| Probe | Status | Hook type |
+|---|---|---|
+| Process | **Active** | tracepoint/sched/sched_process_exec, exit, fork |
+| Network | **Active** | tracepoint/sock/inet_sock_set_state, kprobe/tcp_sendmsg |
+| Filesystem | **Active** | kprobe/vfs_open, vfs_write, vfs_unlink |
+| DNS | **Active** | kprobe/udp_sendmsg (raw capture, parsed in Rust) |
+| Syscall | **Active** | raw_tracepoint/sys_enter |
+| TLS | **Active** | uprobe on SSL_read/SSL_write (auto-discovery finds libssl.so.3 + Go crypto/tls) |
+| Security | **Active** | LSM hooks (BPF LSM enabled in kernel GRUB config) |
+
+**Key design decisions:**
+- DNS: raw capture in kernel (40 lines C), full RFC 1035 parsing in Rust (444 lines). Same pattern as Datadog/Coroot — NEVER parse DNS in kernel (verifier rejects complex loops)
+- TLS interception: scans `/proc/PID/maps` every 30s for libssl.so, attaches uprobes dynamically via goblin ELF parsing
+- Event pipeline: BPF ring buffer → crossbeam channel → tokio workers → batch (1000 events / 256KB / 5s) → LZ4 compress → HTTPS
+- CO-RE: single static binary for all kernels 5.8+ (no clang/headers needed on target)
+- Graceful degradation: if a probe fails to load, skip it and continue (only process probe is fatal — provides shared maps)
+- Performance: 248 events/sec observed, ~88% LZ4 compression, <1% CPU budget
+
+**Cloud endpoint (InariWatch web):**
+- Route: `POST /api/agent/events` (`web/app/api/agent/events/route.ts`)
+- Auth: Bearer token (HMAC-SHA256 of agent_id with integration webhook secret)
+- Processing: `web/lib/agent/processor.ts` — threat detection (SQL injection, XSS, SSRF, command injection, reverse shells, web shells, container escape, sensitive file access, malicious DNS)
+- Alerts: uses existing `createAlertIfNew()` pipeline (dedup, fingerprint, notifications, auto-remediation)
+
+**Build on Hetzner:**
+```bash
+cd /opt/inariwatch-agent
+git pull
+cargo build                # debug (fast, ~4GB RAM ok)
+cargo build --release --target x86_64-unknown-linux-musl  # release (needs more RAM, use CI)
+sudo ./target/debug/inariwatch-agent --log-level debug
+```
+
+**Dependencies installed on Hetzner:** clang-18, llvm-18, libelf-dev, libbpf-dev, musl-tools, Rust 1.94.1
+
+**Hetzner kernel config:** BPF LSM enabled via GRUB (`lsm=lockdown,capability,landlock,yama,apparmor,bpf`)
+
+**Run command (all 7 probes):**
+```bash
+sudo ./target/debug/inariwatch-agent --log-level debug --enable-tls true --enable-security true
+```
+
+**TODO:**
+- Connect to InariWatch cloud (configure DSN, integration ID, webhook secret)
+- Install as systemd service for persistent operation
+- Release binary via GitHub Actions CI/CD
+
 ## Developer context
 
 - **Owner:** Jesus Bernal (@JesusBrDev) — solo founder, Mexico
@@ -415,7 +504,7 @@ These differences are by design — do not attempt to "fix" them.
 
 | Area | CLI | Web | Why |
 |------|-----|-----|-----|
-| **Default AI model** | `claude-haiku-4-5-20251001` (fast, cheap) | `claude-sonnet-4-6` for remediation, Haiku for analysis | CLI runs locally, cost-sensitive; Web has BYOK so users choose |
+| **Default AI model** | `claude-haiku-4-5-20251001` (fast, cheap) | GPT-4o-mini for analysis, GPT-5.4 for remediation | CLI runs locally, cost-sensitive; Web uses platform key (OpenAI), optional BYOK for other providers |
 | **Auto-merge gates** | 4 gates + trust levels | 11 gates (includes substrate, EAP, prediction, security scan, e2e) | Gates 5-11 require server-side infrastructure not available in CLI |
 | **Diagnosis context** | Sentry, Vercel, GitHub CI | Same + Datadog, Substrate, Deploy, Codebase RAG, Past Fixes | Extra sources are web-only integrations |
 | **Security scan** | Blocked file patterns only | ESLint + 19 regex patterns + AI review | eslint-plugin-security runs serverless, not portable to Rust |
@@ -425,4 +514,4 @@ These differences are by design — do not attempt to "fix" them.
 | **Escalation triggers** | 3 (low confidence, CI fail, regression) | 5+ (same + self-review reject, Vercel-without-Sentry) | Web has more integration context to make nuanced decisions |
 | **Notification format** | Raw client, caller handles format | Rich formatter in `lib/telegram/format.ts` | CLI keeps Telegram client minimal; escalation.rs handles its own formatting |
 | **Community patterns auth** | `api_token` in config.toml | Session auth or `CRON_SECRET` Bearer | CLI uses Bearer token matching web's CRON_SECRET |
-| **MCP AI strategy** | N/A (CLI has no MCP client) | Sampling-first for analysis (4 tools), BYOK for remediation (trigger_fix) | MCP clients already have an LLM — no need for server-side AI calls for analysis |
+| **MCP AI strategy** | N/A (CLI has no MCP client) | Sampling-first for analysis (4 tools), platform-funded for remediation (trigger_fix) | MCP clients already have an LLM — no need for server-side AI calls for analysis |

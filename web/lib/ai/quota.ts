@@ -101,9 +101,17 @@ export interface UserPlan {
 }
 
 /**
+ * Beta mode: all users get Pro quotas at no cost.
+ * When beta ends, flip this to false and Stripe billing kicks in.
+ */
+const BETA_MODE = true;
+
+/**
  * Get the user's current plan + Pro subscription status.
  *
- * A user counts as Pro-active only if:
+ * During beta: ALL users get Pro plan (no Stripe check needed).
+ *
+ * After beta, a user counts as Pro-active only if:
  *   - users.plan = 'pro' AND
  *   - Either they have NO stripeSubscriptionId (legacy / manual upgrade by
  *     admin — these are grandfathered without Stripe records), OR
@@ -114,6 +122,11 @@ export interface UserPlan {
  * with a null period_end, which would otherwise grant infinite free Pro.
  */
 export async function getUserPlan(userId: string): Promise<UserPlan> {
+  // Beta: everyone gets Pro quotas
+  if (BETA_MODE) {
+    return { plan: "pro", isProActive: true };
+  }
+
   const [row] = await db
     .select({
       plan: users.plan,
@@ -304,7 +317,7 @@ export class QuotaExceededError extends Error {
   ) {
     super(
       `${feature} quota exceeded: ${used}/${limit} on ${plan} plan. ` +
-        (plan === "free" ? "Upgrade to Pro for more." : "Contact support.")
+        "Quota resets on the 1st of next month."
     );
     this.name = "QuotaExceededError";
   }

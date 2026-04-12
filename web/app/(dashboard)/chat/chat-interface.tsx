@@ -17,7 +17,7 @@ const SUGGESTIONS = [
   "Summarize the last remediation that ran",
 ];
 
-export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
+export function ChatInterface() {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -159,22 +159,6 @@ export function ChatInterface({ hasAIKey }: { hasAIKey: boolean }) {
     }
     setMessages([]);
     try { localStorage.removeItem("inari-chat-history"); } catch { /* ignore */ }
-  }
-
-  if (!hasAIKey) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center space-y-3">
-          <MessageSquare className="h-10 w-10 text-fg-base/30 mx-auto" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-fg-strong">Ask Inari</h2>
-          <p className="text-sm text-fg-base/60 max-w-sm">
-            Add an AI API key (Claude, OpenAI, DeepSeek, Grok, or Gemini) in{" "}
-            <a href="/settings" className="text-inari-accent hover:underline">Settings</a>{" "}
-            to chat with your monitoring data.
-          </p>
-        </div>
-      </div>
-    );
   }
 
   if (messages === null) {
