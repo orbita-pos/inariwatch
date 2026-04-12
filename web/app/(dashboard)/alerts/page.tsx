@@ -9,6 +9,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { AlertsFilters } from "./alerts-filters";
 import { ExportButton } from "./export-button";
+import { MarkAllReadButton } from "./mark-all-read-button";
 import { LiveIndicator } from "./live-indicator";
 
 export const metadata: Metadata = { title: "Alerts" };
@@ -99,6 +100,7 @@ export default async function AlertsPage({
             <Chip dot="bg-amber-500" label={`${unread} unread`} />
             <Chip dot="bg-inari-accent" label={`${critical} critical`} />
             <Chip dot="bg-emerald-500" label={`${open} open`} />
+            <MarkAllReadButton unread={unread} />
             <ExportButton />
           </div>
         )}
