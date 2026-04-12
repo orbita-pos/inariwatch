@@ -734,9 +734,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
         try {
           const { runManagedRemediation } = await import("./managed-agent");
-          const { getPlatformAnthropicKey } = await import("./get-key");
-          const platformKey = getPlatformAnthropicKey();
-          const agentApiKey = platformKey?.key ?? aiKey.key;
+          // Managed Agents are disabled (MANAGED_AGENT_ENABLED=false) — use resolved key
+          const agentApiKey = aiKey.key;
 
           const additionalContext = [
             remediationContext?.sentryStackTrace ? `SENTRY:\n${remediationContext.sentryStackTrace.slice(0, 2000)}` : "",
@@ -797,17 +796,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           makeStep("generate_fix", "Container agent is cloning the repo and fixing the bug..."), emit);
 
         try {
-          const { getPlatformAnthropicKey } = await import("./get-key");
-          const platformClaude = getPlatformAnthropicKey();
-
-          const containerApiKey = platformClaude?.key ?? aiKey.key;
-          const containerProvider = platformClaude ? "claude" as const : aiKey.provider;
-          const containerExplore = platformClaude ? "claude-haiku-4-5-20251001" : aiKey.provider !== "gemini"
-            ? (await import("./models")).resolveModel("analysis", aiKey.provider, aiKey.modelPrefs)
-            : "claude-haiku-4-5-20251001";
-          const containerFix = platformClaude ? "claude-sonnet-4-6" : aiKey.provider !== "gemini"
-            ? (await import("./models")).resolveModel("remediation", aiKey.provider, aiKey.modelPrefs)
-            : "claude-sonnet-4-6";
+          // Use the resolved AI key (platform OpenAI or user's BYOK key)
+          const { resolveModel } = await import("./models");
+          const containerApiKey = aiKey.key;
+          const containerProvider = aiKey.provider;
+          const containerExplore = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
+          const containerFix = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
 
           const errorContext = [
             `ERROR: ${alert.title}`,
@@ -925,7 +919,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
       // ── AGENTIC LOOP (fallback if Container Agent / Managed Agent didn't produce a fix) ──
       const supportsToolUse = aiKey.provider !== "gemini";
-      const useAgentic = !fix && attempt === 1 && (supportsToolUse || !!process.env.PLATFORM_ANTHROPIC_KEY) && !previousAttempt;
+      const useAgentic = !fix && attempt === 1 && supportsToolUse && !previousAttempt;
 
       if (useAgentic) {
         steps = await pushStep(sessionId, steps,
@@ -944,30 +938,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
           ].filter(Boolean).join("\n\n");
 
-          // Prefer platform Claude key (Haiku+Sonnet) for best quality+cost
-          // Fall back to user's BYOK key with their provider's models
-          const { getPlatformAnthropicKey } = await import("./get-key");
-          const platformClaude = getPlatformAnthropicKey();
-
-          let agenticApiKey: string;
-          let agenticProvider: typeof aiKey.provider;
-          let agenticExplore: string;
-          let agenticFix: string;
-
-          if (platformClaude) {
-            // Platform pays — Claude Haiku for exploration, Sonnet for fix
-            agenticApiKey = platformClaude.key;
-            agenticProvider = "claude";
-            agenticExplore = "claude-haiku-4-5-20251001";
-            agenticFix = "claude-sonnet-4-6";
-          } else {
-            // User pays — use their provider's models
-            agenticApiKey = aiKey.key;
-            agenticProvider = aiKey.provider;
-            const { resolveModel } = await import("./models");
-            agenticExplore = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);  // Cheap model
-            agenticFix = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);    // Quality model
-          }
+          // Use the resolved AI key (platform OpenAI or user's BYOK key)
+          const { resolveModel } = await import("./models");
+          const agenticApiKey = aiKey.key;
+          const agenticProvider = aiKey.provider;
+          const agenticExplore = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
+          const agenticFix = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
 
           const agenticResult = await runAgenticLoop({
             apiKey: agenticApiKey,
