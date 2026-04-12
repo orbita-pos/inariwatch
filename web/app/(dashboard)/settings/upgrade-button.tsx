@@ -3,7 +3,7 @@
 /**
  * UpgradeButton — Legacy component.
  *
- * InariWatch is now 100% Free SaaS, so there is nothing to upgrade to.
+ * InariWatch is in beta — all Pro features are free.
  * This component is kept as a no-op to avoid breaking imports.
  */
 export function UpgradeButton({ currentPlan: _currentPlan }: { currentPlan: string }) {

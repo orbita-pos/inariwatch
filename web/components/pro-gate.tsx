@@ -1,7 +1,7 @@
 /**
  * ProGate — Legacy component.
  *
- * InariWatch is now 100% Free SaaS, so there are no Pro-gated features.
+ * InariWatch is in beta — all Pro features are available to everyone.
  * This component is kept as a pass-through to avoid breaking imports,
  * but it always renders children regardless of plan.
  */

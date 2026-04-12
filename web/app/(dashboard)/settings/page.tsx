@@ -26,8 +26,8 @@ import type { Metadata } from "next";
 export const metadata: Metadata = { title: "Settings" };
 
 const PLAN_BADGE: Record<string, { label: string; color: string }> = {
-  free: { label: "100% Free", color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
-  pro:  { label: "Pro", color: "text-inari-accent border-inari-accent/20 bg-inari-accent-dim" },
+  free: { label: "Beta", color: "text-emerald-600 dark:text-emerald-400 border-emerald-500/20 bg-emerald-500/10" },
+  pro:  { label: "Beta", color: "text-emerald-600 dark:text-emerald-400 border-emerald-500/20 bg-emerald-500/10" },
 };
 
 const CHANNEL_ICON: Record<string, React.ElementType> = {

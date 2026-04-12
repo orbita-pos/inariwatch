@@ -11,13 +11,13 @@ import { InviteMembersDialog } from "./invite-members-dialog";
 import { switchWorkspace } from "./switch-workspace-action";
 
 const PLAN_LABEL: Record<string, string> = {
-  free: "100% Free",
-  pro:  "100% Free",
+  free: "Beta",
+  pro:  "Beta",
 };
 
 const PLAN_COLOR: Record<string, string> = {
-  free: "text-inari-accent",
-  pro:  "text-inari-accent",
+  free: "text-emerald-500",
+  pro:  "text-emerald-500",
 };
 
 const ROLE_LABEL: Record<string, string> = {
