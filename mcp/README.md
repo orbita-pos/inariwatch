@@ -120,14 +120,19 @@ npx @inariwatch/mcp init [options]
 
 ## Framework detection
 
-When run inside a Node.js project, init also installs the [`@inariwatch/capture`](https://www.npmjs.com/package/@inariwatch/capture) SDK:
+When run inside a Node.js project, init also installs the [`@inariwatch/capture`](https://www.npmjs.com/package/@inariwatch/capture) SDK and wires it into whichever framework you're using:
 
-| Framework | What it does |
-|-----------|-------------|
-| **Next.js** | Installs SDK, wraps `next.config` with `withInariWatch`, creates `instrumentation.ts` |
-| **Node.js** | Installs SDK (use `--import @inariwatch/capture/auto` to activate) |
+| Framework | What init does |
+|-----------|---------------|
+| **Next.js** | Wraps `next.config.*` with `withInariWatch`, creates `instrumentation.ts` |
+| **Nuxt 3** | Adds `@inariwatch/capture/nuxt` to the `modules: []` array in `nuxt.config.*` |
+| **Remix** | Adds `inariwatchVite()` to the `plugins: []` in `vite.config.*` |
+| **SvelteKit** | Adds `inariwatchVite()` to the `plugins: []` in `vite.config.*` |
+| **Astro** | Adds `inariwatchVite()` to `vite.plugins` in `astro.config.*` |
+| **Vite** | Adds `inariwatchVite()` to the `plugins: []` in `vite.config.*` |
+| **Express / Fastify / Node** | Installs SDK; activate with `node --import @inariwatch/capture/auto app.js` or add it to your `start` script |
 
-Detects your package manager automatically (npm, yarn, pnpm, bun).
+Detects your package manager automatically (npm, yarn, pnpm, bun). Non-Node projects (Python, Go, Rust) don't need the SDK — instrument the parent Node process that supervises them, or use `@inariwatch/capture` directly from the InariWatch dashboard webhooks.
 
 ## Manual setup
 
