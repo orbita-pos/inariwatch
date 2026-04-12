@@ -31,7 +31,7 @@ export const metadata: Metadata = {
 type LatestPost = { slug: string; title: string } | null;
 
 import {
-  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, UptimeIcon, DatadogIcon, ExpoIcon,
+  GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, UptimeIcon, DatadogIcon, ExpoIcon, CloudflareIcon,
   NextjsIcon, RemixIcon, BunIcon, FastifyIcon, ExpressIcon,
 } from "@/components/brand-icons";
 import { ArrowRight, Code2, CheckCircle2 } from "lucide-react";
@@ -222,6 +222,7 @@ function TrustedBy() {
     { name: "PostgreSQL", icon: <PostgreSQLIcon className="h-5 w-5" /> },
     { name: "Uptime", icon: <UptimeIcon className="h-5 w-5" /> },
     { name: "npm", icon: <NpmIcon className="h-5 w-5" /> },
+    { name: "Cloudflare", icon: <CloudflareIcon className="h-5 w-5" /> },
   ];
 
   return (
@@ -240,6 +241,9 @@ function TrustedBy() {
               <span className="text-sm font-medium">{item.name}</span>
             </div>
           ))}
+          <div className="flex items-center opacity-70">
+            <span className="text-sm font-mono font-medium">10+</span>
+          </div>
         </div>
       </div>
     </section>
