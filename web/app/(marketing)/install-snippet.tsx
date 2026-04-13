@@ -69,7 +69,7 @@ export function InstallSnippet() {
         {mode === "mcp" ? (
           <>
             <p className="text-white/25 text-xs">
-              # Connect any AI tool — Claude, Cursor, Windsurf, Codex, Gemini
+              # Connect any AI tool — Claude, Cursor, Windsurf, Codex, Gemini, OpenClaw
             </p>
             <div className="flex items-center gap-3">
               <span className="text-inari-accent select-none">$</span>
