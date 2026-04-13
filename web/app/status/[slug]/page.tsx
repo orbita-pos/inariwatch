@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import {
   db, alerts, statusPages, projects, projectIntegrations,
   uptimeMonitors, uptimeChecks, statusPageIncidents, statusPageUpdates,
