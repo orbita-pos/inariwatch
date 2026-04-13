@@ -33,8 +33,9 @@ type LatestPost = { slug: string; title: string } | null;
 import {
   GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, UptimeIcon, DatadogIcon, ExpoIcon, CloudflareIcon,
   NextjsIcon, RemixIcon, BunIcon, FastifyIcon, ExpressIcon,
+  ClaudeIcon, CursorIcon, WindsurfIcon, VSCodeIcon, CodexIcon, GeminiIcon, OpenClawIcon,
 } from "@/components/brand-icons";
-import { ArrowRight, Code2, CheckCircle2 } from "lucide-react";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
@@ -992,13 +993,13 @@ function NetworkSection({ stats }: { stats: NetworkHeadlineStats | null }) {
 
 function McpSection() {
   const editors = [
-    "Claude Code",
-    "Cursor",
-    "Windsurf",
-    "VS Code Copilot",
-    "Codex CLI",
-    "Gemini CLI",
-    "OpenClaw",
+    { name: "Claude Code",    icon: <ClaudeIcon className="h-4 w-4" /> },
+    { name: "Cursor",         icon: <CursorIcon className="h-4 w-4" /> },
+    { name: "Windsurf",       icon: <WindsurfIcon className="h-4 w-4" /> },
+    { name: "VS Code Copilot", icon: <VSCodeIcon className="h-4 w-4" /> },
+    { name: "Codex CLI",      icon: <CodexIcon className="h-4 w-4" /> },
+    { name: "Gemini CLI",     icon: <GeminiIcon className="h-4 w-4" /> },
+    { name: "OpenClaw",       icon: <OpenClawIcon className="h-4 w-4" /> },
   ];
 
   return (
@@ -1040,11 +1041,11 @@ function McpSection() {
         <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
           {editors.map((e) => (
             <div
-              key={e}
+              key={e.name}
               className="flex items-center gap-2 rounded-full border border-inari-border bg-inari-card px-3 py-1.5 text-xs text-fg-base"
             >
-              <Code2 className="h-3 w-3 text-inari-accent" />
-              {e}
+              <span className="shrink-0">{e.icon}</span>
+              {e.name}
             </div>
           ))}
         </div>
