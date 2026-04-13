@@ -606,7 +606,7 @@ inariwatch config --auto-merge true  # also merge PRs when all safety gates pass
             </Callout>
             <P>
               See the <a href="#mcp-overview" className="text-inari-accent underline underline-offset-2">MCP Server section below</a> for setup instructions and the full tool catalog.
-              The fastest path is <InlineCode>npx @inariwatch/mcp init</InlineCode> — it auto-detects Claude Code, Cursor, Windsurf, VS Code Copilot, Codex CLI, and Gemini CLI, and wires them up in one command.
+              The fastest path is <InlineCode>npx @inariwatch/mcp init</InlineCode> — it auto-detects Claude Code, Cursor, Windsurf, VS Code Copilot, Codex CLI, Gemini CLI, and OpenClaw, and wires them up in one command.
             </P>
 
             {/* ────────────────────────────────────────────────────────────────
@@ -2743,6 +2743,7 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
                 ["VS Code Copilot", ".vscode/mcp.json → { servers: { inariwatch: { url, headers } } }"],
                 ["Codex CLI", "codex mcp add inariwatch https://mcp.inariwatch.com --header \"Authorization: Bearer <token>\""],
                 ["Gemini CLI", "gemini mcp add inariwatch --url https://mcp.inariwatch.com --header \"Authorization: Bearer <token>\""],
+                ["OpenClaw", "openclaw mcp set inariwatch '{\"url\":\"https://mcp.inariwatch.com\",\"transport\":\"streamable-http\",\"headers\":{\"Authorization\":\"Bearer <token>\"}}'"],
               ]}
             />
 

@@ -33,6 +33,7 @@ InariWatch Setup
     ✗ Windsurf
     ✗ Codex CLI
     ✓ Gemini CLI (0.1.8)
+    ✓ OpenClaw (3.2.1)
     ✓ GitHub CLI (username)
 
   Project
@@ -47,6 +48,7 @@ InariWatch Setup
     ✓ Cursor
     ✓ VS Code + Copilot
     ✓ Gemini CLI
+    ✓ OpenClaw
 
   Link GitHub (username) to InariWatch? (y/N) y
     ✓ GitHub linked (username)
