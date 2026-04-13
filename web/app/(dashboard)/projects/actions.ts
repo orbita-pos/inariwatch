@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, users, PLAN_LIMITS, organizations } from "@/lib/db";
+import { db, projects, users, PLAN_LIMITS, BETA_PLAN, organizations } from "@/lib/db";
 import { eq, and, count } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -39,7 +39,7 @@ export async function createProject(
       }
     }
 
-    const plan = "pro"; // Beta: all users get Pro limits
+    const plan = BETA_PLAN ?? "free";
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
     const [projectCount] = await db

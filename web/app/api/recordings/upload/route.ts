@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, users, PLAN_LIMITS } from "@/lib/db";
+import { db, users, PLAN_LIMITS, BETA_PLAN } from "@/lib/db";
 import { substrateRecordings, projects } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -109,9 +109,9 @@ export async function POST(req: NextRequest) {
         if (!proj) {
           return NextResponse.json({ error: "Project not found or not owned by you" }, { status: 403 });
         }
-        storagePlan = "pro"; // Beta: all users get Pro storage limits
+        storagePlan = BETA_PLAN ?? proj.plan ?? "free";
       } else {
-        storagePlan = "pro"; // Beta: all users get Pro storage limits
+        storagePlan = BETA_PLAN ?? "free";
       }
     } else {
       // Bearer path. Require projectId so we can attribute storage and
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Project not found" }, { status: 404 });
       }
       storageUserId = proj.userId;
-      storagePlan = "pro"; // Beta: all users get Pro storage limits
+      storagePlan = BETA_PLAN ?? proj.plan ?? "free";
     }
 
     // Per-user storage cap. Compute-on-demand SUM(LENGTH(...)). Single-digit

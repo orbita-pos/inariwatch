@@ -148,6 +148,12 @@ export interface PlanLimit {
   pollIntervalLabel: string;
 }
 
+/**
+ * Beta mode: all users get Pro resource limits.
+ * When beta ends, flip to `null` and restore DB-based plan resolution.
+ */
+export const BETA_PLAN: string | null = "pro";
+
 export const PLAN_LIMITS: Record<string, PlanLimit> = {
   free: {
     maxProjects: 3,
@@ -182,8 +188,8 @@ export const PLAN_LIMITS: Record<string, PlanLimit> = {
  * are NOT throttled — uptime needs low-latency detection and npm-audit
  * makes no upstream calls.
  */
-export function shouldPollThisCycle(_plan: string, lastCheckedAt: Date | null): boolean {
-  const limits = PLAN_LIMITS.pro; // Beta: all users get Pro poll interval (1 min)
+export function shouldPollThisCycle(plan: string, lastCheckedAt: Date | null): boolean {
+  const limits = PLAN_LIMITS[BETA_PLAN ?? plan] ?? PLAN_LIMITS.free;
   if (limits.pollIntervalMinutes <= 1) return true;
   if (!lastCheckedAt) return true; // Never polled — always run
   const minutesSince = (Date.now() - lastCheckedAt.getTime()) / 60_000;

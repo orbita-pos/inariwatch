@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, users, PLAN_LIMITS } from "@/lib/db";
+import { db, projects, users, PLAN_LIMITS, BETA_PLAN } from "@/lib/db";
 import { eq, count } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -26,7 +26,7 @@ export async function createProjectForOnboarding(
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    const plan = "pro"; // Beta: all users get Pro limits
+    const plan = BETA_PLAN ?? owner?.plan ?? "free";
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
     const [projectCount] = await db

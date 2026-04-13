@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, projectIntegrations, users, PLAN_LIMITS } from "@/lib/db";
+import { db, projects, projectIntegrations, users, PLAN_LIMITS, BETA_PLAN } from "@/lib/db";
 import { eq, and, count, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { generateWebhookSecret } from "@/lib/webhooks/shared";
@@ -118,7 +118,7 @@ export async function connectIntegration(
     if (!project) return { error: "Project not found." };
 
     // ── Plan limit check ─────────────────────────────────────────────────────
-    const plan = "pro"; // Beta: all users get Pro limits
+    const plan = BETA_PLAN ?? "free";
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
     // Count integrations across all of the user's projects
