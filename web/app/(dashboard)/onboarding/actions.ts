@@ -26,7 +26,7 @@ export async function createProjectForOnboarding(
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    const plan = owner?.plan ?? "free";
+    const plan = "pro"; // Beta: all users get Pro limits
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
     const [projectCount] = await db

@@ -182,8 +182,8 @@ export const PLAN_LIMITS: Record<string, PlanLimit> = {
  * are NOT throttled — uptime needs low-latency detection and npm-audit
  * makes no upstream calls.
  */
-export function shouldPollThisCycle(plan: string, lastCheckedAt: Date | null): boolean {
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+export function shouldPollThisCycle(_plan: string, lastCheckedAt: Date | null): boolean {
+  const limits = PLAN_LIMITS.pro; // Beta: all users get Pro poll interval (1 min)
   if (limits.pollIntervalMinutes <= 1) return true;
   if (!lastCheckedAt) return true; // Never polled — always run
   const minutesSince = (Date.now() - lastCheckedAt.getTime()) / 60_000;

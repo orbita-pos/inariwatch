@@ -118,8 +118,7 @@ export async function connectIntegration(
     if (!project) return { error: "Project not found." };
 
     // ── Plan limit check ─────────────────────────────────────────────────────
-    const [user] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId)).limit(1);
-    const plan = user?.plan ?? "free";
+    const plan = "pro"; // Beta: all users get Pro limits
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
     // Count integrations across all of the user's projects

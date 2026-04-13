@@ -39,8 +39,7 @@ export async function createProject(
       }
     }
 
-    const [owner] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, ownerId)).limit(1);
-    const plan = owner?.plan ?? "free";
+    const plan = "pro"; // Beta: all users get Pro limits
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
     const [projectCount] = await db

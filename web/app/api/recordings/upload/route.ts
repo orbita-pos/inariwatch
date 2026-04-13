@@ -109,14 +109,9 @@ export async function POST(req: NextRequest) {
         if (!proj) {
           return NextResponse.json({ error: "Project not found or not owned by you" }, { status: 403 });
         }
-        storagePlan = proj.plan ?? "free";
+        storagePlan = "pro"; // Beta: all users get Pro storage limits
       } else {
-        const [u] = await db
-          .select({ plan: users.plan })
-          .from(users)
-          .where(eq(users.id, sessionUserId))
-          .limit(1);
-        storagePlan = u?.plan ?? "free";
+        storagePlan = "pro"; // Beta: all users get Pro storage limits
       }
     } else {
       // Bearer path. Require projectId so we can attribute storage and
@@ -137,7 +132,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Project not found" }, { status: 404 });
       }
       storageUserId = proj.userId;
-      storagePlan = proj.plan ?? "free";
+      storagePlan = "pro"; // Beta: all users get Pro storage limits
     }
 
     // Per-user storage cap. Compute-on-demand SUM(LENGTH(...)). Single-digit
