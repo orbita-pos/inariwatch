@@ -2,6 +2,8 @@ import { MetadataRoute } from "next";
 import { db, blogPosts } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 const BASE_URL = "https://inariwatch.com";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
