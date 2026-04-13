@@ -15,6 +15,29 @@
 import { db, uptimeMonitors, uptimeChecks, alerts, projects, notificationQueue, notificationChannels } from "../db.js";
 import { eq, and, desc } from "drizzle-orm";
 
+/** SSRF protection — block private IPs, localhost, cloud metadata, IPv6 private ranges. */
+function isSafeUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return false;
+    if (host.startsWith("10.")) return false;
+    if (host.startsWith("172.")) {
+      const second = parseInt(host.split(".")[1]);
+      if (second >= 16 && second <= 31) return false;
+    }
+    if (host.startsWith("192.168.") || host.startsWith("169.254.") || host.startsWith("0.")) return false;
+    if (/^0[xo0-7]/.test(host) || /^\d+$/.test(host)) return false;
+    if (host.startsWith("[")) {
+      const ipv6 = host.slice(1, -1).toLowerCase();
+      if (ipv6 === "::1" || ipv6.startsWith("::ffff:") || ipv6.startsWith("fe80:") || ipv6.startsWith("fd") || ipv6.startsWith("fc")) return false;
+    }
+    if (host.endsWith(".internal") || host.endsWith(".local") || host.endsWith(".localhost")) return false;
+    return true;
+  } catch { return false; }
+}
+
 const FAILURES_BEFORE_DOWN = 3;
 const HEAL_COOLDOWN_MS = 10 * 60 * 1000; // 10 min
 
@@ -56,6 +79,13 @@ export async function runUptimeChecks(): Promise<{ checked: number; newAlerts: n
       }
 
       const state = monitorState.get(monitor.id)!;
+
+      // SSRF protection — skip private/internal URLs
+      if (!isSafeUrl(monitor.url)) {
+        console.warn(`[uptime] Skipping monitor ${monitor.id} — unsafe URL: ${monitor.url}`);
+        continue;
+      }
+
       const start = Date.now();
       let statusCode: number | null = null;
       let responseTimeMs: number | null = null;

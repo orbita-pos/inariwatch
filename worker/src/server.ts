@@ -15,6 +15,7 @@
 
 import "dotenv/config";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import crypto from "node:crypto";
 import { runAgentJob, type AgentJobParams, type AgentJobResult } from "./container-agent.js";
 import { getQueue, allQueues } from "./queues.js";
 import { startScheduler } from "./scheduler.js";
@@ -52,7 +53,10 @@ setInterval(() => {
 function checkAuth(req: IncomingMessage): boolean {
   if (!SECRET) return false;
   const auth = req.headers.authorization ?? "";
-  return auth === `Bearer ${SECRET}`;
+  const expected = Buffer.from(`Bearer ${SECRET}`);
+  const actual = Buffer.from(auth);
+  if (expected.length !== actual.length) return false;
+  return crypto.timingSafeEqual(expected, actual);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,7 +87,13 @@ async function handleRun(req: IncomingMessage, res: ServerResponse): Promise<voi
     return;
   }
 
-  const body = JSON.parse(await readBody(req)) as AgentJobParams;
+  let body: AgentJobParams;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    json(res, 400, { error: "Invalid JSON" });
+    return;
+  }
   if (!body.sessionId || !body.repoUrl || !body.aiKey) {
     json(res, 400, { error: "Missing required fields: sessionId, repoUrl, aiKey" });
     return;
@@ -127,20 +137,39 @@ function handleJobStatus(res: ServerResponse, jobId: string): void {
 
 // ── Routes: Queue ──────────────────────────────────────────────────────────
 
+const ALLOWED_JOBS: Record<string, string[]> = {
+  critical: ["uptime-check", "post-alert-created", "process-webhook"],
+  default: ["escalate-alert", "deploy-monitor", "deploy-health-check", "flush-notifications", "poll-integrations"],
+  low: ["escalation-sweep", "anomaly-aggregate", "digest", "poll-webhook-fallback"],
+};
+
 async function handleEnqueue(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = JSON.parse(await readBody(req)) as {
+  let body: {
     queue?: string;
     name: string;
     data?: Record<string, unknown>;
     opts?: { delay?: number; priority?: number; attempts?: number };
   };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    json(res, 400, { error: "Invalid JSON" });
+    return;
+  }
 
   if (!body.name) {
     json(res, 400, { error: "Missing required field: name" });
     return;
   }
 
-  const queue = getQueue(body.queue ?? "default");
+  const queueName = body.queue ?? "default";
+  const allowed = ALLOWED_JOBS[queueName] ?? ALLOWED_JOBS.default;
+  if (!allowed.includes(body.name)) {
+    json(res, 400, { error: `Job "${body.name}" not allowed on queue "${queueName}"` });
+    return;
+  }
+
+  const queue = getQueue(queueName);
   const job = await queue.add(body.name, body.data ?? {}, {
     delay: body.opts?.delay,
     priority: body.opts?.priority,
@@ -254,7 +283,7 @@ async function start(): Promise<void> {
   await startScheduler();
 
   // Start HTTP server
-  server.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "127.0.0.1", () => {
     console.log(`InariWatch Worker listening on port ${PORT}`);
     console.log(`Max concurrent agent jobs: ${MAX_CONCURRENT}`);
     console.log(`Redis: ${process.env.REDIS_HOST ?? "127.0.0.1"}:${process.env.REDIS_PORT ?? 6379}`);
