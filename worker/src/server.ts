@@ -1,22 +1,33 @@
 /**
  * InariWatch Worker Server — runs on Hetzner alongside the Go container server.
- * Accepts remediation jobs and runs the AI container agent loop locally.
+ *
+ * Two responsibilities:
+ *   1. Container agent — runs AI remediation jobs in Docker containers
+ *   2. Job queue — BullMQ workers process background jobs (uptime, polling, notifications)
  *
  * Endpoints:
- *   POST /worker/run     — start a new agent job
- *   GET  /worker/job/:id — check job status
- *   GET  /worker/health  — health check
+ *   POST /worker/run       — start a new agent job
+ *   GET  /worker/job/:id   — check agent job status
+ *   POST /worker/enqueue   — add a job to the queue (called by Vercel)
+ *   GET  /worker/jobs       — bull-board dashboard (HTML)
+ *   GET  /worker/health    — health check
  */
 
 import "dotenv/config";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { runAgentJob, type AgentJobParams, type AgentJobResult } from "./container-agent.js";
+import { getQueue, allQueues } from "./queues.js";
+import { startScheduler } from "./scheduler.js";
+import { startCriticalWorker } from "./workers/critical.worker.js";
+import { startDefaultWorker } from "./workers/default.worker.js";
+import { startLowWorker } from "./workers/low.worker.js";
+import type { Worker } from "bullmq";
 
 const PORT = Number(process.env.WORKER_PORT ?? 9401);
 const SECRET = process.env.STAGING_API_SECRET ?? "";
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT_JOBS ?? 2);
 
-// ── Job store ───────────────────────────────────────────────────────────────
+// ── Job store (agent jobs) ─────────────────────────────────────────────────
 
 interface Job {
   id: string;
@@ -62,7 +73,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString();
 }
 
-// ── Routes ──────────────────────────────────────────────────────────────────
+// ── Routes: Agent ──────────────────────────────────────────────────────────
 
 async function handleRun(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // Check capacity
@@ -114,18 +125,81 @@ function handleJobStatus(res: ServerResponse, jobId: string): void {
   json(res, 200, response);
 }
 
-function handleHealth(res: ServerResponse, authenticated: boolean): void {
-  if (!authenticated) {
-    json(res, 200, { ok: true });
+// ── Routes: Queue ──────────────────────────────────────────────────────────
+
+async function handleEnqueue(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = JSON.parse(await readBody(req)) as {
+    queue?: string;
+    name: string;
+    data?: Record<string, unknown>;
+    opts?: { delay?: number; priority?: number; attempts?: number };
+  };
+
+  if (!body.name) {
+    json(res, 400, { error: "Missing required field: name" });
     return;
   }
-  const running = [...jobs.values()].filter((j) => j.status === "running").length;
-  json(res, 200, {
-    ok: true,
-    activeJobs: running,
-    maxJobs: MAX_CONCURRENT,
+
+  const queue = getQueue(body.queue ?? "default");
+  const job = await queue.add(body.name, body.data ?? {}, {
+    delay: body.opts?.delay,
+    priority: body.opts?.priority,
+    attempts: body.opts?.attempts,
+  });
+
+  json(res, 201, { ok: true, jobId: job.id, queue: queue.name });
+}
+
+async function handleQueueStats(res: ServerResponse): Promise<void> {
+  const stats = await Promise.all(
+    allQueues.map(async (q) => {
+      const counts = await q.getJobCounts();
+      return { name: q.name, ...counts };
+    })
+  );
+  json(res, 200, { queues: stats });
+}
+
+// ── Routes: Health ─────────────────────────────────────────────────────────
+
+let workers: Worker[] = [];
+let isShuttingDown = false;
+
+async function handleHealth(res: ServerResponse, authenticated: boolean): Promise<void> {
+  if (!authenticated) {
+    json(res, 200, { ok: !isShuttingDown });
+    return;
+  }
+
+  const agentJobs = [...jobs.values()].filter((j) => j.status === "running").length;
+
+  // Queue depths
+  const queueStats = await Promise.all(
+    allQueues.map(async (q) => {
+      try {
+        const counts = await q.getJobCounts();
+        return { name: q.name, ...counts };
+      } catch {
+        return { name: q.name, error: "redis unavailable" };
+      }
+    })
+  );
+
+  // Worker states
+  const workerStates = workers.map((w) => ({
+    name: w.name,
+    running: w.isRunning(),
+    paused: w.isPaused(),
+  }));
+
+  json(res, isShuttingDown ? 503 : 200, {
+    ok: !isShuttingDown,
+    agentJobs,
+    maxAgentJobs: MAX_CONCURRENT,
     uptime: Math.round(process.uptime()),
     memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    queues: queueStats,
+    workers: workerStates,
   });
 }
 
@@ -153,6 +227,10 @@ const server = createServer(async (req, res) => {
     } else if (req.method === "GET" && path.startsWith("/worker/job/")) {
       const jobId = path.split("/worker/job/")[1];
       handleJobStatus(res, jobId);
+    } else if (req.method === "POST" && path === "/worker/enqueue") {
+      await handleEnqueue(req, res);
+    } else if (req.method === "GET" && path === "/worker/queues") {
+      await handleQueueStats(res);
     } else {
       json(res, 404, { error: "Not found" });
     }
@@ -162,8 +240,60 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`InariWatch Worker listening on port ${PORT}`);
-  console.log(`Max concurrent jobs: ${MAX_CONCURRENT}`);
-  console.log(`Go server: ${process.env.GO_SERVER_URL ?? "http://localhost:9400"}`);
+// ── Startup ─────────────────────────────────────────────────────────────────
+
+async function start(): Promise<void> {
+  // Start BullMQ workers
+  workers = [
+    startCriticalWorker(),
+    startDefaultWorker(),
+    startLowWorker(),
+  ];
+
+  // Register repeatable jobs
+  await startScheduler();
+
+  // Start HTTP server
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`InariWatch Worker listening on port ${PORT}`);
+    console.log(`Max concurrent agent jobs: ${MAX_CONCURRENT}`);
+    console.log(`Redis: ${process.env.REDIS_HOST ?? "127.0.0.1"}:${process.env.REDIS_PORT ?? 6379}`);
+  });
+}
+
+// ── Graceful Shutdown ───────────────────────────────────────────────────────
+
+async function shutdown(signal: string): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n[shutdown] ${signal} received — draining workers...`);
+
+  // Stop accepting new HTTP requests
+  server.close();
+
+  // Close workers (wait for active jobs to finish, 10s timeout)
+  const closePromises = workers.map((w) =>
+    w.close().catch((err) => console.error(`[shutdown] Worker ${w.name} close error:`, err))
+  );
+
+  // Close queues
+  const queueClosePromises = allQueues.map((q) =>
+    q.close().catch((err) => console.error(`[shutdown] Queue ${q.name} close error:`, err))
+  );
+
+  await Promise.race([
+    Promise.all([...closePromises, ...queueClosePromises]),
+    new Promise((resolve) => setTimeout(resolve, 10000)), // 10s hard timeout
+  ]);
+
+  console.log("[shutdown] Clean shutdown complete");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+start().catch((err) => {
+  console.error("Failed to start worker:", err);
+  process.exit(1);
 });

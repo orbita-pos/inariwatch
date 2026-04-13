@@ -218,6 +218,23 @@ export async function createAlertIfNew(
     }
   }
 
+  // Enqueue async post-processing to worker (auto-analyze, outgoing webhooks, status page).
+  // If worker is unavailable, inline fallbacks below still run.
+  try {
+    const { enqueue: enqueueJob } = await import("@/lib/queue");
+    enqueueJob("post-alert-created", {
+      alertId: inserted.id,
+      projectId,
+      severity: inserted.severity,
+      title: inserted.title,
+      sourceIntegrations: inserted.sourceIntegrations,
+      triggeredStorm: isTriggeringStorm,
+      stormId: stormId ?? undefined,
+    }, { queue: "critical" }).catch(() => {});
+  } catch {
+    // Non-blocking
+  }
+
   try {
     await dispatchOutgoingWebhooks(inserted as Alert, "alert.created");
   } catch {
@@ -266,6 +283,29 @@ export async function createAlertIfNew(
     }
   } catch {
     // Non-blocking — Slack delivery should never block alert creation
+  }
+
+  // Enqueue event-driven escalation — delayed job checks if alert was acknowledged
+  try {
+    const { escalationRules } = await import("@/lib/db");
+    const rules = await db
+      .select({ delaySec: escalationRules.delaySec })
+      .from(escalationRules)
+      .where(and(eq(escalationRules.projectId, projectId), eq(escalationRules.isActive, true)));
+
+    if (rules.length > 0) {
+      const { enqueue } = await import("@/lib/queue");
+      // Enqueue one escalation check per rule delay (deduped by BullMQ job ID)
+      const delays = [...new Set(rules.map((r) => r.delaySec))];
+      for (const delaySec of delays) {
+        enqueue("escalate-alert", { alertId: inserted.id }, {
+          queue: "default",
+          delay: delaySec * 1000,
+        }).catch(() => {});
+      }
+    }
+  } catch {
+    // Non-blocking
   }
 
   // Autonomous mode: auto-trigger remediation on critical alerts
