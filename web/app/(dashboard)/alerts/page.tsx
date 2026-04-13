@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, alerts, projects, projectIntegrations, users, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { eq, desc, inArray, and, ilike, arrayOverlaps, type SQL } from "drizzle-orm";
+import { eq, desc, inArray, and, ilike, arrayOverlaps, sql, type SQL } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +11,9 @@ import { AlertsFilters } from "./alerts-filters";
 import { ExportButton } from "./export-button";
 import { MarkAllReadButton } from "./mark-all-read-button";
 import { LiveIndicator } from "./live-indicator";
+import { AlertsPagination } from "./alerts-pagination";
+
+const PAGE_SIZE = 50;
 
 export const metadata: Metadata = { title: "Alerts" };
 
@@ -48,6 +51,8 @@ export default async function AlertsPage({
   const statusFilter   = (Array.isArray(params.status)   ? params.status[0]   : params.status)   ?? "all";
   const sourceFilter   = (Array.isArray(params.source)   ? params.source[0]   : params.source)   ?? "all";
   const searchQuery    = (Array.isArray(params.q)        ? params.q[0]        : params.q)        ?? "";
+  const pageParam      = (Array.isArray(params.page)     ? params.page[0]     : params.page)     ?? "1";
+  const page           = Math.max(1, parseInt(pageParam, 10) || 1);
 
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
@@ -66,13 +71,19 @@ export default async function AlertsPage({
   }
   if (searchQuery.trim()) conditions.push(ilike(alerts.title, `%${searchQuery.trim()}%`));
 
-  const [allAlerts, integrationRows] =
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [allAlerts, countRows, integrationRows] =
     projectIds.length > 0
       ? await Promise.all([
-          db.select().from(alerts).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(alerts.createdAt)).limit(50),
+          db.select().from(alerts).where(whereClause).orderBy(desc(alerts.createdAt)).limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE),
+          db.select({ count: sql<number>`count(*)::int` }).from(alerts).where(whereClause),
           db.select({ id: projectIntegrations.id }).from(projectIntegrations).where(inArray(projectIntegrations.projectId, projectIds)).limit(1),
         ])
-      : [[], []];
+      : [[], [{ count: 0 }], []];
+
+  const totalAlerts = countRows[0]?.count ?? 0;
+  const totalPages  = Math.ceil(totalAlerts / PAGE_SIZE);
 
   const hasIntegrations    = integrationRows.length > 0;
   const unread             = allAlerts.filter((a) => !a.isRead).length;
@@ -91,7 +102,7 @@ export default async function AlertsPage({
             <LiveIndicator />
           </div>
           <p className="mt-1 text-sm text-fg-base">
-            {allAlerts.length} alert{allAlerts.length !== 1 ? "s" : ""}{hasActiveFilters ? " (filtered)" : ""}
+            {totalAlerts} alert{totalAlerts !== 1 ? "s" : ""}{hasActiveFilters ? " (filtered)" : ""}{totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""}
           </p>
         </div>
 
@@ -202,6 +213,11 @@ export default async function AlertsPage({
             </li>
           ))}
         </ul>
+      )}
+
+      {/* ── Pagination ─────────────────────────────────────────────────── */}
+      {totalPages > 1 && (
+        <AlertsPagination page={page} totalPages={totalPages} />
       )}
     </div>
   );

@@ -26,6 +26,7 @@ export function AlertsFilters({ severity, status, source }: AlertsFiltersProps) 
       } else {
         params.set(key, value);
       }
+      params.delete("page"); // reset to page 1 on filter change
       const qs = params.toString();
       router.push(qs ? `${pathname}?${qs}` : pathname);
     },

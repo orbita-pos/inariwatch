@@ -24,6 +24,7 @@ export function SearchInput() {
       } else {
         params.delete("q");
       }
+      params.delete("page"); // reset to page 1 on search
       const qs = params.toString();
       router.push(qs ? `${pathname}?${qs}` : pathname);
     },
