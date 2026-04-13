@@ -66,18 +66,30 @@ export async function analyzeReplay(
     isPlatformKey?: boolean;
   }
 ): Promise<ReplayResult | null> {
-  // Fetch the most recent Substrate recording for this project
-  const [recording] = await db
-    .select({
-      events: substrateRecordings.events,
-      context: substrateRecordings.context,
-      eventCount: substrateRecordings.eventCount,
-      categories: substrateRecordings.categories,
-    })
+  // Prefer a recording linked to this specific alert; fall back to the most
+  // recent project recording only if none is directly associated.
+  const selectCols = {
+    events: substrateRecordings.events,
+    context: substrateRecordings.context,
+    eventCount: substrateRecordings.eventCount,
+    categories: substrateRecordings.categories,
+  };
+
+  let [recording] = await db
+    .select(selectCols)
     .from(substrateRecordings)
-    .where(eq(substrateRecordings.projectId, projectId))
+    .where(eq(substrateRecordings.alertId, alertId))
     .orderBy(desc(substrateRecordings.createdAt))
     .limit(1);
+
+  if (!recording) {
+    [recording] = await db
+      .select(selectCols)
+      .from(substrateRecordings)
+      .where(eq(substrateRecordings.projectId, projectId))
+      .orderBy(desc(substrateRecordings.createdAt))
+      .limit(1);
+  }
 
   if (!recording) return null;
 
