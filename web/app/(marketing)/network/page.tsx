@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Activity, TrendingUp, CheckCircle2, Zap, Shield, Code2, Terminal } from "lucide-react";
