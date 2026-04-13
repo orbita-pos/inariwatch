@@ -334,7 +334,7 @@ export default function PricingPage() {
                   </p>
                 </div>
               </div>
-              <a href="mailto:jesus@inariwatch.com" className="shrink-0">
+              <a href="mailto:info@jesusbr.com" className="shrink-0">
                 <Button variant="outline" className="border-inari-border">
                   Contact sales
                 </Button>

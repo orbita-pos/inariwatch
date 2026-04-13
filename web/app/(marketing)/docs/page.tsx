@@ -1581,7 +1581,7 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               <a href="https://github.com/orbita-pos/inariwatch-agent-releases/releases" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-inari-accent underline underline-offset-2">
                 orbita-pos/inariwatch-agent-releases<ExternalLink className="h-3 w-3" />
               </a>{" "}
-              (public). Contact <InlineCode>support@inariwatch.com</InlineCode> for commercial
+              (public). Contact <InlineCode>info@jesusbr.com</InlineCode> for commercial
               licensing or security audits.
             </Callout>
 
