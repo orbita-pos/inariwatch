@@ -431,7 +431,9 @@ async function callOpenAICompatWithTools(
     },
     body: JSON.stringify({
       model: opts.model ?? "gpt-4o",
-      max_tokens: opts.maxTokens ?? 4096,
+      ...(baseUrl.includes("api.openai.com")
+        ? { max_completion_tokens: opts.maxTokens ?? 4096 }
+        : { max_tokens: opts.maxTokens ?? 4096 }),
       tools: openaiTools,
       messages: openaiMessages,
     }),
@@ -594,7 +596,11 @@ async function callOpenAICompatWithUsage(
     },
     body: JSON.stringify({
       model,
-      max_tokens: opts.maxTokens ?? 1024,
+      // OpenAI newer models (gpt-4o+) require max_completion_tokens; other
+      // OpenAI-compatible providers (Grok, DeepSeek, Groq) still use max_tokens.
+      ...(provider === "openai"
+        ? { max_completion_tokens: opts.maxTokens ?? 1024 }
+        : { max_tokens: opts.maxTokens ?? 1024 }),
       messages: [{ role: "system", content: system }, ...messages],
     }),
     signal: AbortSignal.timeout(opts.timeout ?? 30000),
@@ -743,7 +749,9 @@ async function callOpenAICompatVision(
     },
     body: JSON.stringify({
       model: opts.model ?? "gpt-4o-mini",
-      max_tokens: opts.maxTokens ?? 512,
+      ...(baseUrl.includes("api.openai.com")
+        ? { max_completion_tokens: opts.maxTokens ?? 512 }
+        : { max_tokens: opts.maxTokens ?? 512 }),
       messages: [
         { role: "system", content: system },
         {
