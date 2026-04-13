@@ -90,6 +90,10 @@ const FAQS = [
     a: "Yes. Cancel from your billing portal — your Pro quotas stay active until the end of the billing period, then you go back to Free. No strings.",
   },
   {
+    q: "How do quotas work in a team workspace?",
+    a: "Quotas are per-user, not per-workspace. Each team member has their own monthly limits (e.g., 25 remediations). Whoever clicks \"Fix It\" uses their quota. Workspaces share projects and alerts, but quotas and AI keys are individual.",
+  },
+  {
     q: "What's the difference vs Sentry / Datadog / etc.?",
     a: "We don't just monitor — we fix. AI auto-diagnoses every alert, runs through 11 safety gates, generates a fix, opens a PR, and waits for CI. None of the legacy tools do this. And the Community Fix Network gets smarter every week.",
   },
