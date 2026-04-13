@@ -998,6 +998,7 @@ function McpSection() {
     "VS Code Copilot",
     "Codex CLI",
     "Gemini CLI",
+    "OpenClaw",
   ];
 
   return (

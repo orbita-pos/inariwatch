@@ -26,6 +26,11 @@ export async function startRemediation(
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, alertId)).limit(1);
   if (!alert) return { error: "Alert not found" };
 
+  // Agent (kernel-level) alerts are security detections, not code bugs — cannot be fixed by modifying code
+  if (alert.sourceIntegrations?.includes("agent")) {
+    return { error: "This is a host-level security alert from the InariWatch Agent. It requires operational response (investigate process, check logs, review access), not a code fix." };
+  }
+
   const [project] = await db
     .select()
     .from(projects)

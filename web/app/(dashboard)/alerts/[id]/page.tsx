@@ -276,8 +276,8 @@ export default async function AlertDetailPage({
         <CommunityFixBanner alertId={alert.id} fingerprint={alert.fingerprint} />
       )}
 
-      {/* ── AI Remediation ─────────────────────────────────────────────── */}
-      <ProGate isPro={isPro} feature="AI Remediation">
+      {/* ── AI Remediation (not for agent/kernel alerts — those need operational response, not code fixes) */}
+      {!alert.sourceIntegrations.includes("agent") && <ProGate isPro={isPro} feature="AI Remediation">
         <RemediationPanel
           alertId={alert.id}
           hasAIKey={hasAIKey}
@@ -292,7 +292,7 @@ export default async function AlertDetailPage({
             error:    latestRemediation.error,
           } : null}
         />
-      </ProGate>
+      </ProGate>}
 
       {/* ── Post-mortem ─────────────────────────────────────────────────── */}
       <ProGate isPro={isPro} feature="Post-mortem">

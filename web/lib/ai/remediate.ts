@@ -220,6 +220,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, session.alertId)).limit(1);
   if (!alert) { await fail(sessionId, emit, "Alert not found"); return; }
 
+  // Agent (kernel-level) alerts are security detections, not code bugs — skip remediation
+  if (alert.sourceIntegrations?.includes("agent")) {
+    await fail(sessionId, emit, "This is a host-level security alert from the InariWatch Agent. It requires operational response (investigate process, check logs, review access), not a code fix.");
+    return;
+  }
+
   // Compute and store error fingerprint for fix replay
   const alertFingerprint = computeErrorFingerprint(alert.title, alert.body);
   await updateSession(sessionId, { fingerprint: alertFingerprint });

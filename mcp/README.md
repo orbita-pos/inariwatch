@@ -61,7 +61,7 @@ InariWatch Setup
   Enable Substrate I/O recording? (y/N) y
     ✓ INARIWATCH_SUBSTRATE=true added to .env
 
-  Done! MCP in 4 tools + capture SDK + Substrate I/O.
+  Done! MCP in 5 tools + capture SDK + Substrate I/O.
 ```
 
 ## What it does
@@ -86,6 +86,7 @@ InariWatch Setup
 | **VS Code + Copilot** | `code` in PATH | `.vscode/mcp.json` |
 | **Codex CLI** | `codex` in PATH | `codex mcp add` |
 | **Gemini CLI** | `gemini` in PATH | `gemini mcp add` |
+| **OpenClaw** | `openclaw` in PATH or `~/.openclaw` | `~/.openclaw/openclaw.json` |
 
 Works on **macOS**, **Linux**, and **Windows**. Paths resolve per-platform automatically.
 
@@ -164,6 +165,26 @@ claude mcp add inariwatch https://mcp.inariwatch.com -t http -H "Authorization: 
     "inariwatch": {
       "url": "https://mcp.inariwatch.com",
       "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+**OpenClaw** — run:
+```bash
+openclaw mcp set inariwatch '{"url":"https://mcp.inariwatch.com","transport":"streamable-http","headers":{"Authorization":"Bearer YOUR_TOKEN"}}'
+```
+
+Or add to `~/.openclaw/openclaw.json`:
+```json
+{
+  "mcp": {
+    "servers": {
+      "inariwatch": {
+        "url": "https://mcp.inariwatch.com",
+        "transport": "streamable-http",
+        "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+      }
     }
   }
 }
