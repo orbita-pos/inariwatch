@@ -1,8 +1,8 @@
 import type { ReactNode, ElementType } from "react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, alertComments, users, apiKeys, remediationSessions, projectIntegrations } from "@/lib/db";
-import { eq, and, asc, inArray, desc } from "drizzle-orm";
+import { db, alerts, projects, alertComments, users, apiKeys, remediationSessions, projectIntegrations, organizations, organizationMembers } from "@/lib/db";
+import { eq, and, asc, inArray, desc, or } from "drizzle-orm";
 import { ProGate } from "@/components/pro-gate";
 import { notFound } from "next/navigation";
 import { formatRelativeTime } from "@/lib/utils";
@@ -83,12 +83,35 @@ export default async function AlertDetailPage({
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, id)).limit(1);
   if (!alert) notFound();
 
-  const [project] = await db
-    .select()
+  // Authorize the viewer: project owner OR member of the project's
+  // organization OR organization owner. The previous check (projects.userId
+  // === userId) only worked for personal workspaces — users who joined an
+  // org workspace got 404'd on every alert because they didn't own the
+  // project directly.
+  const [projectRow] = await db
+    .select({ project: projects })
     .from(projects)
-    .where(and(eq(projects.id, alert.projectId), eq(projects.userId, userId)))
+    .leftJoin(organizations, eq(organizations.id, projects.organizationId))
+    .leftJoin(
+      organizationMembers,
+      and(
+        eq(organizationMembers.organizationId, projects.organizationId),
+        eq(organizationMembers.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(projects.id, alert.projectId),
+        or(
+          eq(projects.userId, userId),
+          eq(organizations.ownerId, userId),
+          eq(organizationMembers.userId, userId),
+        ),
+      ),
+    )
     .limit(1);
-  if (!project) notFound();
+  if (!projectRow) notFound();
+  const project = projectRow.project;
 
   // Fire-and-forget: mark as read
   if (!alert.isRead) {
