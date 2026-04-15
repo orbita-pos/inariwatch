@@ -44,6 +44,18 @@ export interface PerformanceOptions {
    * metrics into your own analytics on top of InariWatch.
    */
   onMetric?: (metric: PerformanceMetric) => void
+  /**
+   * Include `location.pathname` in the metric metadata. Enabled by default
+   * because per-route performance is usually what you want. Disable if your
+   * app uses sensitive path tokens (magic-link URLs, password-reset flows,
+   * user-id-in-path) you don't want leaving the browser.
+   *
+   * You can also pass a redactor to keep per-route grouping while stripping
+   * dynamic segments: `redactPathname: (p) => p.replace(/\/[a-f0-9-]{36}/g, "/:id")`.
+   */
+  includePathname?: boolean
+  /** Custom pathname redactor. Overrides `includePathname: true` default passthrough. */
+  redactPathname?: (pathname: string) => string
 }
 
 export interface PerformanceMetric {
@@ -105,7 +117,7 @@ export function performanceIntegration(options: PerformanceOptions = {}): Integr
                 id: metric.id,
                 navigationType: metric.navigationType,
               }
-              report(payload, config, options.onMetric)
+              report(payload, config, options)
             })
           }
 
@@ -140,10 +152,10 @@ interface WebVitalMetric {
 function report(
   metric: PerformanceMetric,
   config: CaptureConfig,
-  hook?: PerformanceOptions["onMetric"],
+  options: PerformanceOptions,
 ): void {
   try {
-    if (hook) hook(metric)
+    if (options.onMetric) options.onMetric(metric)
   } catch {
     // User callbacks shouldn't break metric reporting
   }
@@ -154,6 +166,16 @@ function report(
 
   const title = `vitals.${metric.name.toLowerCase()}: ${Math.round(metric.value)}${metric.name === "CLS" ? "" : "ms"}`
 
+  // Pathname emission — opt out or redact for apps that put sensitive tokens
+  // into URL paths (magic links, password resets). Default includes the raw
+  // pathname because per-route grouping is the usual reason to use this.
+  const includePathname = options.includePathname !== false
+  let pathname: string | undefined
+  if (includePathname && typeof location !== "undefined") {
+    const raw = location.pathname
+    pathname = options.redactPathname ? options.redactPathname(raw) : raw
+  }
+
   try {
     captureLog(title, level, {
       kind: "web_vitals",
@@ -163,8 +185,7 @@ function report(
       delta: metric.delta,
       id: metric.id,
       navigationType: metric.navigationType,
-      // Current page URL helps correlate metrics across routes
-      pathname: typeof location !== "undefined" ? location.pathname : undefined,
+      pathname,
     })
   } catch (err) {
     if (config.debug && !config.silent) {

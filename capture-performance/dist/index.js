@@ -68,7 +68,7 @@ export function performanceIntegration(options = {}) {
                                 id: metric.id,
                                 navigationType: metric.navigationType,
                             };
-                            report(payload, config, options.onMetric);
+                            report(payload, config, options);
                         });
                     };
                     register("LCP", webVitals.onLCP);
@@ -91,10 +91,10 @@ export function performanceIntegration(options = {}) {
  * follows the rating so dashboards can filter:
  *   good → info, needs-improvement → warn, poor → error.
  */
-function report(metric, config, hook) {
+function report(metric, config, options) {
     try {
-        if (hook)
-            hook(metric);
+        if (options.onMetric)
+            options.onMetric(metric);
     }
     catch {
         // User callbacks shouldn't break metric reporting
@@ -102,6 +102,15 @@ function report(metric, config, hook) {
     const level = metric.rating === "good" ? "info" :
         metric.rating === "poor" ? "error" : "warn";
     const title = `vitals.${metric.name.toLowerCase()}: ${Math.round(metric.value)}${metric.name === "CLS" ? "" : "ms"}`;
+    // Pathname emission — opt out or redact for apps that put sensitive tokens
+    // into URL paths (magic links, password resets). Default includes the raw
+    // pathname because per-route grouping is the usual reason to use this.
+    const includePathname = options.includePathname !== false;
+    let pathname;
+    if (includePathname && typeof location !== "undefined") {
+        const raw = location.pathname;
+        pathname = options.redactPathname ? options.redactPathname(raw) : raw;
+    }
     try {
         captureLog(title, level, {
             kind: "web_vitals",
@@ -111,8 +120,7 @@ function report(metric, config, hook) {
             delta: metric.delta,
             id: metric.id,
             navigationType: metric.navigationType,
-            // Current page URL helps correlate metrics across routes
-            pathname: typeof location !== "undefined" ? location.pathname : undefined,
+            pathname,
         });
     }
     catch (err) {

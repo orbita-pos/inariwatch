@@ -341,9 +341,9 @@ export async function initReplay(replayConfig, captureConfig) {
         const rrweb = await import(/* webpackIgnore: true */ pkg);
         record = rrweb.record ?? rrweb.default?.record ?? null;
     }
-    catch {
+    catch (err) {
         if (!captureConfig.silent) {
-            console.warn("[@inariwatch/capture/replay] replay: true but rrweb not installed. Run: npm install rrweb");
+            console.warn("[@inariwatch/capture-replay] rrweb failed to load — replay disabled. This is unexpected since rrweb is a direct dependency; please file an issue at https://github.com/orbita-pos/inariwatch-capture/issues", err instanceof Error ? err.message : err);
         }
         return;
     }

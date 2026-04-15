@@ -41,6 +41,18 @@ export interface PerformanceOptions {
      * metrics into your own analytics on top of InariWatch.
      */
     onMetric?: (metric: PerformanceMetric) => void;
+    /**
+     * Include `location.pathname` in the metric metadata. Enabled by default
+     * because per-route performance is usually what you want. Disable if your
+     * app uses sensitive path tokens (magic-link URLs, password-reset flows,
+     * user-id-in-path) you don't want leaving the browser.
+     *
+     * You can also pass a redactor to keep per-route grouping while stripping
+     * dynamic segments: `redactPathname: (p) => p.replace(/\/[a-f0-9-]{36}/g, "/:id")`.
+     */
+    includePathname?: boolean;
+    /** Custom pathname redactor. Overrides `includePathname: true` default passthrough. */
+    redactPathname?: (pathname: string) => string;
 }
 export interface PerformanceMetric {
     name: "LCP" | "INP" | "CLS" | "FCP" | "TTFB";

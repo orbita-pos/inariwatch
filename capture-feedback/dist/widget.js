@@ -15,8 +15,17 @@ export function mountFeedbackWidget(options, onSubmit) {
     if (typeof document === "undefined")
         return () => { };
     mounted = true;
-    const accent = options.accentColor ?? "#f97316";
-    const pos = options.position ?? "bottom-right";
+    // Validate accent: only CSS color tokens we trust (hex, rgb/rgba, hsl/hsla,
+    // or named colors). Blocks CSS injection from a malicious integrator config.
+    const ACCENT_RE = /^(#[0-9a-fA-F]{3,8}|(rgb|hsl)a?\([\d.,%\s/]+\)|[a-zA-Z]{3,20})$/;
+    const accent = options.accentColor && ACCENT_RE.test(options.accentColor.trim())
+        ? options.accentColor.trim()
+        : "#f97316";
+    // Whitelist position — anything else would produce broken CSS anyway.
+    const ALLOWED_POSITIONS = ["bottom-right", "bottom-left", "top-right", "top-left"];
+    const pos = options.position && ALLOWED_POSITIONS.includes(options.position)
+        ? options.position
+        : "bottom-right";
     const buttonLabel = options.buttonLabel ?? "Report a bug";
     const title = options.title ?? "Report a bug";
     const style = document.createElement("style");
@@ -109,7 +118,14 @@ export function mountFeedbackWidget(options, onSubmit) {
                 throw new Error("Canvas 2D context unavailable");
             ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
             screenshotDataUrl = canvas.toDataURL("image/jpeg", 0.78);
-            screenshotPreview.innerHTML = `<img alt="Screenshot" src="${screenshotDataUrl}" />`;
+            // Use createElement + src to avoid innerHTML with an interpolated string.
+            // toDataURL always returns a safe base64 URL, but defense in depth is
+            // cheap here.
+            screenshotPreview.textContent = "";
+            const img = document.createElement("img");
+            img.alt = "Screenshot";
+            img.src = screenshotDataUrl;
+            screenshotPreview.appendChild(img);
             screenshotPreview.style.display = "block";
             statusEl.textContent = "";
         }
