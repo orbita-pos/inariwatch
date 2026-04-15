@@ -15,6 +15,7 @@ import { escalateAlert } from "../jobs/escalate-alert.js";
 import { checkDeployHealth, deployMonitorSweep } from "../jobs/deploy-monitor.js";
 import { flushNotifications } from "../jobs/flush-notifications.js";
 import { pollIntegrations } from "../jobs/poll-integrations.js";
+import { analyzeReplayJob } from "../jobs/replay-analyze.js";
 
 async function handler(job: Job): Promise<unknown> {
   switch (job.name) {
@@ -32,6 +33,9 @@ async function handler(job: Job): Promise<unknown> {
 
     case "poll-integrations":
       return await pollIntegrations();
+
+    case "replay-analyze":
+      return await analyzeReplayJob(job.data);
 
     default:
       console.warn(`[default] Unknown job: ${job.name}`);

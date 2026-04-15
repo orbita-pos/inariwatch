@@ -8,6 +8,7 @@ import {
   jsonb,
   integer,
   numeric,
+  bigint,
   index,
   customType,
 } from "drizzle-orm/pg-core";
@@ -702,11 +703,48 @@ export type BlogPost = typeof blogPosts.$inferSelect;
 
 // ── Substrate Recordings ─────────────────────────────────────────────────────
 
+export const replaySessions = pgTable("replay_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull().unique(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  durationMs: integer("duration_ms"),
+
+  r2Prefix: text("r2_prefix").notNull(),
+  blockCount: integer("block_count").notNull().default(0),
+  totalBytes: bigint("total_bytes", { mode: "number" }).notNull().default(0),
+
+  clickSelectors: text("click_selectors").array().notNull().default(sql`'{}'::text[]`),
+  urlsVisited: text("urls_visited").array().notNull().default(sql`'{}'::text[]`),
+  errorFingerprints: text("error_fingerprints").array().notNull().default(sql`'{}'::text[]`),
+  frustrationScore: integer("frustration_score").notNull().default(0),
+
+  browser: text("browser"),
+  os: text("os"),
+  country: text("country"),
+  viewport: jsonb("viewport"),
+
+  aiSummary: text("ai_summary"),
+  aiChapters: jsonb("ai_chapters"),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ReplaySession = typeof replaySessions.$inferSelect;
+export type NewReplaySession = typeof replaySessions.$inferInsert;
+
 export const substrateRecordings = pgTable("substrate_recordings", {
   id: uuid("id").primaryKey().defaultRandom(),
   recordingId: text("recording_id").notNull().unique(),
   alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  replaySessionId: uuid("replay_session_id").references(() => replaySessions.id, { onDelete: "set null" }),
   command: text("command"),
   runtime: text("runtime").default("node"),
   startedAt: timestamp("started_at", { withTimezone: true }),

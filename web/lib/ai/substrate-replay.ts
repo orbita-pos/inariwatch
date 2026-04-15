@@ -10,7 +10,8 @@
  */
 
 import { db, substrateRecordings } from "@/lib/db";
-import { eq, desc } from "drizzle-orm";
+import { replaySessions } from "@/lib/db/schema";
+import { eq, desc, and } from "drizzle-orm";
 import { callAI } from "./client";
 import type { AIProvider } from "./client";
 
@@ -23,6 +24,8 @@ export interface ReplayResult {
   analysis: string;         // human-readable explanation
   replayedEvents: number;   // how many I/O events were analyzed
   mode: "ai_analysis" | "action_replay";
+  /** Whether a frontend Replay V2 session (DOM + user journey) enriched the analysis. */
+  replayContextUsed?: boolean;
 }
 
 // ── AI Analysis Mode (fast, always available) ────────────────────────────────
@@ -64,7 +67,14 @@ export async function analyzeReplay(
     userId: string;
     remediationSessionId?: string;
     isPlatformKey?: boolean;
-  }
+  },
+  /**
+   * Optional Replay V2 session id. If supplied, the frontend DOM user journey
+   * + causal chain are pulled in and included in the AI prompt — this lets
+   * the analyst reason about "user clicked X → HTTP Y → DB Z → error" rather
+   * than only the raw backend I/O recording.
+   */
+  replaySessionId?: string,
 ): Promise<ReplayResult | null> {
   // Prefer a recording linked to this specific alert; fall back to the most
   // recent project recording only if none is directly associated.
@@ -103,10 +113,26 @@ export async function analyzeReplay(
     .map((f) => `--- ${f.path} ---\n${f.content.slice(0, 2000)}`)
     .join("\n\n");
 
+  // Pull in the frontend replay context if available — this gives the analyst
+  // the user's exact journey (click → http → db → error) alongside raw I/O.
+  let replayJourneySection = "";
+  let replayContextUsed = false;
+  if (replaySessionId) {
+    // Scope the lookup to the current remediation's projectId — defense in
+    // depth against future callers that might pass an arbitrary replay id
+    // via remediation_sessions.context. Without this, a cross-tenant read
+    // would only be blocked by the upstream endpoint.
+    const journey = await loadReplayJourney(replaySessionId, projectId);
+    if (journey) {
+      replayJourneySection = `\n\n## FRONTEND USER JOURNEY (captured browser-side):\n${journey.slice(0, 3000)}`;
+      replayContextUsed = true;
+    }
+  }
+
   const prompt = `Analyze this production I/O recording and determine if the proposed fix would prevent the crash.
 
 ## I/O RECORDING (what happened before the crash):
-${recordingText.slice(0, 6000)}
+${recordingText.slice(0, 6000)}${replayJourneySection}
 
 ## DIAGNOSIS:
 ${diagnosis}
@@ -114,7 +140,7 @@ ${diagnosis}
 ## PROPOSED FIX:
 ${fixSummary.slice(0, 4000)}
 
-Analyze whether this fix addresses the root cause visible in the recording.`;
+Analyze whether this fix addresses the root cause visible in the recording${replayContextUsed ? " AND the user journey above" : ""}.`;
 
   try {
     const raw = await callAI(apiKey, SYSTEM_REPLAY_ANALYST, [{ role: "user", content: prompt }], {
@@ -143,8 +169,67 @@ Analyze whether this fix addresses the root cause visible in the recording.`;
       analysis: result.reasoning ?? "No analysis provided",
       replayedEvents: recording.eventCount ?? 0,
       mode: "ai_analysis",
+      replayContextUsed,
     };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a compact, prompt-friendly version of the Replay V2 user journey —
+ * AI summary + causal chain steps. Returns `null` if the session doesn't
+ * exist, isn't enriched yet, or has no useful context.
+ */
+async function loadReplayJourney(replaySessionId: string, projectId: string): Promise<string | null> {
+  try {
+    const [row] = await db
+      .select({
+        aiSummary: replaySessions.aiSummary,
+        aiChapters: replaySessions.aiChapters,
+        urlsVisited: replaySessions.urlsVisited,
+      })
+      .from(replaySessions)
+      .where(and(
+        eq(replaySessions.sessionId, replaySessionId),
+        eq(replaySessions.projectId, projectId),
+      ))
+      .limit(1);
+
+    if (!row) return null;
+
+    const lines: string[] = [];
+    if (row.aiSummary) lines.push(row.aiSummary.slice(0, 400));
+
+    // Phase 2 shape: { chapters, chains }
+    const ai = row.aiChapters as unknown;
+    if (ai && typeof ai === "object" && !Array.isArray(ai)) {
+      const chains = (ai as { chains?: unknown[] }).chains;
+      if (Array.isArray(chains) && chains.length > 0) {
+        lines.push("\nCausal chain(s):");
+        for (const c of chains.slice(0, 3)) {
+          if (!c || typeof c !== "object") continue;
+          const chain = c as { links?: { role?: string; summary?: string; tsRelative?: number }[] };
+          if (!Array.isArray(chain.links)) continue;
+          const steps = chain.links
+            .filter((l): l is { role: string; summary: string; tsRelative: number } =>
+              typeof l?.role === "string" && typeof l.summary === "string",
+            )
+            .map((l) => `  ${l.role} @ ${l.tsRelative ?? 0}ms: ${l.summary.slice(0, 160)}`)
+            .join("\n");
+          if (steps) lines.push(steps);
+        }
+      }
+    }
+
+    if (Array.isArray(row.urlsVisited) && row.urlsVisited.length > 0) {
+      lines.push(`\nURLs visited: ${row.urlsVisited.slice(0, 5).join(", ")}`);
+    }
+
+    const out = lines.join("\n").trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    // Never block remediation on a replay lookup failure
     return null;
   }
 }

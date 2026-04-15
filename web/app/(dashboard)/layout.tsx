@@ -11,6 +11,7 @@ import { PollingStatus } from "./polling-status";
 import { DashboardHeader } from "./dashboard-header";
 import { db, alerts, users, projectIntegrations, getUserOrganizations, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
+import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { eq, and, inArray, sql, max } from "drizzle-orm";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -36,6 +37,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   // Shared project IDs + organizations for sidebar
   const activeOrgId = await getActiveOrgId();
+  const replayV2Enabled = isReplayV2Enabled(activeOrgId);
   const [projectIds, organizations] = userId
     ? await Promise.all([getWorkspaceProjectIds(userId, activeOrgId), getUserOrganizations(userId)])
     : [[], []];
@@ -69,7 +71,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <WorkspaceSwitcher userName={userName} userEmail={userEmail} plan={userPlan} organizations={organizations} activeOrgId={activeOrgId} />
 
         {/* Nav */}
-        <SidebarNav unreadAlerts={unreadCount} isAdmin={!!process.env.ADMIN_EMAIL && userEmail === process.env.ADMIN_EMAIL} activeOrgId={activeOrgId} />
+        <SidebarNav unreadAlerts={unreadCount} isAdmin={!!process.env.ADMIN_EMAIL && userEmail === process.env.ADMIN_EMAIL} activeOrgId={activeOrgId} replayV2Enabled={replayV2Enabled} />
 
         {/* Polling status */}
         <PollingStatus lastCheckedAt={lastCheckedAt} />
@@ -124,6 +126,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         userInitial={initials}
         userName={userName}
         userEmail={userEmail}
+        replayV2Enabled={replayV2Enabled}
       />
 
       {/* Content */}

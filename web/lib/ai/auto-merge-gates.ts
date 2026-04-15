@@ -38,13 +38,15 @@ export function evaluateAutoMergeGates(params: {
   predictionRiskScore?: number | null;
   securityScanHighCount?: number | null;
   substrateReplayPassed?: boolean | null;
+  /** True when the Substrate replay analysis was enriched with a Replay V2 frontend session (user journey + causal chain). */
+  substrateReplayUsedFrontendContext?: boolean | null;
   e2eStagingPassed?: boolean | null;
   /** Whether the fix was verified (tsc + build) inside a container before push. */
   containerVerified?: boolean | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, e2eStagingPassed, containerVerified, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -126,12 +128,17 @@ export function evaluateAutoMergeGates(params: {
         : `Security scan found ${securityScanHighCount} HIGH severity finding(s)`);
   }
 
-  // Gate 9: Substrate replay verification (if replay ran)
+  // Gate 9: Substrate replay verification (if replay ran). When the analysis
+  // also pulled in the Replay V2 frontend session, the reason is enriched —
+  // the verdict itself is already factored into `substrateReplayPassed`.
   if (substrateReplayPassed != null) {
-    pushGate("substrate_replay", substrateReplayPassed,
-      substrateReplayPassed
-        ? "Substrate I/O replay verified — fix prevents the recorded crash"
-        : "Substrate I/O replay indicates fix may not prevent the recorded crash");
+    const passReason = substrateReplayUsedFrontendContext
+      ? "Substrate I/O replay verified with frontend user journey — fix addresses the full click → HTTP → DB chain"
+      : "Substrate I/O replay verified — fix prevents the recorded crash";
+    const failReason = substrateReplayUsedFrontendContext
+      ? "Substrate I/O replay (with frontend journey) indicates fix may not prevent the recorded crash"
+      : "Substrate I/O replay indicates fix may not prevent the recorded crash";
+    pushGate("substrate_replay", substrateReplayPassed, substrateReplayPassed ? passReason : failReason);
   }
 
   // Gate 10: E2E staging verification (if staging tests ran)

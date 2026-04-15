@@ -1449,11 +1449,17 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         }
 
         // ── SUBSTRATE REPLAY VERIFICATION ─────────────────────────────
-        let replayResult: { passed: boolean; riskScore: number; analysis: string } | null = null;
+        let replayResult: { passed: boolean; riskScore: number; analysis: string; replayContextUsed: boolean } | null = null;
         try {
           const { analyzeReplay } = await import("./substrate-replay");
           steps = await pushStep(sessionId, steps,
             makeStep("substrate_replay", "Analyzing Substrate I/O recording against fix..."), emit);
+
+          // If this remediation was triggered from a Replay V2 session, its
+          // sessionId is stored in session.context — pass it through so the
+          // analyst can weigh the frontend user journey alongside raw I/O.
+          const ctx = session.context as { replaySessionId?: string } | null;
+          const replaySessionId = typeof ctx?.replaySessionId === "string" ? ctx.replaySessionId : undefined;
 
           const replay = await analyzeReplay(
             session.projectId, alert.id,
@@ -1463,11 +1469,17 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               userId: session.userId,
               remediationSessionId: session.id,
               isPlatformKey: aiKey.isPlatformKey,
-            }
+            },
+            replaySessionId,
           );
 
           if (replay) {
-            replayResult = { passed: replay.passed, riskScore: replay.riskScore, analysis: replay.analysis };
+            replayResult = {
+              passed: replay.passed,
+              riskScore: replay.riskScore,
+              analysis: replay.analysis,
+              replayContextUsed: !!replay.replayContextUsed,
+            };
             emit("substrate_replay", {
               status: "completed",
               passed: replay.passed,
@@ -1476,6 +1488,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               analysis: replay.analysis,
               replayedEvents: replay.replayedEvents,
               mode: replay.mode,
+              replayContextUsed: replay.replayContextUsed,
             });
             steps = await resolveStep(sessionId, steps,
               replay.passed ? "completed" : "failed",
@@ -1781,6 +1794,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
           ciPassed: true,
           simulateRiskScore,
           substrateReplayPassed: replayResult?.passed ?? null,
+          substrateReplayUsedFrontendContext: replayResult?.replayContextUsed ?? null,
           e2eStagingPassed,
           eapChainVerified,
           securityScanHighCount: securityHighCount,

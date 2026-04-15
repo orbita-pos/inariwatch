@@ -13,9 +13,10 @@ interface MobileNavProps {
   userInitial: string;
   userName: string;
   userEmail?: string;
+  replayV2Enabled?: boolean;
 }
 
-export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: MobileNavProps) {
+export function MobileNav({ unreadAlerts, userInitial, userName, userEmail, replayV2Enabled = false }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -123,7 +124,7 @@ export function MobileNav({ unreadAlerts, userInitial, userName, userEmail }: Mo
 
         {/* Nav links */}
         <nav className="flex-1 px-2 py-3 space-y-px overflow-y-auto">
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          {NAV_ITEMS.filter((item) => item.flag === "replayV2" ? replayV2Enabled : true).map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
             const showBadge = href === "/alerts" && unreadAlerts > 0;
             return (

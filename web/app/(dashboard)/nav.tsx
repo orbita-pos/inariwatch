@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity } from "lucide-react";
+import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity, Film } from "lucide-react";
 
-type NavItem  = { href: string; label: string; icon: React.ElementType; exact?: boolean; badge?: number };
+type NavItem  = { href: string; label: string; icon: React.ElementType; exact?: boolean; badge?: number; flag?: "replayV2" };
 type NavGroup = { label?: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
@@ -17,6 +17,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Monitor",
     items: [
       { href: "/alerts",    label: "Alerts",    icon: Bell },
+      { href: "/replays",   label: "Replays",   icon: Film, flag: "replayV2" },
       { href: "/on-call",   label: "On-Call",   icon: Phone },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
     ],
@@ -43,10 +44,16 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-// Flat list used by mobile nav
+// Flat list used by mobile nav. Filter applied at render time based on
+// the viewer's active-org flag state (see MobileNav).
 export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items).concat([
   { href: "/settings", label: "Settings", icon: Settings },
 ]);
+
+function isItemVisible(item: NavItem, flags: { replayV2: boolean }): boolean {
+  if (item.flag === "replayV2") return flags.replayV2;
+  return true;
+}
 
 function NavLink({ href, label, icon: Icon, exact, badge }: NavItem) {
   const pathname = usePathname();
@@ -78,33 +85,40 @@ export function SidebarNav({
   unreadAlerts = 0,
   isAdmin = false,
   activeOrgId,
+  replayV2Enabled = false,
 }: {
   unreadAlerts?: number;
   isAdmin?: boolean;
   activeOrgId?: string | null;
+  replayV2Enabled?: boolean;
 }) {
   const settingsHref = activeOrgId ? "/workspace/settings" : "/settings";
+  const flags = { replayV2: replayV2Enabled };
 
   return (
     <nav aria-label="Main navigation" className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-      {NAV_GROUPS.map((group, i) => (
-        <div key={i}>
-          {group.label && (
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-fg-base/40">
-              {group.label}
-            </p>
-          )}
-          <div className="space-y-px">
-            {group.items.map((item) => (
-              <NavLink
-                key={item.href}
-                {...item}
-                badge={item.href === "/alerts" ? unreadAlerts : undefined}
-              />
-            ))}
+      {NAV_GROUPS.map((group, i) => {
+        const visible = group.items.filter((item) => isItemVisible(item, flags));
+        if (visible.length === 0) return null;
+        return (
+          <div key={i}>
+            {group.label && (
+              <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-fg-base/40">
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-px">
+              {visible.map((item) => (
+                <NavLink
+                  key={item.href}
+                  {...item}
+                  badge={item.href === "/alerts" ? unreadAlerts : undefined}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* Settings — always at the bottom of the nav */}
       <div className="space-y-px">
