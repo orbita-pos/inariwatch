@@ -139,6 +139,15 @@ export const projects = pgTable("projects", {
   visibility: text("visibility").default("all").notNull(), // 'all' | 'restricted'
   autoMergeConfig: jsonb("auto_merge_config"), // AutoMergeConfig
   stagingEnvEncrypted: jsonb("staging_env_encrypted"), // Encrypted env vars for staging deploys
+  /**
+   * Origin allowlist for browser-facing public endpoints (Replay V2
+   * ingest + classify-pii). Empty array = allow any Origin (preserves the
+   * pre-0048 behaviour so no existing project breaks when the column ships).
+   * Populated array = strict — requests whose `Origin` header isn't in the
+   * list are rejected with 403. Supports one wildcard subdomain per entry,
+   * e.g. `https://*.example.com`.
+   */
+  allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'`),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

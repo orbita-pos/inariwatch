@@ -30,6 +30,8 @@ import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
 import { StagingEnvSection } from "./staging-env";
+import { AllowedOriginsSection } from "./allowed-origins";
+import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { PostmortemsSection } from "./postmortems";
 import { AutonomousSuggestionBanner } from "./autonomous-suggestion";
 import { ProGate } from "@/components/pro-gate";
@@ -419,6 +421,13 @@ export default async function ProjectDetailPage({
         projectId={project.id}
         isAdmin={isAdmin}
         existingKeys={stagingEnvKeys}
+      />
+
+      <AllowedOriginsSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        replayV2Enabled={isReplayV2Enabled(project.organizationId)}
+        initialEntries={project.allowedOrigins ?? []}
       />
 
       <OnCallSection
