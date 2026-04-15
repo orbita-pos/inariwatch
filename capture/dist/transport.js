@@ -23,17 +23,21 @@ export function parseDSN(dsn) {
     return { endpoint: url.toString(), secretKey, isLocal: false };
 }
 async function signPayload(body, secret) {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pkg = "node:crypto";
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const nodeCrypto = await import(/* webpackIgnore: true */ pkg);
-        if (nodeCrypto.createHmac) {
-            return `sha256=${nodeCrypto.createHmac("sha256", secret).update(body, "utf8").digest("hex")}`;
+    // Node path first (faster + no async crypto.subtle). Skip on browsers —
+    // `node:crypto` is not resolvable there.
+    if (typeof window === "undefined") {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pkg = "node:crypto";
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const nodeCrypto = await import(/* webpackIgnore: true */ pkg);
+            if (nodeCrypto.createHmac) {
+                return `sha256=${nodeCrypto.createHmac("sha256", secret).update(body, "utf8").digest("hex")}`;
+            }
         }
-    }
-    catch {
-        // Fallback: Web Crypto API
+        catch {
+            // Fallback: Web Crypto API
+        }
     }
     const encoder = new TextEncoder();
     const keyData = encoder.encode(secret);

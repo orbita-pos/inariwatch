@@ -26,8 +26,15 @@ export function getGitContext() {
  * etc.). Used by framework plugins to inject git context as env vars.
  */
 export function extractGitInfo() {
+    // Browser guard — `child_process` doesn't exist there. Bundlers only try
+    // to resolve `require("child_process")` when it's a static literal, so we
+    // hide it behind indirect eval (`(0, eval)("require")`).
+    if (typeof window !== "undefined")
+        return {};
     try {
-        const { execSync } = require("child_process");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const req = (0, eval)("require");
+        const { execSync } = req("child_process");
         const run = (cmd) => {
             try {
                 return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();

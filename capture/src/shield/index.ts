@@ -23,14 +23,32 @@ import { hookSinks } from "./sinks.js"
 import { shieldMiddleware, markRequestTainted } from "./sources.js"
 import { buildSecurityTitle, buildSecurityBody } from "./detect.js"
 
+// Shield hooks Node.js SQL / FS / child_process drivers. It is strictly a
+// server-side feature — no-op entirely in browsers and edge runtimes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const IS_NODE = (() => {
+  if (typeof window !== "undefined") return false
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proc = (0, eval)("process") as any
+    return !!proc?.versions?.node
+  } catch {
+    return false
+  }
+})()
+
 let initialized = false
 let shieldConfig: ShieldConfig = {}
 
 /** Report a security threat via the capture SDK. */
 function reportThreat(ctx: SecurityContext): void {
   try {
-    // Dynamic import to avoid circular dependency with client.ts
-    const { captureException } = require("../client.js")
+    // Indirect eval keeps the bundler from trying to resolve the relative
+    // path at build time (we're a published package; path walks happen at
+    // runtime against the installed dist).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req = (0, eval)("require") as (m: string) => any
+    const { captureException } = req("../client.js")
 
     const title = buildSecurityTitle(ctx)
     const body = buildSecurityBody(ctx)
@@ -54,6 +72,7 @@ function reportThreat(ctx: SecurityContext): void {
 /** Initialize shield — hooks all sinks. Called automatically on import. */
 function initShield(config: ShieldConfig = {}): void {
   if (initialized) return
+  if (!IS_NODE) return  // browser / edge: shield is a no-op
   initialized = true
   shieldConfig = config
   hookSinks(config, reportThreat)

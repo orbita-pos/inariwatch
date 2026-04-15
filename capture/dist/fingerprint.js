@@ -21,6 +21,10 @@ let cryptoModule = null;
 async function getNodeCrypto() {
     if (cryptoModule)
         return cryptoModule;
+    // Skip in browsers — `node:crypto` is not a resolvable URL there, and
+    // Turbopack/webpack can't polyfill it. The caller falls back to Web Crypto.
+    if (typeof window !== "undefined")
+        return null;
     try {
         const pkg = "node:crypto";
         cryptoModule = await import(/* webpackIgnore: true */ pkg);

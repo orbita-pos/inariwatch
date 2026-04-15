@@ -24,7 +24,7 @@ function hookPg(config, report) {
     if (hooked.has("pg"))
         return;
     try {
-        const pg = require("pg");
+        const pg = (0, eval)("require")("pg");
         // Hook Client.query
         const origClientQuery = pg.Client.prototype.query;
         pg.Client.prototype.query = function (...args) {
@@ -58,7 +58,7 @@ function hookMysql2(config, report) {
     if (hooked.has("mysql2"))
         return;
     try {
-        const mysql2 = require("mysql2");
+        const mysql2 = (0, eval)("require")("mysql2");
         const Connection = mysql2.Connection?.prototype ?? Object.getPrototypeOf(mysql2.createConnection({}));
         if (Connection.query) {
             const origQuery = Connection.query;
@@ -95,7 +95,7 @@ function hookChildProcess(config, report) {
     if (hooked.has("child_process"))
         return;
     try {
-        const cp = require("child_process");
+        const cp = (0, eval)("require")("child_process");
         for (const fn of ["exec", "execSync"]) {
             const orig = cp[fn];
             if (!orig)
@@ -137,7 +137,7 @@ function hookFs(config, report) {
     if (hooked.has("fs"))
         return;
     try {
-        const fs = require("fs");
+        const fs = (0, eval)("require")("fs");
         for (const fn of ["readFile", "readFileSync", "writeFile", "writeFileSync"]) {
             const orig = fs[fn];
             if (!orig)
