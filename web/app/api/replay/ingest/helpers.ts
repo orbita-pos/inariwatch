@@ -153,3 +153,48 @@ export function extractErrorFingerprints(events: unknown[]): string[] {
   }
   return out;
 }
+
+/**
+ * Phase H — extract full error info (fingerprint + message + first stack
+ * frame) so the ingest path can synthesise an alert when a replay captures
+ * an error that no other source (Sentry, capture, etc.) produced one for.
+ *
+ * Returns one entry per UNIQUE fingerprint; later events with the same
+ * fingerprint are dropped (we only need the first message per group).
+ */
+export interface ReplayError {
+  fingerprint: string;
+  message: string;
+  source?: string;
+  line?: number;
+  col?: number;
+}
+
+export function extractReplayErrors(events: unknown[]): ReplayError[] {
+  const seen = new Set<string>();
+  const out: ReplayError[] = [];
+  for (const raw of events) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as {
+      _kind?: string;
+      fingerprint?: string;
+      message?: string;
+      source?: string;
+      line?: number;
+      col?: number;
+    };
+    if (e._kind !== "error") continue;
+    if (typeof e.fingerprint !== "string" || e.fingerprint.length === 0) continue;
+    const fp = e.fingerprint.slice(0, 128);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    out.push({
+      fingerprint: fp,
+      message: typeof e.message === "string" ? e.message.slice(0, 500) : "(no message)",
+      source: typeof e.source === "string" ? e.source.slice(0, 300) : undefined,
+      line: typeof e.line === "number" ? e.line : undefined,
+      col: typeof e.col === "number" ? e.col : undefined,
+    });
+  }
+  return out;
+}

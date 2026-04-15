@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { replaySessions, projects } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { replaySessions, projects, alerts } from "@/lib/db/schema";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { uploadBlock, sessionPrefix } from "@/lib/storage/replay-storage";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
@@ -14,6 +14,7 @@ import {
   extractClickSelectors,
   extractUrls,
   extractErrorFingerprints,
+  extractReplayErrors,
   extractWebVitals,
   sanitizeEndUserField,
   SELECTOR_LIMIT,
@@ -21,6 +22,7 @@ import {
   ERROR_FP_LIMIT,
   type IngestBody,
   type WebVitalsSnapshot,
+  type ReplayError,
 } from "./helpers";
 import { sha256Lower } from "@/lib/hash";
 
@@ -298,6 +300,36 @@ export async function POST(req: NextRequest) {
       },
     });
 
+  // Phase H — auto-correlate the replay with an existing alert that shares
+  // its error fingerprint. Without this, the player's "Generate Fix" button
+  // is dead-on-arrival because remediation runs against alerts. The
+  // correlation is best-effort — failures here never block the ingest.
+  //
+  // Only run when:
+  //   1. The block carried >= 1 fingerprint (no point looking for alerts
+  //      tied to a session with no errors)
+  //   2. The session row exists (it does — the upsert above guarantees it)
+  //
+  // We run it on EVERY block (not just isFinal) so the linkage shows up
+  // in the dashboard immediately when the first error fires, not after the
+  // user closes the tab.
+  if (errorFingerprints.length > 0) {
+    try {
+      const replayErrors = extractReplayErrors(body.events);
+      await correlateReplayWithAlert({
+        sessionId: body.sessionId,
+        projectId: proj.id,
+        fingerprints: errorFingerprints,
+        replayErrors,
+      });
+    } catch (err) {
+      console.warn(
+        `[replay/ingest] correlation failed for ${body.sessionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // On the final block, enqueue the AI analyze job. Fire-and-forget — the
   // enqueue helper never throws, and downstream processing is idempotent.
   if (sessionAlreadyEnded) {
@@ -310,6 +342,110 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Make TS happy that the response builder can see the variable scope.
+  return buildIngestResponse(projCors, body, upload);
+}
+
+/**
+ * Look up the most recent unresolved alert in the project that shares any
+ * of the given fingerprints; if found, link both directions:
+ *   - replay_sessions.alert_id      → alerts.id
+ *   - alerts.replay_session_id      → replay_sessions.id
+ *
+ * Skips entirely when:
+ *   - The replay row already has an alertId (idempotent — only ever links once)
+ *   - No alert in the project matches any fingerprint
+ *
+ * Both updates run as separate statements; we accept the brief inconsistency
+ * window over the cost of a transaction here. Either side alone is enough
+ * to drive the UX (Generate Fix on the replay; "see replay" on the alert).
+ */
+async function correlateReplayWithAlert(opts: {
+  sessionId: string;
+  projectId: string;
+  fingerprints: string[];
+  replayErrors: ReplayError[];
+}): Promise<void> {
+  // Fast-path skip: don't burn a query if the link already exists.
+  const [replay] = await db
+    .select({ id: replaySessions.id, alertId: replaySessions.alertId })
+    .from(replaySessions)
+    .where(eq(replaySessions.sessionId, opts.sessionId))
+    .limit(1);
+  if (!replay || replay.alertId) return;
+
+  // Find the newest alert in this project that matches any of the fingerprints.
+  // We pick the latest createdAt rather than the highest-severity to mirror
+  // user intent: "fix the most recent incident this user just hit".
+  let [alert] = await db
+    .select({ id: alerts.id, replaySessionId: alerts.replaySessionId })
+    .from(alerts)
+    .where(
+      and(
+        eq(alerts.projectId, opts.projectId),
+        inArray(alerts.fingerprint, opts.fingerprints),
+      ),
+    )
+    .orderBy(desc(alerts.createdAt))
+    .limit(1);
+
+  // Phase H — synthesise an alert if no matching one exists. This is what
+  // makes "Generate Fix" work for replay-only setups (the SDK captured an
+  // uncaught error but no other source — Sentry, capture, etc. — produced
+  // an alert). Skip when we have no error message at all (just fingerprint
+  // is too thin for the AI agent to act on).
+  if (!alert) {
+    const firstError = opts.replayErrors[0];
+    if (!firstError || !firstError.message) return;
+    try {
+      const { createAlertIfNew } = await import("@/lib/webhooks/shared");
+      const where = firstError.source
+        ? `${firstError.source}${firstError.line ? `:${firstError.line}` : ""}`
+        : "browser";
+      const created = await createAlertIfNew(
+        {
+          severity: "warning", // replay-derived alerts default to warning;
+                                // the agent can escalate during diagnosis if needed
+          title: firstError.message.slice(0, 200),
+          body: `Captured by replay session ${opts.sessionId.slice(0, 12)}… at ${where}.`,
+          sourceIntegrations: ["capture-replay"],
+          fingerprint: firstError.fingerprint,
+          alertType: "error",
+        },
+        opts.projectId,
+      );
+      if (!created) return; // dedup window swallowed it; another path will link
+      alert = { id: created.id, replaySessionId: created.replaySessionId ?? null };
+    } catch (err) {
+      console.warn(
+        `[replay/ingest] synthetic alert creation failed for ${opts.sessionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+      return;
+    }
+  }
+
+  // Forward link: replay → alert
+  await db
+    .update(replaySessions)
+    .set({ alertId: alert.id, updatedAt: new Date() })
+    .where(eq(replaySessions.id, replay.id));
+
+  // Reverse link: alert → replay (only set if currently null, to preserve
+  // whichever replay landed FIRST when many sessions hit the same error).
+  if (!alert.replaySessionId) {
+    await db
+      .update(alerts)
+      .set({ replaySessionId: replay.id })
+      .where(and(eq(alerts.id, alert.id), isNull(alerts.replaySessionId)));
+  }
+}
+
+function buildIngestResponse(
+  projCors: Record<string, string>,
+  body: IngestBody,
+  upload: { bytes: number },
+): NextResponse {
   return NextResponse.json(
     {
       ok: true,

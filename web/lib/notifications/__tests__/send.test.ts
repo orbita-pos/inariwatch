@@ -97,6 +97,7 @@ function makeAlert(overrides = {}) {
     alertType: "error",
     resolvedAt: null,
     fingerprint: null,
+    replaySessionId: null,
     sentAt: null,
     stormId: null,
     createdAt: new Date(),

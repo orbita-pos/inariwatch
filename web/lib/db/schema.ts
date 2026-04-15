@@ -321,6 +321,11 @@ export const alerts = pgTable("alerts", {
   alertType: text("alert_type").default("error").notNull(),
   /** Error fingerprint for outcome tracking (SHA-256 of normalized error) */
   fingerprint: text("fingerprint"),
+  // Phase H — link to the replay session whose error captured this alert
+  // (when one exists). Set by /api/replay/ingest when a block carries an
+  // errorFingerprint matching this alert. ON DELETE SET NULL — retention
+  // sweep must not cascade-delete the alert.
+  replaySessionId: uuid("replay_session_id"),
   sentAt: timestamp("sent_at"),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -8,7 +8,10 @@ import {
 
 describe("validateIngestBody", () => {
   const validBody = {
-    sessionId: "s_abc123",
+    // 22+ chars after `s_` to satisfy the security minimum (Phase F+ hardening:
+    // sessions with <128 bits of entropy were brute-forceable, allowing
+    // first-write-wins poisoning of end_user fields).
+    sessionId: "s_550e8400e29b41d4a716446655440000",
     projectId: "550e8400-e29b-41d4-a716-446655440000",
     blockIndex: 0,
     startMs: 0,
@@ -40,7 +43,7 @@ describe("validateIngestBody", () => {
 
   it("accepts a realistic SDK sessionId", () => {
     expect(validateIngestBody({ ...validBody, sessionId: "s_550e8400e29b41d4a716446655440000" })).toBeNull();
-    expect(validateIngestBody({ ...validBody, sessionId: "s_abc-123_DEF" })).toBeNull();
+    expect(validateIngestBody({ ...validBody, sessionId: "s_abc-123_DEFghijklmnopq" })).toBeNull();
   });
 
   it("rejects non-UUID projectId", () => {
