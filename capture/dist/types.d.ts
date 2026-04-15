@@ -15,6 +15,33 @@ export interface CaptureConfig {
     substrate?: boolean | SubstrateConfig;
     /** Enable browser session recording — requires rrweb installed. Browser-only. */
     session?: boolean | SessionConfig;
+    /**
+     * Project UUID — required by some integrations (e.g. `replayIntegration`)
+     * that identify the target workspace.
+     */
+    projectId?: string;
+    /**
+     * Plugin-style integrations that extend core capture behaviour. Each
+     * integration's `setup()` runs once during `init()` and can spin up
+     * long-running subsystems (replay recording, performance observer, etc.).
+     *
+     * Example:
+     *   import { replayIntegration } from "@inariwatch/capture-replay"
+     *   init({ integrations: [replayIntegration()] })
+     */
+    integrations?: Integration[];
+}
+/**
+ * Plugin contract. Implementations live in sibling packages
+ * (`@inariwatch/capture-replay`, `@inariwatch/capture-performance`, …) so the
+ * core SDK stays lean and zero-dep. `setup` is called once from `init()` —
+ * keep it cheap and non-blocking (spawn async work if needed).
+ */
+export interface Integration {
+    /** Stable identifier — used for debug logs and dedup. */
+    name: string;
+    /** Called once during init. Runs synchronously — queue async work yourself. */
+    setup: (config: CaptureConfig) => void;
 }
 export interface SubstrateConfig {
     /** Ring buffer duration in seconds (default: 60) */

@@ -51,6 +51,28 @@ export function init(config = {}) {
             // session.ts uses dynamic import of rrweb — errors handled there
         });
     }
+    // Run registered integrations (replay, performance, feedback, …). Each
+    // integration is a small object from a sibling package that installs its
+    // own hooks. Core capture never imports integration code directly — that
+    // keeps the error-tracking bundle at ~32KB for users who don't opt in.
+    if (config.integrations && config.integrations.length > 0) {
+        const seen = new Set();
+        for (const integration of config.integrations) {
+            if (!integration || typeof integration.setup !== "function")
+                continue;
+            if (seen.has(integration.name))
+                continue;
+            seen.add(integration.name);
+            try {
+                integration.setup(globalConfig);
+            }
+            catch (err) {
+                if (!config.silent) {
+                    console.warn(`[@inariwatch/capture] integration "${integration.name}" setup failed:`, err instanceof Error ? err.message : err);
+                }
+            }
+        }
+    }
 }
 async function initSubstrate(subConfig, config) {
     try {
@@ -92,8 +114,14 @@ function reportDeploy(release, environment) {
         transport.send(event);
     });
 }
-/** Enrich event with git, env, breadcrumbs, user, tags, request context */
+/** Enrich event with git, env, breadcrumbs, user, tags, request context, replay session id */
 function enrichEvent(event) {
+    // Pick up replay session id (set by replay.ts when Replay V2 is active).
+    // This lets the server link a server-side error back to the browser session
+    // for synced timeline playback.
+    const replaySessionId = typeof window !== "undefined"
+        ? window.__INARIWATCH_SESSION__
+        : undefined;
     return {
         ...event,
         git: getGitContext() ?? undefined,
@@ -102,6 +130,9 @@ function enrichEvent(event) {
         user: getUser(),
         tags: getTags(),
         request: getRequestContext() ?? event.request,
+        metadata: replaySessionId
+            ? { ...event.metadata, replaySessionId }
+            : event.metadata,
     };
 }
 export function captureException(error, context) {

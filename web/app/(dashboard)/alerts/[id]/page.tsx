@@ -18,6 +18,8 @@ import { RemediationPanel } from "./remediation-panel";
 import { CommunityFixBanner } from "./community-fix-banner";
 import { PostmortemPanel } from "./postmortem-panel";
 import { VercelRollbackPanel } from "./vercel-rollback";
+import { SnippetInstaller } from "@/components/snippet-installer";
+import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
 
 export async function generateMetadata(
@@ -327,6 +329,15 @@ export default async function AlertDetailPage({
           ))}
         </dl>
       </Panel>
+
+      {/* ── Session replay setup (collapsed by default) ─────────────────── */}
+      {isReplayV2Enabled(project.organizationId) && (
+        <SnippetInstaller
+          projectId={project.id}
+          projectName={project.name}
+          defaultCollapsed
+        />
+      )}
 
       {/* ── Comments ────────────────────────────────────────────────────── */}
       <ProGate isPro={isPro} feature="Comments">
