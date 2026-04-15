@@ -23,6 +23,9 @@ vscode/out/
 # ── k6 test output ────────────────────────────────────────────────────────────
 k6/results/
 
+# ── E2E test screenshot outputs ───────────────────────────────────────────────
+web/screenshots/
+
 # ── Rust / CLI & Desktop ──────────────────────────────────────────────────────
 cli/target/
 desktop/src-tauri/target/

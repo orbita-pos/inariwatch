@@ -148,8 +148,51 @@ export const projects = pgTable("projects", {
    * e.g. `https://*.example.com`.
    */
   allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'`),
+  /**
+   * Replay V2 per-project configuration. Empty `{}` means "use hardcoded
+   * defaults from DEFAULT_REPLAY_SETTINGS" — keeps migration 0049
+   * backward-compatible for projects created before the column shipped.
+   */
+  replaySettings: jsonb("replay_settings").notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/**
+ * Per-project replay configuration. All fields optional — missing values
+ * fall back to `DEFAULT_REPLAY_SETTINGS`.
+ */
+export type ReplaySettings = {
+  /** Master kill-switch. When false, ingest rejects all blocks with 403. */
+  enabled?: boolean;
+  /** 0-1 — probability an error-triggered session is recorded. Default 1.0. */
+  errorSampleRate?: number;
+  /**
+   * 0-1 — probability a session without errors is recorded. Default 0
+   * (we're an error-monitoring SaaS, not UX analytics). Pro plan only —
+   * Free plan is locked at 0 at the server action boundary.
+   */
+  sessionSampleRate?: number;
+  /** Seconds of pre-error context kept in the client ring buffer. Default 60. */
+  bufferSeconds?: number;
+  /** Replay retention days. 7 on Free, up to 90 on Pro. */
+  retentionDays?: number;
+  /**
+   * PII classifier strategy. `"ai"` uses heuristics + server AI on ambiguous
+   * fields; `"heuristic"` is client-only; `false` disables and falls back to
+   * maskAllInputs. Default `"ai"`.
+   */
+  piiClassifier?: "ai" | "heuristic" | false;
+};
+
+/** Canonical defaults — applied when a project's replay_settings jsonb is empty. */
+export const DEFAULT_REPLAY_SETTINGS: Required<ReplaySettings> = {
+  enabled: true,
+  errorSampleRate: 1.0,
+  sessionSampleRate: 0.0,
+  bufferSeconds: 60,
+  retentionDays: 7,
+  piiClassifier: "ai",
+};
 
 export type AutoMergeConfig = {
   enabled: boolean;

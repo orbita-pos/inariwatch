@@ -37,7 +37,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   // Shared project IDs + organizations for sidebar
   const activeOrgId = await getActiveOrgId();
-  const replayV2Enabled = isReplayV2Enabled(activeOrgId);
+  // Replay V2 is an org-scoped feature — the /replays page requires an
+  // activeOrgId to render, so we only show the nav link when both the
+  // feature flag AND a workspace are active. Otherwise personal-mode users
+  // click a link that 404s.
+  const replayV2Enabled = !!activeOrgId && isReplayV2Enabled(activeOrgId);
   const [projectIds, organizations] = userId
     ? await Promise.all([getWorkspaceProjectIds(userId, activeOrgId), getUserOrganizations(userId)])
     : [[], []];

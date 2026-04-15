@@ -31,12 +31,13 @@ import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
 import { StagingEnvSection } from "./staging-env";
 import { AllowedOriginsSection } from "./allowed-origins";
+import { ReplaySettingsSection } from "./replay-settings";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { PostmortemsSection } from "./postmortems";
 import { AutonomousSuggestionBanner } from "./autonomous-suggestion";
 import { ProGate } from "@/components/pro-gate";
 import { getCurrentOnCallUserId } from "@/lib/on-call";
-import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
+import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig, type ReplaySettings } from "@/lib/db/schema";
 import { decryptConfig } from "@/lib/crypto";
 import type { Metadata } from "next";
 
@@ -102,12 +103,13 @@ export default async function ProjectDetailPage({
     }
   }
 
-  // Get owner info
+  // Get owner info (+ their plan — drives Pro-gated project-level settings)
   const [owner] = await db
-    .select({ id: users.id, name: users.name, email: users.email })
+    .select({ id: users.id, name: users.name, email: users.email, plan: users.plan })
     .from(users)
     .where(eq(users.id, project.userId))
     .limit(1);
+  const userPlan: "free" | "pro" = (owner?.plan as "free" | "pro") ?? "free";
 
   const isOrgProject = !!project.organizationId;
 
@@ -428,6 +430,14 @@ export default async function ProjectDetailPage({
         isAdmin={isAdmin}
         replayV2Enabled={isReplayV2Enabled(project.organizationId)}
         initialEntries={project.allowedOrigins ?? []}
+      />
+
+      <ReplaySettingsSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        replayV2Enabled={isReplayV2Enabled(project.organizationId)}
+        plan={userPlan}
+        initialSettings={(project.replaySettings ?? {}) as ReplaySettings}
       />
 
       <OnCallSection

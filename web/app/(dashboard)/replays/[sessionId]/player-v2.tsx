@@ -59,12 +59,17 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [events, setEvents] = useState<unknown[]>([]);
+  // True once rrweb has rebuilt the full DOM snapshot inside the iframe.
+  // Until then we overlay a spinner on the viewport so users don't stare at
+  // a blank area wondering if the app froze.
+  const [playerPainted, setPlayerPainted] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
 
   const replayerRef = useRef<{ pause?: (ms?: number) => void; play?: (ms?: number) => void; setConfig?: (c: unknown) => void; destroy?: () => void; on?: (e: string, cb: (d: unknown) => void) => void } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const viewportFrameRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
 
   const router = useRouter();
@@ -145,15 +150,33 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
           skipInactive: true,
           showWarning: false,
           liveMode: false,
+          mouseTail: false,
           UNSAFE_replayCanvas: true,
         });
         replayerRef.current = replayer;
 
-        // Track time via replayer events
-        replayer?.on?.("event-cast", (d) => {
-          const data = d as { offset?: number };
-          if (typeof data.offset === "number") setCurrentMs(data.offset);
-        });
+        // rrweb Replayer won't paint until you seek/play. BUT calling pause(0)
+        // synchronously right after `new Replayer()` races the iframe's load:
+        // in alpha.20 the full snapshot never lands. We wait for the `resize`
+        // event (fires after meta event → iframe has dimensions → safe to seek)
+        // with a timeout fallback in case it already fired.
+        let initialPaused = false;
+        const paintInitialFrame = () => {
+          if (initialPaused || !replayerRef.current) return;
+          initialPaused = true;
+          (replayerRef.current as { pause?: (ms?: number) => void }).pause?.(0);
+          setCurrentMs(0);
+          setPlayerPainted(true);
+        };
+        replayer?.on?.("resize", paintInitialFrame);
+        replayer?.on?.("fullsnapshot-rebuilded", paintInitialFrame);
+        // Note: we deliberately do NOT update captureSize on rrweb's
+        // subsequent `resize` events (meta events from checkoutEveryNms
+        // disagree with the initial snapshot and would make the replay
+        // visibly jump mid-playback). CSS overflow handles any mismatch.
+
+        // Belt-and-suspenders: if neither event fires within 500ms, paint anyway.
+        setTimeout(paintInitialFrame, 500);
       } catch (e) {
         if (!cancelled) {
           setErrorMsg(e instanceof Error ? e.message : "Failed to init replayer");
@@ -167,6 +190,7 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       replayer?.destroy?.();
       replayerRef.current = null;
+      setPlayerPainted(false);
       if (viewportRef.current) viewportRef.current.innerHTML = "";
     };
   }, [loadState, events]);
@@ -197,6 +221,35 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
     setSpeed(s);
     replayerRef.current?.setConfig?.({ speed: s });
   }, []);
+
+  // ─ Poll rrweb's current time while playing ──────────────────────────────
+  // rrweb v2 renamed / changed the `event-cast` payload so we can't rely on
+  // events for time updates. Instead, when `playing` flips true, we spin a
+  // requestAnimationFrame loop that reads the Replayer's internal time via
+  // its public `getCurrentTime()` method.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const r = replayerRef.current as { getCurrentTime?: () => number } | null;
+      if (r?.getCurrentTime) {
+        const t = r.getCurrentTime();
+        if (typeof t === "number" && Number.isFinite(t)) {
+          setCurrentMs(t);
+          // Auto-pause at the end — rrweb doesn't always stop itself cleanly
+          const dur = manifest?.durationMs ?? 0;
+          if (dur > 0 && t >= dur) {
+            (replayerRef.current as { pause?: () => void } | null)?.pause?.();
+            setPlaying(false);
+            return;
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, manifest?.durationMs]);
 
   // ─ Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
@@ -261,6 +314,59 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
     () => timelineEvents.filter((e) => e.kind === "error").map((e) => e.timestamp),
     [timelineEvents],
   );
+
+  /**
+   * Dimensions rrweb renders content at. Derived from the LARGEST meta
+   * event (rrweb type 4) in the stream — and updated dynamically when
+   * rrweb fires its `resize` event during playback, because rrweb itself
+   * resizes its iframe whenever a subsequent meta arrives (checkoutEveryNms
+   * emits fresh meta events mid-stream with potentially different dims).
+   *
+   * Initial seed from events: start with the LARGEST width we find. rrweb
+   * will resize to the current meta as it plays; we track that live.
+   */
+  const [captureSize, setCaptureSize] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    // Seed from the largest meta event in the stream (more robust than
+    // just the first — avoids the scale jumping on playback if the first
+    // meta is smaller than a later one).
+    let best: { w: number; h: number } | null = null;
+    for (const raw of events) {
+      const e = raw as { type?: number; data?: { width?: number; height?: number } };
+      if (e.type === 4 && e.data?.width && e.data?.height) {
+        if (!best || e.data.width * e.data.height > best.w * best.h) {
+          best = { w: e.data.width, h: e.data.height };
+        }
+      }
+    }
+    if (best) setCaptureSize(best);
+  }, [events]);
+
+  /**
+   * CSS-scale the viewport to fit the available space. rrweb doesn't scale
+   * its iframe natively (and its `resize()` method actually crops content),
+   * so we compute the scale in JS and apply a `transform: scale()` on the
+   * wrapper. ResizeObserver re-runs on container resize.
+   */
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    if (!captureSize || !viewportFrameRef.current) return;
+    const frame = viewportFrameRef.current;
+    const compute = () => {
+      const parent = frame.parentElement;
+      if (!parent) return;
+      const availW = parent.clientWidth;
+      const availH = parent.clientHeight;
+      if (availW <= 0 || availH <= 0) return;
+      // Fit: pick the smaller scale so content fits fully in both axes
+      const s = Math.min(availW / captureSize.w, availH / captureSize.h, 1);
+      setScale(s);
+    };
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(frame.parentElement!);
+    return () => ro.disconnect();
+  }, [captureSize]);
 
   const aiData = useMemo(() => extractChaptersFromManifest(manifest?.aiChapters ?? null), [manifest?.aiChapters]);
 
@@ -379,13 +485,65 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
         </span>
       </div>
 
-      {/* rrweb viewport */}
-      <div className="flex-1 flex items-center justify-center bg-zinc-950 overflow-hidden">
+      {/* rrweb viewport — renders at the captured page's natural size
+          (from the META event), then we CSS-scale the whole thing to fit.
+          rrweb's own `resize()` method crops content (changes iframe
+          width without scaling), so we MUST scale client-side.
+            parent (flex center, overflow hidden)
+              frame (clips to parent, drives ResizeObserver)
+                scaled wrapper (transform: scale(N), origin center)
+                  viewportRef (fixed captureSize, rrweb's root) */}
+      <div className="relative flex-1 flex items-center justify-center bg-zinc-950 overflow-hidden min-h-0">
         <div
-          ref={viewportRef}
-          className="w-full h-full relative"
-          style={{ isolation: "isolate" }}
-        />
+          ref={viewportFrameRef}
+          className="relative w-full h-full flex items-center justify-center overflow-hidden"
+        >
+          <div
+            style={{
+              transform: `scale(${scale})`,
+              transformOrigin: "center center",
+              flexShrink: 0,
+            }}
+          >
+            <div
+              ref={viewportRef}
+              className="inariwatch-replay-root"
+              style={{
+                position: "relative",
+                isolation: "isolate",
+                width: captureSize?.w ?? 1024,
+                height: captureSize?.h ?? 576,
+                background: "#fff",
+                overflow: "hidden",
+              }}
+            />
+            {/* Lock rrweb's iframe + wrapper to fill our root. rrweb sometimes
+                changes the iframe's width attribute mid-stream (e.g. when a
+                new meta event arrives with different dims from
+                checkoutEveryNms). !important forces the visual size to stay
+                stable — internal content scales via rrweb's own wrapper
+                transform. */}
+            <style dangerouslySetInnerHTML={{ __html: `
+              .inariwatch-replay-root .replayer-wrapper,
+              .inariwatch-replay-root .replayer-wrapper iframe,
+              .inariwatch-replay-root > iframe {
+                width: 100% !important;
+                height: 100% !important;
+                border: 0 !important;
+              }
+            `}} />
+          </div>
+        </div>
+
+        {/* Loading overlay until rrweb paints the first frame. */}
+        {!playerPainted && events.length > 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-950/90 pointer-events-none">
+            <div className="h-8 w-8 rounded-full border-2 border-inari-accent border-t-transparent animate-spin" />
+            <p className="text-xs text-fg-base/60 font-mono">
+              Rebuilding DOM snapshot…
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Multi-track timeline */}

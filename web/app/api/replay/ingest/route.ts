@@ -4,9 +4,11 @@ import { replaySessions, projects } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { uploadBlock, sessionPrefix } from "@/lib/storage/replay-storage";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
+import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { isOriginAllowed } from "@/lib/replay-origin";
+import { buildCorsHeaders, corsPreflightResponse } from "@/lib/replay-cors";
 import {
   validateIngestBody,
   extractClickSelectors,
@@ -24,6 +26,15 @@ export const runtime = "nodejs";
 const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2 MB raw JSON, ~256 KB gzipped
 
 /**
+ * CORS preflight. We don't yet know which project the caller is targeting,
+ * so the preflight response reflects the origin unconditionally — the real
+ * POST still enforces the per-project allowlist.
+ */
+export async function OPTIONS(req: NextRequest) {
+  return corsPreflightResponse(req.headers.get("origin"), null);
+}
+
+/**
  * POST /api/replay/ingest
  *
  * Receives a single replay block from the browser SDK. The endpoint is
@@ -35,67 +46,105 @@ const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2 MB raw JSON, ~256 KB gzipped
  * limits protect against abuse. Org-level storage caps ship in Phase 1.
  */
 export async function POST(req: NextRequest) {
+  // CORS headers on every response — without this the browser masks error
+  // bodies from the SDK, making debugging impossible. We use the pre-auth
+  // variant (null allowlist) for responses emitted before we know the project.
+  const origin = req.headers.get("origin");
+  const preAuthCors = buildCorsHeaders(origin, null);
+
   // Rate limit by IP first (cheapest check)
   const ip = extractClientIp(req);
   const rl = await checkWebhookRateLimit(ip);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },
-      { status: 429, headers: rl.retryAfter ? { "retry-after": String(rl.retryAfter) } : undefined },
+      {
+        status: 429,
+        headers: {
+          ...preAuthCors,
+          ...(rl.retryAfter ? { "retry-after": String(rl.retryAfter) } : {}),
+        },
+      },
     );
   }
 
   // Hard payload cap
   const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
   if (contentLength > MAX_PAYLOAD_BYTES) {
-    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+    return NextResponse.json({ error: "Payload too large" }, { status: 413, headers: preAuthCors });
   }
 
   let body: IngestBody;
   try {
     body = (await req.json()) as IngestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: preAuthCors });
   }
 
   // Schema validation
   const validation = validateIngestBody(body);
-  if (validation) return NextResponse.json({ error: validation }, { status: 400 });
+  if (validation) return NextResponse.json({ error: validation }, { status: 400, headers: preAuthCors });
 
-  // Resolve project + organization
+  // Resolve project + organization + replay settings
   const [proj] = await db
     .select({
       id: projects.id,
       organizationId: projects.organizationId,
       userId: projects.userId,
       allowedOrigins: projects.allowedOrigins,
+      replaySettings: projects.replaySettings,
     })
     .from(projects)
     .where(eq(projects.id, body.projectId))
     .limit(1);
 
   if (!proj) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    return NextResponse.json({ error: "Project not found" }, { status: 404, headers: preAuthCors });
   }
+
+  // Post-project-lookup CORS uses the project's actual allowlist
+  const projCors = buildCorsHeaders(origin, proj.allowedOrigins);
 
   // Feature flag gate (org-level)
   if (!isReplayV2Enabled(proj.organizationId)) {
-    return NextResponse.json({ error: "Replay V2 not enabled for this organization" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Replay V2 not enabled for this organization" },
+      { status: 403, headers: projCors },
+    );
+  }
+
+  // Per-project kill switch. Merged with DEFAULT_REPLAY_SETTINGS so an empty
+  // jsonb means "defaults apply". When enabled is explicitly false, the
+  // project owner has disabled recording and we reject every block — the
+  // SDK should have stopped upstream via /api/replay/config, this is the
+  // server-side enforcement backstop.
+  const settings: Required<ReplaySettings> = {
+    ...DEFAULT_REPLAY_SETTINGS,
+    ...((proj.replaySettings ?? {}) as ReplaySettings),
+  };
+  if (settings.enabled === false) {
+    return NextResponse.json(
+      { error: "Replay recording disabled for this project" },
+      { status: 403, headers: projCors },
+    );
   }
 
   // Origin allowlist — only enforced when the project has configured entries.
   // An empty list preserves pre-0048 behaviour (accept any Origin) so no
   // existing integration breaks when this column ships.
-  const originDecision = isOriginAllowed(req.headers.get("origin"), proj.allowedOrigins);
+  const originDecision = isOriginAllowed(origin, proj.allowedOrigins);
   if (!originDecision.allowed) {
     return NextResponse.json(
       { error: `Origin not allowed (${originDecision.reason})` },
-      { status: 403 },
+      { status: 403, headers: projCors },
     );
   }
 
   if (!proj.organizationId) {
-    return NextResponse.json({ error: "Project has no organization" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Project has no organization" },
+      { status: 400, headers: projCors },
+    );
   }
 
   // Per-project rate limit: 500 blocks/hour. IP-level rate limit above is
@@ -110,9 +159,10 @@ export async function POST(req: NextRequest) {
       { error: "Project ingest quota exceeded" },
       {
         status: 429,
-        headers: projectRl.retryAfterSeconds
-          ? { "retry-after": String(projectRl.retryAfterSeconds) }
-          : undefined,
+        headers: {
+          ...projCors,
+          ...(projectRl.retryAfterSeconds ? { "retry-after": String(projectRl.retryAfterSeconds) } : {}),
+        },
       },
     );
   }
@@ -131,13 +181,13 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Upload failed";
     if (msg.includes("exceeds max")) {
-      return NextResponse.json({ error: msg }, { status: 413 });
+      return NextResponse.json({ error: msg }, { status: 413, headers: projCors });
     }
     if (msg.includes("R2 not configured") || msg.includes("R2_BUCKET")) {
-      return NextResponse.json({ error: "Replay storage not configured" }, { status: 503 });
+      return NextResponse.json({ error: "Replay storage not configured" }, { status: 503, headers: projCors });
     }
     console.error("[replay/ingest] R2 upload failed:", msg);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    return NextResponse.json({ error: "Upload failed" }, { status: 500, headers: projCors });
   }
 
   // Extract searchable index from events (best-effort, never throws)
@@ -151,6 +201,23 @@ export async function POST(req: NextRequest) {
   const endedAtDate = isFinal && body.metadata?.endedAt ? new Date(body.metadata.endedAt) : null;
 
   const sessionAlreadyEnded = isFinal;
+
+  // Merge a new text[] batch into an existing column, deduping.
+  // Caveats we had to design around:
+  //   1. Drizzle's `sql` template literal binds JS arrays as comma-joined
+  //      strings, not as Postgres text[]. `${arr}::text[]` produces a
+  //      "malformed array literal" error. We format the array as a Postgres
+  //      literal string `{"a","b"}` and cast it explicitly.
+  //   2. If the new batch is empty, `unnest(col || '{}'::text[])` still
+  //      chokes. Skip the merge entirely — the existing column is preserved.
+  const toPgArrayLiteral = (arr: string[]): string =>
+    "{" + arr.map((v) => `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",") + "}";
+
+  const mergeTextArray = <T>(col: T, arr: string[]): T | ReturnType<typeof sql> => {
+    if (arr.length === 0) return col;
+    const literal = toPgArrayLiteral(arr);
+    return sql`(SELECT ARRAY(SELECT DISTINCT unnest(${col} || ${literal}::text[])))`;
+  };
 
   await db
     .insert(replaySessions)
@@ -179,10 +246,13 @@ export async function POST(req: NextRequest) {
         blockCount: sql`GREATEST(${replaySessions.blockCount}, ${body.blockIndex + 1})`,
         totalBytes: sql`${replaySessions.totalBytes} + ${upload.bytes}`,
         endedAt: endedAtDate ?? replaySessions.endedAt,
-        durationMs: isFinal ? body.endMs : sql`COALESCE(${replaySessions.durationMs}, NULL)`,
-        clickSelectors: sql`(SELECT ARRAY(SELECT DISTINCT unnest(${replaySessions.clickSelectors} || ${clickSelectors}::text[])))`,
-        urlsVisited: sql`(SELECT ARRAY(SELECT DISTINCT unnest(${replaySessions.urlsVisited} || ${urlsVisited}::text[])))`,
-        errorFingerprints: sql`(SELECT ARRAY(SELECT DISTINCT unnest(${replaySessions.errorFingerprints} || ${errorFingerprints}::text[])))`,
+        // Persist the highest endMs we've seen across every block — makes
+        // durationMs accurate even when the user never triggered the final
+        // `isFinal: true` flush (tab crashed, laptop slept, etc.).
+        durationMs: sql`GREATEST(COALESCE(${replaySessions.durationMs}, 0), ${body.endMs})`,
+        clickSelectors: mergeTextArray(replaySessions.clickSelectors, clickSelectors),
+        urlsVisited: mergeTextArray(replaySessions.urlsVisited, urlsVisited),
+        errorFingerprints: mergeTextArray(replaySessions.errorFingerprints, errorFingerprints),
         updatedAt: new Date(),
       },
     });
@@ -199,10 +269,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({
-    ok: true,
-    sessionId: body.sessionId,
-    blockIndex: body.blockIndex,
-    bytes: upload.bytes,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      sessionId: body.sessionId,
+      blockIndex: body.blockIndex,
+      bytes: upload.bytes,
+    },
+    { headers: projCors },
+  );
 }

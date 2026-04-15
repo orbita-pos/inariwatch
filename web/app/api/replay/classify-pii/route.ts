@@ -8,10 +8,15 @@ import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { isOriginAllowed } from "@/lib/replay-origin";
+import { buildCorsHeaders, corsPreflightResponse } from "@/lib/replay-cors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 30;
+
+export async function OPTIONS(req: NextRequest) {
+  return corsPreflightResponse(req.headers.get("origin"), null);
+}
 
 interface ClassifyRequestField {
   hash: string;
@@ -60,45 +65,52 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * gate on the org.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const origin = req.headers.get("origin");
+  // Every response on this endpoint must carry CORS headers — the SDK is
+  // always cross-origin from the customer's app to the dashboard.
+  const cors = buildCorsHeaders(origin, null);
+  const jsonCors = (body: unknown, init?: { status?: number; headers?: Record<string, string> }) =>
+    NextResponse.json(body, { status: init?.status ?? 200, headers: { ...cors, ...(init?.headers ?? {}) } });
+
   const ip = extractClientIp(req);
   const rl = await checkWebhookRateLimit(ip);
   if (!rl.allowed) {
-    return NextResponse.json(
+    return jsonCors(
       { error: "Too many requests" },
-      { status: 429, headers: rl.retryAfter ? { "retry-after": String(rl.retryAfter) } : undefined },
+      { status: 429, headers: rl.retryAfter ? { "retry-after": String(rl.retryAfter) } : {} },
     );
   }
 
   const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
   if (contentLength > MAX_PAYLOAD_BYTES) {
-    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+    return jsonCors({ error: "Payload too large" }, { status: 413 });
   }
 
   let body: ClassifyRequestBody;
   try {
     body = (await req.json()) as ClassifyRequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return jsonCors({ error: "Invalid JSON" }, { status: 400 });
   }
 
   if (!body || typeof body !== "object") {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return jsonCors({ error: "Invalid body" }, { status: 400 });
   }
   if (typeof body.projectId !== "string" || !UUID_RE.test(body.projectId)) {
-    return NextResponse.json({ error: "Invalid projectId" }, { status: 400 });
+    return jsonCors({ error: "Invalid projectId" }, { status: 400 });
   }
   if (!Array.isArray(body.fields) || body.fields.length === 0) {
-    return NextResponse.json({ error: "fields must be a non-empty array" }, { status: 400 });
+    return jsonCors({ error: "fields must be a non-empty array" }, { status: 400 });
   }
   if (body.fields.length > MAX_FIELDS_PER_REQUEST) {
-    return NextResponse.json(
+    return jsonCors(
       { error: `fields exceeds max ${MAX_FIELDS_PER_REQUEST}` },
       { status: 400 },
     );
   }
   for (const f of body.fields) {
     if (!f || typeof f !== "object" || typeof f.hash !== "string" || !f.features) {
-      return NextResponse.json({ error: "Malformed field entry" }, { status: 400 });
+      return jsonCors({ error: "Malformed field entry" }, { status: 400 });
     }
   }
 
@@ -115,16 +127,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     .limit(1);
 
   if (!proj) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    return jsonCors({ error: "Project not found" }, { status: 404 });
   }
   if (!isReplayV2Enabled(proj.organizationId)) {
-    return NextResponse.json({ error: "Replay V2 not enabled" }, { status: 403 });
+    return jsonCors({ error: "Replay V2 not enabled" }, { status: 403 });
   }
 
   // Origin allowlist — same semantics as ingest. Empty list = backward-compat.
   const originDecision = isOriginAllowed(req.headers.get("origin"), proj.allowedOrigins);
   if (!originDecision.allowed) {
-    return NextResponse.json(
+    return jsonCors(
       { error: `Origin not allowed (${originDecision.reason})` },
       { status: 403 },
     );
@@ -139,7 +151,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     max: 200,
   });
   if (!projectRl.allowed) {
-    return NextResponse.json(
+    return jsonCors(
       { error: "Project PII-classify quota exceeded" },
       {
         status: 429,
@@ -155,7 +167,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!aiKey) {
     // No AI available — return uncertain for every field so the client can
     // fall back to its own heuristics or safer defaults.
-    return NextResponse.json({
+    return jsonCors({
       results: body.fields.map((f): ClassifyResult => ({
         hash: f.hash,
         category: "uncertain",
@@ -188,7 +200,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     console.warn("[replay/classify-pii] AI call failed:", err instanceof Error ? err.message : err);
-    return NextResponse.json({
+    return jsonCors({
       results: body.fields.map((f): ClassifyResult => ({
         hash: f.hash,
         category: "uncertain",
@@ -199,7 +211,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const results = parseAIResponse(aiText, body.fields);
-  return NextResponse.json({ results });
+  return jsonCors({ results });
 }
 
 // ── Prompt construction ──────────────────────────────────────────────────────
