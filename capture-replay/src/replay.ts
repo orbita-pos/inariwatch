@@ -16,6 +16,14 @@
 
 import type { CaptureConfig } from "@inariwatch/capture"
 import { classifyField, shouldMask, isUncertain, hashFeatures, type FieldFeatures, type Classification, type PiiCategory } from "./pii-classifier.js"
+import {
+  urlIsDenied,
+  contentTypeIsCapturable,
+  redactHeaders,
+  processBody,
+  ABSOLUTE_MAX_BODY_BYTES,
+  type ProcessedBody,
+} from "./network-body.js"
 
 /**
  * Replay recording options. Lives here (not in core capture) so users who
@@ -161,6 +169,12 @@ interface RemoteReplaySettings {
   bufferSeconds?: number
   retentionDays?: number
   piiClassifier?: "ai" | "heuristic" | false
+  // Phase I.d — body capture toggle + per-project denylist + size cap.
+  // SDK applies all of these client-side BEFORE any data leaves the page.
+  captureNetworkBodies?: boolean
+  networkUrlDenylist?: string[]
+  networkBodyMaxBytes?: number
+  networkBodyMode?: "failed" | "all"
 }
 
 /**
@@ -357,7 +371,27 @@ function inferOS(ua: string): string | undefined {
  * server-side indexer + causal chain detector can distinguish them from
  * rrweb DOM snapshots (which use numeric `type` field).
  */
-type NetworkEvent = { _kind: "network"; timestamp: number; method: string; url: string; status?: number; durationMs?: number; errorMessage?: string }
+type NetworkEvent = {
+  _kind: "network"
+  timestamp: number
+  method: string
+  url: string
+  status?: number
+  durationMs?: number
+  errorMessage?: string
+  // Phase I.d — optional body capture. Off by default; enabled per project
+  // via `replaySettings.captureNetworkBodies`. All four fields land together
+  // (or none) and are pre-masked client-side; the server trusts the SDK
+  // to have enforced the size cap + denylist already.
+  requestBody?: { text: string; truncated: boolean; originalBytes: number }
+  responseBody?: { text: string; truncated: boolean; originalBytes: number }
+  requestHeaders?: Record<string, string>
+  responseHeaders?: Record<string, string>
+  /** Set when bodies were SUPPRESSED on purpose (denylist match, wrong
+   *  content type) so the player can show "Body omitted: <reason>" instead
+   *  of a confusing empty viewer. */
+  bodyOmittedReason?: "denied-url" | "binary-content" | "empty" | "off"
+}
 type ConsoleEvent = { _kind: "console"; timestamp: number; level: "error" | "warn"; message: string }
 type ErrorCaptureEvent = { _kind: "error"; timestamp: number; fingerprint: string; message: string; stack?: string; source?: string; line?: number; col?: number }
 // SPA route change. rrweb only emits a meta (type 4) on initial snapshot +
@@ -396,15 +430,23 @@ function fingerprintError(message: string, stack?: string): string {
   return Math.abs(hash).toString(36)
 }
 
+interface BodyCaptureConfig {
+  enabled: boolean
+  urlDenylist: string[]
+  maxBytes: number
+  mode: "failed" | "all"
+}
+
 /**
  * Patch global fetch so:
  *  1. Same-origin requests get a session correlation header.
  *  2. Request/response outcomes are emitted as network events in the stream,
  *     which the causal chain detector uses to trace error → request → click.
+ *  3. (Phase I.d, opt-in) Request/response bodies are captured + masked.
  * Cross-origin requests skip the header (avoids CORS preflight) but still
  * get timed so they appear in the Network track.
  */
-function patchFetch(sessionId: string): void {
+function patchFetch(sessionId: string, bodyCapture: BodyCaptureConfig): void {
   if (typeof globalThis === "undefined" || typeof globalThis.fetch !== "function") return
   const orig = globalThis.fetch
   if ((orig as { __inariwatchPatched?: boolean }).__inariwatchPatched) return
@@ -441,8 +483,73 @@ function patchFetch(sessionId: string): void {
       }
     }
 
+    // Phase I.d — decide WHETHER to capture bodies for this request. Done
+    // BEFORE the network call so we can clone headers / read the request
+    // body without hitting it twice.
+    const captureRequestBody = bodyCapture.enabled && !urlIsDenied(url, bodyCapture.urlDenylist)
+    let capturedRequestBody: ProcessedBody | null = null
+    let capturedRequestHeaders: Record<string, string> | undefined = undefined
+    if (captureRequestBody) {
+      try {
+        const reqHeaders = new Headers(
+          (finalInit && finalInit.headers) ?? (input instanceof Request ? input.headers : undefined),
+        )
+        capturedRequestHeaders = redactHeaders(headersToRecord(reqHeaders))
+        // Read the request body. Strings/JSON are easy; ReadableStreams
+        // need a clone via Request constructor.
+        const reqBodyRaw = await readRequestBody(input, finalInit)
+        if (reqBodyRaw !== null) {
+          capturedRequestBody = processBody({
+            raw: reqBodyRaw,
+            contentType: reqHeaders.get("content-type"),
+            maxBytes: bodyCapture.maxBytes,
+          })
+        }
+      } catch {
+        // Body capture must NEVER break the user's fetch call.
+      }
+    }
+
     try {
       const resp = await orig(input, finalInit)
+
+      // Decide whether to capture the response body. Skip when the mode is
+      // "failed" and the response was successful — saves storage + PII risk.
+      const shouldCaptureResp =
+        bodyCapture.enabled &&
+        !urlIsDenied(url, bodyCapture.urlDenylist) &&
+        (bodyCapture.mode === "all" || resp.status >= 400)
+
+      let capturedResponseBody: ProcessedBody | null = null
+      let capturedResponseHeaders: Record<string, string> | undefined = undefined
+      let bodyOmittedReason: NetworkEvent["bodyOmittedReason"] = undefined
+
+      if (shouldCaptureResp) {
+        try {
+          // Clone first so the user's `.json()` etc. still works on the original.
+          const cloned = resp.clone()
+          capturedResponseHeaders = redactHeaders(headersToRecord(cloned.headers))
+          const respCt = cloned.headers.get("content-type")
+          if (!contentTypeIsCapturable(respCt)) {
+            bodyOmittedReason = "binary-content"
+          } else {
+            const respText = await cloned.text()
+            capturedResponseBody = processBody({
+              raw: respText,
+              contentType: respCt,
+              maxBytes: bodyCapture.maxBytes,
+            })
+            if (!capturedResponseBody) bodyOmittedReason = "empty"
+          }
+        } catch {
+          // Body read failed — log the request without it.
+        }
+      } else if (bodyCapture.enabled && urlIsDenied(url, bodyCapture.urlDenylist)) {
+        bodyOmittedReason = "denied-url"
+      } else if (!bodyCapture.enabled) {
+        bodyOmittedReason = "off"
+      }
+
       pushCustomEvent({
         _kind: "network",
         timestamp: started,
@@ -450,6 +557,11 @@ function patchFetch(sessionId: string): void {
         url: url.slice(0, 500),
         status: resp.status,
         durationMs: Date.now() - started,
+        ...(capturedRequestBody ? { requestBody: capturedRequestBody } : {}),
+        ...(capturedResponseBody ? { responseBody: capturedResponseBody } : {}),
+        ...(capturedRequestHeaders ? { requestHeaders: capturedRequestHeaders } : {}),
+        ...(capturedResponseHeaders ? { responseHeaders: capturedResponseHeaders } : {}),
+        ...(bodyOmittedReason ? { bodyOmittedReason } : {}),
       })
       return resp
     } catch (err) {
@@ -460,6 +572,8 @@ function patchFetch(sessionId: string): void {
         url: url.slice(0, 500),
         durationMs: Date.now() - started,
         errorMessage: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+        ...(capturedRequestBody ? { requestBody: capturedRequestBody } : {}),
+        ...(capturedRequestHeaders ? { requestHeaders: capturedRequestHeaders } : {}),
       })
       throw err
     }
@@ -467,6 +581,55 @@ function patchFetch(sessionId: string): void {
 
   ;(patched as { __inariwatchPatched?: boolean }).__inariwatchPatched = true
   globalThis.fetch = patched
+}
+
+/** Convert a Headers iterable into a plain record so it can be JSON-stringified. */
+function headersToRecord(h: Headers): Record<string, string> {
+  const out: Record<string, string> = {}
+  h.forEach((value, name) => { out[name] = value })
+  return out
+}
+
+/**
+ * Read a request body without consuming the original. The user might pass:
+ *   - a string
+ *   - URLSearchParams / FormData
+ *   - a ReadableStream (rare in practice — most apps stringify before fetch)
+ *   - a Request object with its own body
+ *
+ * For the Request case we use `.clone()`. For init.body we read the value
+ * directly when it's a primitive type and skip when it's a stream
+ * (consuming would break the user's call).
+ */
+async function readRequestBody(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+): Promise<string | null> {
+  try {
+    if (input instanceof Request) {
+      const cloned = input.clone()
+      const text = await cloned.text()
+      return text || null
+    }
+    const body = init?.body
+    if (body == null) return null
+    if (typeof body === "string") return body
+    if (body instanceof URLSearchParams) return body.toString()
+    if (body instanceof FormData) {
+      // FormData → urlencoded-style preview. Files become "[file:name]".
+      const parts: string[] = []
+      body.forEach((value, key) => {
+        if (typeof value === "string") parts.push(`${key}=${encodeURIComponent(value)}`)
+        else parts.push(`${key}=[file:${(value as File).name ?? "blob"}]`)
+      })
+      return parts.join("&")
+    }
+    // ReadableStream / Blob / ArrayBuffer — skip. Consuming a stream would
+    // break the actual fetch call, which is unacceptable.
+    return null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -835,9 +998,23 @@ export async function initReplay(
     errorTriggeredAt: null,
   }
 
+  // Phase I.d body-capture config — server settings win (so the dashboard
+  // toggle takes effect on the next session) with code defaults as the
+  // fallback. Off by default; clamped to absolute byte ceiling regardless
+  // of what the server returns to defend against misconfiguration.
+  const bodyCaptureConfig: BodyCaptureConfig = {
+    enabled: remoteConfig?.captureNetworkBodies === true,
+    urlDenylist: Array.isArray(remoteConfig?.networkUrlDenylist) ? remoteConfig.networkUrlDenylist : [],
+    maxBytes: Math.min(
+      remoteConfig?.networkBodyMaxBytes ?? 100_000,
+      ABSOLUTE_MAX_BODY_BYTES,
+    ),
+    mode: remoteConfig?.networkBodyMode === "all" ? "all" : "failed",
+  }
+
   // Expose session id for other SDK layers (error capture attaches it).
   ;(window as unknown as { __INARIWATCH_SESSION__?: string }).__INARIWATCH_SESSION__ = sessionId
-  patchFetch(sessionId)
+  patchFetch(sessionId, bodyCaptureConfig)
   patchConsole()
   attachErrorHandlers()
   attachNavWatcher()

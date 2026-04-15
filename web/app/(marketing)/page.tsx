@@ -37,7 +37,7 @@ import {
   NextjsIcon, RemixIcon, BunIcon, FastifyIcon, ExpressIcon,
   ClaudeIcon, CursorIcon, WindsurfIcon, VSCodeIcon, CodexIcon, GeminiIcon, OpenClawIcon,
 } from "@/components/brand-icons";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, GitPullRequest } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
@@ -892,6 +892,184 @@ async function getNetworkHeadlineStats(): Promise<NetworkHeadlineStats | null> {
   }
 }
 
+// ── Replay teaser section ─────────────────────────────────────────────────────
+
+function ReplaySection() {
+  return (
+    <section className="py-24 sm:py-32 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="grid md:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
+          {/* Left — copy */}
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-inari-accent/30 bg-inari-accent/10 px-3 py-1 mb-5">
+              <span className="h-1.5 w-1.5 rounded-full bg-inari-accent animate-pulse" />
+              <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-inari-accent">New · Session Replay</span>
+            </div>
+            <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong leading-[1.05]">
+              See the bug.<br />
+              <span className="text-gradient-accent">Ship the fix.</span>
+            </h2>
+            <p className="mt-5 text-lg text-fg-base leading-relaxed max-w-md">
+              Watch any user session — DOM, console, network, Web Vitals, frustration —
+              then click <span className="font-semibold text-fg-strong">Generate Fix</span>{" "}
+              and InariWatch opens the PR.
+            </p>
+            <ul className="mt-6 space-y-2.5">
+              {[
+                "AI-narrated chapters explain what the user did",
+                "Rage + dead-click detection ranks frustration",
+                "Web Vitals on the same timeline as your code",
+                "One-click PR — every safety gate already checked",
+              ].map((t) => (
+                <li key={t} className="flex items-start gap-2 text-sm text-fg-base">
+                  <CheckCircle2 className="h-4 w-4 text-inari-accent shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-col sm:flex-row gap-3">
+              <Link href="/replay">
+                <Button variant="primary" size="lg" className="min-w-[160px]">
+                  Try the demo <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </Link>
+              <Link href="/register">
+                <Button variant="ghost" size="lg" className="min-w-[160px]">
+                  Start free
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          {/* Right — "from frustration to PR" flow */}
+          <div className="relative">
+            {/* Soft accent glow behind */}
+            <div
+              className="absolute -inset-8 pointer-events-none"
+              style={{ background: "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(249,115,22,0.10) 0%, transparent 70%)" }}
+              aria-hidden
+            />
+
+            <div className="relative space-y-3">
+              {/* Frustrated session card — highlighted */}
+              <Link
+                href="/replay"
+                className="group block rounded-xl border border-inari-accent/30 bg-inari-card hover:border-inari-accent/60 transition-all px-4 py-3.5 relative overflow-hidden"
+                style={{ boxShadow: "0 8px 32px rgba(249,115,22,0.08)" }}
+              >
+                {/* Accent edge */}
+                <span className="absolute left-0 top-3 bottom-3 w-[2px] rounded-r-full bg-inari-accent/80" aria-hidden />
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="font-mono text-[11px] text-fg-base/50">sess_a3f2…</span>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-inari-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-inari-accent truncate max-w-[160px]">
+                      alex@acme.dev
+                    </span>
+                  </div>
+                  <span className="font-mono text-[10px] text-fg-base/50 shrink-0">2m ago</span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500" /> 1 error
+                  </span>
+                  <span className="inline-flex items-center rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                    LCP poor
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                    3 rage · 1 dead
+                  </span>
+                </div>
+                <p className="text-sm text-fg-base leading-snug mb-3">
+                  User reached checkout, hit a slow LCP, then rage-clicked Pay Now after a TypeError fired in the order total handler.
+                </p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-[11px] text-fg-base/60">
+                    <span className="font-mono">2:14</span>
+                    <span>·</span>
+                    <span>Chrome · macOS</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-inari-accent/15 group-hover:bg-inari-accent/25 px-2.5 py-1 text-[11px] font-medium text-inari-accent transition-colors">
+                    <GitPullRequest className="h-3 w-3" />
+                    Generate Fix
+                  </span>
+                </div>
+              </Link>
+
+              {/* Quieter cards behind, faded */}
+              <div className="rounded-xl border border-inari-border bg-inari-card/60 px-4 py-3 opacity-70">
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-fg-base/50">sess_91bd…</span>
+                    <span className="inline-flex items-center rounded-md bg-fg-base/10 px-1.5 py-0.5 text-[10px] font-medium text-fg-base/60 truncate max-w-[140px]">
+                      maria@stripe.io
+                    </span>
+                  </div>
+                  <span className="font-mono text-[10px] text-fg-base/50">11m</span>
+                </div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="inline-flex items-center rounded-md bg-fg-base/10 px-1.5 py-0.5 text-[10px] font-mono text-fg-base/55">
+                    LCP good
+                  </span>
+                  <span className="text-[10px] text-fg-base/50">no errors · 1m 47s</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-inari-border bg-inari-card/40 px-4 py-3 opacity-50">
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-fg-base/50">sess_77a4…</span>
+                    <span className="inline-flex items-center rounded-md bg-fg-base/10 px-1.5 py-0.5 text-[10px] font-medium text-fg-base/60 truncate max-w-[140px]">
+                      david@acme.dev
+                    </span>
+                  </div>
+                  <span className="font-mono text-[10px] text-fg-base/50">38m</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-fg-base/50">no errors · 4m 12s</span>
+                </div>
+              </div>
+
+              {/* Arrow connector */}
+              <div className="flex flex-col items-center pt-1 pb-1" aria-hidden>
+                <ArrowRight className="h-4 w-4 text-inari-accent rotate-90" />
+              </div>
+
+              {/* PR card — the result */}
+              <div className="rounded-xl border border-emerald-500/30 bg-inari-card px-4 py-3 relative overflow-hidden"
+                   style={{ boxShadow: "0 8px 32px rgba(16,185,129,0.06)" }}
+              >
+                <span className="absolute left-0 top-3 bottom-3 w-[2px] rounded-r-full bg-emerald-500/80" aria-hidden />
+                <div className="flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0 mt-px">
+                    <GitPullRequest className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-[10px] text-fg-base/50">PR #4821</span>
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="h-3 w-3" /> 11/11 gates
+                      </span>
+                      <span className="inline-flex items-center rounded-md bg-fg-base/5 px-1.5 py-0.5 text-[10px] font-mono text-fg-base/60">
+                        +12 −1
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-fg-strong mt-1.5 leading-snug">
+                      Guard <span className="font-mono text-inari-accent">order.total</span> before render
+                    </p>
+                    <p className="text-[11px] text-fg-base/60 mt-0.5">
+                      <span className="font-mono">checkout/page.tsx</span> · auto-merged 14s ago
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function NetworkSection({ stats }: { stats: NetworkHeadlineStats | null }) {
   return (
     <section className="py-24 sm:py-32 border-t border-inari-border">
@@ -1176,6 +1354,7 @@ export default async function LandingPage() {
         <HowItWorks />
         <TerminalPreview />
         <Features />
+        <ReplaySection />
         <NetworkSection stats={networkStats} />
         <McpSection />
         <FinalCta />

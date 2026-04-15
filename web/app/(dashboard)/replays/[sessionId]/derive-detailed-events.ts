@@ -30,6 +30,13 @@ export type DetailedEvent =
       status?: number;
       durationMs?: number;
       errorMessage?: string;
+      // Phase I.d — captured bodies (only present when project opted in
+      // AND the URL passed the denylist AND the content-type is text-ish).
+      requestBody?: { text: string; truncated: boolean; originalBytes: number };
+      responseBody?: { text: string; truncated: boolean; originalBytes: number };
+      requestHeaders?: Record<string, string>;
+      responseHeaders?: Record<string, string>;
+      bodyOmittedReason?: string;
     }
   | {
       kind: "nav";
@@ -90,6 +97,11 @@ export function deriveDetailedEvents(
         status?: number;
         durationMs?: number;
         errorMessage?: string;
+        requestBody?: unknown;
+        responseBody?: unknown;
+        requestHeaders?: unknown;
+        responseHeaders?: unknown;
+        bodyOmittedReason?: unknown;
       };
       out.push({
         kind: "network",
@@ -99,6 +111,11 @@ export function deriveDetailedEvents(
         status: typeof n.status === "number" ? n.status : undefined,
         durationMs: typeof n.durationMs === "number" ? n.durationMs : undefined,
         errorMessage: typeof n.errorMessage === "string" ? n.errorMessage : undefined,
+        requestBody: validBody(n.requestBody),
+        responseBody: validBody(n.responseBody),
+        requestHeaders: validHeaders(n.requestHeaders),
+        responseHeaders: validHeaders(n.responseHeaders),
+        bodyOmittedReason: typeof n.bodyOmittedReason === "string" ? n.bodyOmittedReason : undefined,
       });
       continue;
     }
@@ -149,6 +166,31 @@ export function deriveDetailedEvents(
   // (e.g. out-of-order block arrival) without callers having to care.
   out.sort((a, b) => a.timestamp - b.timestamp);
   return out;
+}
+
+/** Defensive shape guard for the body fields shipped by the SDK — lets the
+ *  panel render confidently without re-validating per render. */
+function validBody(raw: unknown):
+  | { text: string; truncated: boolean; originalBytes: number }
+  | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const b = raw as { text?: unknown; truncated?: unknown; originalBytes?: unknown };
+  if (typeof b.text !== "string") return undefined;
+  return {
+    text: b.text,
+    truncated: b.truncated === true,
+    originalBytes: typeof b.originalBytes === "number" ? b.originalBytes : b.text.length,
+  };
+}
+
+/** Headers as a flat record (already redacted client-side). */
+function validHeaders(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function normalizeConsoleLevel(raw: unknown): "error" | "warn" | "info" | "log" {

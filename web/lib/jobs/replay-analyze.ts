@@ -25,6 +25,9 @@ import { getProjectOwnerAIKey, PLATFORM_MODEL } from "@/lib/ai/get-key";
 import { detectCausalChains, type CausalChain } from "./replay-causal-chain";
 import { detectRageClicks, type RageClick } from "./replay-rage-click";
 import { detectDeadClicks, type DeadClick } from "./replay-dead-click";
+import { aggregateErrors, type ResolvedError } from "./replay-stack-parser";
+import { fetchSourceMaps } from "./source-map-fetcher";
+import { applyAllMaps } from "./source-map-resolver";
 
 const MAX_EVENTS_FOR_PROMPT = 400; // cap context to keep Haiku cost predictable
 const MAX_CHAPTERS = 8;
@@ -38,6 +41,7 @@ export interface AnalyzeResult {
   rageClicksCount?: number;
   deadClicksCount?: number;
   frustrationScore?: number;
+  resolvedErrorsCount?: number;
   tokensEstimate?: number;
 }
 
@@ -208,6 +212,50 @@ export async function analyzeReplay(
     timestamp: Math.max(0, d.timestamp - sessionStartMs),
   }));
 
+  // Phase I.c — aggregate uncaught errors into per-fingerprint records
+  // with parsed stack frames. The player's Errors panel reads this directly.
+  const rawErrorEvents: { fingerprint: string; timestamp: number; message: string; stack?: string }[] = [];
+  for (const raw of events) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as { _kind?: string; fingerprint?: unknown; timestamp?: unknown; message?: unknown; stack?: unknown };
+    if (e._kind !== "error") continue;
+    if (typeof e.fingerprint !== "string" || typeof e.timestamp !== "number") continue;
+    rawErrorEvents.push({
+      fingerprint: e.fingerprint,
+      timestamp: e.timestamp,
+      message: typeof e.message === "string" ? e.message : "",
+      stack: typeof e.stack === "string" ? e.stack : undefined,
+    });
+  }
+  const resolvedErrors: ResolvedError[] = aggregateErrors(rawErrorEvents, sessionStartMs);
+
+  // Day 2-3 — source-map resolution. Walk every frame, collect unique
+  // JS URLs, fetch their .map files (Redis-cached), apply mapping in
+  // place. All best-effort: any failure leaves the raw frame visible.
+  if (resolvedErrors.length > 0) {
+    const allFrames = resolvedErrors.flatMap((e) => e.frames);
+    const uniqueUrls = Array.from(new Set(
+      allFrames
+        .map((f) => f.source)
+        .filter((s): s is string => typeof s === "string" && s.startsWith("http")),
+    ));
+    if (uniqueUrls.length > 0) {
+      try {
+        const maps = await fetchSourceMaps(uniqueUrls);
+        for (const err of resolvedErrors) {
+          err.frames = await applyAllMaps(err.frames, maps);
+        }
+      } catch (e) {
+        // The fetcher + resolver are individually fail-soft, but defend
+        // the analyzer's final write step against any unforeseen throw.
+        console.warn(
+          `[replay-analyze] source-map resolution failed for ${sessionId}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+  }
+
   await db
     .update(replaySessions)
     .set({
@@ -216,6 +264,7 @@ export async function analyzeReplay(
       rageClicks: rageOut,
       deadClicks: deadOut,
       frustrationScore,
+      resolvedErrors,
       updatedAt: new Date(),
     })
     .where(eq(replaySessions.id, session.id));
@@ -227,6 +276,7 @@ export async function analyzeReplay(
     rageClicksCount: rageOut.length,
     deadClicksCount: deadOut.length,
     frustrationScore,
+    resolvedErrorsCount: resolvedErrors.length,
   };
 }
 

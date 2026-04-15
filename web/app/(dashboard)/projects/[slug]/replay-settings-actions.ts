@@ -150,5 +150,39 @@ function normaliseAndGate(patch: ReplaySettings, plan: "free" | "pro"): ReplaySe
 
   if (patch.hashEndUserEmails !== undefined) out.hashEndUserEmails = !!patch.hashEndUserEmails;
 
+  // Phase I.d — body capture settings, bounded server-side so a tampered
+  // payload can't bypass the SDK's hard limit.
+  if (patch.captureNetworkBodies !== undefined) out.captureNetworkBodies = !!patch.captureNetworkBodies;
+
+  if (patch.networkBodyMode !== undefined) {
+    out.networkBodyMode = patch.networkBodyMode === "all" ? "all" : "failed";
+  }
+
+  if (patch.networkBodyMaxBytes !== undefined) {
+    if (typeof patch.networkBodyMaxBytes !== "number" || !Number.isFinite(patch.networkBodyMaxBytes)) {
+      throw new ValidationError("networkBodyMaxBytes must be a number");
+    }
+    // Absolute ceiling 500KB matches ABSOLUTE_MAX_BODY_BYTES in the SDK.
+    out.networkBodyMaxBytes = Math.round(Math.max(1024, Math.min(500_000, patch.networkBodyMaxBytes)));
+  }
+
+  if (patch.networkUrlDenylist !== undefined) {
+    if (!Array.isArray(patch.networkUrlDenylist)) {
+      throw new ValidationError("networkUrlDenylist must be an array");
+    }
+    // Cap at 50 patterns × 200 char each. Strip empties + duplicates.
+    const seen = new Set<string>();
+    const cleaned: string[] = [];
+    for (const raw of patch.networkUrlDenylist) {
+      if (typeof raw !== "string") continue;
+      const v = raw.trim().slice(0, 200);
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      cleaned.push(v);
+      if (cleaned.length >= 50) break;
+    }
+    out.networkUrlDenylist = cleaned;
+  }
+
   return out;
 }

@@ -66,6 +66,17 @@ export function ReplaysFilters({
   const [localEndUserEmail, setLocalEndUserEmail] = useState(endUserEmail);
   const [options, setOptions] = useState<FilterOptions>({ fingerprints: [], urlPaths: [] });
 
+  // Advanced filters auto-expand when any of them has a value. Manual toggle
+  // via the disclosure button. Keeps the default view clean while still
+  // showing power-users that their filter is active.
+  const advancedActive = !!(
+    fingerprint || urlPath || endUserEmail || dateFrom || dateTo
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(advancedActive);
+  useEffect(() => {
+    if (advancedActive) setAdvancedOpen(true);
+  }, [advancedActive]);
+
   // Sync local inputs when URL changes from outside (back/forward nav)
   useEffect(() => { setLocalQ(q); }, [q]);
   useEffect(() => { setLocalUrlPath(urlPath); }, [urlPath]);
@@ -162,6 +173,8 @@ export function ReplaysFilters({
         className="w-full rounded-lg border border-line bg-surface px-4 py-2 text-sm text-fg-base placeholder:text-fg-base/40 focus:outline-none focus:border-inari-accent"
       />
 
+      {/* Primary row — what people use on every visit. Time window + browser
+          + quick toggles + sort. Fine-grained filters live under "More filters". */}
       <div className="flex flex-wrap items-center gap-2">
         <select
           value={since}
@@ -188,56 +201,8 @@ export function ReplaysFilters({
           ))}
         </select>
 
-        <select
-          value={fingerprint}
-          onChange={(e) => navigate({ fingerprint: e.target.value || null })}
-          className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-fg-base focus:outline-none focus:border-inari-accent"
-          aria-label="Error fingerprint"
-        >
-          <option value="">Any error</option>
-          {options.fingerprints.map((fp) => (
-            <option key={fp} value={fp}>{fp.slice(0, 24)}{fp.length > 24 ? "…" : ""}</option>
-          ))}
-        </select>
-
-        <input
-          type="text"
-          list="iw-replay-urlpath-options"
-          placeholder="URL contains…"
-          value={localUrlPath}
-          onChange={(e) => setLocalUrlPath(e.target.value)}
-          className="w-44 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-fg-base placeholder:text-fg-base/40 focus:outline-none focus:border-inari-accent"
-          aria-label="URL path"
-        />
-
-        <input
-          type="text"
-          placeholder="user email (exact)…"
-          value={localEndUserEmail}
-          onChange={(e) => setLocalEndUserEmail(e.target.value)}
-          title="Exact match — substring search would expose hashed addresses"
-          className="w-48 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-fg-base placeholder:text-fg-base/40 focus:outline-none focus:border-inari-accent"
-          aria-label="End-user email"
-        />
-        <datalist id="iw-replay-urlpath-options">
-          {options.urlPaths.map((u) => (<option key={u} value={u} />))}
-        </datalist>
-
-        <input
-          type="date"
-          value={dateToInputValue(dateFrom)}
-          onChange={(e) => setDate("dateFrom", e.target.value)}
-          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg-base focus:outline-none focus:border-inari-accent"
-          aria-label="From date"
-        />
-        <span className="text-xs text-fg-base/50">→</span>
-        <input
-          type="date"
-          value={dateToInputValue(dateTo)}
-          onChange={(e) => setDate("dateTo", e.target.value)}
-          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg-base focus:outline-none focus:border-inari-accent"
-          aria-label="To date"
-        />
+        {/* Subtle divider before the toggle group */}
+        <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
 
         <button
           type="button"
@@ -280,6 +245,22 @@ export function ReplaysFilters({
           Dead
         </button>
 
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          aria-expanded={advancedOpen}
+          className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+            advancedActive
+              ? "border-inari-accent/40 bg-inari-accent/5 text-inari-accent"
+              : "border-line text-fg-base/70 hover:text-fg-base"
+          }`}
+        >
+          {advancedOpen ? "− Fewer filters" : "+ More filters"}
+          {advancedActive && !advancedOpen && (
+            <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-inari-accent align-middle" aria-hidden="true" />
+          )}
+        </button>
+
         <div className="ml-auto flex items-center gap-1">
           <span className="text-[10px] uppercase tracking-wide text-fg-base/40">Sort</span>
           <select
@@ -303,6 +284,77 @@ export function ReplaysFilters({
           </button>
         </div>
       </div>
+
+      {/* Advanced filters — collapsed by default, auto-open when any of them
+          has a value so the user never loses sight of what's filtering. */}
+      {advancedOpen && (
+        <div className="grid grid-cols-1 gap-3 rounded-lg border border-line bg-surface/50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1 text-[11px] text-fg-base/60">
+            <span>Error fingerprint</span>
+            <select
+              value={fingerprint}
+              onChange={(e) => navigate({ fingerprint: e.target.value || null })}
+              className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg-base focus:outline-none focus:border-inari-accent"
+              aria-label="Error fingerprint"
+            >
+              <option value="">Any error</option>
+              {options.fingerprints.map((fp) => (
+                <option key={fp} value={fp}>{fp.slice(0, 24)}{fp.length > 24 ? "…" : ""}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-[11px] text-fg-base/60">
+            <span>URL contains</span>
+            <input
+              type="text"
+              list="iw-replay-urlpath-options"
+              placeholder="/checkout"
+              value={localUrlPath}
+              onChange={(e) => setLocalUrlPath(e.target.value)}
+              className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg-base placeholder:text-fg-base/40 focus:outline-none focus:border-inari-accent"
+              aria-label="URL path"
+            />
+            <datalist id="iw-replay-urlpath-options">
+              {options.urlPaths.map((u) => (<option key={u} value={u} />))}
+            </datalist>
+          </label>
+
+          <label className="flex flex-col gap-1 text-[11px] text-fg-base/60">
+            <span>End-user email (exact)</span>
+            <input
+              type="text"
+              placeholder="juan@acme.com"
+              value={localEndUserEmail}
+              onChange={(e) => setLocalEndUserEmail(e.target.value)}
+              title="Exact match — substring search would expose hashed addresses"
+              className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg-base placeholder:text-fg-base/40 focus:outline-none focus:border-inari-accent"
+              aria-label="End-user email"
+            />
+          </label>
+
+          <div className="flex flex-col gap-1 text-[11px] text-fg-base/60">
+            <span>Date range</span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={dateToInputValue(dateFrom)}
+                onChange={(e) => setDate("dateFrom", e.target.value)}
+                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg-base focus:outline-none focus:border-inari-accent"
+                aria-label="From date"
+              />
+              <span className="text-fg-base/40" aria-hidden="true">→</span>
+              <input
+                type="date"
+                value={dateToInputValue(dateTo)}
+                onChange={(e) => setDate("dateTo", e.target.value)}
+                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg-base focus:outline-none focus:border-inari-accent"
+                aria-label="To date"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

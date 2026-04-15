@@ -189,6 +189,60 @@ export function ReplaySettingsSection({
             disabled={disabled}
           />
         </Row>
+
+        {/* Network body capture (Phase I.d) — danger zone, default OFF */}
+        <Row
+          label="Capture network bodies"
+          description="When on, the SDK captures request + response bodies for fetch calls (subject to the built-in auth/payment URL denylist + JSON key masking). OFF by default because bodies routinely contain PII. Bodies > 100 KB are truncated client-side."
+        >
+          <Toggle
+            checked={settings.captureNetworkBodies}
+            onChange={(v) => patch("captureNetworkBodies", v)}
+            disabled={disabled}
+          />
+        </Row>
+
+        {settings.captureNetworkBodies && (
+          <>
+            <Row
+              label="Body capture mode"
+              description="`failed` only captures bodies for HTTP status ≥ 400 or network errors (recommended). `all` captures every response — much higher PII surface and storage cost."
+            >
+              <select
+                className="rounded-md border border-line bg-surface-inner px-3 py-1.5 text-sm text-fg-base disabled:opacity-50"
+                value={settings.networkBodyMode}
+                onChange={(e) => patch("networkBodyMode", e.target.value)}
+                disabled={disabled}
+              >
+                <option value="failed">Failed only (default)</option>
+                <option value="all">All responses</option>
+              </select>
+            </Row>
+
+            <Row
+              label="Extra URL denylist"
+              description="Additional URL substrings to NEVER capture bodies for, on top of the built-in list (auth, login, payment, etc.). One per line."
+            >
+              <textarea
+                value={(settings.networkUrlDenylist ?? []).join("\n")}
+                onChange={(e) =>
+                  patch(
+                    "networkUrlDenylist",
+                    e.target.value
+                      .split("\n")
+                      .map((s) => s.trim())
+                      .filter((s) => s.length > 0)
+                      .slice(0, 50) as unknown as string,
+                  )
+                }
+                rows={3}
+                placeholder="/api/internal/whoami&#10;/api/billing"
+                className="min-w-[260px] rounded-md border border-line bg-surface-inner px-2 py-1.5 font-mono text-xs text-fg-base disabled:opacity-50"
+                disabled={disabled}
+              />
+            </Row>
+          </>
+        )}
       </div>
 
       {isAdmin && (

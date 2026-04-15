@@ -17,9 +17,12 @@ import { useEffect, useState } from "react";
 import { PanelShell } from "./panel-shell";
 import { ConsolePanel, countConsoleRows } from "./console-panel";
 import { NetworkPanel, countNetworkRows } from "./network-panel";
+import { ErrorsPanel, countErrorRows } from "./errors-panel";
+import { CommentsPanel, countCommentsUnresolved, type CommentRow } from "./comments-panel";
 import type { DetailedEvent } from "../derive-detailed-events";
+import type { ResolvedError } from "@/lib/jobs/replay-stack-parser";
 
-type TabId = "console" | "network";
+type TabId = "console" | "network" | "errors" | "comments";
 const TAB_KEY = "iw.replay.sidePanels.activeTab";
 const COLLAPSE_KEY = "iw.replay.sidePanels.collapsed";
 
@@ -27,9 +30,28 @@ interface SidePanelsProps {
   events: DetailedEvent[];
   currentMs: number;
   onSeek: (ms: number) => void;
+  /** Phase I.c — uncaught errors with parsed stack frames (from manifest). */
+  errors?: ResolvedError[];
+  repo?: { githubOwner: string; githubRepo: string; defaultBranch: string } | null;
+  /** Day 4 — comments anchored to timestamps. Lifted state so the
+   *  timeline-canvas markers and this panel share one fetched dataset. */
+  sessionId?: string;
+  comments?: CommentRow[];
+  onCommentsChange?: (next: CommentRow[]) => void;
+  currentUserId?: string | null;
 }
 
-export function SidePanels({ events, currentMs, onSeek }: SidePanelsProps) {
+export function SidePanels({
+  events,
+  currentMs,
+  onSeek,
+  errors = [],
+  repo = null,
+  sessionId,
+  comments = [],
+  onCommentsChange,
+  currentUserId = null,
+}: SidePanelsProps) {
   // SSR-safe: start with the default and hydrate from localStorage in an
   // effect. Using a `hydrated` *state* (not a ref) is critical — the write
   // effect captures its value at render time, so if it runs during the
@@ -40,7 +62,9 @@ export function SidePanels({ events, currentMs, onSeek }: SidePanelsProps) {
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? localStorage.getItem(TAB_KEY) : null;
-    if (stored === "console" || stored === "network") setActiveTab(stored);
+    if (stored === "console" || stored === "network" || stored === "errors" || stored === "comments") {
+      setActiveTab(stored);
+    }
     setHydrated(true);
   }, []);
 
@@ -55,6 +79,8 @@ export function SidePanels({ events, currentMs, onSeek }: SidePanelsProps) {
 
   const consoleCounts = countConsoleRows(events);
   const networkCounts = countNetworkRows(events);
+  const errorCounts = countErrorRows(errors);
+  const commentsUnresolved = countCommentsUnresolved(comments);
 
   const tabs = (
     <div className="flex items-center gap-0.5 rounded-md bg-surface-inner p-0.5">
@@ -72,6 +98,22 @@ export function SidePanels({ events, currentMs, onSeek }: SidePanelsProps) {
         count={networkCounts.total}
         alert={networkCounts.failed}
       />
+      <TabButton
+        active={activeTab === "errors"}
+        onClick={() => setActiveTab("errors")}
+        label="Errors"
+        count={errorCounts.total}
+        alert={errorCounts.total}
+      />
+      {sessionId && (
+        <TabButton
+          active={activeTab === "comments"}
+          onClick={() => setActiveTab("comments")}
+          label="Comments"
+          count={comments.length}
+          alert={commentsUnresolved}
+        />
+      )}
     </div>
   );
 
@@ -98,6 +140,31 @@ export function SidePanels({ events, currentMs, onSeek }: SidePanelsProps) {
         >
           <NetworkPanel events={events} currentMs={currentMs} onSeek={onSeek} />
         </div>
+        <div
+          className={`absolute inset-0 overflow-y-auto ${
+            activeTab === "errors" ? "" : "invisible pointer-events-none"
+          }`}
+          aria-hidden={activeTab !== "errors"}
+        >
+          <ErrorsPanel errors={errors} currentMs={currentMs} onSeek={onSeek} repo={repo} />
+        </div>
+        {sessionId && onCommentsChange && (
+          <div
+            className={`absolute inset-0 overflow-hidden ${
+              activeTab === "comments" ? "" : "invisible pointer-events-none"
+            }`}
+            aria-hidden={activeTab !== "comments"}
+          >
+            <CommentsPanel
+              sessionId={sessionId}
+              currentMs={currentMs}
+              onSeek={onSeek}
+              currentUserId={currentUserId}
+              comments={comments}
+              onCommentsChange={onCommentsChange}
+            />
+          </div>
+        )}
       </div>
     </PanelShell>
   );

@@ -13,6 +13,7 @@
  */
 
 import { useMemo, useRef, useEffect, useState } from "react";
+import { ChevronRight, Copy } from "lucide-react";
 import type { DetailedEvent } from "../derive-detailed-events";
 import { findActiveIndex } from "../derive-detailed-events";
 import { formatMs } from "../format-time";
@@ -123,6 +124,19 @@ export function NetworkPanel({ events, currentMs, onSeek }: NetworkPanelProps) {
 
   const counts = useMemo(() => countNetworkRows(events), [events]);
 
+  // Track which rows have their body viewer expanded. Keyed by event
+  // timestamp+url since DetailedEvent doesn't carry a stable id and we
+  // don't want one row collapse to scroll-jump everything else.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
     <div className="flex h-full flex-col">
       {/* Sticky filter row */}
@@ -146,20 +160,44 @@ export function NetworkPanel({ events, currentMs, onSeek }: NetworkPanelProps) {
             const isActive = i === activeIndex;
             const tones = statusTone(row.status, row.errorMessage);
             const durationPct = row.durationMs ? Math.max(2, (row.durationMs / maxDuration) * 100) : 0;
+            const rowKey = `${row.timestamp}-${i}-${row.url}`;
+            const isExpanded = expanded.has(rowKey);
+            const hasBodies = !!(row.requestBody || row.responseBody || row.requestHeaders || row.responseHeaders);
             return (
               <li
-                key={`${row.timestamp}-${i}-${row.url}`}
+                key={rowKey}
                 data-idx={i}
-                className={`relative cursor-pointer px-3 py-1.5 transition-colors ${
+                className={`relative px-3 py-1.5 transition-colors ${
                   isActive ? "bg-inari-accent/5" : "hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
                 }`}
-                onClick={() => onSeek(row.timestamp)}
-                title={`${row.method} ${row.url}\n${formatMs(row.timestamp)} — click to seek`}
               >
                 {isActive && (
                   <span className="absolute left-0 top-0 h-full w-0.5 bg-inari-accent" aria-hidden="true" />
                 )}
-                <div className="flex items-center gap-2">
+                <div
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => onSeek(row.timestamp)}
+                  title={`${row.method} ${row.url}\n${formatMs(row.timestamp)} — click to seek`}
+                >
+                  {hasBodies ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpanded(rowKey);
+                      }}
+                      aria-expanded={isExpanded}
+                      aria-label={isExpanded ? "Hide body" : "Show body"}
+                      className="shrink-0 rounded p-0.5 text-fg-base/40 hover:text-fg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/40"
+                    >
+                      <ChevronRight
+                        className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  ) : (
+                    <span className="shrink-0 w-3" aria-hidden="true" />
+                  )}
                   <span className="shrink-0 w-10 font-semibold uppercase text-fg-base/70">{row.method}</span>
                   <span className={`shrink-0 rounded px-1 font-semibold ${tones.badge}`}>
                     {row.errorMessage ? "ERR" : row.status ?? "…"}
@@ -181,6 +219,29 @@ export function NetworkPanel({ events, currentMs, onSeek }: NetworkPanelProps) {
                     {row.errorMessage}
                   </div>
                 )}
+                {isExpanded && hasBodies && (
+                  <div className="mt-2 ml-3 space-y-2 border-l border-line pl-3 text-[10px] font-sans">
+                    {row.requestBody && (
+                      <BodyBlock
+                        title="Request body"
+                        body={row.requestBody}
+                        headers={row.requestHeaders}
+                      />
+                    )}
+                    {row.responseBody && (
+                      <BodyBlock
+                        title="Response body"
+                        body={row.responseBody}
+                        headers={row.responseHeaders}
+                      />
+                    )}
+                    {!row.requestBody && !row.responseBody && row.bodyOmittedReason && (
+                      <p className="italic text-fg-base/40">
+                        Body omitted: {row.bodyOmittedReason}
+                      </p>
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}
@@ -191,6 +252,68 @@ export function NetworkPanel({ events, currentMs, onSeek }: NetworkPanelProps) {
 }
 
 // ── Presentational bits ──────────────────────────────────────────────────
+
+/**
+ * Pretty-prints a captured request/response body. JSON is already indented
+ * by the SDK's `processBody`; we just render with a soft cap on display
+ * height so a 100KB body doesn't blow up the panel layout.
+ */
+function BodyBlock({
+  title,
+  body,
+  headers,
+}: {
+  title: string;
+  body: { text: string; truncated: boolean; originalBytes: number };
+  headers?: Record<string, string>;
+}) {
+  const [showHeaders, setShowHeaders] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(body.text).catch(() => {});
+  };
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-2 text-fg-base/60">
+        <span className="font-semibold uppercase tracking-wider text-[9px]">{title}</span>
+        {body.truncated && (
+          <span
+            className="rounded-sm bg-amber-500/15 px-1 text-amber-600 dark:text-amber-400"
+            title={`Truncated from ${body.originalBytes.toLocaleString()} bytes`}
+          >
+            truncated
+          </span>
+        )}
+        <span className="text-fg-base/40 tabular-nums">{body.originalBytes.toLocaleString()}B</span>
+        {headers && Object.keys(headers).length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowHeaders((v) => !v)}
+            className="ml-auto rounded px-1 text-fg-base/50 hover:text-fg-base"
+          >
+            {showHeaders ? "Hide headers" : "Headers"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={copy}
+          className="rounded p-0.5 text-fg-base/50 hover:text-fg-base"
+          aria-label="Copy body"
+          title="Copy body to clipboard"
+        >
+          <Copy className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </div>
+      {showHeaders && headers && (
+        <pre className="mb-1 max-h-32 overflow-auto rounded bg-surface-inner/60 px-2 py-1 text-[10px] font-mono leading-snug text-fg-base/70">
+          {Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\n")}
+        </pre>
+      )}
+      <pre className="max-h-64 overflow-auto rounded bg-surface-inner/60 px-2 py-1 text-[10px] font-mono leading-snug text-fg-base whitespace-pre-wrap break-all">
+        {body.text}
+      </pre>
+    </div>
+  );
+}
 
 function FilterChip({
   active,

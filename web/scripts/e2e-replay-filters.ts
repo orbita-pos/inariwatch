@@ -29,6 +29,14 @@ async function main() {
 
     await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
 
+    // Phase D+UI — the fingerprint / urlPath / email / date inputs live
+    // under the "More filters" disclosure. Expand it before asserting.
+    const more = await page.$('button:has-text("More filters")');
+    if (more) {
+      await more.click();
+      await page.waitForTimeout(200);
+    }
+
     // 1. All new controls present
     const fpSelect = await page.$('select[aria-label="Error fingerprint"]');
     const urlInput = await page.$('input[aria-label="URL path"]');
@@ -65,9 +73,25 @@ async function main() {
       { timeout: 3000 },
     );
 
-    // 3. Setting dateFrom disables the `since` select
-    await dateFromInput.fill("2026-01-01");
-    await page.waitForTimeout(400);
+    // 3. Setting dateFrom disables the `since` select. Re-query the input
+    // because the "More filters" panel may have re-rendered.
+    const dateFromLive = await page.$('input[aria-label="From date"]');
+    if (!dateFromLive) throw new Error("From date input disappeared after urlPath clear");
+    // Native type=date inputs: `fill` alone sometimes doesn't trigger React's
+    // onChange. Set via evaluate + dispatch a synthetic input event.
+    await page.evaluate(() => {
+      const el = document.querySelector<HTMLInputElement>('input[aria-label="From date"]');
+      if (!el) return;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(el, "2026-01-01");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.location.search.includes("dateFrom=2026-01-01"),
+      undefined,
+      { timeout: 3000 },
+    );
     if (!page.url().includes("dateFrom=2026-01-01")) {
       throw new Error(`dateFrom did not propagate: ${page.url()}`);
     }
@@ -76,14 +100,15 @@ async function main() {
     if (!sinceDisabled) throw new Error("`since` select should be disabled when an absolute date is set");
     console.log("[3] dateFrom disables rolling-since select ✓");
 
-    // 4. Sort direction toggle
-    const dirBtn = await page.$('button[aria-label*="Sort direction"]');
+    // 4. Sort direction toggle — re-query fresh after the DOM update from step 3
+    const dirBtn = await page.$('button[aria-label^="Sort direction:"]');
     if (!dirBtn) throw new Error("Sort direction button missing");
     await dirBtn.click();
-    await page.waitForTimeout(400);
-    if (!page.url().includes("sortDir=asc")) {
-      throw new Error(`sortDir=asc not in URL after click: ${page.url()}`);
-    }
+    await page.waitForFunction(
+      () => window.location.search.includes("sortDir=asc"),
+      undefined,
+      { timeout: 3000 },
+    );
     console.log("[4] Sort direction toggle ✓");
 
     // 5. Shareable URL — open a deep-linked URL in a fresh page and confirm

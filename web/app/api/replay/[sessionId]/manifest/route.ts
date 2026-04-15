@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { replaySessions, projects, organizationMembers, organizations } from "@/lib/db/schema";
+import { replaySessions, projects, organizationMembers, organizations, codeRepositories } from "@/lib/db/schema";
 import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { getSessionBlockUrls } from "@/lib/storage/replay-storage";
@@ -43,6 +43,12 @@ interface ManifestResponse {
    *  predate Phase G or where the SDK never observed a metric (headless,
    *  Node, very short sessions). */
   webVitals: Record<string, { value: number; rating: "good" | "needs-improvement" | "poor" }>;
+  /** Phase I.c — pre-parsed errors with stack frames. Empty array when
+   *  the session had no uncaught errors. The `repo` field carries the
+   *  github owner/repo of the linked code repository (if any) so the
+   *  player can render "open in GitHub" links per frame. */
+  resolvedErrors: unknown[];
+  repo: { githubOwner: string; githubRepo: string; defaultBranch: string } | null;
   blocks: { index: number; startMs: number; endMs: number; url: string }[];
 }
 
@@ -96,6 +102,7 @@ export async function GET(
       endUserEmail: replaySessions.endUserEmail,
       endUserEmailHash: replaySessions.endUserEmailHash,
       webVitals: replaySessions.webVitals,
+      resolvedErrors: replaySessions.resolvedErrors,
     })
     .from(replaySessions)
     .where(eq(replaySessions.sessionId, sessionId))
@@ -164,6 +171,8 @@ export async function GET(
     frustrationScore: row.frustrationScore ?? 0,
     endUser: await buildEndUserPayload(row.projectId, row.endUserId, row.endUserEmail, row.endUserEmailHash),
     webVitals: (row.webVitals ?? {}) as ManifestResponse["webVitals"],
+    resolvedErrors: Array.isArray(row.resolvedErrors) ? row.resolvedErrors : [],
+    repo: await buildRepoPayload(row.projectId),
     blocks,
   };
 
@@ -206,5 +215,31 @@ async function buildEndUserPayload(
     // We still surface the hash so the dashboard can render a stable "User …abc12" pill.
     email: hashEmails ? null : endUserEmail,
     emailHash: endUserEmailHash,
+  };
+}
+
+/**
+ * Look up the project's linked GitHub repo so the player's Errors panel
+ * can build "open in GitHub" links per stack frame. Returns null when no
+ * code repository is connected — the panel falls back to plain frame text.
+ */
+async function buildRepoPayload(
+  projectId: string | null,
+): Promise<ManifestResponse["repo"]> {
+  if (!projectId) return null;
+  const [row] = await db
+    .select({
+      githubOwner: codeRepositories.githubOwner,
+      githubRepo: codeRepositories.githubRepo,
+      defaultBranch: codeRepositories.defaultBranch,
+    })
+    .from(codeRepositories)
+    .where(eq(codeRepositories.projectId, projectId))
+    .limit(1);
+  if (!row) return null;
+  return {
+    githubOwner: row.githubOwner,
+    githubRepo: row.githubRepo,
+    defaultBranch: row.defaultBranch,
   };
 }

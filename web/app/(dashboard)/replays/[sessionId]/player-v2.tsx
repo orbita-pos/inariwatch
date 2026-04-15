@@ -2,11 +2,31 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Link2, Check, ChevronDown, MessageSquare } from "lucide-react";
 import { TimelineCanvas, DEFAULT_TRACKS, type TimelineEvent, type Chapter, type UiCausalChain, type TrackDef, type FrustrationMarker } from "./timeline-canvas";
 import { formatMs } from "./format-time";
 import { deriveDetailedEvents } from "./derive-detailed-events";
 import { SidePanels } from "./panels/side-panels";
 import { BreadcrumbStrip } from "./breadcrumb-strip";
+import { ShortcutsModal } from "./shortcuts-modal";
+import { findPrevEventIndex, findNextEventIndex } from "./frame-scrub";
+import type { CommentRow } from "./panels/comments-panel";
+
+/**
+ * Read the initial ?t=MS query param on mount — pre-seeks the player when
+ * someone shares a URL like `/replays/abc?t=12500`. Returns 0 when the
+ * param is missing or malformed. Clamped to non-negative; the real upper
+ * bound is enforced by `seek()` once we know the session's duration.
+ */
+function readInitialTimestamp(): number {
+  if (typeof window === "undefined") return 0;
+  const raw = new URLSearchParams(window.location.search).get("t");
+  if (!raw) return 0;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  // Cap at 24h — anything higher is almost certainly garbage / an attack.
+  return Math.min(n, 24 * 60 * 60 * 1000);
+}
 
 // Phase C: append a 6th track for SPA navigation events. Kept here (not
 // in timeline-canvas) so existing default callers keep the original 5-track
@@ -52,6 +72,10 @@ interface Manifest {
   endUser?: { id: string | null; email: string | null; emailHash: string | null } | null;
   /** Phase G — empty object when no vitals were observed (headless / Node). */
   webVitals?: Record<string, { value: number; rating: "good" | "needs-improvement" | "poor" }>;
+  /** Phase I.c — pre-parsed errors with stack frames for the Errors panel. */
+  resolvedErrors?: unknown[];
+  /** Phase I.c — linked GitHub repo for building "open source" links. */
+  repo?: { githubOwner: string; githubRepo: string; defaultBranch: string } | null;
   blocks: SignedBlock[];
 }
 
@@ -68,11 +92,14 @@ type LoadState = "loading-manifest" | "loading-blocks" | "ready" | "error";
 
 interface PlayerV2Props {
   sessionId: string;
+  /** Day 4 — passed from the server page so the comments panel can flag
+   *  the viewer's own comments (Delete button) without an extra fetch. */
+  currentUserId?: string | null;
 }
 
 const SPEEDS = [1, 2, 4, 8] as const;
 
-export function PlayerV2({ sessionId }: PlayerV2Props) {
+export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
   const [loadState, setLoadState] = useState<LoadState>("loading-manifest");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -82,6 +109,19 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
   // a blank area wondering if the app froze.
   const [playerPainted, setPlayerPainted] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  // The timestamp from ?t= on the initial URL. Applied once the player has
+  // painted its first frame. Read at mount because we don't want hot-link
+  // jumps every time React re-renders the component.
+  const [pendingSeekMs] = useState<number>(() => readInitialTimestamp());
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Day 4 — comments lifted here so both the panel and the timeline canvas
+  // markers consume one source of truth (and one initial fetch).
+  const [comments, setComments] = useState<CommentRow[]>([]);
+  // Share PRO — inline compose-and-share popover below the Share button.
+  const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
+  const [shareComment, setShareComment] = useState("");
+  const [sharePosting, setSharePosting] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
 
@@ -93,6 +133,31 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
   const router = useRouter();
   const [generatingFix, setGeneratingFix] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
+
+  // ─ Initial comments fetch ───────────────────────────────────────────
+  // Single fetch on mount; the panel's own poll loop keeps it fresh while
+  // it's the active tab. We do it here (not inside the panel) so the
+  // timeline-canvas markers are populated even when Comments isn't the
+  // active tab.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/replay/${encodeURIComponent(sessionId)}/comments`);
+        if (!r.ok || cancelled) return;
+        const data = (await r.json()) as { comments: CommentRow[] };
+        if (!cancelled) setComments(data.comments ?? []);
+      } catch {
+        // silent — panel poll will retry
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  const commentMarkerTimestamps = useMemo(
+    () => comments.filter((c) => !c.parentId).map((c) => c.timestampMs),
+    [comments],
+  );
 
   // ─ Load manifest ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -182,8 +247,12 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
         const paintInitialFrame = () => {
           if (initialPaused || !replayerRef.current) return;
           initialPaused = true;
-          (replayerRef.current as { pause?: (ms?: number) => void }).pause?.(0);
-          setCurrentMs(0);
+          // Honour ?t= on first paint so shared links land at the right
+          // moment instead of jumping from 0 → t after the user sees the start.
+          // pendingSeekMs is captured at mount so it's a stable closure value.
+          const startAt = pendingSeekMs > 0 ? pendingSeekMs : 0;
+          (replayerRef.current as { pause?: (ms?: number) => void }).pause?.(startAt);
+          setCurrentMs(startAt);
           setPlayerPainted(true);
         };
         replayer?.on?.("resize", paintInitialFrame);
@@ -240,6 +309,32 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
     replayerRef.current?.setConfig?.({ speed: s });
   }, []);
 
+  // ─ Sync ?t= in the URL with the current playback position ─────────────
+  // Throttled to once per second AND only updates when the user pauses or
+  // seeks — we don't spam history while they scrub or watch at 1x. Uses
+  // replaceState (not pushState) so the back button still returns to the
+  // list page instead of walking through every timestamp.
+  useEffect(() => {
+    if (!playerPainted) return;
+    if (typeof window === "undefined") return;
+    const t = setTimeout(() => {
+      try {
+        const url = new URL(window.location.href);
+        const rounded = Math.max(0, Math.round(currentMs));
+        // Omit ?t= entirely at 0 so a fresh share from the start has a clean URL.
+        if (rounded === 0) url.searchParams.delete("t");
+        else url.searchParams.set("t", String(rounded));
+        const next = `${url.pathname}${url.search}${url.hash}`;
+        if (next !== window.location.pathname + window.location.search + window.location.hash) {
+          window.history.replaceState(null, "", next);
+        }
+      } catch {
+        // URL build failed — swallow, sharing is best-effort.
+      }
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [currentMs, playerPainted]);
+
   // ─ Poll rrweb's current time while playing ──────────────────────────────
   // rrweb v2 renamed / changed the `event-cast` payload so we can't rely on
   // events for time updates. Instead, when `playing` flips true, we spin a
@@ -270,12 +365,33 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
   }, [playing, manifest?.durationMs]);
 
   // ─ Keyboard shortcuts ────────────────────────────────────────────────────
+  // The frame-scrub helpers (`seekToPrevEvent` / `seekToNextEvent`) are
+  // declared further down because they depend on `timelineEvents` (which
+  // is also declared further down). We bridge via refs so the keyboard
+  // listener has stable references without a circular hook order.
+  const seekToPrevEventRef = useRef<() => void>(() => {});
+  const seekToNextEventRef = useRef<() => void>(() => {});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Don't intercept when typing in an input
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const duration = manifest?.durationMs ?? 0;
+
+      // `?` (Shift+/) toggles the cheatsheet, ESC closes it. Handled before
+      // the playback switch so they always work even while the modal is up.
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+      if (e.key === "Escape" && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+      // Modal open → don't propagate playback shortcuts (would feel weird
+      // if Space toggled play/pause behind the dialog).
+      if (shortcutsOpen) return;
+
       switch (e.key) {
         case " ":
           e.preventDefault();
@@ -299,16 +415,20 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
           seek(currentMs + 5000);
           break;
         case ".":
-          seek(Math.min(duration, currentMs + 100));
+          // Frame-by-frame: jump to the NEXT event boundary. Falls back to
+          // +100ms only when the session has zero events recorded.
+          e.preventDefault();
+          seekToNextEventRef.current();
           break;
         case ",":
-          seek(Math.max(0, currentMs - 100));
+          e.preventDefault();
+          seekToPrevEventRef.current();
           break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, seek, currentMs, manifest?.durationMs]);
+  }, [togglePlay, seek, currentMs, manifest?.durationMs, shortcutsOpen]);
 
   // ─ Derive timeline events from raw rrweb + build chapters ────────────────
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
@@ -338,6 +458,36 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
     () => timelineEvents.filter((e) => e.kind === "error").map((e) => e.timestamp),
     [timelineEvents],
   );
+
+  // Frame-by-frame scrub — sorted unique timestamps so `,` / `.` jump to
+  // the previous / next event boundary instead of a fixed 100ms tick.
+  // 100ms steps are wasteful in this domain: most replays alternate dense
+  // bursts of events with seconds of quiet, so reviewers want "next thing
+  // that happened" not "+0.1s from now".
+  const eventTimestamps = useMemo<number[]>(() => {
+    const set = new Set<number>();
+    for (const e of timelineEvents) set.add(Math.round(e.timestamp));
+    return Array.from(set).sort((a, b) => a - b);
+  }, [timelineEvents]);
+
+  const seekToPrevEvent = useCallback(() => {
+    const list = eventTimestamps;
+    if (list.length === 0) { seek(Math.max(0, currentMs - 100)); return; }
+    const idx = findPrevEventIndex(list, currentMs);
+    seek(idx === -1 ? 0 : list[idx]);
+  }, [eventTimestamps, currentMs, seek]);
+
+  const seekToNextEvent = useCallback(() => {
+    const list = eventTimestamps;
+    const dur = manifest?.durationMs ?? 0;
+    if (list.length === 0) { seek(Math.min(dur, currentMs + 100)); return; }
+    const idx = findNextEventIndex(list, currentMs);
+    seek(idx === -1 ? dur : list[idx]);
+  }, [eventTimestamps, currentMs, manifest?.durationMs, seek]);
+
+  // Keep the refs the keyboard handler uses in sync with the latest closures.
+  useEffect(() => { seekToPrevEventRef.current = seekToPrevEvent; }, [seekToPrevEvent]);
+  useEffect(() => { seekToNextEventRef.current = seekToNextEvent; }, [seekToNextEvent]);
 
   // Full-metadata event stream for side panels (Console, Network, Nav).
   // Parallel to `timelineEvents` so the canvas render loop doesn't pay
@@ -443,6 +593,59 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
 
   const duration = manifest?.durationMs ?? 0;
 
+  // ─ Share at timestamp ─────────────────────────────────────────────────
+  // Copy the current URL (already includes ?t= via the sync effect) to the
+  // clipboard. The 1.5s "Copied!" feedback is visible enough without being
+  // annoying. Falls back silently if clipboard API blocked (cross-origin
+  // iframes, insecure contexts) — the URL is still in the address bar so
+  // power users can copy manually.
+  const sharePlayhead = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const rounded = Math.max(0, Math.round(currentMs));
+    if (rounded === 0) url.searchParams.delete("t");
+    else url.searchParams.set("t", String(rounded));
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    } catch {
+      // best-effort — clipboard may be blocked
+    }
+  }, [currentMs]);
+
+  // Share PRO — comment + copy link in one action. Posts the comment
+  // anchored to the current playhead, refreshes the panel's data, then
+  // copies the URL. Keeps the popover open during the network call so
+  // the user sees feedback (button disabled + "Posting…").
+  const shareWithComment = useCallback(async () => {
+    const text = shareComment.trim();
+    if (!text || sharePosting) return;
+    setSharePosting(true);
+    try {
+      const r = await fetch(`/api/replay/${encodeURIComponent(sessionId)}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: text, timestampMs: Math.round(currentMs) }),
+      });
+      if (r.ok) {
+        // Refresh the in-memory list so markers + panel show the new one
+        const list = await fetch(`/api/replay/${encodeURIComponent(sessionId)}/comments`);
+        if (list.ok) {
+          const data = (await list.json()) as { comments: CommentRow[] };
+          setComments(data.comments ?? []);
+        }
+      }
+    } finally {
+      setSharePosting(false);
+      setShareComment("");
+      setSharePopoverOpen(false);
+      // Always copy the link — that's the user's intent regardless of
+      // whether the comment POST succeeded.
+      void sharePlayhead();
+    }
+  }, [shareComment, sharePosting, sessionId, currentMs, sharePlayhead]);
+
   // ─ Render states ─────────────────────────────────────────────────────────
   if (loadState === "error") {
     return (
@@ -481,22 +684,39 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
           const u = manifest.endUser!;
           const label = u.email ?? u.id ?? (u.emailHash ? `User …${u.emailHash.slice(-6)}` : null);
           if (!label) return null;
-          const linkParam = u.id
-            ? `endUserId=${encodeURIComponent(u.id)}`
+          // Prefer the dedicated /users/<id> journey page when we have a stable
+          // id (Phase G). Falls back to the filtered list URL when only an
+          // email or hash is available — those don't index uniquely enough
+          // for a single journey view.
+          const journeyHref = u.id
+            ? `/replays/users/${encodeURIComponent(u.id)}`
             : u.email
-              ? `endUserEmail=${encodeURIComponent(u.email)}`
+              ? `/replays?endUserEmail=${encodeURIComponent(u.email)}`
               : null;
+          const pill = (
+            <span
+              className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-md bg-inari-accent/10 px-2 py-1 font-medium text-inari-accent"
+              title={label}
+            >
+              {label}
+            </span>
+          );
           return (
             <div className="flex items-center gap-2 text-xs">
-              <span
-                className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-md bg-inari-accent/10 px-2 py-1 font-medium text-inari-accent"
-                title={label}
-              >
-                {label}
-              </span>
-              {linkParam && (
+              {journeyHref ? (
                 <a
-                  href={`/replays?${linkParam}`}
+                  href={journeyHref}
+                  className="hover:underline underline-offset-2"
+                  title="Open this user's session journey"
+                >
+                  {pill}
+                </a>
+              ) : (
+                pill
+              )}
+              {journeyHref && (
+                <a
+                  href={journeyHref}
                   className="text-fg-base/60 underline-offset-2 hover:text-fg-base hover:underline"
                 >
                   Show all sessions →
@@ -550,13 +770,88 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
           )}
         </div>
 
-        {hasErrors && (
-          <div className="ml-auto flex items-center gap-3">
-            {fixError && (
-              <span className="text-xs text-red-500 max-w-[300px] truncate" title={fixError}>
-                {fixError}
-              </span>
+        <div className="ml-auto flex items-center gap-2">
+          {fixError && (
+            <span className="text-xs text-red-500 max-w-[300px] truncate" title={fixError}>
+              {fixError}
+            </span>
+          )}
+
+          {/* Share at timestamp — split button. Left half copies the link
+              instantly; right chevron opens "Comment + share" composer.
+              The URL synced into the address bar already has ?t=<currentMs>
+              so the copy is as cheap as `clipboard.writeText(location.href)`. */}
+          <div className="relative inline-flex">
+            <button
+              type="button"
+              onClick={sharePlayhead}
+              title={`Copy link to this moment (${formatMs(currentMs)})`}
+              aria-label="Copy share link with current timestamp"
+              className="inline-flex items-center gap-1.5 rounded-l-md border border-r-0 border-line px-2.5 py-1.5 text-xs text-fg-base/70 hover:text-fg-base hover:border-line-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/40"
+            >
+              {shareCopied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />
+                  <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
+                </>
+              ) : (
+                <>
+                  <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Share at {formatMs(currentMs)}</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSharePopoverOpen((v) => !v)}
+              aria-label="Comment and share"
+              aria-expanded={sharePopoverOpen}
+              className="inline-flex items-center justify-center rounded-r-md border border-line px-1.5 text-fg-base/70 hover:text-fg-base hover:border-line-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/40"
+            >
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${sharePopoverOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+
+            {sharePopoverOpen && (
+              <div
+                role="dialog"
+                aria-label="Comment and share"
+                className="absolute right-0 top-[calc(100%+4px)] z-30 w-72 rounded-lg border border-line bg-surface p-2 shadow-lg"
+              >
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-fg-base/50">
+                  <MessageSquare className="h-3 w-3" aria-hidden="true" />
+                  Comment + share at {formatMs(currentMs)}
+                </div>
+                <textarea
+                  value={shareComment}
+                  onChange={(e) => setShareComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      void shareWithComment();
+                    }
+                    if (e.key === "Escape") setSharePopoverOpen(false);
+                  }}
+                  rows={3}
+                  autoFocus
+                  placeholder="What should your team see here? Use @email to ping a teammate."
+                  className="w-full resize-none rounded-md border border-line bg-surface-inner px-2 py-1.5 text-xs text-fg-base placeholder:text-fg-base/40 focus:outline-none focus:border-inari-accent"
+                />
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-fg-base/40">Cmd/Ctrl+Enter to post</span>
+                  <button
+                    type="button"
+                    onClick={() => void shareWithComment()}
+                    disabled={sharePosting || shareComment.trim().length === 0}
+                    className="inline-flex items-center gap-1 rounded-md bg-inari-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {sharePosting ? "Posting…" : "Post & copy link"}
+                  </button>
+                </div>
+              </div>
             )}
+          </div>
+
+          {hasErrors && (
             <button
               type="button"
               onClick={generateFix}
@@ -565,8 +860,8 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
             >
               {generatingFix ? "Starting…" : "🔧 Generate Fix"}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Controls */}
@@ -597,9 +892,16 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
             </button>
           ))}
         </div>
-        <span className="ml-auto text-xs text-fg-base/40">
-          Space = play/pause · ←/→ = 1s · J/L = 5s · ./, = frame
-        </span>
+        <button
+          type="button"
+          onClick={() => setShortcutsOpen(true)}
+          aria-label="Show keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+          className="ml-auto inline-flex h-6 items-center gap-1 rounded-md border border-line px-1.5 text-[11px] font-mono text-fg-base/50 hover:text-fg-base hover:border-line-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/40"
+        >
+          <kbd className="font-mono">?</kbd>
+          <span className="hidden sm:inline text-fg-base/40">shortcuts</span>
+        </button>
       </div>
 
       {/* Breadcrumb strip — horizontal chips of URLs visited with dwell times.
@@ -674,7 +976,17 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
 
         {/* Side panels — tabbed (Console | Network), collapsible, persist
             active tab + collapsed state in localStorage */}
-        <SidePanels events={detailedEvents} currentMs={currentMs} onSeek={seek} />
+        <SidePanels
+          events={detailedEvents}
+          currentMs={currentMs}
+          onSeek={seek}
+          errors={(manifest?.resolvedErrors ?? []) as Parameters<typeof SidePanels>[0]["errors"]}
+          repo={manifest?.repo ?? null}
+          sessionId={sessionId}
+          comments={comments}
+          onCommentsChange={setComments}
+          currentUserId={currentUserId}
+        />
       </div>
 
       {/* Multi-track timeline */}
@@ -685,6 +997,7 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
         chapters={aiData.chapters}
         errorMarkers={errorMarkers}
         frustrationMarkers={frustrationMarkers}
+        commentMarkers={commentMarkerTimestamps}
         causalChains={aiData.chains}
         onSeek={seek}
         tracks={TRACKS_WITH_NAV}
@@ -696,6 +1009,8 @@ export function PlayerV2({ sessionId }: PlayerV2Props) {
           <span className="text-inari-accent font-medium">Inari:</span> {manifest.aiSummary}
         </div>
       )}
+
+      <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }

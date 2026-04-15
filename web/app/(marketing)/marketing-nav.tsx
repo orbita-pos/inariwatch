@@ -43,6 +43,10 @@ export function MarketingNav({ opaque = false }: { opaque?: boolean }) {
         {/* Right cluster — nav links + separator + auth */}
         <div className="flex items-center gap-5">
           <div className="hidden items-center gap-6 text-sm md:flex text-fg-base">
+            <Link href="/replay" className="inline-flex items-center gap-1.5 hover:text-fg-strong transition-colors">
+              Replay
+              <span className="rounded-full bg-inari-accent/15 text-inari-accent px-1.5 py-px text-[9px] font-mono uppercase tracking-wider">New</span>
+            </Link>
             <Link href="/pricing" className="hover:text-fg-strong transition-colors">
               Pricing
             </Link>

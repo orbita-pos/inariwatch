@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { CopyButton } from "../copy-button";
 import { MarketingNav } from "../marketing-nav";
+import { DocsSidebar } from "./docs-sidebar";
 import {
   Terminal,
   Zap,
@@ -192,6 +193,20 @@ const NAV = [
     ],
   },
   {
+    group: "Session Replay",
+    items: [
+      { id: "replay-overview",     label: "Overview" },
+      { id: "replay-install",      label: "Install SDK" },
+      { id: "replay-user",         label: "Identify the user" },
+      { id: "replay-privacy",      label: "Privacy & PII masking" },
+      { id: "replay-vitals",       label: "Web Vitals" },
+      { id: "replay-frustration",  label: "Rage + dead clicks" },
+      { id: "replay-generate-fix", label: "Generate Fix from a replay" },
+      { id: "replay-settings",     label: "Per-project settings" },
+      { id: "replay-retention",    label: "Retention" },
+    ],
+  },
+  {
     group: "MCP Server",
     items: [
       { id: "mcp-overview",   label: "Overview" },
@@ -352,31 +367,8 @@ export default function DocsPage() {
       <div className="mx-auto max-w-6xl px-6 pt-20">
         <div className="flex gap-10 lg:gap-16">
 
-          {/* ── Sidebar ────────────────────────────────────────────────────── */}
-          <aside className="docs-sidebar hidden lg:block w-52 shrink-0 sticky top-20 h-[calc(100vh-5rem)] overflow-y-auto">
-            <div className="py-6 space-y-6">
-              {NAV.map((section) => (
-                <div key={section.group}>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-fg-base/80">
-                    {section.group}
-                  </p>
-                  <ul className="space-y-0.5">
-                    {section.items.map((item) => (
-                      <li key={item.id}>
-                        <a
-                          href={`#${item.id}`}
-                          className="flex items-center gap-1.5 rounded px-2 py-1 text-sm text-fg-base/70 transition-colors hover:bg-surface-inner hover:text-fg-strong"
-                        >
-                          <ChevronRight className="h-3 w-3 shrink-0 opacity-40" aria-hidden="true" />
-                          {item.label}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </aside>
+          {/* ── Sidebar (scrollspy-aware) ──────────────────────────────────── */}
+          <DocsSidebar nav={NAV} />
 
           {/* ── Content ────────────────────────────────────────────────────── */}
           <main className="min-w-0 flex-1 py-8 pb-32">
@@ -2703,6 +2695,153 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
             <P>
               If all gates pass → <strong>auto-merge</strong>. If any gate fails → <strong>draft PR</strong> for human review.
               Optional gates (5-10) only activate when their data is available — they never block if there{"'"}s nothing to check.
+            </P>
+
+            {/* ────────────────────────────────────────────────────────────────
+                SESSION REPLAY
+            ──────────────────────────────────────────────────────────────── */}
+
+            <SectionHeading id="replay-overview">Session Replay</SectionHeading>
+            <P>
+              Watch any user session — DOM playback, console, network, navigation, Web Vitals,
+              and frustration signals on a single timeline — then click <strong>Generate Fix</strong>{" "}
+              to open a PR. Replay is workspace-scoped: enabled per organization, invisible to
+              personal workspaces.
+            </P>
+            <P>
+              Lives at <InlineCode>/replays</InlineCode> (list) and{" "}
+              <InlineCode>/replays/[sessionId]</InlineCode> (player). Storage on Cloudflare R2.
+              Replays with errors auto-correlate to alerts (or create one) so the Generate Fix
+              button is wired the moment a session lands.
+            </P>
+
+            <SubHeading id="replay-install">Install the SDK</SubHeading>
+            <P>
+              Replay ships as a separate package from <InlineCode>@inariwatch/capture</InlineCode>.
+              It only loads in the browser — no server bundle impact.
+            </P>
+            <CodeBlock label="Install">{`npm install @inariwatch/capture-replay`}</CodeBlock>
+            <CodeBlock label="Initialize (browser entry / _app.tsx / root layout)">{`import { initReplay } from "@inariwatch/capture-replay";
+
+initReplay({
+  projectId: "your-project-id",
+  // optional — defaults are sensible
+  sampleRate: 1.0,           // record every session
+  maskAllInputs: true,       // off only if you know what you're doing
+});`}</CodeBlock>
+            <Callout type="info">
+              You don&apos;t need to invoke a recorder manually. <InlineCode>initReplay()</InlineCode> attaches
+              automatically on page load and starts a new session per page-view.
+            </Callout>
+
+            <SubHeading id="replay-user">Identify the user</SubHeading>
+            <P>
+              Replay never scrapes the DOM for emails — you set the user contract explicitly via a
+              global. First-write-wins: once the session has identified the user, later writes are
+              ignored to prevent collision under SPA navs.
+            </P>
+            <CodeBlock label="After your auth resolves">{`window.__INARIWATCH_USER__ = {
+  id:    user.id,           // optional but recommended
+  email: user.email,        // optional — masked per project setting
+};`}</CodeBlock>
+            <P>
+              Both fields are optional. If the project has{" "}
+              <InlineCode>hashEndUserEmails: true</InlineCode>, the SDK still sends the raw email
+              and the server hashes it before persistence — your filters search via the hash, never
+              the plaintext.
+            </P>
+
+            <SubHeading id="replay-privacy">Privacy & PII masking</SubHeading>
+            <P>
+              Inputs (<InlineCode>&lt;input&gt;</InlineCode>, <InlineCode>&lt;textarea&gt;</InlineCode>),
+              passwords, and elements with the <InlineCode>data-inari-block</InlineCode> attribute are
+              masked before they ever leave the browser. The PII classifier also redacts emails,
+              tokens, and credit-card-shaped strings from console logs.
+            </P>
+            <Table
+              head={["Surface", "Default", "How to override"]}
+              rows={[
+                ["Inputs", "masked", "maskAllInputs: false in initReplay()"],
+                ["Specific elements", "visible", "Add data-inari-block attribute to mask"],
+                ["Console payloads", "PII-classified", "Server-side redaction always on"],
+                ["Network bodies", "not captured", "Body capture deferred — PII risk"],
+                ["End-user email", "stored plaintext", "Per-project hashEndUserEmails setting"],
+              ]}
+            />
+
+            <SubHeading id="replay-vitals">Web Vitals</SubHeading>
+            <P>
+              LCP, CLS, INP, FCP, and TTFB are captured via <InlineCode>PerformanceObserver</InlineCode>{" "}
+              (no <InlineCode>web-vitals</InlineCode> dependency). Vitals flush on{" "}
+              <InlineCode>visibilitychange</InlineCode> and <InlineCode>pagehide</InlineCode> so they
+              survive tab close. The player shows the worst-rated metric as a header chip; the list
+              card shows a single &ldquo;worst vital&rdquo; badge.
+            </P>
+            <P>
+              Vitals also feed the AI summary prompt — &ldquo;LCP slow&rdquo; in the explanation
+              comes straight from the snapshot.
+            </P>
+
+            <SubHeading id="replay-frustration">Rage + dead-click detection</SubHeading>
+            <P>
+              Detected server-side from the captured event stream — no extra SDK wiring.
+            </P>
+            <Table
+              head={["Signal", "Detection", "Score weight"]}
+              rows={[
+                ["Rage clicks", "≥ 3 clicks within 1000ms on the same target", "× 3"],
+                ["Dead clicks", "Click followed by < 5 DOM mutations within 3000ms and no nav", "× 1"],
+              ]}
+            />
+            <P>
+              <InlineCode>frustrationScore = rage × 3 + dead × 1</InlineCode>. Sessions with
+              non-zero scores get an amber badge in the list. Filter by{" "}
+              <InlineCode>?hasRageClicks=1</InlineCode> or{" "}
+              <InlineCode>?hasDeadClicks=1</InlineCode> on the URL.
+            </P>
+
+            <SubHeading id="replay-generate-fix">Generate Fix from a replay</SubHeading>
+            <P>
+              When a replay contains an error, ingest auto-correlates it with an existing alert
+              (matched by error fingerprint) — or synthesizes a new alert at severity{" "}
+              <InlineCode>warning</InlineCode>. The Generate Fix button in the player triggers the
+              full remediation pipeline: diagnose → read code → write fix → 11 safety gates →
+              PR → auto-merge if every gate passes.
+            </P>
+            <Callout type="warn">
+              Replays ingested before Phase H (2026-04-15) have <InlineCode>alertId = null</InlineCode>{" "}
+              and won&apos;t back-fill automatically. Record a new session with an error to test the
+              flow, or run a backfill script over <InlineCode>replay_sessions</InlineCode>.
+            </Callout>
+
+            <SubHeading id="replay-settings">Per-project settings</SubHeading>
+            <P>
+              Configure per project at <InlineCode>/projects/[slug]</InlineCode> → Replay tab. The
+              settings UI merges patches on save — partial updates won&apos;t wipe other fields.
+            </P>
+            <Table
+              head={["Setting", "Default", "Notes"]}
+              rows={[
+                ["enabled", "false", "Per-project kill switch (also gated by REPLAY_V2_ORGS env)"],
+                ["sampleRate", "1.0", "0.0–1.0 — fraction of sessions recorded"],
+                ["maskAllInputs", "true", "Set to false at your own risk"],
+                ["hashEndUserEmails", "false", "When true, email filters use SHA-256 exact match"],
+                ["retentionDays", "30", "1–366 — daily cron sweeps expired sessions from R2 + DB"],
+              ]}
+            />
+            <SubHeading id="replay-cors">CORS</SubHeading>
+            <P>
+              The ingest endpoint is per-project, with an allowlist of origins configured in the
+              project settings. Default is empty — add your production and staging origins
+              before going live, or replays will be CORS-rejected.
+            </P>
+
+            <SubHeading id="replay-retention">Retention</SubHeading>
+            <P>
+              A daily cron <InlineCode>/api/cron/replay-retention</InlineCode> sweeps sessions
+              older than each project&apos;s <InlineCode>retentionDays</InlineCode>. 200 sessions
+              per run, 1-day grace floor, 366-day absolute max. R2 objects and DB rows are deleted
+              together — replays don&apos;t leave orphaned blobs.
             </P>
 
             {/* ────────────────────────────────────────────────────────────────

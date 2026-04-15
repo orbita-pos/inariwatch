@@ -194,6 +194,34 @@ export type ReplaySettings = {
    * raw email never leaves Postgres.
    */
   hashEndUserEmails?: boolean;
+  /**
+   * Phase I.d — capture request + response bodies for fetch calls. OFF
+   * by default because bodies routinely contain auth tokens, PII, and
+   * payment data. When enabled, multi-layer protection applies:
+   *   - URL denylist (built-in + customer-extensible)
+   *   - JSON key denylist (password, token, secret, etc.)
+   *   - Content-Type allowlist (only text-ish bodies; skip binary)
+   *   - Header redaction (Authorization, Cookie always removed)
+   *   - Hard size cap (`networkBodyMaxBytes`)
+   */
+  captureNetworkBodies?: boolean;
+  /**
+   * Additional URL substring patterns that should NEVER have their bodies
+   * captured (additive to the built-in denylist of /auth, /login, /payment,
+   * etc.). Customer-defined for endpoints unique to their app.
+   */
+  networkUrlDenylist?: string[];
+  /**
+   * Per-body size cap in bytes. Default 100KB. Hard max enforced at ingest
+   * (anything bigger gets truncated by the SDK before sending).
+   */
+  networkBodyMaxBytes?: number;
+  /**
+   * "failed" → only capture bodies for status >= 400 or network error.
+   * "all"    → capture all responses (much higher volume + PII surface).
+   * Default "failed" — best ratio of debug value to risk.
+   */
+  networkBodyMode?: "failed" | "all";
 };
 
 /** Canonical defaults — applied when a project's replay_settings jsonb is empty. */
@@ -205,6 +233,10 @@ export const DEFAULT_REPLAY_SETTINGS: Required<ReplaySettings> = {
   retentionDays: 7,
   piiClassifier: "ai",
   hashEndUserEmails: false,
+  captureNetworkBodies: false,
+  networkUrlDenylist: [],
+  networkBodyMaxBytes: 100_000,
+  networkBodyMode: "failed",
 };
 
 export type AutoMergeConfig = {
@@ -821,12 +853,39 @@ export const replaySessions = pgTable("replay_sessions", {
   // "session pre-Phase G OR vitals never reported (e.g. headless / Node)".
   webVitals: jsonb("web_vitals").notNull().default(sql`'{}'::jsonb`),
 
+  // Phase I.c — pre-parsed error stacks for the player's "Errors" panel.
+  // Populated by replay-analyze. Empty array = no errors OR session
+  // pre-feature. Schema validated by the analyzer (see ResolvedError type).
+  resolvedErrors: jsonb("resolved_errors").notNull().default(sql`'[]'::jsonb`),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type ReplaySession = typeof replaySessions.$inferSelect;
 export type NewReplaySession = typeof replaySessions.$inferInsert;
+
+// ── Replay comments (Day 4 — collab) ─────────────────────────────────────
+
+export const replayComments = pgTable("replay_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull().references(() => replaySessions.sessionId, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Position in the replay this comment is anchored to (session-relative ms). */
+  timestampMs: integer("timestamp_ms").notNull(),
+  body: text("body").notNull(),
+  /** 1-level threading; route layer rejects nested replies. */
+  parentId: uuid("parent_id"),
+  resolved: boolean("resolved").notNull().default(false),
+  /** User ids extracted from `@mentions` at create time. Drives notifications
+   *  AND lets the panel render avatars without an extra join. */
+  mentionedUserIds: uuid("mentioned_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ReplayComment = typeof replayComments.$inferSelect;
+export type NewReplayComment = typeof replayComments.$inferInsert;
 
 export const substrateRecordings = pgTable("substrate_recordings", {
   id: uuid("id").primaryKey().defaultRandom(),

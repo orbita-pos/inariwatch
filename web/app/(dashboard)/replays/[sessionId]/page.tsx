@@ -63,5 +63,5 @@ export default async function ReplayPage({
 
   if (!access) return notFound();
 
-  return <PlayerV2 sessionId={row.sessionId} />;
+  return <PlayerV2 sessionId={row.sessionId} currentUserId={userId} />;
 }

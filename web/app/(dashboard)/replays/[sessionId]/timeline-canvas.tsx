@@ -78,6 +78,9 @@ interface TimelineCanvasProps {
   errorMarkers?: number[];    // timestamps (ms) of error events — highlighted
   /** Phase E — frustration markers (rage + dead clicks). Drawn on the DOM track. */
   frustrationMarkers?: FrustrationMarker[];
+  /** Day 4 — comment timestamps. Rendered as small bubbles in the header
+   *  band so reviewers spot them while scrubbing. */
+  commentMarkers?: number[];
   causalChains?: UiCausalChain[];
   onSeek: (ms: number) => void;
   /**
@@ -98,6 +101,7 @@ export function TimelineCanvas({
   chapters = [],
   errorMarkers = [],
   frustrationMarkers = [],
+  commentMarkers = [],
   causalChains = [],
   onSeek,
   tracks = DEFAULT_TRACKS,
@@ -190,6 +194,19 @@ export function TimelineCanvas({
         ctx.fill();
       }
     });
+
+    // Comment markers — small filled circles in the header band. Drawn
+    // before the scrubber so the scrubber line stays on top when they collide.
+    if (commentMarkers.length > 0) {
+      ctx.fillStyle = "#f97316"; // inari-accent (orange-500) — matches the
+                                  // brand pill used for comments in the panel
+      for (const ts of commentMarkers) {
+        const x = eventsAreaLeft + (ts / effectiveDuration) * eventsAreaWidth;
+        ctx.beginPath();
+        ctx.arc(x, HEADER_HEIGHT - 6, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
 
     // Error markers — vertical red lines across all tracks
     ctx.strokeStyle = "rgba(239, 68, 68, 0.35)";
@@ -292,7 +309,7 @@ export function TimelineCanvas({
     ctx.lineTo(scrubX, 6);
     ctx.closePath();
     ctx.fill();
-  }, [duration, currentMs, chapters, errorMarkers, frustrationMarkers, eventsByTrack, tracks, trackIdxById, causalChains]);
+  }, [duration, currentMs, chapters, errorMarkers, frustrationMarkers, commentMarkers, eventsByTrack, tracks, trackIdxById, causalChains]);
 
   // Re-draw on any prop change (draw is stable via useCallback)
   useEffect(() => {
