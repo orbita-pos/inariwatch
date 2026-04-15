@@ -200,6 +200,79 @@ inariwatch/
 
 ---
 
+## Capture SDK packages
+
+The browser/server SDK is shipped as **four separately-published packages** on npm. Core is 32 KB gzipped; each integration ships in its own package and is a pure addition — errors-only users never pay for replay code they don't use.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  @inariwatch/capture                            0.7.0        │
+│  ~32 KB gzipped · zero runtime deps · works everywhere Node  │
+│  runs. Error tracking + breadcrumbs + git + env context.     │
+└──────────────────────────────────────────────────────────────┘
+                        │
+                        │ integrations: [ ... ]
+                        │
+     ┌──────────────────┼──────────────────┬────────────────────┐
+     ▼                  ▼                  ▼                    ▼
+┌─────────────┐   ┌──────────────┐   ┌───────────────┐   ┌──────────────┐
+│  -replay    │   │ -performance │   │   -feedback   │   │  (future)    │
+│   0.1.0     │   │    0.1.0     │   │     0.1.0     │   │              │
+│ +150 KB     │   │ +3 KB        │   │ +4 KB         │   │              │
+│ rrweb +     │   │ web-vitals   │   │ widget + native│   │  profiling,  │
+│ PII AI mask │   │ (LCP, INP,   │   │ Screen Capture│   │  A/B, etc.   │
+│             │   │  CLS, FCP,   │   │  API          │   │              │
+│             │   │  TTFB)       │   │               │   │              │
+└─────────────┘   └──────────────┘   └───────────────┘   └──────────────┘
+```
+
+**Install what you need:**
+
+```bash
+# Just error tracking
+npm install @inariwatch/capture
+
+# Plus session replay (auto-installs rrweb)
+npm install @inariwatch/capture @inariwatch/capture-replay
+
+# Plus Web Vitals
+npm install @inariwatch/capture @inariwatch/capture-performance
+
+# Plus feedback widget
+npm install @inariwatch/capture @inariwatch/capture-feedback
+```
+
+**Wire them up once** via the integration API (Sentry-style):
+
+```ts
+import { init } from "@inariwatch/capture"
+import { replayIntegration } from "@inariwatch/capture-replay"
+import { performanceIntegration } from "@inariwatch/capture-performance"
+import { feedbackIntegration } from "@inariwatch/capture-feedback"
+
+init({
+  dsn: process.env.NEXT_PUBLIC_INARIWATCH_DSN,
+  projectId: process.env.NEXT_PUBLIC_INARIWATCH_PROJECT_ID,
+  integrations: [
+    replayIntegration({ piiClassifier: "ai" }),
+    performanceIntegration(),
+    feedbackIntegration({ position: "bottom-right" }),
+  ],
+})
+```
+
+Or let the CLI do it:
+
+```bash
+npx @inariwatch/capture init
+# → detects framework, installs, scaffolds client component,
+#   asks "Enable session replay? [y/N]", writes env vars
+```
+
+Why modular? See [`RFC-0001` in the commit history](https://github.com/orbita-pos/inariwatch/commits/main) — the short answer is that Sentry, Datadog, Stripe, and Anthropic all ship this way in 2026, and forcing every user to download 150 KB of replay code for error-only use is not a decision top-tier SDKs make.
+
+---
+
 ## Contributing
 
 InariWatch is MIT licensed and we love contributions.

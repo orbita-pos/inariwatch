@@ -10,6 +10,18 @@ node_modules/
 web/.next/
 web/out/
 web/dist/
+web/tsconfig.tsbuildinfo
+
+# ── Worker / action (TS compiled output kept out of git) ──────────────────────
+worker/dist/
+action/dist-tsc/
+
+# ── VS Code extension build artefacts ─────────────────────────────────────────
+vscode/*.vsix
+vscode/out/
+
+# ── k6 test output ────────────────────────────────────────────────────────────
+k6/results/
 
 # ── Rust / CLI & Desktop ──────────────────────────────────────────────────────
 cli/target/

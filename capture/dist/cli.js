@@ -500,13 +500,40 @@ async function setupDsn(projectName) {
     writeDsnToEnv(dsn);
     success(`Connected to InariWatch (project: ${projectName})`);
 }
-// --- Print results ---
-function printDone(dsnConfigured) {
-    log(`\n${GREEN}${BOLD}Done.${RESET} InariWatch is active.\n`);
-    if (!dsnConfigured) {
-        log(`${DIM}Cloud mode:${RESET} Set ${CYAN}INARIWATCH_DSN${RESET} env var to send errors to your dashboard.`);
-        log(``);
+function printDone(summary) {
+    const check = `${GREEN}✓${RESET}`;
+    const dot = `${DIM}·${RESET}`;
+    log(``);
+    log(`${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}`);
+    log(`${GREEN}${BOLD} You're set up.${RESET} ${DIM}InariWatch is capturing errors.${RESET}`);
+    log(`${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}`);
+    log(``);
+    log(` ${check} ${BOLD}@inariwatch/capture${RESET}       ${DIM}installed${RESET}`);
+    log(` ${check} ${BOLD}${summary.framework}${RESET} integration      ${DIM}configured${RESET}`);
+    if (summary.dsnConfigured) {
+        log(` ${check} ${BOLD}DSN${RESET}                       ${DIM}written to .env${RESET}`);
     }
+    else {
+        log(` ${YELLOW}!${RESET} ${BOLD}DSN${RESET}                       ${DIM}local mode — errors print to terminal${RESET}`);
+    }
+    if (summary.replayEnabled) {
+        log(` ${check} ${BOLD}@inariwatch/capture-replay${RESET} ${DIM}installed${RESET}`);
+    }
+    log(``);
+    log(` ${BOLD}Next steps:${RESET}`);
+    log(`   ${dot} ${DIM}Start your dev server${RESET} ${CYAN}npm run dev${RESET}`);
+    log(`   ${dot} ${DIM}Throw an error — it'll land in your dashboard${RESET}`);
+    if (summary.replayEnabled) {
+        log(`   ${dot} ${DIM}Paste your project UUID into${RESET} ${CYAN}NEXT_PUBLIC_INARIWATCH_PROJECT_ID${RESET} ${DIM}in .env${RESET}`);
+        log(`   ${dot} ${DIM}Dashboard →${RESET} ${CYAN}https://app.inariwatch.com/replays${RESET}`);
+    }
+    if (!summary.dsnConfigured) {
+        log(`   ${dot} ${DIM}To send errors to the cloud, sign up at${RESET} ${CYAN}https://app.inariwatch.com${RESET}`);
+    }
+    log(``);
+    log(` ${DIM}Docs  →${RESET} ${CYAN}https://inariwatch.com/docs${RESET}`);
+    log(` ${DIM}Help  →${RESET} ${CYAN}https://github.com/orbita-pos/inariwatch-capture/issues${RESET}`);
+    log(``);
 }
 // --- Main ---
 async function main() {
@@ -544,11 +571,13 @@ async function main() {
     // Session replay is opt-in — it adds ~150 KB (rrweb) to client bundles and
     // ~$0.30/mo per active project in R2 storage. Ask once, save preference.
     log("");
+    let replayEnabled = false;
     if (project.framework === "nextjs") {
         const wantsReplay = await confirm(`${BOLD}Enable session replay?${RESET} ${DIM}(adds ~150 KB, lets you replay user sessions that triggered errors)${RESET}`, false);
         if (wantsReplay) {
             log("");
             setupReplay(project);
+            replayEnabled = true;
         }
     }
     const projectName = basename(cwd);
@@ -557,7 +586,7 @@ async function main() {
         const p = join(cwd, f);
         return existsSync(p) && readFileSync(p, "utf-8").includes("INARIWATCH_DSN");
     });
-    printDone(hasDsn);
+    printDone({ dsnConfigured: hasDsn, replayEnabled, framework: project.framework });
 }
 main().catch(console.error);
 //# sourceMappingURL=cli.js.map
