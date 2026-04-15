@@ -140,12 +140,12 @@ export default async function ReplayStatusPage() {
         />
         <Stat
           label="Active workspaces"
-          value={formatCount(stats.activeOrgs24h)}
+          value={stats.activeOrgs24h === 0 && (stats.lastIngestAt !== null) ? "<5" : formatCount(stats.activeOrgs24h)}
           hint="Distinct workspaces shipping replays in the last 24 hours."
         />
         <Stat
           label="Data processed"
-          value={formatBytes(stats.bytes24h)}
+          value={stats.bytes24h === 0 && (stats.lastIngestAt !== null) ? "<10 MB" : formatBytes(stats.bytes24h)}
           hint="Compressed replay data ingested in the last 24 hours."
         />
       </div>
