@@ -73,9 +73,22 @@ export async function updateReplaySettings(
 
   try {
     const cleaned = normaliseAndGate(patch, result.plan);
+    // Merge on top of existing settings instead of overwriting wholesale.
+    // Without this, an admin who saves an incomplete form (e.g. UI didn't
+    // surface `hashEndUserEmails`) would silently CLEAR fields the form
+    // didn't include — a privacy regression. Now an empty patch is a no-op.
+    const [existing] = await db
+      .select({ replaySettings: projects.replaySettings })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    const merged: ReplaySettings = {
+      ...((existing?.replaySettings ?? {}) as ReplaySettings),
+      ...cleaned,
+    };
     await db
       .update(projects)
-      .set({ replaySettings: cleaned })
+      .set({ replaySettings: merged })
       .where(eq(projects.id, projectId));
     revalidatePath(`/projects/${result.slug}`);
     return {};
@@ -134,6 +147,8 @@ function normaliseAndGate(patch: ReplaySettings, plan: "free" | "pro"): ReplaySe
     }
     out.piiClassifier = patch.piiClassifier;
   }
+
+  if (patch.hashEndUserEmails !== undefined) out.hashEndUserEmails = !!patch.hashEndUserEmails;
 
   return out;
 }

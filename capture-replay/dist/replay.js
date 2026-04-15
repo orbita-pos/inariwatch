@@ -209,6 +209,12 @@ async function flushBlock(opts = { isFinal: false }) {
                 dpr: window.devicePixelRatio,
             } : undefined,
             isFinal: opts.isFinal,
+            // Phase F — read end-user identity from a global the host page sets.
+            // Shape: `window.__INARIWATCH_USER__ = { id?: string, email?: string }`.
+            // Both fields optional. Read on every flush so logout / login mid-session
+            // is reflected in late blocks (the server's first-write-wins clause
+            // protects the session's canonical user from being overwritten).
+            user: readEndUser(),
         },
     };
     const url = `${state.endpoint}/api/replay/ingest`;
@@ -442,6 +448,185 @@ function attachErrorHandlers() {
     window.__inariwatchErrorsPatched = true;
 }
 /**
+ * Watch SPA navigations (Next.js, React Router, anything that uses the
+ * History API). rrweb only emits a meta event on initial snapshot + every
+ * `checkoutEveryNms`, so without this hook a SPA session shows a single
+ * URL chip in the breadcrumb strip even when the user visited 5 routes.
+ *
+ * We monkey-patch `history.pushState` / `history.replaceState` and listen
+ * for `popstate` (back/forward). Each detected change emits a lightweight
+ * `_kind: "nav"` event — much cheaper than a full DOM snapshot, and the
+ * player reads it the same way it reads rrweb meta events.
+ */
+/**
+ * Read `window.__INARIWATCH_USER__` and shape-guard it before sending. We
+ * do NOT auto-scrape forms / DOM for emails — the host page must explicitly
+ * publish the user. This is the privacy contract the docs make to customers.
+ *
+ * Returns undefined when the global is missing or malformed so the JSON
+ * payload omits the field entirely (matches the type `user?`).
+ */
+function readEndUser() {
+    if (typeof window === "undefined")
+        return undefined;
+    const raw = window.__INARIWATCH_USER__;
+    if (!raw || typeof raw !== "object")
+        return undefined;
+    const u = raw;
+    const out = {};
+    if (typeof u.id === "string" && u.id.length > 0)
+        out.id = u.id.slice(0, 200);
+    if (typeof u.email === "string" && u.email.length > 0)
+        out.email = u.email.slice(0, 200);
+    return out.id || out.email ? out : undefined;
+}
+function attachNavWatcher() {
+    if (typeof window === "undefined")
+        return;
+    const flag = window;
+    if (flag.__inariwatchNavPatched)
+        return;
+    let lastHref = location.href;
+    const emitIfChanged = () => {
+        const href = location.href;
+        if (href === lastHref)
+            return;
+        lastHref = href;
+        pushCustomEvent({ _kind: "nav", timestamp: Date.now(), href });
+    };
+    const origPush = history.pushState;
+    const origReplace = history.replaceState;
+    // Use function() (not arrow) so `this` binds to history naturally.
+    history.pushState = function (...args) {
+        const ret = origPush.apply(this, args);
+        // Defer to a microtask so frameworks that read location synchronously
+        // after pushState (e.g. Next.js router) finish their bookkeeping first.
+        queueMicrotask(emitIfChanged);
+        return ret;
+    };
+    history.replaceState = function (...args) {
+        const ret = origReplace.apply(this, args);
+        queueMicrotask(emitIfChanged);
+        return ret;
+    };
+    window.addEventListener("popstate", emitIfChanged);
+    // Hash-only navigations don't fire popstate consistently across browsers.
+    window.addEventListener("hashchange", emitIfChanged);
+    flag.__inariwatchNavPatched = true;
+}
+/**
+ * Attach Core Web Vitals observers. Each metric resolves at a different
+ * lifecycle moment:
+ *   - FCP / TTFB  → shortly after first paint
+ *   - LCP / CLS / INP → only finalised on visibility hide / pagehide
+ *
+ * We mirror the canonical Google `web-vitals` library's logic without the
+ * dependency. ~80 lines instead of ~5 KB. Edge cases NOT covered:
+ *   - Back/forward cache restorations (we don't re-emit on bfcache restore)
+ *   - Soft navigations (each SPA route gets its own initial vitals only
+ *     for the first load — subsequent route changes don't re-trigger LCP)
+ * Both are acceptable for v1 — the analyzer treats vitals as session-level.
+ *
+ * Rating thresholds: web.dev/vitals (Mar 2024 spec).
+ */
+function attachVitalsWatcher() {
+    if (typeof window === "undefined" || typeof PerformanceObserver === "undefined")
+        return;
+    const flag = window;
+    if (flag.__inariwatchVitalsPatched)
+        return;
+    const rate = (name, v) => {
+        if (name === "LCP")
+            return v <= 2500 ? "good" : v <= 4000 ? "needs-improvement" : "poor";
+        if (name === "CLS")
+            return v <= 0.1 ? "good" : v <= 0.25 ? "needs-improvement" : "poor";
+        if (name === "INP")
+            return v <= 200 ? "good" : v <= 500 ? "needs-improvement" : "poor";
+        if (name === "FCP")
+            return v <= 1800 ? "good" : v <= 3000 ? "needs-improvement" : "poor";
+        /* TTFB */ return v <= 800 ? "good" : v <= 1800 ? "needs-improvement" : "poor";
+    };
+    const emit = (name, value) => {
+        if (!Number.isFinite(value) || value < 0)
+            return;
+        pushCustomEvent({ _kind: "vital", timestamp: Date.now(), name, value: Math.round(value * 1000) / 1000, rating: rate(name, value) });
+    };
+    // FCP — fires once
+    try {
+        new PerformanceObserver((list, observer) => {
+            for (const e of list.getEntries()) {
+                if (e.name === "first-contentful-paint") {
+                    emit("FCP", e.startTime);
+                    observer.disconnect();
+                    break;
+                }
+            }
+        }).observe({ type: "paint", buffered: true });
+    }
+    catch { /* unsupported entry type */ }
+    // LCP — track latest, emit on hide
+    let latestLcp = 0;
+    try {
+        new PerformanceObserver((list) => {
+            for (const e of list.getEntries())
+                latestLcp = e.startTime;
+        }).observe({ type: "largest-contentful-paint", buffered: true });
+    }
+    catch { /* unsupported */ }
+    // CLS — accumulate (excluding shifts within 500ms of input, per spec)
+    let cls = 0;
+    try {
+        new PerformanceObserver((list) => {
+            for (const raw of list.getEntries()) {
+                const e = raw;
+                if (!e.hadRecentInput && typeof e.value === "number")
+                    cls += e.value;
+            }
+        }).observe({ type: "layout-shift", buffered: true });
+    }
+    catch { /* unsupported */ }
+    // INP — interaction-to-next-paint, take the largest
+    let maxInp = 0;
+    try {
+        new PerformanceObserver((list) => {
+            for (const e of list.getEntries()) {
+                const dur = e.duration ?? 0;
+                if (dur > maxInp)
+                    maxInp = dur;
+            }
+        }).observe({ type: "event", buffered: true, durationThreshold: 16 });
+    }
+    catch { /* unsupported */ }
+    // TTFB — synchronous read from navigation timing
+    try {
+        const nav = performance.getEntriesByType("navigation")[0];
+        if (nav && nav.responseStart > 0)
+            emit("TTFB", nav.responseStart);
+    }
+    catch { /* unsupported */ }
+    // Flush deferred metrics on hide. We use BOTH visibilitychange AND
+    // pagehide so single-page apps that never trigger pagehide (sample of
+    // mobile Safari quirks) still get final values.
+    let flushed = false;
+    const flushFinals = () => {
+        if (flushed)
+            return;
+        flushed = true;
+        if (latestLcp > 0)
+            emit("LCP", latestLcp);
+        if (cls > 0)
+            emit("CLS", cls);
+        if (maxInp > 0)
+            emit("INP", maxInp);
+    };
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden")
+            flushFinals();
+    }, { once: false });
+    window.addEventListener("pagehide", flushFinals, { once: true });
+    flag.__inariwatchVitalsPatched = true;
+}
+/**
  * Initialize replay recording. Browser-only, no-ops in Node. Idempotent
  * (second call is ignored). Never throws — all errors are logged in debug mode.
  */
@@ -526,6 +711,8 @@ export async function initReplay(replayConfig, captureConfig) {
     patchFetch(sessionId);
     patchConsole();
     attachErrorHandlers();
+    attachNavWatcher();
+    attachVitalsWatcher();
     // PII classifier — run synchronously on every existing input BEFORE rrweb's
     // first full-snapshot fires, then keep watching via MutationObserver.
     // Heuristics are O(form-count), zero network. If `piiClassifier: "ai"`,

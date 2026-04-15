@@ -6,13 +6,32 @@ import {
   toLikePattern,
   paginationInfo,
   filtersToSearchString,
+  dateToInputValue,
   PAGE_SIZE,
+  type ReplayFilters,
 } from "../replay-filters";
+
+const DEFAULTS: ReplayFilters = {
+  q: "",
+  errorsOnly: false,
+  browser: "",
+  since: "7d",
+  page: 1,
+  fingerprint: "",
+  urlPath: "",
+  dateFrom: null,
+  dateTo: null,
+  sortBy: "createdAt",
+  sortDir: "desc",
+  hasRageClicks: false,
+  hasDeadClicks: false,
+  endUserId: "",
+  endUserEmail: "",
+};
 
 describe("parseReplayFilters", () => {
   it("returns defaults for empty input", () => {
-    const f = parseReplayFilters({});
-    expect(f).toEqual({ q: "", errorsOnly: false, browser: "", since: "7d", page: 1 });
+    expect(parseReplayFilters({})).toEqual(DEFAULTS);
   });
 
   it("trims and caps q length", () => {
@@ -49,6 +68,48 @@ describe("parseReplayFilters", () => {
   it("takes first element when param is an array", () => {
     expect(parseReplayFilters({ q: ["first", "second"] }).q).toBe("first");
   });
+
+  it("trims and caps fingerprint", () => {
+    expect(parseReplayFilters({ fingerprint: "  abc123  " }).fingerprint).toBe("abc123");
+    expect(parseReplayFilters({ fingerprint: "x".repeat(200) }).fingerprint.length).toBe(100);
+  });
+
+  it("trims and caps urlPath", () => {
+    expect(parseReplayFilters({ urlPath: " /cart " }).urlPath).toBe("/cart");
+    expect(parseReplayFilters({ urlPath: "x".repeat(800) }).urlPath.length).toBe(500);
+  });
+
+  it("parses dateFrom as UTC midnight", () => {
+    const f = parseReplayFilters({ dateFrom: "2026-04-14" });
+    expect(f.dateFrom?.toISOString()).toBe("2026-04-14T00:00:00.000Z");
+  });
+
+  it("parses dateTo as end of UTC day (inclusive)", () => {
+    const f = parseReplayFilters({ dateTo: "2026-04-14" });
+    expect(f.dateTo?.toISOString()).toBe("2026-04-14T23:59:59.999Z");
+  });
+
+  it("ignores invalid dates", () => {
+    const f = parseReplayFilters({ dateFrom: "not-a-date", dateTo: "" });
+    expect(f.dateFrom).toBeNull();
+    expect(f.dateTo).toBeNull();
+  });
+
+  it("parses hasRageClicks / hasDeadClicks toggles", () => {
+    expect(parseReplayFilters({ hasRageClicks: "true" }).hasRageClicks).toBe(true);
+    expect(parseReplayFilters({ hasRageClicks: "1" }).hasRageClicks).toBe(true);
+    expect(parseReplayFilters({ hasRageClicks: "false" }).hasRageClicks).toBe(false);
+    expect(parseReplayFilters({ hasDeadClicks: "TRUE" }).hasDeadClicks).toBe(true);
+  });
+
+  it("validates sortBy and sortDir", () => {
+    expect(parseReplayFilters({ sortBy: "durationMs" }).sortBy).toBe("durationMs");
+    expect(parseReplayFilters({ sortBy: "totalBytes" }).sortBy).toBe("totalBytes");
+    expect(parseReplayFilters({ sortBy: "evil" }).sortBy).toBe("createdAt");
+    expect(parseReplayFilters({ sortDir: "asc" }).sortDir).toBe("asc");
+    expect(parseReplayFilters({ sortDir: "DESC" }).sortDir).toBe("desc");
+    expect(parseReplayFilters({ sortDir: "sideways" }).sortDir).toBe("desc");
+  });
 });
 
 describe("sinceToDate", () => {
@@ -75,6 +136,15 @@ describe("hasActiveFilters", () => {
     expect(hasActiveFilters(parseReplayFilters({ errors: "true" }))).toBe(true);
     expect(hasActiveFilters(parseReplayFilters({ browser: "Chrome" }))).toBe(true);
     expect(hasActiveFilters(parseReplayFilters({ since: "24h" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ fingerprint: "abc" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ urlPath: "/cart" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ dateFrom: "2026-04-01" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ sortBy: "durationMs" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ sortDir: "asc" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ hasRageClicks: "true" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ hasDeadClicks: "true" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ endUserId: "u_42" }))).toBe(true);
+    expect(hasActiveFilters(parseReplayFilters({ endUserEmail: "x@y.com" }))).toBe(true);
   });
 });
 
@@ -104,11 +174,24 @@ describe("paginationInfo", () => {
   });
 });
 
+describe("dateToInputValue", () => {
+  it("formats Date as YYYY-MM-DD UTC", () => {
+    expect(dateToInputValue(new Date("2026-04-14T00:00:00Z"))).toBe("2026-04-14");
+    expect(dateToInputValue(new Date("2026-04-14T23:59:59.999Z"))).toBe("2026-04-14");
+  });
+
+  it("returns empty for null/undefined", () => {
+    expect(dateToInputValue(null)).toBe("");
+    expect(dateToInputValue(undefined)).toBe("");
+  });
+});
+
 describe("filtersToSearchString", () => {
   it("omits defaults", () => {
     expect(filtersToSearchString({})).toBe("");
     expect(filtersToSearchString({ since: "7d" })).toBe(""); // default window
     expect(filtersToSearchString({ page: 1 })).toBe(""); // default page
+    expect(filtersToSearchString({ sortBy: "createdAt", sortDir: "desc" })).toBe("");
   });
 
   it("encodes non-defaults", () => {
@@ -118,8 +201,37 @@ describe("filtersToSearchString", () => {
       .toBe("browser=Chrome&since=24h&page=3");
   });
 
+  it("encodes new filter fields", () => {
+    expect(filtersToSearchString({ fingerprint: "abc", urlPath: "/cart" }))
+      .toBe("fingerprint=abc&urlPath=%2Fcart");
+    expect(filtersToSearchString({ sortBy: "durationMs", sortDir: "asc" }))
+      .toBe("sortBy=durationMs&sortDir=asc");
+    expect(filtersToSearchString({ dateFrom: new Date("2026-04-14T00:00:00Z") }))
+      .toBe("dateFrom=2026-04-14");
+    expect(filtersToSearchString({ hasRageClicks: true, hasDeadClicks: true }))
+      .toBe("hasRageClicks=true&hasDeadClicks=true");
+    expect(filtersToSearchString({ endUserId: "u_42", endUserEmail: "j@a.com" }))
+      .toBe("endUserId=u_42&endUserEmail=j%40a.com");
+  });
+
   it("roundtrips through parseReplayFilters", () => {
-    const original = parseReplayFilters({ q: "hello", errors: "true", browser: "Firefox", since: "30d", page: "5" });
+    const original = parseReplayFilters({
+      q: "hello",
+      errors: "true",
+      browser: "Firefox",
+      since: "30d",
+      page: "5",
+      fingerprint: "abc",
+      urlPath: "/checkout",
+      dateFrom: "2026-04-01",
+      dateTo: "2026-04-14",
+      sortBy: "durationMs",
+      sortDir: "asc",
+      hasRageClicks: "true",
+      hasDeadClicks: "true",
+      endUserId: "u_42",
+      endUserEmail: "juan@acme.com",
+    });
     const qs = filtersToSearchString(original);
     const params = new URLSearchParams(qs);
     const reparsed = parseReplayFilters(Object.fromEntries(params.entries()));

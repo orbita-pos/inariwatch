@@ -19,7 +19,28 @@ export interface IngestBody {
     os?: string;
     viewport?: { width: number; height: number; dpr?: number };
     isFinal?: boolean;
+    /** Phase F — set from window.__INARIWATCH_USER__ in the SDK. Both
+     *  fields are individually optional; either, both, or neither may
+     *  arrive. The ingest validator caps lengths and strips control chars. */
+    user?: { id?: string; email?: string };
   };
+}
+
+/** Cap on each end-user identifier field to keep storage / log lines bounded. */
+export const END_USER_FIELD_LIMIT = 200;
+
+/**
+ * Sanitize a user-id or email string from the SDK before it touches the DB.
+ * Strips control characters (which would render badly in dashboard UI and
+ * could be used to inject ANSI escapes into logs), trims, caps length.
+ * Returns null for empty / non-string input so callers can null-check once.
+ */
+export function sanitizeEndUserField(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  // Drop ASCII control chars (\x00-\x1F + \x7F) so log lines stay clean.
+  const stripped = raw.replace(/[\x00-\x1F\x7F]/g, "").trim();
+  if (stripped.length === 0) return null;
+  return stripped.slice(0, END_USER_FIELD_LIMIT);
 }
 
 export const SELECTOR_LIMIT = 50;
@@ -28,11 +49,15 @@ export const ERROR_FP_LIMIT = 20;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
- * SDK always emits `s_<uuid>` or `s_<32hex>`. Reject anything else so
- * attackers can't flood the index with junk sessionIds like path-traversal
- * strings, SQL-looking blobs, or collisions with real ids.
+ * SDK always emits `s_<uuid>` (32 hex) or `s_<base64url-encoded random>`.
+ * Reject anything else so attackers can't flood the index with junk ids.
+ *
+ * Minimum 22 chars after the `s_` prefix = ≥128 bits of entropy (UUID
+ * strength). Anything shorter is brute-forceable by an attacker who wants
+ * to race the legit SDK's first ingest call (Phase F end_user poisoning
+ * vector — see route.ts COALESCE comment).
  */
-const SESSION_ID_RE = /^s_[A-Za-z0-9_-]{6,128}$/;
+const SESSION_ID_RE = /^s_[A-Za-z0-9_-]{22,128}$/;
 
 /**
  * Returns null if valid, or an error message string if the body is malformed.
@@ -84,6 +109,33 @@ export function extractUrls(events: unknown[]): string[] {
       const url = e.data.href.slice(0, 500);
       if (!out.includes(url)) out.push(url);
     }
+  }
+  return out;
+}
+
+// Phase G — Core Web Vitals snapshot extracted from the SDK's _kind:vital events.
+// One entry per metric name; later events with the same name overwrite earlier
+// ones (vitals settle on tab hide, so the last value is the canonical one).
+export type WebVitalsSnapshot = Partial<Record<
+  "LCP" | "CLS" | "INP" | "FCP" | "TTFB",
+  { value: number; rating: "good" | "needs-improvement" | "poor" }
+>>;
+
+export function extractWebVitals(events: unknown[]): WebVitalsSnapshot {
+  const out: WebVitalsSnapshot = {};
+  const validNames = new Set(["LCP", "CLS", "INP", "FCP", "TTFB"]);
+  const validRatings = new Set(["good", "needs-improvement", "poor"]);
+  for (const raw of events) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as { _kind?: string; name?: string; value?: number; rating?: string };
+    if (e._kind !== "vital") continue;
+    if (!e.name || !validNames.has(e.name)) continue;
+    if (typeof e.value !== "number" || !Number.isFinite(e.value) || e.value < 0) continue;
+    if (!e.rating || !validRatings.has(e.rating)) continue;
+    out[e.name as keyof WebVitalsSnapshot] = {
+      value: e.value,
+      rating: e.rating as "good" | "needs-improvement" | "poor",
+    };
   }
   return out;
 }

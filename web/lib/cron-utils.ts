@@ -32,7 +32,8 @@ export type CronRoute =
   | "uptime"
   | "digest"
   | "quota-reset"
-  | "budget-alert";
+  | "budget-alert"
+  | "replay-retention";
 
 export function cronLog(
   route: CronRoute,

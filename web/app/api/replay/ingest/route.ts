@@ -14,11 +14,15 @@ import {
   extractClickSelectors,
   extractUrls,
   extractErrorFingerprints,
+  extractWebVitals,
+  sanitizeEndUserField,
   SELECTOR_LIMIT,
   URL_LIMIT,
   ERROR_FP_LIMIT,
   type IngestBody,
+  type WebVitalsSnapshot,
 } from "./helpers";
+import { sha256Lower } from "@/lib/hash";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -195,6 +199,20 @@ export async function POST(req: NextRequest) {
   const urlsVisited = extractUrls(body.events).slice(0, URL_LIMIT);
   const errorFingerprints = extractErrorFingerprints(body.events).slice(0, ERROR_FP_LIMIT);
 
+  // Phase F — end-user identity. Both fields are optional; sanitize and hash
+  // even when only one is present. The DB column update below uses
+  // first-write-wins so two parallel blocks for the same session can't
+  // toggle the user id (the customer's app set it once at session start).
+  const endUserId = sanitizeEndUserField(body.metadata?.user?.id);
+  const endUserEmail = sanitizeEndUserField(body.metadata?.user?.email);
+  const endUserEmailHash = sha256Lower(endUserEmail);
+
+  // Phase G — extract Core Web Vitals from this block. Most blocks won't
+  // contain any (the SDK only emits on visibility-hide and pagehide), so
+  // this is usually an empty object except on the FINAL block.
+  const blockVitals: WebVitalsSnapshot = extractWebVitals(body.events);
+  const hasVitals = Object.keys(blockVitals).length > 0;
+
   // Upsert session metadata (first block creates row, subsequent blocks update counters)
   const startedAtDate = new Date(body.metadata?.startedAt ?? Date.now());
   const isFinal = body.metadata?.isFinal === true;
@@ -238,6 +256,12 @@ export async function POST(req: NextRequest) {
       browser: body.metadata?.browser ?? null,
       os: body.metadata?.os ?? null,
       viewport: body.metadata?.viewport ?? null,
+      endUserId: endUserId,
+      endUserEmail: endUserEmail,
+      endUserEmailHash: endUserEmailHash,
+      // Phase G: persist whatever vitals this block carried (usually only
+      // the final block ships any). Subsequent blocks merge via `||` below.
+      webVitals: blockVitals,
     })
     .onConflictDoUpdate({
       target: replaySessions.sessionId,
@@ -253,6 +277,23 @@ export async function POST(req: NextRequest) {
         clickSelectors: mergeTextArray(replaySessions.clickSelectors, clickSelectors),
         urlsVisited: mergeTextArray(replaySessions.urlsVisited, urlsVisited),
         errorFingerprints: mergeTextArray(replaySessions.errorFingerprints, errorFingerprints),
+        // First-write-wins for end-user fields. COALESCE keeps whatever was
+        // stored from the FIRST block that carried a user, even if later
+        // blocks ship a different (or null) value. This protects against:
+        //   1. SDKs that set the user mid-session — first block has nothing,
+        //      later blocks have the email; the COALESCE preserves it.
+        //   2. Races where a block arrives after the customer's app cleared
+        //      __INARIWATCH_USER__ on logout.
+        endUserId: sql`COALESCE(${replaySessions.endUserId}, ${endUserId})`,
+        endUserEmail: sql`COALESCE(${replaySessions.endUserEmail}, ${endUserEmail})`,
+        endUserEmailHash: sql`COALESCE(${replaySessions.endUserEmailHash}, ${endUserEmailHash})`,
+        // Postgres `||` jsonb operator does a SHALLOW MERGE keyed by top-level
+        // key. New block's vital wins when both sides set the same metric —
+        // semantically correct because vitals settle late in the session,
+        // so the LATEST measurement is the canonical one.
+        webVitals: hasVitals
+          ? sql`${replaySessions.webVitals} || ${JSON.stringify(blockVitals)}::jsonb`
+          : replaySessions.webVitals,
         updatedAt: new Date(),
       },
     });

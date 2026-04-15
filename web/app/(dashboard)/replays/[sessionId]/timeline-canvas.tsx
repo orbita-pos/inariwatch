@@ -2,9 +2,17 @@
 
 import { useRef, useEffect, useCallback, useMemo } from "react";
 
+export type TrackKind = "dom" | "network" | "console" | "io" | "error" | "nav";
+
+export type TrackDef = {
+  id: TrackKind;
+  label: string;
+  color: string;
+};
+
 export type TimelineEvent = {
   timestamp: number;
-  kind: "dom" | "network" | "console" | "io" | "error";
+  kind: TrackKind;
   summary?: string;
 };
 
@@ -12,6 +20,16 @@ export type Chapter = {
   ts: number;
   title: string;
   isError?: boolean;
+};
+
+/** Phase E — frustration markers drawn on top of the regular tracks. */
+export type FrustrationMarker = {
+  /** Session-relative ms. */
+  ts: number;
+  /** "rage" = filled red square; "dead" = hollow red square. */
+  kind: "rage" | "dead";
+  /** Tooltip helper. */
+  selector?: string;
 };
 
 /** Causal chain in UI-friendly form — timestamps relative to session start. */
@@ -26,30 +44,49 @@ export type UiCausalChain = {
   links: UiCausalLink[];
 };
 
-interface TimelineCanvasProps {
-  duration: number;           // total session duration in ms
-  currentMs: number;          // scrubber position
-  events: TimelineEvent[];
-  chapters?: Chapter[];
-  errorMarkers?: number[];    // timestamps (ms) of error events — highlighted
-  causalChains?: UiCausalChain[];
-  onSeek: (ms: number) => void;
-}
-
-const ROLE_Y_INDEX: Record<UiCausalLink["role"], number> = {
-  user_action: 0, // DOM track
-  http_cause: 1,  // Network track
-  db_cause: 3,    // Backend track (io)
-  error: 4,       // Errors track
-};
-
-const TRACKS: { id: TimelineEvent["kind"]; label: string; color: string }[] = [
+/**
+ * Default track set — unchanged from the original 5-track layout so
+ * existing callers that don't pass a `tracks` prop keep the same look.
+ * Phase C adds `nav` to the Player's own config, not here.
+ */
+export const DEFAULT_TRACKS: TrackDef[] = [
   { id: "dom",     label: "DOM",     color: "#60a5fa" }, // blue-400
   { id: "network", label: "Network", color: "#a78bfa" }, // violet-400
   { id: "console", label: "Console", color: "#fbbf24" }, // amber-400
   { id: "io",      label: "Backend", color: "#34d399" }, // emerald-400
   { id: "error",   label: "Errors",  color: "#ef4444" }, // red-500
 ];
+
+/**
+ * Map causal-chain role → track id. Roles are semantic (what the event
+ * represents in the incident timeline); track ids are visual channels.
+ * Centralized here so a custom `tracks` prop that renames/reorders
+ * channels can drive the chain-drawing code without a schema change.
+ */
+const ROLE_TO_TRACK_ID: Record<UiCausalLink["role"], TrackKind> = {
+  user_action: "dom",
+  http_cause: "network",
+  db_cause: "io",
+  error: "error",
+};
+
+interface TimelineCanvasProps {
+  duration: number;           // total session duration in ms
+  currentMs: number;          // scrubber position
+  events: TimelineEvent[];
+  chapters?: Chapter[];
+  errorMarkers?: number[];    // timestamps (ms) of error events — highlighted
+  /** Phase E — frustration markers (rage + dead clicks). Drawn on the DOM track. */
+  frustrationMarkers?: FrustrationMarker[];
+  causalChains?: UiCausalChain[];
+  onSeek: (ms: number) => void;
+  /**
+   * Override the default 5-track layout. Phase C additions (e.g. "nav")
+   * slot in here. Backward-compatible: omitting the prop yields the
+   * original 5-track view.
+   */
+  tracks?: TrackDef[];
+}
 
 const TRACK_LABEL_WIDTH = 68;
 const HEADER_HEIGHT = 24;
@@ -60,22 +97,34 @@ export function TimelineCanvas({
   events,
   chapters = [],
   errorMarkers = [],
+  frustrationMarkers = [],
   causalChains = [],
   onSeek,
+  tracks = DEFAULT_TRACKS,
 }: TimelineCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Group events by track for faster draw
+  // Lookup track index by id — replaces the old hardcoded ROLE_Y_INDEX.
+  // Memoized so the causal-chain drawing loop doesn't iterate on every
+  // link.
+  const trackIdxById = useMemo(() => {
+    const map: Partial<Record<TrackKind, number>> = {};
+    tracks.forEach((t, i) => { map[t.id] = i; });
+    return map;
+  }, [tracks]);
+
+  // Group events by track for faster draw. Events whose kind isn't in
+  // the active `tracks` list are dropped silently (they just won't render).
   const eventsByTrack = useMemo(() => {
-    const grouped: Record<TimelineEvent["kind"], TimelineEvent[]> = {
-      dom: [], network: [], console: [], io: [], error: [],
-    };
+    const grouped: Partial<Record<TrackKind, TimelineEvent[]>> = {};
+    for (const t of tracks) grouped[t.id] = [];
     for (const e of events) {
-      if (grouped[e.kind]) grouped[e.kind].push(e);
+      const bucket = grouped[e.kind];
+      if (bucket) bucket.push(e);
     }
     return grouped;
-  }, [events]);
+  }, [events, tracks]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -101,7 +150,7 @@ export function TimelineCanvas({
     // Protect against division by zero — show empty timeline if duration unknown
     const effectiveDuration = duration > 0 ? duration : 1;
     const trackAreaHeight = cssHeight - HEADER_HEIGHT;
-    const trackHeight = trackAreaHeight / TRACKS.length;
+    const trackHeight = trackAreaHeight / Math.max(1, tracks.length);
     const eventsAreaLeft = TRACK_LABEL_WIDTH;
     const eventsAreaWidth = cssWidth - eventsAreaLeft;
 
@@ -116,8 +165,8 @@ export function TimelineCanvas({
       ctx.fillText(chapter.title.slice(0, 40), x + 4, 4);
     }
 
-    // Tracks
-    TRACKS.forEach((track, i) => {
+    // Tracks — iterate over the caller-provided `tracks` array
+    tracks.forEach((track, i) => {
       const y = HEADER_HEIGHT + i * trackHeight;
       const centerY = y + trackHeight / 2;
 
@@ -133,7 +182,7 @@ export function TimelineCanvas({
 
       // Events as dots
       ctx.fillStyle = track.color;
-      const trackEvents = eventsByTrack[track.id];
+      const trackEvents = eventsByTrack[track.id] ?? [];
       for (const e of trackEvents) {
         const x = eventsAreaLeft + (e.timestamp / effectiveDuration) * eventsAreaWidth;
         ctx.beginPath();
@@ -153,32 +202,72 @@ export function TimelineCanvas({
       ctx.stroke();
     }
 
-    // Causal chains — dashed amber connector linking user action → HTTP → DB → error
+    // Frustration markers (Phase E) — squares on the DOM track. Rage =
+    // filled red 8x8; dead = hollow 8x8. Drawn after dots so they overlay
+    // the regular event markers on the same row.
+    if (frustrationMarkers.length > 0) {
+      const domIdx = trackIdxById.dom;
+      if (typeof domIdx === "number") {
+        const trackY = HEADER_HEIGHT + domIdx * trackHeight;
+        const centerY = trackY + trackHeight / 2;
+        const SIZE = 8;
+        for (const m of frustrationMarkers) {
+          const x = eventsAreaLeft + (m.ts / effectiveDuration) * eventsAreaWidth;
+          if (m.kind === "rage") {
+            ctx.fillStyle = "#ef4444"; // red-500
+            ctx.fillRect(x - SIZE / 2, centerY - SIZE / 2, SIZE, SIZE);
+          } else {
+            ctx.strokeStyle = "#ef4444";
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(x - SIZE / 2, centerY - SIZE / 2, SIZE, SIZE);
+          }
+        }
+      }
+    }
+
+    // Causal chains — dashed amber connector linking user action → HTTP → DB → error.
+    // Each link's y-coordinate is derived by mapping role → track-id →
+    // index in the caller's `tracks` array. This keeps chain drawing
+    // correct even when the track order or content is customized.
     if (causalChains.length > 0) {
       ctx.save();
       ctx.strokeStyle = "rgba(251, 191, 36, 0.75)"; // amber-400
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 3]);
+
+      const yForRole = (role: UiCausalLink["role"]): number | null => {
+        const trackId = ROLE_TO_TRACK_ID[role];
+        const idx = trackIdxById[trackId];
+        if (typeof idx !== "number") return null;
+        return HEADER_HEIGHT + idx * trackHeight + trackHeight / 2;
+      };
+
       for (const chain of causalChains) {
         if (chain.links.length < 2) continue;
-        ctx.beginPath();
-        chain.links.forEach((link, i) => {
+
+        // Gather points; skip links whose role isn't in the active track set.
+        const points: { x: number; y: number }[] = [];
+        for (const link of chain.links) {
+          const y = yForRole(link.role);
+          if (y === null) continue;
           const x = eventsAreaLeft + (link.tsRelative / effectiveDuration) * eventsAreaWidth;
-          const trackIdx = ROLE_Y_INDEX[link.role] ?? 0;
-          const y = HEADER_HEIGHT + trackIdx * trackHeight + trackHeight / 2;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          points.push({ x, y });
+        }
+        if (points.length < 2) continue;
+
+        ctx.beginPath();
+        points.forEach((p, i) => {
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
         });
         ctx.stroke();
+
         // Small circle at each link end for affordance
         ctx.setLineDash([]);
         ctx.fillStyle = "#fde68a"; // amber-200
-        for (const link of chain.links) {
-          const x = eventsAreaLeft + (link.tsRelative / effectiveDuration) * eventsAreaWidth;
-          const trackIdx = ROLE_Y_INDEX[link.role] ?? 0;
-          const y = HEADER_HEIGHT + trackIdx * trackHeight + trackHeight / 2;
+        for (const p of points) {
           ctx.beginPath();
-          ctx.arc(x, y, 3.5, 0, 2 * Math.PI);
+          ctx.arc(p.x, p.y, 3.5, 0, 2 * Math.PI);
           ctx.fill();
         }
         ctx.setLineDash([4, 3]);
@@ -203,7 +292,7 @@ export function TimelineCanvas({
     ctx.lineTo(scrubX, 6);
     ctx.closePath();
     ctx.fill();
-  }, [duration, currentMs, chapters, errorMarkers, eventsByTrack]);
+  }, [duration, currentMs, chapters, errorMarkers, frustrationMarkers, eventsByTrack, tracks, trackIdxById, causalChains]);
 
   // Re-draw on any prop change (draw is stable via useCallback)
   useEffect(() => {

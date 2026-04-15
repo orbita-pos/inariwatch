@@ -182,6 +182,18 @@ export type ReplaySettings = {
    * maskAllInputs. Default `"ai"`.
    */
   piiClassifier?: "ai" | "heuristic" | false;
+  /**
+   * Phase F privacy toggle. When `true`, the dashboard never returns the
+   * raw end-user email — only its sha256 hash. Server still STORES the
+   * plain email at ingest (so a customer can flip back without losing
+   * data) but the manifest route redacts it on every read.
+   *
+   * Default `false` matches Sentry/FullStory/Datadog: plain emails make
+   * the support workflow ("show me sessions for juan@acme.com") work
+   * out of the box. Privacy-conscious customers flip this on and the
+   * raw email never leaves Postgres.
+   */
+  hashEndUserEmails?: boolean;
 };
 
 /** Canonical defaults — applied when a project's replay_settings jsonb is empty. */
@@ -192,6 +204,7 @@ export const DEFAULT_REPLAY_SETTINGS: Required<ReplaySettings> = {
   bufferSeconds: 60,
   retentionDays: 7,
   piiClassifier: "ai",
+  hashEndUserEmails: false,
 };
 
 export type AutoMergeConfig = {
@@ -783,6 +796,25 @@ export const replaySessions = pgTable("replay_sessions", {
 
   aiSummary: text("ai_summary"),
   aiChapters: jsonb("ai_chapters"),
+
+  // Phase E — frustration signals. Both populated by replay-analyze worker
+  // after a session ends. Default '[]' means old rows + sessions awaiting
+  // analysis read as "no detected frustration" without null guards.
+  rageClicks: jsonb("rage_clicks").notNull().default(sql`'[]'::jsonb`),
+  deadClicks: jsonb("dead_clicks").notNull().default(sql`'[]'::jsonb`),
+
+  // Phase F — end-user identity. All nullable; populated at ingest from
+  // window.__INARIWATCH_USER__ if the customer's app sets it. emailHash
+  // is kept beside the plain email so the privacy toggle is a render-time
+  // decision (no re-process needed).
+  endUserId: text("end_user_id"),
+  endUserEmail: text("end_user_email"),
+  endUserEmailHash: text("end_user_email_hash"),
+
+  // Phase G — Core Web Vitals snapshot. Object keyed by vital name (LCP,
+  // CLS, INP, FCP, TTFB) with `{ value, rating }`. Empty object means
+  // "session pre-Phase G OR vitals never reported (e.g. headless / Node)".
+  webVitals: jsonb("web_vitals").notNull().default(sql`'{}'::jsonb`),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

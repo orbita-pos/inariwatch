@@ -40,7 +40,7 @@ async function inspect(page: Page, label: string) {
       iframeWidthAttr: iframe?.getAttribute("width"),
       iframeStyleWidth: iframe?.style.width,
       iframeStyleHeight: iframe?.style.height,
-      iframeNaturalW: iframe?.naturalWidth,
+      iframeNaturalW: undefined,  // iframes don't have naturalWidth
       chain,
     };
   });

@@ -177,6 +177,18 @@ export function ReplaySettingsSection({
             <option value="false">Disabled (mask all inputs)</option>
           </select>
         </Row>
+
+        {/* Hash end-user emails (Phase F) */}
+        <Row
+          label="Hash end-user emails"
+          description="When on, the dashboard never displays raw end-user emails — only sha256 hashes. The plain value is still stored at ingest so you can flip back without losing data. Recommended for GDPR-sensitive deployments."
+        >
+          <Toggle
+            checked={settings.hashEndUserEmails}
+            onChange={(v) => patch("hashEndUserEmails", v)}
+            disabled={disabled}
+          />
+        </Row>
       </div>
 
       {isAdmin && (

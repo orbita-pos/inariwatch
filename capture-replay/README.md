@@ -77,6 +77,32 @@ No field content ever leaves the browser — only metadata (name, label, placeho
 
 Set `piiClassifier: false` if you prefer the simpler `maskAllInputs: true` behaviour.
 
+## Identifying users
+
+Attach the signed-in user to every replay session so the dashboard can group
+sessions, search by email, and answer "show me all sessions for `juan@acme.com`":
+
+```ts
+// After the user logs in (anywhere in your app):
+window.__INARIWATCH_USER__ = {
+  id: user.id,            // optional, app-side stable id (recommended)
+  email: user.email,      // optional, displayed in dashboard
+}
+
+// On logout:
+delete window.__INARIWATCH_USER__
+```
+
+The SDK reads this global on every block flush — there is **no DOM scraping**.
+Both fields are optional and capped at 200 chars. The first block that carries
+a user "wins" for the session (server-side first-write-wins prevents a stray
+late block from overwriting the canonical user).
+
+**Privacy:** by default the dashboard displays the raw email. To hash it instead
+(sha256 lowercased), turn on **Hash end-user emails** in the project's Replay
+settings — the plain value stays in the database so you can flip back without
+losing data.
+
 ## Security
 
 - Browser sends POST to `/api/replay/ingest` with a 30-second block

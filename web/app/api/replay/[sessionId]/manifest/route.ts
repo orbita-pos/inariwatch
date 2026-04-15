@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { replaySessions, organizationMembers, organizations } from "@/lib/db/schema";
+import { replaySessions, projects, organizationMembers, organizations } from "@/lib/db/schema";
+import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { getSessionBlockUrls } from "@/lib/storage/replay-storage";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
@@ -28,6 +29,20 @@ interface ManifestResponse {
   errorFingerprints: string[];
   aiSummary: string | null;
   aiChapters: unknown;
+  // Phase E — frustration signals (timestamps already session-relative,
+  // populated by lib/jobs/replay-analyze.ts). Empty arrays for sessions
+  // that haven't been analyzed yet.
+  rageClicks: { timestamp: number; selector: string; count: number }[];
+  deadClicks: { timestamp: number; selector: string; mutationsAfter: number }[];
+  frustrationScore: number;
+  /** Phase F — end-user identity. `email` is null when the project's
+   *  `hashEndUserEmails` toggle is on; `emailHash` is always present
+   *  alongside (sha256 lowercased) so the UI can display a stable mask. */
+  endUser: { id: string | null; email: string | null; emailHash: string | null } | null;
+  /** Phase G — Core Web Vitals snapshot. Empty object for sessions that
+   *  predate Phase G or where the SDK never observed a metric (headless,
+   *  Node, very short sessions). */
+  webVitals: Record<string, { value: number; rating: "good" | "needs-improvement" | "poor" }>;
   blocks: { index: number; startMs: number; endMs: number; url: string }[];
 }
 
@@ -74,6 +89,13 @@ export async function GET(
       viewport: replaySessions.viewport,
       aiSummary: replaySessions.aiSummary,
       aiChapters: replaySessions.aiChapters,
+      rageClicks: replaySessions.rageClicks,
+      deadClicks: replaySessions.deadClicks,
+      frustrationScore: replaySessions.frustrationScore,
+      endUserId: replaySessions.endUserId,
+      endUserEmail: replaySessions.endUserEmail,
+      endUserEmailHash: replaySessions.endUserEmailHash,
+      webVitals: replaySessions.webVitals,
     })
     .from(replaySessions)
     .where(eq(replaySessions.sessionId, sessionId))
@@ -137,8 +159,52 @@ export async function GET(
     errorFingerprints: row.errorFingerprints,
     aiSummary: row.aiSummary,
     aiChapters: row.aiChapters,
+    rageClicks: Array.isArray(row.rageClicks) ? (row.rageClicks as ManifestResponse["rageClicks"]) : [],
+    deadClicks: Array.isArray(row.deadClicks) ? (row.deadClicks as ManifestResponse["deadClicks"]) : [],
+    frustrationScore: row.frustrationScore ?? 0,
+    endUser: await buildEndUserPayload(row.projectId, row.endUserId, row.endUserEmail, row.endUserEmailHash),
+    webVitals: (row.webVitals ?? {}) as ManifestResponse["webVitals"],
     blocks,
   };
 
   return NextResponse.json(response);
+}
+
+/**
+ * Build the manifest's `endUser` payload, applying the project's privacy
+ * toggle. When `hashEndUserEmails` is true, the raw email is dropped and
+ * only the hash flows to the client. Returns null when no identity was
+ * captured at all (the typical case for sessions whose host page never
+ * set `window.__INARIWATCH_USER__`).
+ */
+async function buildEndUserPayload(
+  projectId: string | null,
+  endUserId: string | null,
+  endUserEmail: string | null,
+  endUserEmailHash: string | null,
+): Promise<ManifestResponse["endUser"]> {
+  if (!endUserId && !endUserEmail && !endUserEmailHash) return null;
+
+  let hashEmails = DEFAULT_REPLAY_SETTINGS.hashEndUserEmails;
+  if (projectId) {
+    const [proj] = await db
+      .select({ replaySettings: projects.replaySettings })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    const settings = (proj?.replaySettings ?? {}) as ReplaySettings;
+    hashEmails = settings.hashEndUserEmails ?? DEFAULT_REPLAY_SETTINGS.hashEndUserEmails;
+  }
+
+  return {
+    // Mask id alongside email when the toggle is on. Customers occasionally
+    // ship `user.id` as an email-shaped value (e.g. when their app uses
+    // email as the primary key); without this, the toggle would protect
+    // emails-via-email but leak emails-via-id.
+    id: hashEmails ? null : endUserId,
+    // When the privacy toggle is on, the raw email must not leave the server.
+    // We still surface the hash so the dashboard can render a stable "User …abc12" pill.
+    email: hashEmails ? null : endUserEmail,
+    emailHash: endUserEmailHash,
+  };
 }

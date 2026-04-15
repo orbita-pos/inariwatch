@@ -23,6 +23,8 @@ import { fetchBlock, blockKey, sessionPrefix } from "@/lib/storage/replay-storag
 import { callAI } from "@/lib/ai/client";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "@/lib/ai/get-key";
 import { detectCausalChains, type CausalChain } from "./replay-causal-chain";
+import { detectRageClicks, type RageClick } from "./replay-rage-click";
+import { detectDeadClicks, type DeadClick } from "./replay-dead-click";
 
 const MAX_EVENTS_FOR_PROMPT = 400; // cap context to keep Haiku cost predictable
 const MAX_CHAPTERS = 8;
@@ -33,6 +35,9 @@ export interface AnalyzeResult {
   skipped?: "already-analyzed" | "no-events";
   chaptersCount?: number;
   chainsCount?: number;
+  rageClicksCount?: number;
+  deadClicksCount?: number;
+  frustrationScore?: number;
   tokensEstimate?: number;
 }
 
@@ -91,6 +96,48 @@ export async function analyzeReplay(
   });
 
   const chains = detectCausalChains(events);
+
+  // Phase E — frustration signals. Rage runs first so dead-click can
+  // exclude clicks that are part of a rage burst (otherwise every rage
+  // on a dead button would also produce N dead-click detections).
+  const rageClicks = detectRageClicks(events);
+
+  // Build the exclusion set in a single pass. The naive
+  // (O(rage_runs × events)) loop made the worker quadratic on sessions
+  // crafted with many distinct rage runs — exploitable by a malicious
+  // capture submitting hundreds of selectors with 3 clicks each.
+  const rageTimestamps = new Set<number>();
+  if (rageClicks.length > 0) {
+    // Group click timestamps by selector exactly once.
+    const clicksBySelector = new Map<string, number[]>();
+    for (const e of events) {
+      if (!e || typeof e !== "object") continue;
+      const ev = e as { type?: number; timestamp?: number; data?: { source?: number; type?: number; selector?: string } };
+      if (ev.type !== 3 || ev.data?.source !== 2 || ev.data?.type !== 2) continue;
+      const sel = ev.data?.selector ?? "";
+      const ts = ev.timestamp ?? 0;
+      const list = clicksBySelector.get(sel);
+      if (list) list.push(ts); else clicksBySelector.set(sel, [ts]);
+    }
+    for (const list of clicksBySelector.values()) list.sort((a, b) => a - b);
+    // Then for each rage run, look up timestamps in (rage.ts - 1000ms .. rage.ts]
+    // via the pre-built sorted list — O(rage + total_clicks_in_run).
+    for (const r of rageClicks) {
+      const list = clicksBySelector.get(r.selector);
+      if (!list) continue;
+      const lo = r.timestamp - 1000;
+      for (const ts of list) {
+        if (ts < lo) continue;
+        if (ts > r.timestamp) break;
+        rageTimestamps.add(ts);
+      }
+    }
+  }
+  const deadClicks = detectDeadClicks(events, rageTimestamps);
+  // Score weights: rage (3 clicks repeated on a button) is louder evidence
+  // of frustration than a single dead click, so weight 3 vs 1.
+  const frustrationScore = rageClicks.length * 3 + deadClicks.length;
+
   const prompt = buildEventPrompt(events, session.startedAt.getTime(), chains);
 
   // Use the project owner's preferred AI key — falls back to the platform
@@ -148,11 +195,27 @@ export async function analyzeReplay(
   // De-dupe and sort chapters by timestamp
   const chaptersOut = dedupeChapters(aiChapters).slice(0, MAX_CHAPTERS + chains.length);
 
+  // Normalize frustration timestamps to session-relative ms — same shape
+  // as the chains, so the player can plot them without re-deriving the
+  // session start.
+  const sessionStartMs = session.startedAt.getTime();
+  const rageOut: RageClick[] = rageClicks.map((r) => ({
+    ...r,
+    timestamp: Math.max(0, r.timestamp - sessionStartMs),
+  }));
+  const deadOut: DeadClick[] = deadClicks.map((d) => ({
+    ...d,
+    timestamp: Math.max(0, d.timestamp - sessionStartMs),
+  }));
+
   await db
     .update(replaySessions)
     .set({
       aiSummary: aiSummary || null,
-      aiChapters: { chapters: chaptersOut, chains: normalizeChainsForStorage(chains, session.startedAt.getTime()) },
+      aiChapters: { chapters: chaptersOut, chains: normalizeChainsForStorage(chains, sessionStartMs) },
+      rageClicks: rageOut,
+      deadClicks: deadOut,
+      frustrationScore,
       updatedAt: new Date(),
     })
     .where(eq(replaySessions.id, session.id));
@@ -161,6 +224,9 @@ export async function analyzeReplay(
     sessionId,
     chaptersCount: chaptersOut.length,
     chainsCount: chains.length,
+    rageClicksCount: rageOut.length,
+    deadClicksCount: deadOut.length,
+    frustrationScore,
   };
 }
 
@@ -258,6 +324,15 @@ function describeEvent(raw: unknown, sessionStartMs: number): string | null {
   if (e._kind === "console") {
     const c = raw as { level?: string; message?: string };
     return `${tag} console.${c.level ?? "log"}: ${String(c.message ?? "").slice(0, 120)}`;
+  }
+  if (e._kind === "vital") {
+    // Phase G — surface Web Vitals so the AI can mention "LCP poor at 0:03"
+    // when summarising. Rating is a plain string the model can repeat verbatim.
+    const v = raw as { name?: string; value?: number; rating?: string };
+    if (v.name && typeof v.value === "number") {
+      return `${tag} vital.${v.name}: ${Math.round(v.value)}${v.name === "CLS" ? "" : "ms"} (${v.rating ?? "?"})`;
+    }
+    return null;
   }
   if (e._kind === "substrate") {
     const s = raw as { kind?: { type?: string; url?: string; query?: string } };
