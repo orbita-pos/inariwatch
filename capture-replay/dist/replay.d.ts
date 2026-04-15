@@ -41,6 +41,31 @@ export interface ReplayConfig {
      *   - `false` — disabled; falls back to `maskAllInputs: true` for safety.
      */
     piiClassifier?: "ai" | "heuristic" | false;
+    /**
+     * Probability (0.0–1.0) that an uncaught error triggers a full session
+     * flush. Default `1.0` — every error session is recorded.
+     *
+     * Sessions without errors stay 100% client-side (ring buffer only) and
+     * never touch the network — matches Sentry's cost-efficient default.
+     */
+    errorSampleRate?: number;
+    /**
+     * Probability (0.0–1.0) that a session starts recording from the first
+     * event, regardless of whether an error occurs. Default `0.0` — zero
+     * passive traffic. Raise to e.g. `0.01` to sample 1% of all sessions for
+     * UX research on top of error-triggered capture.
+     */
+    sessionSampleRate?: number;
+    /**
+     * Seconds of pre-error context to keep in the client-side ring buffer.
+     * When an error fires, the full buffer flushes as the first block so
+     * reviewers can see the steps that led to the crash. Default `60`.
+     *
+     * Also drives rrweb's `checkoutEveryNms` so a full DOM snapshot is
+     * guaranteed within every buffer window — without this, trimming old
+     * events would leave the replay unplayable.
+     */
+    bufferSeconds?: number;
 }
 /** Get current session id (null if replay not active). Exposed for tests. */
 export declare function getSessionId(): string | null;

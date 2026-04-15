@@ -16,6 +16,9 @@
 import { classifyField, shouldMask, isUncertain, hashFeatures } from "./pii-classifier.js";
 const DEFAULT_BLOCK_DURATION_SEC = 30;
 const DEFAULT_MAX_BUFFER_BYTES = 256 * 1024; // 256 KB
+const DEFAULT_BUFFER_SECONDS = 60;
+const DEFAULT_ERROR_SAMPLE_RATE = 1.0;
+const DEFAULT_SESSION_SAMPLE_RATE = 0.0;
 const MAX_EVENTS_PER_BLOCK = 10000; // server-side limit
 let replayActive = false;
 let currentSessionId = null;
@@ -54,12 +57,130 @@ function getEndpoint(config, replayConfig) {
     }
     return "https://app.inariwatch.com";
 }
+/** Clamp sample rates into [0, 1]; NaN / non-numbers fall back to default. */
+function clampRate(value, fallback) {
+    if (typeof value !== "number" || !Number.isFinite(value))
+        return fallback;
+    if (value < 0)
+        return 0;
+    if (value > 1)
+        return 1;
+    return value;
+}
+/**
+ * Fetch dashboard-set config for this project. 2-second timeout so a slow
+ * dashboard never blocks replay init. Errors → return null → fall back to
+ * SDK-code defaults.
+ *
+ * The response is cacheable (server sends cache-control: public, max-age=60)
+ * so subsequent fetches inside a minute use the HTTP cache.
+ */
+async function fetchRemoteConfig(endpoint, projectId, debug) {
+    if (typeof fetch === "undefined")
+        return null;
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        const resp = await fetch(`${endpoint}/api/replay/config/${encodeURIComponent(projectId)}`, {
+            method: "GET",
+            signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!resp.ok)
+            return null;
+        const data = (await resp.json());
+        return data.settings ?? null;
+    }
+    catch (err) {
+        if (debug) {
+            console.warn("[@inariwatch/capture-replay] config fetch failed, using code defaults:", err instanceof Error ? err.message : err);
+        }
+        return null;
+    }
+}
+/**
+ * Drop events older than the ring-buffer window. Always keep the most
+ * recent full DOM snapshot (rrweb type 2) + its preceding meta event
+ * (type 4) regardless of age — without them the replay can't render
+ * anything on playback (user sees a black viewport).
+ *
+ * rrweb's `checkoutEveryNms` (set equal to bufferMaxMs) emits fresh full
+ * snapshots periodically, but there's a race window between the previous
+ * snapshot expiring and the next one being created. Pinning the latest
+ * snapshot closes that gap.
+ */
+function trimBuffer() {
+    if (!state)
+        return;
+    const cutoff = Date.now() - state.bufferMaxMs;
+    // Find the most recent type 2 (full snapshot) and the type 4 (meta) that
+    // immediately precedes it. Scan from end so "most recent" wins first.
+    let latestFullIdx = -1;
+    let latestMetaIdx = -1;
+    for (let i = state.buffer.length - 1; i >= 0; i--) {
+        const ev = state.buffer[i];
+        if (latestFullIdx === -1 && ev.type === 2) {
+            latestFullIdx = i;
+            // Look backwards for the matching meta event
+            for (let j = i - 1; j >= 0; j--) {
+                const prev = state.buffer[j];
+                if (prev.type === 4) {
+                    latestMetaIdx = j;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    const kept = [];
+    let bytes = 0;
+    for (let i = 0; i < state.buffer.length; i++) {
+        const ev = state.buffer[i];
+        const ts = ev.timestamp ?? 0;
+        const pinned = i === latestFullIdx || i === latestMetaIdx;
+        if (pinned || ts >= cutoff) {
+            kept.push(ev);
+            bytes += estimateSize(ev);
+        }
+    }
+    state.buffer = kept;
+    state.bufferBytes = bytes;
+}
+/**
+ * Promote the session from "buffer" to "streaming" mode after an error.
+ * The accumulated ring buffer becomes the first block — that's the pre-error
+ * context a reviewer needs to understand what led to the crash.
+ *
+ * Gated by `errorSampleRate` so apps can cap the % of error sessions they
+ * record (useful at high traffic).
+ */
+function triggerErrorFlush() {
+    if (!state)
+        return;
+    if (state.mode === "streaming")
+        return;
+    if (Math.random() >= state.errorSampleRate)
+        return; // not sampled
+    state.mode = "streaming";
+    state.errorTriggeredAt = Date.now();
+    if (state.debug) {
+        console.warn("[@inariwatch/capture/replay] error detected — switching to streaming mode");
+    }
+    // Flush the buffer immediately as block 0
+    void flushBlock();
+}
 /**
  * POST the current buffer as a replay block. Swallows errors — replay is
  * best-effort and must never crash the host app.
  */
 async function flushBlock(opts = { isFinal: false }) {
     if (!state || state.buffer.length === 0)
+        return;
+    // In buffer mode we never hit the network — the ring buffer stays local
+    // until an error promotes the session. On final flush (unload) we also
+    // skip if nothing triggered streaming: the session was uneventful, no
+    // reason to pay storage for it.
+    if (state.mode === "buffer")
         return;
     const events = state.buffer;
     const myIndex = state.blockIndex;
@@ -135,6 +256,10 @@ function pushCustomEvent(ev) {
         return;
     state.buffer.push(ev);
     state.bufferBytes += 300;
+    // Uncaught errors promote a buffer-mode session to streaming so reviewers
+    // get the pre-error context + live recording after the crash.
+    if (ev._kind === "error")
+        triggerErrorFlush();
 }
 /** Compute a short fingerprint for grouping identical errors across a session. */
 function fingerprintError(message, stack) {
@@ -331,14 +456,39 @@ export async function initReplay(replayConfig, captureConfig) {
         }
         return;
     }
+    // Resolve the endpoint early — we need it for the config fetch below.
+    const endpoint = getEndpoint(captureConfig, replayConfig);
+    // Fetch dashboard-set config for this project. Server settings for
+    // `enabled`, `errorSampleRate`, `sessionSampleRate`, and `bufferSeconds`
+    // OVERRIDE the options passed to replayIntegration() — otherwise a
+    // customer could just hardcode `sessionSampleRate: 1.0` in their code to
+    // bypass the Pro-gated slider. Non-security options (endpoint, custom
+    // hooks, piiClassifier) remain code-driven.
+    const remoteConfig = await fetchRemoteConfig(endpoint, captureConfig.projectId, !!captureConfig.debug);
+    if (remoteConfig && remoteConfig.enabled === false) {
+        if (captureConfig.debug && !captureConfig.silent) {
+            console.warn("[@inariwatch/capture-replay] replay disabled for this project in the dashboard");
+        }
+        return;
+    }
     const blockDurationSec = replayConfig.blockDurationSec ?? DEFAULT_BLOCK_DURATION_SEC;
     const maxBufferBytes = replayConfig.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
+    // Server wins over code for the safety-relevant settings. If the fetch
+    // failed, fall back to code → sensible default.
+    const bufferSeconds = remoteConfig?.bufferSeconds ?? replayConfig.bufferSeconds ?? DEFAULT_BUFFER_SECONDS;
+    const errorSampleRate = clampRate(remoteConfig?.errorSampleRate ?? replayConfig.errorSampleRate, DEFAULT_ERROR_SAMPLE_RATE);
+    const sessionSampleRate = clampRate(remoteConfig?.sessionSampleRate ?? replayConfig.sessionSampleRate, DEFAULT_SESSION_SAMPLE_RATE);
+    // Coin flip: if this session wins the `sessionSampleRate` lottery, start
+    // streaming immediately (same state as "error triggered"). Otherwise
+    // start in buffer mode and only flush if an error occurs.
+    const initialMode = Math.random() < sessionSampleRate ? "streaming" : "buffer";
     let record = null;
     try {
-        // Dynamic import — rrweb is an optional peer dep
-        const pkg = "rrweb";
+        // rrweb is a direct dependency — let the bundler resolve and code-split
+        // it. (The previous `webpackIgnore` + variable-literal pattern existed
+        // because rrweb used to be an optional peer dep; now it's always present.)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rrweb = await import(/* webpackIgnore: true */ pkg);
+        const rrweb = await import("rrweb");
         record = rrweb.record ?? rrweb.default?.record ?? null;
     }
     catch (err) {
@@ -359,7 +509,7 @@ export async function initReplay(replayConfig, captureConfig) {
     state = {
         sessionId,
         projectId: captureConfig.projectId,
-        endpoint: getEndpoint(captureConfig, replayConfig),
+        endpoint,
         blockIndex: 0,
         buffer: [],
         bufferBytes: 0,
@@ -367,6 +517,10 @@ export async function initReplay(replayConfig, captureConfig) {
         sessionStartMs: now,
         timer: null,
         debug: !!captureConfig.debug,
+        mode: initialMode,
+        bufferMaxMs: bufferSeconds * 1000,
+        errorSampleRate,
+        errorTriggeredAt: null,
     };
     window.__INARIWATCH_SESSION__ = sessionId;
     patchFetch(sessionId);
@@ -396,6 +550,10 @@ export async function initReplay(replayConfig, captureConfig) {
         // with `maskTextClass` means the classifier just needs to add `iw-mask`
         // to the element — both text and input values get masked.
         maskInputClass: "iw-mask",
+        // Force a fresh full DOM snapshot every `bufferMaxMs` so the ring buffer
+        // can be trimmed without losing the initial snapshot — otherwise the
+        // replay wouldn't render when played back after an error.
+        checkoutEveryNms: bufferSeconds * 1000,
         emit(event) {
             if (!state)
                 return;
@@ -403,12 +561,27 @@ export async function initReplay(replayConfig, captureConfig) {
             // Cheap approximation of byte size — JSON.stringify on every event is
             // expensive. Use a running sum of a per-event estimate.
             state.bufferBytes += estimateSize(event);
+            // Streaming-mode back-pressure: flush early when buffer caps hit.
+            // Buffer-mode: trim instead (keeps last bufferMaxMs of context).
             if (state.bufferBytes >= maxBufferBytes || state.buffer.length >= MAX_EVENTS_PER_BLOCK) {
-                void flushBlock();
+                if (state.mode === "streaming")
+                    void flushBlock();
+                else
+                    trimBuffer();
             }
         },
     });
-    state.timer = setInterval(() => void flushBlock(), blockDurationSec * 1000);
+    // Periodic tick: in streaming mode, flush the accumulated block. In buffer
+    // mode, trim events older than the ring-buffer window so memory stays
+    // bounded while we wait for an error to maybe happen.
+    state.timer = setInterval(() => {
+        if (!state)
+            return;
+        if (state.mode === "streaming")
+            void flushBlock();
+        else
+            trimBuffer();
+    }, blockDurationSec * 1000);
     // Flush on unload — best-effort via sendBeacon
     const finalFlush = () => void flushBlock({ isFinal: true });
     window.addEventListener("pagehide", finalFlush);
