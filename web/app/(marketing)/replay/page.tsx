@@ -13,6 +13,11 @@ import {
   Eye,
   Check,
   X,
+  Link2,
+  MessageSquare,
+  Users,
+  FileCode,
+  Keyboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarketingNav } from "../marketing-nav";
@@ -103,6 +108,9 @@ function DifferentiatorsStrip() {
     { icon: Activity,         label: "Substrate I/O sync" },
     { icon: Gauge,            label: "Web Vitals on the timeline" },
     { icon: MousePointerClick,label: "Rage + dead-click detection" },
+    { icon: FileCode,         label: "Source-mapped error stacks" },
+    { icon: Link2,            label: "Share at timestamp" },
+    { icon: MessageSquare,    label: "Inline comments + @mentions" },
   ];
   return (
     <section className="border-y border-inari-border py-10">
@@ -154,12 +162,17 @@ function Pillars() {
     {
       icon: <Eye className="h-5 w-5" />,
       title: "See exactly what they saw",
-      body: "DOM replay synced with console, network, navigation — and Substrate I/O when the SDK is on. PII masked by default.",
+      body: "DOM replay synced with console, network, navigation, URL breadcrumbs, and Substrate I/O. PII masked by default; optional network-body capture with 4-layer secret redaction.",
     },
     {
       icon: <MousePointerClick className="h-5 w-5" />,
       title: "Surface the frustration",
-      body: "Rage clicks, dead clicks, slow Web Vitals — auto-detected and ranked. Filter the list to sessions that actually matter.",
+      body: "Rage clicks, dead clicks, slow Web Vitals, source-mapped error stacks — auto-detected and ranked. Filter the list to sessions that actually matter.",
+    },
+    {
+      icon: <Users className="h-5 w-5" />,
+      title: "Collaborate on the fix",
+      body: "Share any moment with ?t=<ms> deep links. Drop comments anchored to a timestamp, @mention teammates, follow one user's journey across every session.",
     },
     {
       icon: <GitPullRequest className="h-5 w-5" />,
@@ -170,7 +183,7 @@ function Pillars() {
   return (
     <section className="py-20 border-y border-inari-border bg-inari-card/30">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="grid md:grid-cols-3 gap-px bg-inari-border">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-px bg-inari-border">
           {pillars.map((p) => (
             <div key={p.title} className="bg-inari-bg p-8">
               <div className="h-9 w-9 rounded-lg bg-inari-accent/10 text-inari-accent flex items-center justify-center mb-5">
@@ -191,13 +204,19 @@ function Pillars() {
 function Comparison() {
   type CellValue = boolean | "partial" | "split";
   const rows: Array<{ feature: string; us: CellValue; sentry: CellValue; logrocket: CellValue; datadog: CellValue }> = [
-    { feature: "DOM replay",                     us: true,  sentry: true,  logrocket: true,  datadog: true },
-    { feature: "Console + network panels",       us: true,  sentry: true,  logrocket: true,  datadog: true },
-    { feature: "Web Vitals on the timeline",     us: true,  sentry: "split", logrocket: true, datadog: true },
-    { feature: "Rage / dead-click detection",    us: true,  sentry: "partial", logrocket: true, datadog: false },
-    { feature: "AI-narrated chapters",           us: true,  sentry: false, logrocket: false, datadog: false },
-    { feature: "Backend I/O on the same timeline", us: true, sentry: false, logrocket: false, datadog: false },
-    { feature: "One-click PR from a replay",     us: true,  sentry: false, logrocket: false, datadog: false },
+    { feature: "DOM replay",                       us: true,  sentry: true,    logrocket: true,  datadog: true  },
+    { feature: "Console + network panels",         us: true,  sentry: true,    logrocket: true,  datadog: true  },
+    { feature: "Source-mapped error stacks",       us: true,  sentry: true,    logrocket: true,  datadog: true  },
+    { feature: "Network body capture with masking", us: true, sentry: true,    logrocket: true,  datadog: "partial" },
+    { feature: "URL breadcrumbs",                  us: true,  sentry: true,    logrocket: true,  datadog: true  },
+    { feature: "Web Vitals on the timeline",       us: true,  sentry: "split", logrocket: true,  datadog: true  },
+    { feature: "Rage / dead-click detection",      us: true,  sentry: "partial", logrocket: true, datadog: false },
+    { feature: "Share at timestamp",               us: true,  sentry: true,    logrocket: true,  datadog: "partial" },
+    { feature: "Comments anchored to moments",     us: true,  sentry: false,   logrocket: true,  datadog: false },
+    { feature: "Per-user session journey",         us: true,  sentry: "partial", logrocket: true, datadog: "partial" },
+    { feature: "AI-narrated chapters",             us: true,  sentry: false,   logrocket: false, datadog: false },
+    { feature: "Backend I/O on the same timeline", us: true,  sentry: false,   logrocket: false, datadog: false },
+    { feature: "One-click PR from a replay",       us: true,  sentry: false,   logrocket: false, datadog: false },
   ];
 
   function Cell({ value }: { value: CellValue }) {
@@ -255,8 +274,8 @@ function HowItWorks() {
     {
       n: "01",
       title: "Drop in the SDK",
-      body: "Two lines. Zero config. Records DOM, console, network, navigation, Web Vitals, and errors.",
-      code: `import { initReplay } from "@inariwatch/capture-replay";\ninitReplay({ projectId: "your-project-id" });`,
+      body: "Install the capture core + replay integration. Zero config. Records DOM, console, network, navigation, Web Vitals, and errors.",
+      code: `npm install @inariwatch/capture @inariwatch/capture-replay\n\nimport { init } from "@inariwatch/capture";\nimport { replayIntegration } from "@inariwatch/capture-replay";\n\ninit({\n  dsn: process.env.NEXT_PUBLIC_INARIWATCH_DSN,\n  projectId: process.env.NEXT_PUBLIC_INARIWATCH_PROJECT_ID,\n  integrations: [replayIntegration()],\n});`,
     },
     {
       n: "02",
@@ -311,10 +330,10 @@ function HowItWorks() {
 
 function PrivacyStrip() {
   const items = [
-    { title: "PII masked by default", body: "Inputs, passwords, and labelled blocks are blocked from capture before they ever leave the browser." },
-    { title: "Per-project retention", body: "Configurable from 1 to 366 days. Daily cron sweeps expired sessions out of R2 and the database." },
-    { title: "End-user emails optional", body: "Opt-in hashing per project. We never scrape the DOM — you set the user contract explicitly." },
-    { title: "Workspace-scoped", body: "Replay is gated per organization. Personal workspaces never see other tenants&rsquo; sessions." },
+    { title: "PII masked by default", body: "Inputs, passwords, and labelled blocks are blocked from capture before they ever leave the browser. 25 heuristic rules + optional AI classifier." },
+    { title: "Network bodies: opt-in only", body: "OFF by default. When enabled, 4 layers of defence: URL denylist, JSON key masking, value-shape regex (JWT / AKIA / sk_live_), and header redaction." },
+    { title: "Per-project retention", body: "Configurable from 1 to 366 days. Daily cron sweeps expired sessions out of R2 and the database — GDPR right-to-erasure honoured as code." },
+    { title: "End-user emails optional", body: "Opt-in hashing per project. We never scrape the DOM — you set the user contract via <code>window.__INARIWATCH_USER__</code> explicitly." },
   ];
   return (
     <section className="py-20 border-t border-inari-border bg-inari-card/30">
@@ -366,6 +385,59 @@ function CTA() {
   );
 }
 
+// ── Player details strip ──────────────────────────────────────────────────────
+
+function PlayerDetails() {
+  const items = [
+    {
+      icon: <Keyboard className="h-4 w-4" />,
+      title: "Keyboard-first",
+      body: "Space / J / K / L shortcuts, ? for the cheatsheet, comma/period jump to the previous/next event boundary (not fixed ticks).",
+    },
+    {
+      icon: <FileCode className="h-4 w-4" />,
+      title: "Source-mapped stacks",
+      body: "Stack frames resolve via your deployed .map files, rendering as src/checkout.tsx:42 with one-click open in GitHub.",
+    },
+    {
+      icon: <Eye className="h-4 w-4" />,
+      title: "URL breadcrumbs",
+      body: "Every SPA route change is captured via a history.pushState watcher and surfaces as a chip strip above the viewport with dwell times.",
+    },
+    {
+      icon: <Users className="h-4 w-4" />,
+      title: "User journey pages",
+      body: "Click an end-user pill in any session to land on /replays/users/<id> — every session they&rsquo;ve ever had, with frustration-score sort.",
+    },
+  ];
+  return (
+    <section className="py-20 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="text-center mb-12">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-4">Player details</p>
+          <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-fg-strong">
+            Designed for reviewers, not viewers.
+          </h2>
+          <p className="mt-3 text-fg-base max-w-xl mx-auto">
+            The small things that make a debugging tool feel professional.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {items.map((it) => (
+            <div key={it.title} className="rounded-xl border border-inari-border bg-inari-card p-5">
+              <div className="h-8 w-8 rounded-lg bg-inari-accent/10 text-inari-accent flex items-center justify-center mb-4">
+                {it.icon}
+              </div>
+              <h3 className="text-sm font-semibold text-fg-strong mb-2">{it.title}</h3>
+              <p className="text-xs text-fg-base leading-relaxed">{it.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 function Footer() {
@@ -410,6 +482,7 @@ export default function ReplayPage() {
         <DifferentiatorsStrip />
         <PlayerPreview />
         <Pillars />
+        <PlayerDetails />
         <Comparison />
         <HowItWorks />
         <PrivacyStrip />

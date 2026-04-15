@@ -109,6 +109,7 @@ export function middleware(req: NextRequest) {
       pathname.startsWith("/privacy") ||
       pathname.startsWith("/terms") ||
       pathname.startsWith("/status") ||
+      pathname.startsWith("/replay") ||
       pathname.endsWith(".mp4") ||
       pathname.endsWith(".webm")
     ) {
