@@ -48,6 +48,9 @@ const HEURISTIC_RULES: HeuristicRule[] = [
   { pattern: /expected.*but (got|received)/i, triageClass: "auto_fix", reason: "type mismatch" },
   { pattern: /Property.*does not exist on type/i, triageClass: "auto_fix", reason: "TypeScript type error" },
   { pattern: /Argument of type.*is not assignable/i, triageClass: "auto_fix", reason: "TypeScript type mismatch" },
+  { pattern: /type\s*error/i, triageClass: "auto_fix", reason: "type error — likely fixable with type annotation or cast" },
+  { pattern: /deploy.*fail.*type|build.*fail.*type|preview.*fail.*type/i, triageClass: "auto_fix", reason: "deploy/build failed due to type error — deterministic fix" },
+  { pattern: /build.*fail.*(?:import|module|resolve)/i, triageClass: "auto_fix", reason: "build failed due to import/module error" },
 
   // triage_only — informational, no code fix needed
   { pattern: /\bwarning\b.*deprecated/i, triageClass: "triage_only", reason: "deprecation warning — monitor, no immediate fix" },
@@ -57,6 +60,11 @@ const HEURISTIC_RULES: HeuristicRule[] = [
   { pattern: /503 Service Unavailable|502 Bad Gateway/i, triageClass: "triage_only", reason: "upstream service down" },
   { pattern: /ENOMEM|out of memory|heap.*exceeded/i, triageClass: "triage_only", reason: "memory issue — needs infra scaling, not code fix" },
   { pattern: /disk.*full|ENOSPC/i, triageClass: "triage_only", reason: "disk space issue" },
+  { pattern: /\bPR\b.*\b(?:unreviewed|stale|pending|abandoned|inactive)\b/i, triageClass: "triage_only", reason: "stale/unreviewed PR — notification only, no code fix" },
+  { pattern: /\b(?:unreviewed|stale)\b.*\b(?:pull request|PR|merge request)\b/i, triageClass: "triage_only", reason: "stale/unreviewed PR — notification only, no code fix" },
+  { pattern: /\bPR\b.*\b\d+\s*(?:hours?|days?|weeks?)\b/i, triageClass: "triage_only", reason: "PR age notification — no code fix needed" },
+  { pattern: /\bcoverage\b.*(?:decreased|dropped|below)/i, triageClass: "triage_only", reason: "coverage drop — informational" },
+  { pattern: /\bscheduled?\s*maintenance/i, triageClass: "triage_only", reason: "scheduled maintenance — informational" },
 
   // full_remediation — complex issues that need deep analysis
   { pattern: /race condition|deadlock/i, triageClass: "full_remediation", reason: "concurrency bug — needs careful analysis" },

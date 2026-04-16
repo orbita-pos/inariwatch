@@ -142,8 +142,9 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
   } : {};
 
   let reasoning: string;
+  let cascadeInfo: { tierUsed: number; model: string; provider: string; escalated: boolean } | null = null;
   try {
-    reasoning = await cascadeAnalyze(
+    const result = await cascadeAnalyze(
       aiKey.key,
       aiKey.provider,
       aiKey.isPlatformKey ?? false,
@@ -151,25 +152,34 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
       classification?.triageClass ?? null,
       logCtx,
     );
+    reasoning = result.reasoning;
+    cascadeInfo = { tierUsed: result.tierUsed, model: result.model, provider: result.provider, escalated: result.escalated };
   } catch {
-    // All AI providers failed — fall back to heuristic analysis.
-    // Better to show a regex-based diagnosis than nothing.
     const fallback = heuristicAnalyze(alert.title, alert.body ?? "");
     reasoning = fallback?.reasoning ?? "AI analysis temporarily unavailable. Please check alert details manually.";
+  }
+
+  // Build correlation metadata — atomic jsonb merge preserves any data
+  // written by correlate.ts between when we read the alert and now.
+  const metaUpdate: Record<string, unknown> = {};
+  if (classification) {
+    metaUpdate.triageClass = classification.triageClass;
+    metaUpdate.triageConfidence = classification.confidence;
+    metaUpdate.triageMethod = classification.method;
+  }
+  if (cascadeInfo) {
+    metaUpdate.cascadeTier = cascadeInfo.tierUsed;
+    metaUpdate.analyzeModel = cascadeInfo.model;
+    metaUpdate.analyzeProvider = cascadeInfo.provider;
+    metaUpdate.cascadeEscalated = cascadeInfo.escalated;
   }
 
   await db
     .update(alerts)
     .set({
       aiReasoning: reasoning,
-      ...(classification ? {
-        // Atomic jsonb merge — preserves any correlationData written by correlate.ts
-        // between when we read the alert and now (avoids race condition overwrite).
-        correlationData: sql`COALESCE(${alerts.correlationData}, '{}'::jsonb) || ${JSON.stringify({
-          triageClass: classification.triageClass,
-          triageConfidence: classification.confidence,
-          triageMethod: classification.method,
-        })}::jsonb`,
+      ...(Object.keys(metaUpdate).length > 0 ? {
+        correlationData: sql`COALESCE(${alerts.correlationData}, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb`,
       } : {}),
     })
     .where(eq(alerts.id, alert.id));
@@ -274,6 +284,14 @@ function isResponseAdequate(response: string): boolean {
   return !genericPhrases.some((p) => lower.includes(p.toLowerCase()));
 }
 
+interface CascadeResult {
+  reasoning: string;
+  tierUsed: number;
+  model: string;
+  provider: string;
+  escalated: boolean;
+}
+
 async function cascadeAnalyze(
   userKey: string,
   userProvider: AIProvider,
@@ -281,7 +299,7 @@ async function cascadeAnalyze(
   messages: { role: "user"; content: string }[],
   triageClass: TriageClass | null,
   logCtx: Record<string, unknown>,
-): Promise<string> {
+): Promise<CascadeResult> {
   const tiers = buildCascadeTiers(userKey, userProvider, isPlatformKey, triageClass);
 
   for (let i = 0; i < tiers.length; i++) {
@@ -302,15 +320,12 @@ async function cascadeAnalyze(
       );
 
       if (isLastTier || isResponseAdequate(result)) {
-        return result;
+        return { reasoning: result, tierUsed: i, model: tier.model, provider: tier.provider, escalated: i > 0 };
       }
-      // Response too short/generic — escalate to next tier
     } catch (err) {
       if (isLastTier) throw err;
-      // Tier failed — escalate to next tier
     }
   }
 
-  // Unreachable — last tier always returns or throws
-  return "";
+  return { reasoning: "", tierUsed: -1, model: "", provider: "", escalated: false };
 }
