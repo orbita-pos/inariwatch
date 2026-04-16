@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 const PAGE_TITLE       = "Privacy Policy — InariWatch";
 const PAGE_DESCRIPTION = "How InariWatch collects, uses, and protects your data.";
 const PAGE_URL         = "https://inariwatch.com/privacy";
-const LAST_UPDATED     = "April 12, 2026";
+const LAST_UPDATED     = "April 16, 2026";
 
 export const metadata: Metadata = {
   title:       PAGE_TITLE,
@@ -64,6 +64,7 @@ export default function PrivacyPage() {
           <p><strong>Notification data:</strong> configuration for your notification channels (email, Telegram, Slack, browser push). Webhook endpoints and secrets are stored encrypted.</p>
           <p><strong>Email interaction data:</strong> alert notification emails include an open-tracking pixel and click-tracking links so we can show you whether notifications were received. This data is stored in your account and visible to you in the app.</p>
           <p><strong>Audit logs:</strong> we log certain account actions (login, settings changes) along with IP addresses for security purposes.</p>
+          <p><strong>AI interaction logs:</strong> to diagnose issues and improve the quality of our AI analysis, we log prompts sent to AI models and their responses in our own database. Known sensitive patterns (emails, API keys, JWTs, credit card numbers, Bearer tokens) are automatically redacted before storage. These logs are stored exclusively within our own infrastructure — they are never shared with third-party AI observability services such as Helicone, LangSmith, or similar. Retention: up to 30 days. Access is restricted to administrative staff.</p>
           <p><strong>Blog newsletter:</strong> if you subscribe to the blog newsletter, we store your email. You can unsubscribe at any time via the link in any email.</p>
         </Section>
 
@@ -86,7 +87,7 @@ export default function PrivacyPage() {
             <li><strong>Resend</strong> — transactional email delivery.</li>
             <li><strong>Stripe</strong> — subscription billing for InariWatch Pro. Card details are handled exclusively by Stripe; we never see or store them.</li>
             <li><strong>Upstash</strong> — Redis caching for rate limiting, AI response caching, and deduplication. No personal data is stored — only counters, fingerprints, and cached AI analysis text.</li>
-            <li><strong>AI providers</strong> — AI features use our platform OpenAI key by default. If you provide your own key, requests are sent to that provider instead (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, Google Gemini). Alert data (error messages, stack traces) is sent to the AI provider for analysis. We store AI responses only as shown in the app (e.g., alert diagnosis, postmortems).</li>
+            <li><strong>AI providers</strong> — AI features use our platform OpenAI key by default. If you provide your own key, requests are sent to that provider instead (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, Google Gemini). Alert data (error messages, stack traces) is sent to the AI provider for analysis. We store AI responses only as shown in the app (e.g., alert diagnosis, postmortems). We do <strong>not</strong> route AI calls through any third-party observability proxy — our own internal logging (see &quot;AI interaction logs&quot; in Section 2) keeps this data within our systems.</li>
             <li><strong>GitHub / Google / GitLab</strong> — optional OAuth sign-in. We only store the provider account ID, email, and name returned by the provider.</li>
             <li><strong>Plausible Analytics</strong> — privacy-friendly, cookieless analytics. No personal data is collected. See <a href="https://plausible.io/privacy" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">plausible.io/privacy</a>.</li>
             <li><strong>Telegram / Slack</strong> — if you configure these as notification channels, alert data is sent to your Telegram bot or Slack webhook.</li>
@@ -106,6 +107,10 @@ export default function PrivacyPage() {
             If you delete your account, your data is deleted within 30 days.
             You can request deletion at any time by emailing{" "}
             <a href="mailto:info@jesusbr.com" className="text-inari-accent hover:underline">info@jesusbr.com</a>.
+          </p>
+          <p className="mt-2">
+            <strong>AI interaction logs</strong> (prompts and responses — see Section 2) are retained for up to
+            30 days and then automatically deleted.
           </p>
         </Section>
 
