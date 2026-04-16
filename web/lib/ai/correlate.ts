@@ -1,5 +1,5 @@
 import { db, alerts, projects } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_CORRELATOR, buildCorrelatePrompt } from "./prompts";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
@@ -86,13 +86,16 @@ export async function correlateProjectAlerts(
     correlatedAt: new Date().toISOString(),
   };
 
-  // Update all alerts in the group with correlation data + AI reasoning
+  // Update all alerts in the group with correlation data + AI reasoning.
+  // Use atomic jsonb merge to preserve fields written by other features
+  // (auto-analyze writes triageClass, cascadeTier, analyzeModel, etc).
+  const correlationJson = JSON.stringify(correlationData);
   await Promise.allSettled(
     newAlerts.map((alert) =>
       db
         .update(alerts)
         .set({
-          correlationData,
+          correlationData: sql`COALESCE(${alerts.correlationData}, '{}'::jsonb) || ${correlationJson}::jsonb`,
           // Only set aiReasoning if not already set
           ...(alert.aiReasoning ? {} : { aiReasoning: summary }),
         })
