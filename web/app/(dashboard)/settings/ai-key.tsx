@@ -42,12 +42,12 @@ function getModels(provider: string | null): ModelInfo[] {
 
 function getDefaultLabel(task: AITask, provider: string | null): string {
   const defaults: Record<string, Record<AITask, string>> = {
-    claude:   { analysis: "Haiku",        chat: "Sonnet",    remediation: "Sonnet",    postmortem: "Sonnet" },
-    openai:   { analysis: "GPT-4o mini",  chat: "GPT-4o",    remediation: "GPT-4o",    postmortem: "GPT-4o" },
-    grok:     { analysis: "Grok 2 Mini",  chat: "Grok 2",    remediation: "Grok 2",    postmortem: "Grok 2" },
-    deepseek: { analysis: "DeepSeek V3",  chat: "DeepSeek V3", remediation: "DeepSeek R1", postmortem: "DeepSeek V3" },
-    gemini:   { analysis: "Flash 1.5",    chat: "Flash 1.5", remediation: "Pro 1.5",   postmortem: "Pro 1.5" },
-    groq:     { analysis: "Llama 3.1 70B", chat: "Llama 3.1 70B", remediation: "Llama 3.1 70B", postmortem: "Llama 3.1 70B" },
+    claude:   { analysis: "Haiku",        triage: "Haiku",        chat: "Sonnet",    remediation: "Sonnet",    postmortem: "Sonnet" },
+    openai:   { analysis: "GPT-4o mini",  triage: "GPT-4o mini",  chat: "GPT-4o",    remediation: "GPT-4o",    postmortem: "GPT-4o" },
+    grok:     { analysis: "Grok 2 Mini",  triage: "Grok 2 Mini",  chat: "Grok 2",    remediation: "Grok 2",    postmortem: "Grok 2" },
+    deepseek: { analysis: "DeepSeek V3",  triage: "DeepSeek V3",  chat: "DeepSeek V3", remediation: "DeepSeek R1", postmortem: "DeepSeek V3" },
+    gemini:   { analysis: "Flash 1.5",    triage: "Flash 1.5",    chat: "Flash 1.5", remediation: "Pro 1.5",   postmortem: "Pro 1.5" },
+    groq:     { analysis: "Llama 3.1 70B", triage: "Llama 8B",    chat: "Llama 3.1 70B", remediation: "Llama 3.1 70B", postmortem: "Llama 3.1 70B" },
   };
   return defaults[provider ?? "openai"]?.[task] ?? "Auto";
 }
