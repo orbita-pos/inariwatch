@@ -9,7 +9,7 @@ import type { AIProvider } from "./client";
 
 // ── Task types ──────────────────────────────────────────────────────────────
 
-export type AITask = "analysis" | "chat" | "remediation" | "postmortem";
+export type AITask = "analysis" | "chat" | "remediation" | "postmortem" | "triage";
 
 export type AIModelPreferences = Record<AITask, string> & { activeProvider?: string };
 
@@ -74,36 +74,42 @@ export function getModelsForProvider(provider: AIProvider): ModelInfo[] {
 const DEFAULTS: Record<AIProvider, Record<AITask, string>> = {
   claude: {
     analysis:    "claude-haiku-4-5-20251001",
+    triage:      "claude-haiku-4-5-20251001",
     chat:        "claude-sonnet-4-6",
     remediation: "claude-sonnet-4-6",
     postmortem:  "claude-sonnet-4-6",
   },
   openai: {
     analysis:    "gpt-4o-mini",   // Classification + summarization — 87% cheaper than Haiku 4.5
+    triage:      "gpt-4o-mini",   // Alert triage — cheapest possible, ~$0.0001/call
     chat:        "gpt-4o-mini",   // Conversational — GPT-4o-mini handles tool use well
     remediation: "gpt-5.4",       // Code fixes — tied with Sonnet on SWE-bench (~80%), ~40% cheaper
     postmortem:  "gpt-5-mini",    // Long-form writing with reasoning — $0.25/$2.00
   },
   grok: {
     analysis:    "grok-2-mini-1212",
+    triage:      "grok-2-mini-1212",
     chat:        "grok-2-1212",
     remediation: "grok-2-1212",
     postmortem:  "grok-2-1212",
   },
   deepseek: {
     analysis:    "deepseek-chat",
+    triage:      "deepseek-chat",
     chat:        "deepseek-chat",
     remediation: "deepseek-reasoner",
     postmortem:  "deepseek-chat",
   },
   gemini: {
     analysis:    "gemini-1.5-flash",
+    triage:      "gemini-1.5-flash",
     chat:        "gemini-1.5-flash",
     remediation: "gemini-1.5-pro",
     postmortem:  "gemini-1.5-pro",
   },
   groq: {
     analysis:    "llama-3.1-70b-versatile",
+    triage:      "llama-3.1-8b-instant",  // Ultra-fast, cheapest — perfect for classification
     chat:        "llama-3.1-70b-versatile",
     remediation: "llama-3.1-70b-versatile",
     postmortem:  "llama-3.1-70b-versatile",
@@ -128,6 +134,7 @@ export function resolveModel(
 /** Default preferences object (all "auto") */
 export const DEFAULT_MODEL_PREFS: AIModelPreferences = {
   analysis: "auto",
+  triage: "auto",
   chat: "auto",
   remediation: "auto",
   postmortem: "auto",
@@ -136,6 +143,7 @@ export const DEFAULT_MODEL_PREFS: AIModelPreferences = {
 /** Human-readable task labels */
 export const TASK_LABELS: Record<AITask, { label: string; desc: string }> = {
   analysis:    { label: "Alert analysis",  desc: "Root cause summary when you click Analyze" },
+  triage:      { label: "Alert triage",    desc: "Quick classification to route alerts efficiently" },
   chat:        { label: "Ask Inari",       desc: "Interactive chat about your alerts & systems" },
   remediation: { label: "AI Remediation",  desc: "Code fixes, PRs, and CI checks" },
   postmortem:  { label: "Post-mortem",     desc: "Incident documentation after resolution" },

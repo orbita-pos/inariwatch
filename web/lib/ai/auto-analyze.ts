@@ -1,10 +1,11 @@
 import { db, alerts, projects } from "@/lib/db";
-import { eq, and, gt, ne } from "drizzle-orm";
+import { eq, and, gt, ne, sql } from "drizzle-orm";
 import { callAI } from "./client";
 import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "./prompts";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
 import { computeErrorFingerprint } from "./fingerprint";
+import { classifyAlert, type ClassificationResult } from "./alert-classifier";
 import { assertWithinQuota, incrementQuota, QuotaExceededError } from "./quota";
 import { reservePlatformBudget, PlatformBudgetExceededError } from "./spend-guard";
 import { getRedis } from "@/lib/redis";
@@ -80,6 +81,31 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     }
   }
 
+  // Classify alert to determine cheapest effective path.
+  // Fine-tuned model (~$0.0001) or heuristic fallback (free).
+  let classification: ClassificationResult | null = null;
+  try {
+    classification = await classifyAlert(
+      alert.title,
+      alert.body ?? "",
+      alert.severity,
+      alert.sourceIntegrations,
+      aiKey.isPlatformKey ? aiKey.key : undefined,
+    );
+  } catch {
+    // Classifier unavailable — proceed with full analysis
+  }
+
+  // For triage_only alerts from high-confidence classifier, use a shorter prompt
+  // that costs fewer tokens. For auto_fix, still analyze (the fix itself is cheap
+  // but we need aiReasoning for the dashboard).
+  const analyzePrompt = buildAnalyzePrompt({
+    title: alert.title,
+    severity: alert.severity,
+    body: alert.body ?? "",
+    sourceIntegrations: alert.sourceIntegrations,
+  });
+
   // Analyze this alert — use GPT-4o-mini for platform key, user's model otherwise.
   const reasoning = await callAI(
     aiKey.key,
@@ -109,7 +135,18 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
 
   await db
     .update(alerts)
-    .set({ aiReasoning: reasoning })
+    .set({
+      aiReasoning: reasoning,
+      ...(classification ? {
+        // Atomic jsonb merge — preserves any correlationData written by correlate.ts
+        // between when we read the alert and now (avoids race condition overwrite).
+        correlationData: sql`COALESCE(${alerts.correlationData}, '{}'::jsonb) || ${JSON.stringify({
+          triageClass: classification.triageClass,
+          triageConfidence: classification.confidence,
+          triageMethod: classification.method,
+        })}::jsonb`,
+      } : {}),
+    })
     .where(eq(alerts.id, alert.id));
 
   // Increment quota after successful call
