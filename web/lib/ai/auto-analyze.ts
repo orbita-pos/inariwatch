@@ -105,8 +105,9 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
       alert.sourceIntegrations,
       aiKey.isPlatformKey ? aiKey.key : undefined,
     );
-  } catch {
-    // Classifier unavailable — proceed with full analysis
+    console.log("[auto-analyze] classifier returned", { alertId: alert.id, classification });
+  } catch (err) {
+    console.log("[auto-analyze] classifier THREW", { alertId: alert.id, error: err instanceof Error ? err.message : String(err) });
   }
 
   // ── FrugalGPT cascade ────────────────────────────────────────────────────
@@ -186,15 +187,28 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     metaUpdateKeys: Object.keys(metaUpdate),
   });
 
-  await db
-    .update(alerts)
-    .set({
-      aiReasoning: reasoning,
-      ...(Object.keys(metaUpdate).length > 0 ? {
-        correlationData: sql`COALESCE(${alerts.correlationData}, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb`,
-      } : {}),
-    })
-    .where(eq(alerts.id, alert.id));
+  // Always write metadata (even if empty) so we can detect classifier failures.
+  // If both classification and cascadeInfo are null, write a marker so we know
+  // the path was reached but produced no data.
+  const finalMeta = Object.keys(metaUpdate).length > 0
+    ? metaUpdate
+    : { triageClass: "none", triageMethod: "skipped", reason: "classifier-and-cascade-both-null" };
+
+  try {
+    const updateResult = await db
+      .update(alerts)
+      .set({
+        aiReasoning: reasoning,
+        correlationData: sql`COALESCE(${alerts.correlationData}, '{}'::jsonb) || ${JSON.stringify(finalMeta)}::jsonb`,
+      })
+      .where(eq(alerts.id, alert.id))
+      .returning({ id: alerts.id, cd: alerts.correlationData });
+    console.log("[auto-analyze] UPDATE succeeded", { alertId: alert.id, returnedCD: updateResult[0]?.cd });
+  } catch (err) {
+    console.log("[auto-analyze] UPDATE FAILED", { alertId: alert.id, error: err instanceof Error ? err.message : String(err), meta: finalMeta });
+    // Re-throw so we don't silently lose data
+    throw err;
+  }
 
   // Increment quota after successful call
   if (proj) {
