@@ -112,9 +112,11 @@ export async function callAI(
   try {
     const response = await callAIWithUsage(apiKey, systemPrompt, messages, opts);
     if (opts.log) {
-      // Fire-and-forget: never await logging, never crash on log failure.
-      import("./usage-logger").then(({ logAiUsage }) => {
-        logAiUsage({
+      // Fire-and-forget via InariLens: captures prompt + response alongside
+      // usage. Dynamic import keeps the client module free of a load-time
+      // dep on the DB layer (matters for scripts / tools that import it).
+      import("./lens").then(({ logAICall, serializePrompt }) => {
+        logAICall({
           userId: opts.log!.userId,
           projectId: opts.log!.projectId,
           alertId: opts.log!.alertId,
@@ -128,14 +130,16 @@ export async function callAI(
           isPlatformKey: opts.log!.isPlatformKey ?? false,
           reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
           durationMs: Date.now() - t0,
-        }).catch(() => {});
+          prompt: serializePrompt(systemPrompt, messages),
+          response: response.text,
+        });
       }).catch(() => {});
     }
     return response.text;
   } catch (err) {
     if (opts.log) {
-      import("./usage-logger").then(({ logAiUsage }) => {
-        logAiUsage({
+      import("./lens").then(({ logAICall, serializePrompt }) => {
+        logAICall({
           userId: opts.log!.userId,
           projectId: opts.log!.projectId,
           alertId: opts.log!.alertId,
@@ -149,7 +153,8 @@ export async function callAI(
           reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
           error: err instanceof Error ? err.message : String(err),
           durationMs: Date.now() - t0,
-        }).catch(() => {});
+          prompt: serializePrompt(systemPrompt, messages),
+        });
       }).catch(() => {});
     }
     throw err;
@@ -222,32 +227,110 @@ export async function callAIWithRetry(
   throw new Error(`AI provider "${provider}" failed after ${maxRetries + 1} attempts: ${lastError!.message}`);
 }
 
+/** Opts for callAIVision — accepts optional log context for InariLens. */
+export interface CallAIVisionOpts {
+  maxTokens?: number;
+  model?: string;
+  timeout?: number;
+  provider?: AIProvider;
+  /** When set, auto-logs usage + cost + prompt/response to InariLens. */
+  log?: AILogContext;
+}
+
 /**
  * Call the AI with a screenshot (base64 PNG) and a text prompt.
  * Uses the user's BYOK provider. All major providers support vision.
  * Groq and DeepSeek don't support vision — falls back to text-only with a note.
+ *
+ * If `opts.log` is set, the call is recorded to InariLens with the prompt
+ * prefixed by `[VISION]`. Screenshots are NOT persisted — only the text.
  */
 export async function callAIVision(
   apiKey: string,
   systemPrompt: string,
   message: AIVisionMessage,
-  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+  opts: CallAIVisionOpts = {}
 ): Promise<string> {
   const provider = opts.provider ?? detectProvider(apiKey);
+  const t0 = Date.now();
 
-  switch (provider) {
-    case "claude":
-      return callClaudeVision(apiKey, systemPrompt, message, opts);
-    case "gemini":
-      return callGeminiVision(apiKey, systemPrompt, message, opts);
-    case "groq":
-    case "deepseek":
-      // No vision support — fall back to text-only
-      return callAI(apiKey, systemPrompt, [{ role: "user", content: `${message.text}\n\n(Screenshot was captured but your AI provider does not support vision. Analysis is text-only.)` }], opts);
-    default:
-      // OpenAI, Grok — both support OpenAI-compatible vision
-      return callOpenAICompatVision(apiKey, systemPrompt, message, opts,
-        provider === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1");
+  try {
+    let result: { text: string; usage: AIUsage; model: string };
+
+    switch (provider) {
+      case "claude":
+        result = await callClaudeVisionWithUsage(apiKey, systemPrompt, message, opts);
+        break;
+      case "gemini":
+        result = await callGeminiVisionWithUsage(apiKey, systemPrompt, message, opts);
+        break;
+      case "groq":
+      case "deepseek":
+        // No vision support — fall back to text-only (logs via callAI itself).
+        return callAI(
+          apiKey,
+          systemPrompt,
+          [{ role: "user", content: `${message.text}\n\n(Screenshot was captured but your AI provider does not support vision. Analysis is text-only.)` }],
+          opts
+        );
+      default:
+        result = await callOpenAICompatVisionWithUsage(
+          apiKey,
+          systemPrompt,
+          message,
+          opts,
+          provider === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1"
+        );
+    }
+
+    if (opts.log) {
+      import("./lens").then(({ logAICall }) => {
+        logAICall({
+          userId: opts.log!.userId,
+          projectId: opts.log!.projectId,
+          alertId: opts.log!.alertId,
+          remediationSessionId: opts.log!.remediationSessionId,
+          feature: opts.log!.feature,
+          provider,
+          model: result.model,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          cachedInputTokens: result.usage.cachedInputTokens,
+          isPlatformKey: opts.log!.isPlatformKey ?? false,
+          reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
+          durationMs: Date.now() - t0,
+          // [VISION] marker tells the replay parser to skip — vision calls
+          // can't be replayed without the original screenshots, which we
+          // intentionally don't persist.
+          prompt: `[VISION]\n[SYSTEM]\n${systemPrompt}\n---\n[USER]\n${message.text}`,
+          response: result.text,
+        });
+      }).catch(() => {});
+    }
+
+    return result.text;
+  } catch (err) {
+    if (opts.log) {
+      import("./lens").then(({ logAICall }) => {
+        logAICall({
+          userId: opts.log!.userId,
+          projectId: opts.log!.projectId,
+          alertId: opts.log!.alertId,
+          remediationSessionId: opts.log!.remediationSessionId,
+          feature: opts.log!.feature,
+          provider,
+          model: opts.model ?? "unknown",
+          inputTokens: 0,
+          outputTokens: 0,
+          isPlatformKey: opts.log!.isPlatformKey ?? false,
+          reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
+          error: err instanceof Error ? err.message : String(err),
+          durationMs: Date.now() - t0,
+          prompt: `[VISION]\n[SYSTEM]\n${systemPrompt}\n---\n[USER]\n${message.text}`,
+        });
+      }).catch(() => {});
+    }
+    throw err;
   }
 }
 
@@ -264,38 +347,129 @@ export async function callAIVision(
 //   Groq      → OpenAI-compatible function_calling
 //   Gemini    → falls back to text-only (function calling schema is different)
 
+/** Opts for callAIWithTools — accepts optional log context for InariLens. */
+export interface CallAIWithToolsOpts {
+  maxTokens?: number;
+  model?: string;
+  timeout?: number;
+  provider?: AIProvider;
+  /** When set, auto-logs usage + cost + prompt/response per turn to InariLens. */
+  log?: AILogContext;
+}
+
 /**
  * Call an AI provider with tool definitions and return structured content blocks.
  * Supports the agentic loop: tool_use → execute → tool_result → repeat.
  *
  * All providers return the same ToolUseResponse format — the adapter handles translation.
  * Gemini falls back to text-only (its function calling format is incompatible).
+ *
+ * If `opts.log` is set, each turn is recorded to InariLens — so a 15-turn
+ * remediation produces 15 rows, one per model round-trip. The response field
+ * summarizes what the model did: either the final text or a `[tool_use: ...]`
+ * marker listing the tools it called.
  */
 export async function callAIWithTools(
   apiKey: string,
   systemPrompt: string,
   messages: AIMessage[],
   tools: ToolDefinition[],
-  opts: { maxTokens?: number; model?: string; timeout?: number; provider?: AIProvider } = {}
+  opts: CallAIWithToolsOpts = {}
 ): Promise<ToolUseResponse> {
   const provider = opts.provider ?? detectProvider(apiKey);
+  const t0 = Date.now();
 
-  switch (provider) {
-    case "claude":
-      return callClaudeWithTools(apiKey, systemPrompt, messages, tools, opts);
-    case "openai":
-      return callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.openai.com/v1");
-    case "grok":
-      return callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.x.ai/v1");
-    case "deepseek":
-      return callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.deepseek.com/v1");
-    case "groq":
-      return callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.groq.com/openai/v1");
-    case "gemini": {
-      // Gemini function calling has an incompatible schema — fall back to text-only
-      const text = await callGemini(apiKey, systemPrompt, flattenMessages(messages), opts);
-      return { stopReason: "end_turn", text };
+  try {
+    let internal: ToolUseResponse & { usage: AIUsage; model: string };
+
+    switch (provider) {
+      case "claude":
+        internal = await callClaudeWithTools(apiKey, systemPrompt, messages, tools, opts);
+        break;
+      case "openai":
+        internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.openai.com/v1");
+        break;
+      case "grok":
+        internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.x.ai/v1");
+        break;
+      case "deepseek":
+        internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.deepseek.com/v1");
+        break;
+      case "groq":
+        internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.groq.com/openai/v1");
+        break;
+      case "gemini": {
+        // Gemini function calling has an incompatible schema — fall back to text-only
+        const geminiResp = await callGeminiWithUsage(apiKey, systemPrompt, flattenMessages(messages), opts);
+        internal = {
+          stopReason: "end_turn",
+          text: geminiResp.text,
+          usage: geminiResp.usage,
+          model: geminiResp.model,
+        };
+        break;
+      }
     }
+
+    if (opts.log) {
+      import("./lens").then(({ logAICall, serializePrompt }) => {
+        // For tool_use turns there's no final text — record a marker listing
+        // which tools were called so the admin UI shows what the model did.
+        const responseText =
+          internal.stopReason === "end_turn"
+            ? internal.text
+            : `[tool_use] ${internal.content
+                .filter((b): b is ToolUseBlock => b.type === "tool_use")
+                .map((b) => `${b.name}(${JSON.stringify(b.input).slice(0, 200)})`)
+                .join("\n")}`;
+
+        logAICall({
+          userId: opts.log!.userId,
+          projectId: opts.log!.projectId,
+          alertId: opts.log!.alertId,
+          remediationSessionId: opts.log!.remediationSessionId,
+          feature: opts.log!.feature,
+          provider,
+          model: internal.model,
+          inputTokens: internal.usage.inputTokens,
+          outputTokens: internal.usage.outputTokens,
+          cachedInputTokens: internal.usage.cachedInputTokens,
+          isPlatformKey: opts.log!.isPlatformKey ?? false,
+          reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
+          durationMs: Date.now() - t0,
+          prompt: serializePrompt(systemPrompt, messages),
+          response: responseText,
+        });
+      }).catch(() => {});
+    }
+
+    // Strip internal usage fields before returning to caller
+    if (internal.stopReason === "end_turn") {
+      return { stopReason: "end_turn", text: internal.text };
+    }
+    return { stopReason: "tool_use", content: internal.content };
+  } catch (err) {
+    if (opts.log) {
+      import("./lens").then(({ logAICall, serializePrompt }) => {
+        logAICall({
+          userId: opts.log!.userId,
+          projectId: opts.log!.projectId,
+          alertId: opts.log!.alertId,
+          remediationSessionId: opts.log!.remediationSessionId,
+          feature: opts.log!.feature,
+          provider,
+          model: opts.model ?? "unknown",
+          inputTokens: 0,
+          outputTokens: 0,
+          isPlatformKey: opts.log!.isPlatformKey ?? false,
+          reservedPlatformCents: opts.log!.reservedPlatformCents ?? 0,
+          error: err instanceof Error ? err.message : String(err),
+          durationMs: Date.now() - t0,
+          prompt: serializePrompt(systemPrompt, messages),
+        });
+      }).catch(() => {});
+    }
+    throw err;
   }
 }
 
@@ -307,7 +481,8 @@ async function callClaudeWithTools(
   messages: AIMessage[],
   tools: ToolDefinition[],
   opts: { maxTokens?: number; model?: string; timeout?: number }
-): Promise<ToolUseResponse> {
+): Promise<ToolUseResponse & { usage: AIUsage; model: string }> {
+  const model = opts.model ?? "claude-sonnet-4-6";
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -317,7 +492,7 @@ async function callClaudeWithTools(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: opts.model ?? "claude-sonnet-4-6",
+      model,
       max_tokens: opts.maxTokens ?? 4096,
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
@@ -331,13 +506,21 @@ async function callClaudeWithTools(
   const data = await safeJson(res);
   const stopReason = data.stop_reason as string;
   const content = data.content as ContentBlock[];
+  const rawUsage = data.usage as
+    | { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number }
+    | undefined;
+  const usage: AIUsage = {
+    inputTokens: (rawUsage?.input_tokens ?? 0) + (rawUsage?.cache_read_input_tokens ?? 0),
+    outputTokens: rawUsage?.output_tokens ?? 0,
+    cachedInputTokens: rawUsage?.cache_read_input_tokens ?? 0,
+  };
 
   if (stopReason === "tool_use") {
-    return { stopReason: "tool_use", content };
+    return { stopReason: "tool_use", content, usage, model };
   }
 
   const textBlock = content.find((c) => c.type === "text") as TextBlock | undefined;
-  return { stopReason: "end_turn", text: textBlock?.text ?? "" };
+  return { stopReason: "end_turn", text: textBlock?.text ?? "", usage, model };
 }
 
 // ── OpenAI-Compatible Tool Use (OpenAI, Grok, DeepSeek, Groq) ──────────────
@@ -410,7 +593,8 @@ async function callOpenAICompatWithTools(
   tools: ToolDefinition[],
   opts: { maxTokens?: number; model?: string; timeout?: number },
   baseUrl: string
-): Promise<ToolUseResponse> {
+): Promise<ToolUseResponse & { usage: AIUsage; model: string }> {
+  const model = opts.model ?? "gpt-4o";
   // Translate tools to OpenAI format
   const openaiTools = tools.map((t) => ({
     type: "function" as const,
@@ -431,7 +615,7 @@ async function callOpenAICompatWithTools(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: opts.model ?? "gpt-4o",
+      model,
       ...(baseUrl.includes("api.openai.com")
         ? { max_completion_tokens: opts.maxTokens ?? 4096 }
         : { max_tokens: opts.maxTokens ?? 4096 }),
@@ -447,6 +631,15 @@ async function callOpenAICompatWithTools(
   const choice = (data.choices as { message: { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] }; finish_reason: string }[])?.[0];
 
   if (!choice) throw new Error("No response from API");
+
+  const rawUsage = data.usage as
+    | { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }
+    | undefined;
+  const usage: AIUsage = {
+    inputTokens: rawUsage?.prompt_tokens ?? 0,
+    outputTokens: rawUsage?.completion_tokens ?? 0,
+    cachedInputTokens: rawUsage?.prompt_tokens_details?.cached_tokens ?? 0,
+  };
 
   const toolCalls = choice.message.tool_calls;
 
@@ -474,11 +667,11 @@ async function callOpenAICompatWithTools(
       });
     }
 
-    return { stopReason: "tool_use", content };
+    return { stopReason: "tool_use", content, usage, model };
   }
 
   // No tool calls — text response
-  return { stopReason: "end_turn", text: choice.message.content ?? "" };
+  return { stopReason: "end_turn", text: choice.message.content ?? "", usage, model };
 }
 
 // ── Message Utilities ───────────────────────────────────────────────────────
@@ -720,12 +913,13 @@ async function callGeminiWithUsage(
 
 // ── Vision implementations ──────────────────────────────────────────────────
 
-async function callClaudeVision(
+async function callClaudeVisionWithUsage(
   apiKey: string,
   system: string,
   msg: AIVisionMessage,
   opts: { maxTokens?: number; model?: string; timeout?: number }
-): Promise<string> {
+): Promise<{ text: string; usage: AIUsage; model: string }> {
+  const model = opts.model ?? "claude-sonnet-4-6";
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -734,7 +928,7 @@ async function callClaudeVision(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: opts.model ?? "claude-sonnet-4-6",
+      model,
       max_tokens: opts.maxTokens ?? 512,
       system,
       messages: [{
@@ -755,16 +949,29 @@ async function callClaudeVision(
 
   if (!res.ok) throw new Error(`Claude Vision API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
   const data = await safeJson(res);
-  return (data.content as { text: string }[])?.[0]?.text ?? "";
+  const text = (data.content as { text: string }[])?.[0]?.text ?? "";
+  const usage = data.usage as
+    | { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number }
+    | undefined;
+  return {
+    text,
+    usage: {
+      inputTokens: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+      outputTokens: usage?.output_tokens ?? 0,
+      cachedInputTokens: usage?.cache_read_input_tokens ?? 0,
+    },
+    model,
+  };
 }
 
-async function callOpenAICompatVision(
+async function callOpenAICompatVisionWithUsage(
   apiKey: string,
   system: string,
   msg: AIVisionMessage,
   opts: { maxTokens?: number; model?: string; timeout?: number },
   baseUrl: string
-): Promise<string> {
+): Promise<{ text: string; usage: AIUsage; model: string }> {
+  const model = opts.model ?? "gpt-4o-mini";
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -772,7 +979,7 @@ async function callOpenAICompatVision(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: opts.model ?? "gpt-4o-mini",
+      model,
       ...(baseUrl.includes("api.openai.com")
         ? { max_completion_tokens: opts.maxTokens ?? 512 }
         : { max_tokens: opts.maxTokens ?? 512 }),
@@ -797,15 +1004,27 @@ async function callOpenAICompatVision(
 
   if (!res.ok) throw new Error(`Vision API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
   const data = await safeJson(res);
-  return ((data.choices as { message: { content: string } }[])?.[0]?.message?.content as string) ?? "";
+  const text = ((data.choices as { message: { content: string } }[])?.[0]?.message?.content as string) ?? "";
+  const usage = data.usage as
+    | { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }
+    | undefined;
+  return {
+    text,
+    usage: {
+      inputTokens: usage?.prompt_tokens ?? 0,
+      outputTokens: usage?.completion_tokens ?? 0,
+      cachedInputTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+    model,
+  };
 }
 
-async function callGeminiVision(
+async function callGeminiVisionWithUsage(
   apiKey: string,
   system: string,
   msg: AIVisionMessage,
   opts: { maxTokens?: number; model?: string; timeout?: number }
-): Promise<string> {
+): Promise<{ text: string; usage: AIUsage; model: string }> {
   const model = opts.model ?? "gemini-1.5-flash";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error("Invalid Gemini model name");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
@@ -834,5 +1053,17 @@ async function callGeminiVision(
 
   if (!res.ok) throw new Error(`Gemini Vision API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
   const data = await safeJson(res);
-  return ((data.candidates as { content: { parts: { text: string }[] } }[])?.[0]?.content?.parts?.[0]?.text as string) ?? "";
+  const text = ((data.candidates as { content: { parts: { text: string }[] } }[])?.[0]?.content?.parts?.[0]?.text as string) ?? "";
+  const usage = data.usageMetadata as
+    | { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number }
+    | undefined;
+  return {
+    text,
+    usage: {
+      inputTokens: usage?.promptTokenCount ?? 0,
+      outputTokens: usage?.candidatesTokenCount ?? 0,
+      cachedInputTokens: usage?.cachedContentTokenCount ?? 0,
+    },
+    model,
+  };
 }

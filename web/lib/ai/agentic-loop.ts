@@ -120,6 +120,17 @@ export interface AgenticLoopParams {
   projectId: string;
   repoFiles: string[];
   emit: (event: string, data: Record<string, unknown>) => void;
+  /**
+   * InariLens log context. When provided, each agentic turn is recorded
+   * individually so a 15-turn remediation produces 15 rows, each with
+   * per-turn tokens, cost, and the model that handled it.
+   */
+  log?: {
+    userId: string;
+    alertId?: string | null;
+    remediationSessionId?: string | null;
+    isPlatformKey?: boolean;
+  };
 }
 
 export interface AgenticLoopResult {
@@ -275,6 +286,16 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
       model: currentModel,
       timeout: 60000,
       provider,
+      log: params.log
+        ? {
+            userId: params.log.userId,
+            projectId: params.projectId,
+            alertId: params.log.alertId,
+            remediationSessionId: params.log.remediationSessionId,
+            feature: "remediation",
+            isPlatformKey: params.log.isPlatformKey ?? false,
+          }
+        : undefined,
     });
 
     if (response.stopReason === "end_turn") {

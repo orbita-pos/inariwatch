@@ -10,6 +10,7 @@ import {
   numeric,
   bigint,
   index,
+  uniqueIndex,
   customType,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -1256,6 +1257,25 @@ export const aiUsageLogs = pgTable(
     /** Latency in ms — null if not measured. */
     durationMs: integer("duration_ms"),
 
+    // ── InariLens fields (migration 0056) ────────────────────────────────
+    /** Stable per-call id. Indexed UNIQUE — the admin drilldown keys on it. */
+    requestId: uuid("request_id").notNull().defaultRandom(),
+    /** Full prompt text — nullable for rows logged before capture was wired. */
+    prompt: text("prompt"),
+    /** Model response text — nullable on error or for pre-capture rows. */
+    response: text("response"),
+    /**
+     * True when the call was served from a local cache (e.g. the redis
+     * diagnosis cache). Provider-side prompt caching is separate — see
+     * `cachedInputTokens`.
+     */
+    cached: boolean("cached").notNull().default(false),
+    /**
+     * For rows generated via the admin replay UI, points back to the
+     * original call. Lets the detail page render a lineage list.
+     */
+    replayOfRequestId: uuid("replay_of_request_id"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -1264,6 +1284,9 @@ export const aiUsageLogs = pgTable(
     index("idx_ai_usage_logs_alert").on(table.alertId),
     index("idx_ai_usage_logs_session").on(table.remediationSessionId),
     index("idx_ai_usage_logs_feature").on(table.userId, table.feature, table.createdAt),
+    uniqueIndex("idx_ai_usage_logs_request_id").on(table.requestId),
+    index("idx_ai_usage_logs_feature_created").on(table.feature, table.createdAt),
+    index("idx_ai_usage_logs_replay_of").on(table.replayOfRequestId),
   ]
 );
 

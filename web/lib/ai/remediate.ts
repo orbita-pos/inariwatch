@@ -1005,6 +1005,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 containerUrl: process.env.STAGING_SERVER_URL!, containerId,
                 stagingSecret: process.env.STAGING_API_SECRET!,
                 emit: (event: string, data: Record<string, unknown>) => emit(event, data),
+                log: {
+                  userId: session.userId,
+                  projectId: session.projectId,
+                  alertId: session.alertId,
+                  remediationSessionId: sessionId,
+                  isPlatformKey: aiKey.isPlatformKey,
+                },
               });
 
               fix = { explanation: containerResult.explanation, files: containerResult.files };
@@ -1070,6 +1077,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             projectId: session.projectId,
             repoFiles: repoFiles.slice(0, 500),
             emit: (event: string, data: Record<string, unknown>) => emit(event, data),
+            log: {
+              userId: session.userId,
+              alertId: session.alertId,
+              remediationSessionId: sessionId,
+              isPlatformKey: aiKey.isPlatformKey,
+            },
           });
 
           fix = { explanation: agenticResult.explanation, files: agenticResult.files };
@@ -1785,7 +1798,18 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
                       imageBase64: finalScreenshot,
                       beforeImageBase64: beforeScreenshot,
                     },
-                    { maxTokens: 300, provider: aiKey.provider }
+                    {
+                      maxTokens: 300,
+                      provider: aiKey.provider,
+                      log: {
+                        userId: session.userId,
+                        projectId: session.projectId,
+                        alertId: session.alertId,
+                        remediationSessionId: sessionId,
+                        feature: "remediation",
+                        isPlatformKey: aiKey.isPlatformKey,
+                      },
+                    }
                   );
                   try {
                     const parsed = JSON.parse(visualResponse.replace(/```json\n?|\n?```/g, "").trim());

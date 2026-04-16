@@ -67,6 +67,30 @@ export async function pingCronHealth(
 }
 
 /**
+ * Delete ai_usage_logs rows older than AI_LENS_RETENTION_DAYS (default 30).
+ * Exposed but not yet registered — the caller (Hetzner Go scheduler or
+ * Vercel cron) decides when to invoke it.
+ *
+ * TODO: register in Hetzner Go scheduler or Vercel cron.
+ * Suggested: daily at 03:00 UTC to avoid peak load.
+ * curl -H "Authorization: Bearer $CRON_SECRET" /api/cron/cleanup-ai-logs
+ */
+export async function cleanupAIUsageLogs(): Promise<{
+  deletedCount: number;
+  retentionDays: number;
+}> {
+  const retentionDays = parseInt(process.env.AI_LENS_RETENTION_DAYS ?? "30", 10);
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const { db, aiUsageLogs } = await import("@/lib/db");
+  const { lt } = await import("drizzle-orm");
+  const result = await db.delete(aiUsageLogs).where(lt(aiUsageLogs.createdAt, cutoff));
+  return {
+    deletedCount: (result as { rowCount?: number }).rowCount ?? 0,
+    retentionDays,
+  };
+}
+
+/**
  * Concurrency-limited drop-in replacement for `Promise.allSettled`.
  *
  * Iterates `items` with at most `limit` parallel calls to `fn`. Returns

@@ -144,6 +144,27 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     // Cache hit — skip AI call but still record cascade info as "cached"
     reasoning = cachedReasoning;
     cascadeInfo = { tierUsed: -1, model: "redis-cache", provider: "cache", escalated: false };
+    // InariLens visibility — the admin dashboard's "Cache hit rate 24h"
+    // widget keys on cached=true rows, so we need to record this even
+    // though no AI call was made.
+    if (proj) {
+      const { logAICall } = await import("./lens");
+      logAICall({
+        userId: proj.userId,
+        projectId: alert.projectId,
+        alertId: alert.id,
+        feature: "auto-analyze",
+        provider: "cache",
+        model: "redis-cache",
+        inputTokens: 0,
+        outputTokens: 0,
+        durationMs: 0,
+        isPlatformKey: aiKey.isPlatformKey,
+        cached: true,
+        prompt,
+        response: cachedReasoning,
+      });
+    }
   } else {
     try {
       const result = await cascadeAnalyze(

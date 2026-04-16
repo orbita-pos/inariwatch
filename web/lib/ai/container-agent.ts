@@ -226,6 +226,18 @@ export interface ContainerAgentParams {
   stagingSecret: string;
   /** Event emitter for streaming status to client. */
   emit: (event: string, data: Record<string, unknown>) => void;
+  /**
+   * InariLens log context. When provided, each agent turn is recorded
+   * individually so a 40-turn container run produces 40 rows, each with
+   * per-turn tokens, cost, and the model that handled it.
+   */
+  log?: {
+    userId: string;
+    projectId?: string | null;
+    alertId?: string | null;
+    remediationSessionId?: string | null;
+    isPlatformKey?: boolean;
+  };
 }
 
 export interface ContainerAgentResult {
@@ -536,6 +548,16 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
       model: currentModel,
       timeout: 90_000, // Longer timeout — container commands can take time
       provider,
+      log: params.log
+        ? {
+            userId: params.log.userId,
+            projectId: params.log.projectId,
+            alertId: params.log.alertId,
+            remediationSessionId: params.log.remediationSessionId,
+            feature: "remediation",
+            isPlatformKey: params.log.isPlatformKey ?? false,
+          }
+        : undefined,
     });
 
     if (response.stopReason === "end_turn") {
