@@ -36,6 +36,96 @@ import { createSessionLogger } from "./logger";
 
 type Emit = (event: string, data: unknown) => void;
 
+// ── Fast-path diagnosis (deterministic, no AI call) ────────────────────────
+
+interface FastPathRule {
+  titlePattern: RegExp;
+  bodyFileExtractor: RegExp;
+  diagnosis: string;
+  confidence: number;
+}
+
+const FAST_PATH_RULES: FastPathRule[] = [
+  {
+    titlePattern: /Cannot read propert(?:y|ies) of (?:null|undefined)/i,
+    bodyFileExtractor: /at\s+\S+\s+\(([^)]+\.[jt]sx?):(\d+)/,
+    diagnosis: "Null/undefined reference — accessing a property on a nullish value",
+    confidence: 92,
+  },
+  {
+    titlePattern: /TypeError:.*is not a function/i,
+    bodyFileExtractor: /at\s+\S+\s+\(([^)]+\.[jt]sx?):(\d+)/,
+    diagnosis: "Type error — calling a non-function value, likely wrong import or missing method",
+    confidence: 88,
+  },
+  {
+    titlePattern: /ReferenceError:\s*(\w+) is not defined/i,
+    bodyFileExtractor: /at\s+\S+\s+\(([^)]+\.[jt]sx?):(\d+)/,
+    diagnosis: "Missing import or undeclared variable",
+    confidence: 90,
+  },
+  {
+    titlePattern: /Cannot find module ['"]([^'"]+)['"]/i,
+    bodyFileExtractor: /at\s+\S+\s+\(([^)]+\.[jt]sx?):(\d+)/,
+    diagnosis: "Missing module — either not installed or wrong import path",
+    confidence: 90,
+  },
+  {
+    titlePattern: /Property ['"](\w+)['"] does not exist on type/i,
+    bodyFileExtractor: /([^(\s]+\.[jt]sx?)\((\d+),/,
+    diagnosis: "TypeScript type error — property does not exist on the expected type",
+    confidence: 85,
+  },
+  {
+    titlePattern: /Argument of type .* is not assignable to/i,
+    bodyFileExtractor: /([^(\s]+\.[jt]sx?)\((\d+),/,
+    diagnosis: "TypeScript type mismatch — argument type incompatible with parameter",
+    confidence: 85,
+  },
+];
+
+function tryFastPathDiagnosis(
+  title: string,
+  body: string,
+  repoFiles: string[],
+  deployedFiles: string[],
+): { diagnosis: string; filesToRead: string[]; confidence: number } | null {
+  for (const rule of FAST_PATH_RULES) {
+    if (!rule.titlePattern.test(title)) continue;
+
+    const fileMatch = rule.bodyFileExtractor.exec(body);
+    if (!fileMatch) continue;
+
+    const rawPath = fileMatch[1];
+    // Normalize: strip leading ./ or absolute paths, keep relative
+    const normalizedPath = rawPath.replace(/^(?:\/workspace\/repo\/|\.\/|\/+)/, "");
+
+    // Verify the file exists in the repo
+    const matched = repoFiles.find((f) =>
+      f === normalizedPath || f.endsWith(normalizedPath)
+    );
+    if (!matched) continue;
+
+    // Prioritize deployed files if the matched file was in the deploy
+    const filesToRead = [matched];
+    const deployedSet = new Set(deployedFiles);
+    if (!deployedSet.has(matched)) {
+      const deployedRelated = deployedFiles.filter((f) =>
+        f.includes(matched.split("/").slice(-2, -1)[0] ?? "")
+      ).slice(0, 2);
+      filesToRead.push(...deployedRelated);
+    }
+
+    return {
+      diagnosis: rule.diagnosis,
+      filesToRead: filesToRead.slice(0, 5),
+      confidence: rule.confidence,
+    };
+  }
+
+  return null;
+}
+
 // ── DB helpers ───────────────────────────────────────────────────────────────
 
 async function updateSession(
@@ -505,59 +595,73 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
     const remModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
 
-    steps = await pushStep(sessionId, steps,
-      makeStep("diagnose", `AI is diagnosing with ${hotFiles.size > 0 ? `${hotFiles.size} hot files` : "no history"} + ${deployedFiles.length > 0 ? `${deployedFiles.length} deployed files` : "no deploy context"}...`), emit);
-
-    let diagRaw: string;
-    try {
-      diagRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
-        { role: "user", content: buildDiagnosePrompt({
-          title: alert.title,
-          body: alert.body,
-          sourceIntegrations: alert.sourceIntegrations,
-          aiReasoning: alert.aiReasoning,
-        }, repoFiles, remediationContext, pastHints, hotFiles, deployedFiles) },
-      ], {
-        maxTokens: 600,
-        timeout: 45000,
-        model: remModel,
-        provider: aiKey.provider,
-        log: {
-          userId: session.userId,
-          projectId: session.projectId,
-          alertId: session.alertId,
-          remediationSessionId: session.id,
-          feature: "remediation",
-          isPlatformKey: aiKey.isPlatformKey,
-        },
-      });
-    } catch (err) {
-      await fail(sessionId, emit, `Diagnosis failed: ${err instanceof Error ? err.message : "AI provider error"}`);
-      return;
-    }
-
-    // Diagnosis succeeded — commit the quota slot now (so failed-from-API-error
-    // remediations don't waste user's quota, but committed work does count).
-    try {
-      const { incrementQuota } = await import("./quota");
-      incrementQuota(session.userId, "remediation").catch(() => {});
-    } catch {
-      // Non-blocking
-    }
+    // ── FAST-PATH: deterministic diagnosis for known patterns ──────────
+    // Skips the AI diagnosis call entirely (~$0.005 saved per match).
+    // Patterns here are high-confidence, deterministic — the stack trace
+    // alone tells us exactly what file to read and what to fix.
+    const fastDiag = tryFastPathDiagnosis(alert.title, alert.body, repoFiles, deployedFiles);
 
     let diagnosis: { diagnosis: string; filesToRead: string[]; confidence: number };
-    try {
-      const parsed = JSON.parse(cleanJSON(diagRaw));
-      // Normalize confidence to number (backward compat with old "high"/"medium"/"low")
-      let conf = parsed.confidence;
-      if (typeof conf === "string") {
-        conf = conf === "high" ? 90 : conf === "medium" ? 60 : 25;
+
+    if (fastDiag) {
+      diagnosis = fastDiag;
+      steps = await pushStep(sessionId, steps,
+        makeStep("diagnose", `Fast-path: ${fastDiag.diagnosis} (confidence ${fastDiag.confidence})`), emit);
+      steps = await resolveStep(sessionId, steps, "completed",
+        `Diagnosed via pattern match — skipped AI call`, emit);
+    } else {
+      steps = await pushStep(sessionId, steps,
+        makeStep("diagnose", `AI is diagnosing with ${hotFiles.size > 0 ? `${hotFiles.size} hot files` : "no history"} + ${deployedFiles.length > 0 ? `${deployedFiles.length} deployed files` : "no deploy context"}...`), emit);
+
+      let diagRaw: string;
+      try {
+        diagRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
+          { role: "user", content: buildDiagnosePrompt({
+            title: alert.title,
+            body: alert.body,
+            sourceIntegrations: alert.sourceIntegrations,
+            aiReasoning: alert.aiReasoning,
+          }, repoFiles, remediationContext, pastHints, hotFiles, deployedFiles) },
+        ], {
+          maxTokens: 600,
+          timeout: 45000,
+          model: remModel,
+          provider: aiKey.provider,
+          log: {
+            userId: session.userId,
+            projectId: session.projectId,
+            alertId: session.alertId,
+            remediationSessionId: session.id,
+            feature: "remediation",
+            isPlatformKey: aiKey.isPlatformKey,
+          },
+        });
+      } catch (err) {
+        await fail(sessionId, emit, `Diagnosis failed: ${err instanceof Error ? err.message : "AI provider error"}`);
+        return;
       }
-      const rawConf = Number(conf);
-      diagnosis = { ...parsed, confidence: isFinite(rawConf) ? Math.max(0, Math.min(100, rawConf)) : 50 };
-    } catch {
-      await fail(sessionId, emit, "AI returned an invalid diagnosis. Try again.");
-      return;
+
+      // Diagnosis succeeded — commit the quota slot now (so failed-from-API-error
+      // remediations don't waste user's quota, but committed work does count).
+      try {
+        const { incrementQuota } = await import("./quota");
+        incrementQuota(session.userId, "remediation").catch(() => {});
+      } catch {
+        // Non-blocking
+      }
+
+      try {
+        const parsed = JSON.parse(cleanJSON(diagRaw));
+        let conf = parsed.confidence;
+        if (typeof conf === "string") {
+          conf = conf === "high" ? 90 : conf === "medium" ? 60 : 25;
+        }
+        const rawConf = Number(conf);
+        diagnosis = { ...parsed, confidence: isFinite(rawConf) ? Math.max(0, Math.min(100, rawConf)) : 50 };
+      } catch {
+        await fail(sessionId, emit, "AI returned an invalid diagnosis. Try again.");
+        return;
+      }
     }
 
     // ── CONFIDENCE CALIBRATION ─────────────────────────────────────────
