@@ -171,20 +171,21 @@ export async function callAIWithUsage(
   opts: CallAIOpts = {}
 ): Promise<AIResponse> {
   const provider = opts.provider ?? detectProvider(apiKey);
+  const { heliconeBaseUrl } = await import("./helicone");
 
   switch (provider) {
     case "claude":
       return callClaudeWithUsage(apiKey, systemPrompt, messages, opts);
     case "grok":
-      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.x.ai/v1", "grok");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, heliconeBaseUrl("grok") ?? "https://api.x.ai/v1", "grok");
     case "groq":
-      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.groq.com/openai/v1", "groq");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, heliconeBaseUrl("groq") ?? "https://api.groq.com/openai/v1", "groq");
     case "deepseek":
-      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.deepseek.com/v1", "deepseek");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, heliconeBaseUrl("deepseek") ?? "https://api.deepseek.com/v1", "deepseek");
     case "gemini":
       return callGeminiWithUsage(apiKey, systemPrompt, messages, opts);
     default:
-      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, "https://api.openai.com/v1", "openai");
+      return callOpenAICompatWithUsage(apiKey, systemPrompt, messages, opts, heliconeBaseUrl("openai") ?? "https://api.openai.com/v1", "openai");
   }
 }
 
@@ -520,16 +521,26 @@ async function callClaudeWithUsage(
   apiKey: string,
   system: string,
   messages: AIMessage[],
-  opts: { maxTokens?: number; model?: string; timeout?: number }
+  opts: CallAIOpts
 ): Promise<AIResponse> {
   const model = opts.model ?? "claude-sonnet-4-6";
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const { heliconeBaseUrl, heliconeHeaders } = await import("./helicone");
+  const baseUrl = heliconeBaseUrl("claude") ?? "https://api.anthropic.com";
+  const helHeaders = heliconeHeaders({
+    feature: opts.log?.feature,
+    userId: opts.log?.userId,
+    alertId: opts.log?.alertId,
+    projectId: opts.log?.projectId,
+    remediationSessionId: opts.log?.remediationSessionId,
+  });
+  const res = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "anthropic-beta": "prompt-caching-2024-07-31",
       "content-type": "application/json",
+      ...helHeaders,
     },
     body: JSON.stringify({
       model,
@@ -583,16 +594,29 @@ async function callOpenAICompatWithUsage(
   apiKey: string,
   system: string,
   messages: AIMessage[],
-  opts: { maxTokens?: number; model?: string; timeout?: number },
+  opts: CallAIOpts,
   baseUrl: string,
   provider: AIProvider
 ): Promise<AIResponse> {
   const model = opts.model ?? "gpt-4o-mini";
+  const { heliconeHeaders } = await import("./helicone");
+  // Enable Helicone cache for tier 0 (Groq) — same fingerprint = same response
+  const cacheEnabled = provider === "groq";
+  const helHeaders = heliconeHeaders({
+    feature: opts.log?.feature,
+    tier: provider === "groq" ? 0 : undefined,
+    userId: opts.log?.userId,
+    alertId: opts.log?.alertId,
+    projectId: opts.log?.projectId,
+    remediationSessionId: opts.log?.remediationSessionId,
+    cacheEnabled,
+  });
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      ...helHeaders,
     },
     body: JSON.stringify({
       model,
