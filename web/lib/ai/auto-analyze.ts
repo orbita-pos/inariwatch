@@ -31,13 +31,10 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
   // Check Redis cache — same fingerprint = same diagnosis (saves AI call + $0.005)
   const fingerprint = computeErrorFingerprint(alert.title, alert.body ?? "");
   const redis = getRedis();
+  let cachedReasoning: string | null = null;
   if (redis) {
     try {
-      const cached = await redis.get<string>(`ai_diag:${fingerprint}`);
-      if (cached) {
-        await db.update(alerts).set({ aiReasoning: cached }).where(eq(alerts.id, alert.id));
-        return;
-      }
+      cachedReasoning = await redis.get<string>(`ai_diag:${fingerprint}`);
     } catch {
       // Redis unavailable — proceed with AI call
     }
@@ -143,20 +140,26 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
 
   let reasoning: string;
   let cascadeInfo: { tierUsed: number; model: string; provider: string; escalated: boolean } | null = null;
-  try {
-    const result = await cascadeAnalyze(
-      aiKey.key,
-      aiKey.provider,
-      aiKey.isPlatformKey ?? false,
-      messages,
-      classification?.triageClass ?? null,
-      logCtx,
-    );
-    reasoning = result.reasoning;
-    cascadeInfo = { tierUsed: result.tierUsed, model: result.model, provider: result.provider, escalated: result.escalated };
-  } catch {
-    const fallback = heuristicAnalyze(alert.title, alert.body ?? "");
-    reasoning = fallback?.reasoning ?? "AI analysis temporarily unavailable. Please check alert details manually.";
+  if (cachedReasoning) {
+    // Cache hit — skip AI call but still record cascade info as "cached"
+    reasoning = cachedReasoning;
+    cascadeInfo = { tierUsed: -1, model: "redis-cache", provider: "cache", escalated: false };
+  } else {
+    try {
+      const result = await cascadeAnalyze(
+        aiKey.key,
+        aiKey.provider,
+        aiKey.isPlatformKey ?? false,
+        messages,
+        classification?.triageClass ?? null,
+        logCtx,
+      );
+      reasoning = result.reasoning;
+      cascadeInfo = { tierUsed: result.tierUsed, model: result.model, provider: result.provider, escalated: result.escalated };
+    } catch {
+      const fallback = heuristicAnalyze(alert.title, alert.body ?? "");
+      reasoning = fallback?.reasoning ?? "AI analysis temporarily unavailable. Please check alert details manually.";
+    }
   }
 
   // Build correlation metadata — atomic jsonb merge preserves any data
@@ -173,6 +176,15 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     metaUpdate.analyzeProvider = cascadeInfo.provider;
     metaUpdate.cascadeEscalated = cascadeInfo.escalated;
   }
+
+  // TEMP debug log — remove after confirming cascade tracking works in prod
+  console.log("[auto-analyze] persisting metadata for alert", alert.id, {
+    cachedReasoning: !!cachedReasoning,
+    classification: classification?.triageClass,
+    cascadeInfo,
+    metaUpdate,
+    metaUpdateKeys: Object.keys(metaUpdate),
+  });
 
   await db
     .update(alerts)
