@@ -13,6 +13,7 @@ import { db, remediationSessions, alerts, projectIntegrations, projects, errorPa
 import { eq, and, desc } from "drizzle-orm";
 import { callAI, callAIWithRetry } from "./client";
 import { SYSTEM_REMEDIATOR, SYSTEM_REVIEWER, SYSTEM_TEST_GENERATOR, buildDiagnosePrompt, buildFixPrompt, buildSelfReviewPrompt, buildTestPrompt, type MemoryHint } from "./prompts";
+import { expandFixFiles } from "./expand-lazy-writes";
 import { computeErrorFingerprint } from "./fingerprint";
 import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
@@ -1057,6 +1058,11 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         if (blockedFiles.length > 0) {
           emit("warning", { message: `Skipped protected files: ${blockedFiles.join(", ")}` });
         }
+
+        // Expand lazy-write markers ("// ... keep existing code ...") against originals.
+        // The AI now outputs only changed lines + markers to reduce output tokens by 60-80%.
+        const originalsMap = new Map(fileContents.map((f) => [f.path, f.content]));
+        fix.files = expandFixFiles(fix.files, originalsMap);
       } // end if (!managedAgentPushed) — blocked file validation
 
       await updateSession(sessionId, { fileChanges: fix.files });

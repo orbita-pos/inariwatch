@@ -467,6 +467,12 @@ WORKFLOW:
 8. If verification FAILS, read the error, fix it with write_file, and re-verify.
 9. When verification passes, call submit_fix with the list of files you changed.
 
+EFFICIENCY RULES:
+- NEVER re-read a file you already read in this session. You have the content from your previous read_file call — refer to it directly. Re-reading wastes turns and budget.
+- NEVER read files just to "double-check" or "verify" — only read files you haven't seen yet.
+- NEVER run the same command twice if it already passed. Once tsc passes, move on.
+- For common patterns (null reference, missing import, type mismatch, off-by-one), fix immediately after reading the relevant file — do not explore further.
+
 CRITICAL RULES:
 - NEVER call submit_fix before the language-appropriate compile/type-check step passes.
 - Use the same libraries and APIs the project already uses (check imports).
@@ -474,6 +480,7 @@ CRITICAL RULES:
 - Make MINIMUM changes to fix the bug — do not refactor unrelated code.
 - Never modify .env files, lock files, migrations, or CI workflows.
 - If verification fails, DO NOT give up — read the error message and fix the issue.
+- Do NOT add comments to your code changes. No "// fixed", "// added null check", or documentation. The explanation in submit_fix describes the change.
 
 Respond ONLY with tool calls. Do not output free text.`;
 }

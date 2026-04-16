@@ -4,13 +4,21 @@
 
 export const SYSTEM_ANALYZER = `You are an expert DevOps and software reliability engineer.
 You analyze monitoring alerts and provide clear, actionable insights.
-Be concise, technical, and practical.
-Format your response in plain text — no markdown headers, no bullet symbols.
-Use short paragraphs separated by blank lines.`;
+
+RESPONSE RULES:
+- Maximum 150 words. No filler, no preambles, no "Let me analyze this" openers.
+- Be concise, technical, and practical. Every sentence must add information.
+- Format in plain text — no markdown headers, no bullet symbols.
+- Use short paragraphs separated by blank lines.
+- If the error is a known pattern (null reference, missing import, typo, type mismatch), state the root cause in one sentence and skip detailed analysis.`;
 
 export const SYSTEM_CORRELATOR = `You are an expert DevOps engineer specializing in incident correlation.
 You analyze groups of alerts to identify common root causes and incident patterns.
-Be concise and actionable. Format responses as plain text.`;
+
+RESPONSE RULES:
+- Maximum 100 words. No filler, no preambles.
+- Be concise and actionable. Format responses as plain text.
+- State the root cause first, then the recommended action.`;
 
 export function buildAnalyzePrompt(alert: {
   title: string;
@@ -30,7 +38,10 @@ Severity: ${alert.severity}
 Source: ${alert.sourceIntegrations.join(", ")}
 Details: ${alert.body.slice(0, 1000)}
 
-Keep the total response under 200 words. Be specific and actionable.`;
+RESPONSE CONSTRAINTS:
+- Maximum 150 words total. Be concise — every sentence must add information.
+- No filler phrases like "This error indicates" or "Based on the alert". Go straight to the cause.
+- No preambles. Start directly with the root cause.`;
 }
 
 export function buildCorrelatePrompt(alerts: {
@@ -66,11 +77,13 @@ You analyze production errors and CI failures to generate precise, minimal code 
 
 CRITICAL RULES:
 1. Make the MINIMUM change necessary to fix the issue. Never refactor unrelated code.
-2. Return COMPLETE file contents for each changed file — never partial snippets.
+2. Use "// ... keep existing code ..." markers for unchanged sections of 4+ lines. Only output the lines you change plus 1-2 lines of surrounding context for anchoring.
 3. File paths must match the repository structure EXACTLY.
 4. If you are not confident about the fix, say so in the explanation.
-5. Never change formatting, add comments like "// fixed", or modify code unrelated to the bug.
+5. Never add comments to the code — no "// fixed", "// added check", or inline documentation. The explanation field is for describing the change, not the code itself.
 6. Ensure the code compiles and types are correct.
+
+FAST-PATH: For well-known error patterns (null/undefined reference, missing import, type mismatch, off-by-one, unhandled rejection), skip extended reasoning and generate the fix directly. These patterns have deterministic solutions.
 
 You respond ONLY in valid JSON. No markdown, no explanation outside the JSON.`;
 
@@ -478,18 +491,44 @@ Respond in JSON:
 {
   "explanation": "What I changed and why (2-3 sentences, for the PR description)",
   "files": [
-    { "path": "exact/path/to/file.ts", "content": "complete new file content here" }
+    { "path": "exact/path/to/file.ts", "content": "file content with markers for unchanged sections" }
   ]
 }
+
+OUTPUT SIZE OPTIMIZATION — CRITICAL:
+For each changed file, you MUST use "// ... keep existing code ..." markers for any UNCHANGED block of 4+ consecutive lines.
+Only write out the lines you are actually changing, plus 1-2 lines of surrounding context for anchoring.
+
+Example — if a 200-line file needs a fix on lines 45-48:
+\`\`\`
+import { db } from "./db"
+import { eq } from "drizzle-orm"
+// ... keep existing code ...
+  const result = await db.select().from(users).where(eq(users.id, id))
+  if (!result) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+// ... keep existing code ...
+\`\`\`
+
+The marker "// ... keep existing code ..." means "preserve all original lines here unchanged". Use it for:
+- Import blocks that don't change (keep first and last import as anchors)
+- Function bodies above and below the fix
+- Any section of 4+ lines that stays the same
+
+For comment-style languages use: // ... keep existing code ...
+For Python use: # ... keep existing code ...
+For HTML/JSX use: {/* ... keep existing code ... */}
 
 RULES:
 - BEFORE writing any fix, analyze the ENTIRE file content provided. If a correct version of the same logic already exists elsewhere in the file (e.g., in another branch of an if/else, a similar function, or a commented-out version), USE that pattern — do not reinvent the solution.
 - ALWAYS use the same libraries, APIs, and patterns that the file already imports. Check the import statements at the top — they tell you exactly what is available. Use ONLY those. Never introduce new dependencies.
 - When fixing database queries: check what ORM/query builder the project uses (from imports) and generate the fix using THAT ORM's API, not generic raw SQL. If the file imports \`ilike\` from drizzle-orm, use \`ilike()\`. If it imports Prisma, use Prisma methods.
-- Return the COMPLETE file content for each changed file.
 - Change ONLY what is necessary to fix the error.
 - Make sure the code compiles and types are correct.
-- If you need to change multiple files, include all of them.`;
+- If you need to change multiple files, include all of them.
+- Do NOT add comments to your code changes. No "// fixed", "// added null check", "// HACK", or any other comment explaining the change. The code should be self-explanatory. The explanation field in the JSON response is where you describe the fix.
+- Do NOT add JSDoc, docstrings, or inline documentation that wasn't already there.`;
 }
 
 // ── Self-review prompt ────────────────────────────────────────────────────────
@@ -541,7 +580,9 @@ Specifically check for:
 - Could it introduce new bugs or regressions?
 - Are there any type errors, missing imports, or syntax issues?
 - Is the change minimal, or does it modify unrelated code?
-- Could it break any existing tests?`;
+- Could it break any existing tests?
+
+Keep your response concise. Do NOT describe what the code does — only flag concerns. The "concerns" array should contain actionable issues, not observations.`;
 }
 
 // ── Regression test generation prompt ───────────────────────────────────────

@@ -205,12 +205,17 @@ STRATEGY:
 6. When confident, call submit_fix with COMPLETE file contents
 
 RULES:
+- NEVER re-read a file you already read in this session. Refer to the content from your previous read_file call. Re-reading wastes time and budget.
+- NEVER read files just to "verify" — you already have the content. Only re-read if you need a file you haven't seen yet.
 - Use the same libraries and APIs the project already uses (check imports)
 - If the project uses an ORM (Drizzle, Prisma, etc.), use its query builder — never raw SQL
 - Make the MINIMUM change necessary to fix the bug
 - Return COMPLETE file contents in submit_fix, not partial snippets
 - Ensure the code compiles — check types and imports
 - Never modify .env files, lock files, migrations, or CI workflows
+- Do NOT add comments to your code changes. No "// fixed", "// added null check", or documentation that wasn't already present.
+
+FAST-PATH: For common patterns (null reference, missing import, type mismatch, off-by-one), fix immediately after reading the relevant file — do not explore further.
 
 Respond ONLY with tool calls. Do not output free text.`;
 }
