@@ -2,6 +2,8 @@
  * Prompt templates for AI analysis tasks.
  */
 
+import { truncateStackTrace, truncateBuildLogs, truncateCodeContext } from "./truncate-context";
+
 export const SYSTEM_ANALYZER = `You are an expert DevOps and software reliability engineer.
 You analyze monitoring alerts and provide clear, actionable insights.
 
@@ -248,15 +250,15 @@ export function buildDiagnosePrompt(
     .join("\n");
 
   const contextSections: string[] = [];
-  if (context?.sentryStackTrace) contextSections.push(`SENTRY STACK TRACE:\n${context.sentryStackTrace.slice(0, 2500)}`);
-  if (context?.sentryIssueDetails) contextSections.push(`SENTRY ISSUE DETAILS:\n${context.sentryIssueDetails.slice(0, 1500)}`);
-  if (context?.vercelBuildLogs) contextSections.push(`VERCEL BUILD LOGS:\n${context.vercelBuildLogs.slice(0, 2500)}`);
-  if (context?.githubCILogs) contextSections.push(`GITHUB CI LOGS:\n${context.githubCILogs.slice(0, 2500)}`);
-  if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1500)}`);
-  if (context?.substrateContext) contextSections.push(`SUBSTRATE RECORDING (full I/O trace):\n${context.substrateContext.slice(0, 4000)}`);
-  if (context?.deployContext) contextSections.push(`RECENT DEPLOY (likely cause of the error):\n${context.deployContext.slice(0, 1500)}`);
-  if (context?.codebaseContext) contextSections.push(`CODEBASE CONTEXT (relevant code patterns from this repository — follow these conventions):\n${context.codebaseContext.slice(0, 8000)}`);
-  if (context?.fixReplayContext) contextSections.push(`PAST SUCCESSFUL FIXES (similar errors that were fixed before — use as strong hints):\n${context.fixReplayContext.slice(0, 2000)}`);
+  if (context?.sentryStackTrace) contextSections.push(`SENTRY STACK TRACE:\n${truncateStackTrace(context.sentryStackTrace, 10)}`);
+  if (context?.sentryIssueDetails) contextSections.push(`SENTRY ISSUE DETAILS:\n${context.sentryIssueDetails.slice(0, 1000)}`);
+  if (context?.vercelBuildLogs) contextSections.push(`VERCEL BUILD LOGS:\n${truncateBuildLogs(context.vercelBuildLogs, 40)}`);
+  if (context?.githubCILogs) contextSections.push(`GITHUB CI LOGS:\n${truncateBuildLogs(context.githubCILogs, 40)}`);
+  if (context?.datadogMetrics) contextSections.push(`DATADOG METRICS:\n${context.datadogMetrics.slice(0, 1000)}`);
+  if (context?.substrateContext) contextSections.push(`SUBSTRATE RECORDING (full I/O trace):\n${context.substrateContext.slice(0, 2500)}`);
+  if (context?.deployContext) contextSections.push(`RECENT DEPLOY (likely cause of the error):\n${context.deployContext.slice(0, 1000)}`);
+  if (context?.codebaseContext) contextSections.push(`CODEBASE CONTEXT (relevant code patterns from this repository — follow these conventions):\n${truncateCodeContext(context.codebaseContext, 4000)}`);
+  if (context?.fixReplayContext) contextSections.push(`PAST SUCCESSFUL FIXES (similar errors that were fixed before — use as strong hints):\n${context.fixReplayContext.slice(0, 1500)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";
@@ -465,7 +467,7 @@ Analyze the CI error carefully to understand why the previous fix failed.`;
   }
 
   const codebaseSection = codebaseContext
-    ? `\n\nCODEBASE PATTERNS (from the user's repository — your fix MUST follow these conventions):\n${codebaseContext.slice(0, 8000)}`
+    ? `\n\nCODEBASE PATTERNS (from the user's repository — your fix MUST follow these conventions):\n${truncateCodeContext(codebaseContext, 4000)}`
     : "";
 
   const stackSection = stackContext
