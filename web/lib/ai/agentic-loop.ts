@@ -132,6 +132,7 @@ export interface AgenticLoopResult {
 async function executeTool(
   tool: ToolUseBlock,
   params: AgenticLoopParams,
+  filesRead: Map<string, string>,
 ): Promise<string> {
   const { token, owner, repo, defaultBranch, projectId, repoFiles } = params;
   const input = tool.input as Record<string, string>;
@@ -141,9 +142,17 @@ async function executeTool(
       const path = input.path;
       if (!path) return "Error: path is required";
       if (isBlockedFile(path)) return `Access denied: ${path} is a sensitive file and cannot be read for security reasons.`;
+
+      // Context dedup: return cached content if already read this session.
+      // Saves a GitHub API call (~200ms) and prevents the model from wasting turns.
+      const cached = filesRead.get(path);
+      if (cached) return `(already read — returning cached content)\n${cached}`;
+
       const content = await gh.getFileContent(token, owner, repo, path, defaultBranch);
       if (content === null) return `File not found: ${path}`;
-      return content.slice(0, MAX_FILE_SIZE);
+      const truncated = content.slice(0, MAX_FILE_SIZE);
+      filesRead.set(path, truncated);
+      return truncated;
     }
 
     case "search_code": {
@@ -227,6 +236,10 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
 
   const systemPrompt = buildAgenticSystemPrompt();
 
+  // Track files read across turns — serves cached content on re-reads,
+  // saving GitHub API calls and preventing wasted turns.
+  const filesRead = new Map<string, string>();
+
   // Start with the error context as the first message
   const messages: AIMessage[] = [
     { role: "user", content: errorContext },
@@ -268,7 +281,7 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
       emit("agentic_tool", { turn, tool: toolUse.name, input: toolUse.name === "submit_fix" ? { files: ((toolUse.input as { files?: { path: string }[] }).files ?? []).map((f) => f.path) } : toolUse.input });
 
       try {
-        const result = await executeTool(toolUse, params);
+        const result = await executeTool(toolUse, params, filesRead);
 
         // Check if this is the terminal submit_fix
         if (toolUse.name === "submit_fix") {

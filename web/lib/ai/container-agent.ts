@@ -312,6 +312,7 @@ async function containerWrite(
 async function executeContainerTool(
   tool: ToolUseBlock,
   params: ContainerAgentParams,
+  filesRead: Map<string, string>,
 ): Promise<string> {
   const { containerUrl, containerId, stagingSecret } = params;
   const input = tool.input as Record<string, unknown>;
@@ -322,6 +323,10 @@ async function executeContainerTool(
       if (!path) return "Error: path is required";
       if (isBlockedFile(path)) return `Access denied: ${path} is a sensitive file and cannot be read.`;
 
+      // Context dedup: return cached content if already read this session.
+      const cached = filesRead.get(path);
+      if (cached) return `(already read — returning cached content)\n${cached}`;
+
       const result = await containerExec(
         containerUrl, containerId,
         `cat ${shellEscape(path)}`,
@@ -330,7 +335,9 @@ async function executeContainerTool(
       );
 
       if (result.exitCode !== 0) return `File not found: ${path}`;
-      return result.stdout.slice(0, MAX_FILE_SIZE);
+      const truncated = result.stdout.slice(0, MAX_FILE_SIZE);
+      filesRead.set(path, truncated);
+      return truncated;
     }
 
     case "search_code": {
@@ -399,9 +406,12 @@ async function executeContainerTool(
       }
 
       const result = await containerWrite(containerUrl, containerId, path, content, stagingSecret);
-      return result.written
-        ? `Written ${result.size} bytes to ${path}`
-        : `Failed to write: ${path}`;
+      if (result.written) {
+        // Invalidate read cache — file content changed
+        filesRead.delete(path);
+        return `Written ${result.size} bytes to ${path}`;
+      }
+      return `Failed to write: ${path}`;
     }
 
     case "run_command": {
@@ -492,6 +502,9 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
 
   const systemPrompt = buildContainerSystemPrompt();
 
+  // Track files read across turns — serves cached content on re-reads.
+  const filesRead = new Map<string, string>();
+
   const messages: AIMessage[] = [
     { role: "user", content: errorContext },
   ];
@@ -546,7 +559,7 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
       emit("container_tool", { turn, tool: toolUse.name, input: emitInput });
 
       try {
-        const result = await executeContainerTool(toolUse, params);
+        const result = await executeContainerTool(toolUse, params, filesRead);
 
         // Track verification status from run_command results
         if (toolUse.name === "run_command") {

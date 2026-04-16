@@ -1318,30 +1318,34 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           "Security scan skipped (non-blocking)", emit);
       }
 
-      // ── SELF-REVIEW ────────────────────────────────────────────────────
+      // ── SELF-REVIEW (cascaded: cheap model first, escalate if ambiguous) ─
       let selfReview: SelfReviewResult | null = null;
       steps = await pushStep(sessionId, steps,
         makeStep("self_review", "AI is reviewing the generated fix for correctness..."), emit);
 
+      const reviewPromptMessages = [
+        { role: "user" as const, content: buildSelfReviewPrompt(
+          diagnosis.diagnosis, fileContents, fix.files, alert.body
+        ) },
+      ];
+      const reviewLogCtx = {
+        userId: session.userId,
+        projectId: session.projectId,
+        alertId: session.alertId,
+        remediationSessionId: session.id,
+        feature: "self-review" as const,
+        isPlatformKey: aiKey.isPlatformKey,
+      };
+
       try {
-        const reviewModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
-        const reviewRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, [
-          { role: "user", content: buildSelfReviewPrompt(
-            diagnosis.diagnosis, fileContents, fix.files, alert.body
-          ) },
-        ], {
-          maxTokens: 1024,
-          timeout: 45000,
-          model: reviewModel,
+        // Tier 0: cheap model (Haiku / GPT-4o-mini)
+        const cheapModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
+        const reviewRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, reviewPromptMessages, {
+          maxTokens: 512,
+          timeout: 30000,
+          model: cheapModel,
           provider: aiKey.provider,
-          log: {
-            userId: session.userId,
-            projectId: session.projectId,
-            alertId: session.alertId,
-            remediationSessionId: session.id,
-            feature: "self-review",
-            isPlatformKey: aiKey.isPlatformKey,
-          },
+          log: reviewLogCtx,
         });
 
         const parsed = JSON.parse(cleanJSON(reviewRaw));
@@ -1350,6 +1354,34 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
           recommendation: ["approve", "flag", "reject"].includes(parsed.recommendation) ? parsed.recommendation : "flag",
         };
+
+        // Cascade: if score is in the ambiguous zone (40-70), escalate to
+        // the remediation-tier model for a second opinion. Clear approve (>70)
+        // or clear reject (<40) don't need a more expensive model.
+        if (selfReview.score >= 40 && selfReview.score <= 70) {
+          try {
+            const strongModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
+            if (strongModel !== cheapModel) {
+              emit("self_review_escalating", { cheapScore: selfReview.score, model: strongModel });
+              const escalatedRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, reviewPromptMessages, {
+                maxTokens: 512,
+                timeout: 45000,
+                model: strongModel,
+                provider: aiKey.provider,
+                log: { ...reviewLogCtx, feature: "self-review" as const },
+              });
+
+              const escalatedParsed = JSON.parse(cleanJSON(escalatedRaw));
+              selfReview = {
+                score: isFinite(Number(escalatedParsed.score)) ? Math.max(0, Math.min(100, Number(escalatedParsed.score))) : selfReview.score,
+                concerns: Array.isArray(escalatedParsed.concerns) ? escalatedParsed.concerns : selfReview.concerns,
+                recommendation: ["approve", "flag", "reject"].includes(escalatedParsed.recommendation) ? escalatedParsed.recommendation : selfReview.recommendation,
+              };
+            }
+          } catch {
+            // Escalation failed — keep cheap model result (already have a score)
+          }
+        }
       } catch {
         selfReview = { score: 0, concerns: ["Self-review could not be completed — AI call failed"], recommendation: "reject" };
       }
