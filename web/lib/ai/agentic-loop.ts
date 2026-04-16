@@ -15,6 +15,7 @@
 
 import type { ToolDefinition, AIMessage, ContentBlock, ToolUseBlock, TextBlock, ToolResultBlock, AIProvider } from "./client";
 import { callAIWithTools } from "./client";
+import { expandFixFiles } from "./expand-lazy-writes";
 import * as gh from "@/lib/services/github-api";
 
 const MAX_TURNS = 15;
@@ -78,7 +79,7 @@ const TOOLS: ToolDefinition[] = [
   },
   {
     name: "submit_fix",
-    description: "Submit the final fix. This ENDS the loop. Provide complete file contents for every file you changed. Only call this when you are confident the fix is correct and compiles.",
+    description: "Submit the final fix. This ENDS the loop. For each changed file, use '// ... keep existing code ...' markers for any unchanged block of 4+ lines — only output the lines you changed plus 1-2 lines of surrounding context. The system will expand markers against the original file.",
     input_schema: {
       type: "object",
       properties: {
@@ -89,11 +90,11 @@ const TOOLS: ToolDefinition[] = [
             type: "object",
             properties: {
               path: { type: "string", description: "File path relative to repo root" },
-              content: { type: "string", description: "Complete new file content" },
+              content: { type: "string", description: "File content with '// ... keep existing code ...' markers for unchanged sections" },
             },
             required: ["path", "content"],
           },
-          description: "Array of files to modify. Must include COMPLETE file content, not diffs.",
+          description: "Array of files to modify. Use markers for unchanged sections to reduce output size.",
         },
       },
       required: ["explanation", "files"],
@@ -203,7 +204,7 @@ function buildAgenticSystemPrompt(): string {
   return `You are an expert software engineer fixing a production bug.
 
 You have tools to explore the repository: read files, search code, list directories.
-When you understand the bug and know how to fix it, call submit_fix with the complete corrected files.
+When you understand the bug and know how to fix it, call submit_fix.
 
 STRATEGY:
 1. Read the file(s) mentioned in the error stack trace
@@ -211,7 +212,7 @@ STRATEGY:
 3. Read package.json if you need to know the tech stack
 4. Look for existing correct patterns in the same file or nearby files
 5. If a correct version of the same logic exists (e.g., in another branch of an if/else), copy that pattern
-6. When confident, call submit_fix with COMPLETE file contents
+6. When confident, call submit_fix with changed files using "// ... keep existing code ..." markers for unchanged sections
 
 RULES:
 - NEVER re-read a file you already read in this session. Refer to the content from your previous read_file call. Re-reading wastes time and budget.
@@ -219,7 +220,7 @@ RULES:
 - Use the same libraries and APIs the project already uses (check imports)
 - If the project uses an ORM (Drizzle, Prisma, etc.), use its query builder — never raw SQL
 - Make the MINIMUM change necessary to fix the bug
-- Return COMPLETE file contents in submit_fix, not partial snippets
+- In submit_fix, use "// ... keep existing code ..." markers for any unchanged block of 4+ lines. Only output the lines you changed plus 1-2 surrounding lines as anchors. The system expands markers automatically.
 - Ensure the code compiles — check types and imports
 - Never modify .env files, lock files, migrations, or CI workflows
 - Do NOT add comments to your code changes. No "// fixed", "// added null check", or documentation that wasn't already present.
@@ -254,6 +255,16 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("agentic_turn", { turn, maxTurns: MAX_TURNS });
 
+    // Context compaction: after turn 8, tool_result contents from early turns
+    // are no longer useful (the model has already processed them). Replace
+    // large tool results with summaries to keep the context window lean.
+    // This prevents the last 3 turns (Sonnet, expensive) from paying for
+    // context tokens accumulated during cheap Haiku exploration.
+    if (turn === 9 && messages.length > 6) {
+      compactMessages(messages);
+      emit("agentic_compacted", { turn, messageCount: messages.length });
+    }
+
     // Use explore model (Haiku — cheap) for exploration, fix model (Sonnet — quality) for the last 3 turns
     // This allows the AI to explore cheaply and generate quality fixes
     const isNearEnd = turn > MAX_TURNS - 3;
@@ -281,25 +292,33 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
     // Add assistant message with tool_use blocks
     messages.push({ role: "assistant", content: assistantContent });
 
+    // Check for terminal submit_fix first (before parallel execution)
+    const submitFix = toolUses.find((t) => t.name === "submit_fix");
+    if (submitFix) {
+      emit("agentic_tool", { turn, tool: "submit_fix", input: { files: ((submitFix.input as { files?: { path: string }[] }).files ?? []).map((f) => f.path) } });
+      const result = await executeTool(submitFix, params, filesRead);
+      const fix = JSON.parse(result) as { explanation: string; files: { path: string; content: string }[] };
+      const expandedFiles = expandFixFiles(fix.files, filesRead);
+      emit("agentic_done", { turns: turn, files: expandedFiles.map((f) => f.path) });
+      return { explanation: fix.explanation, files: expandedFiles, turns: turn };
+    }
+
+    // Execute non-terminal tools in parallel (read_file, search_code, list_directory)
     const toolResults: ToolResultBlock[] = [];
-
     for (const toolUse of toolUses) {
-      emit("agentic_tool", { turn, tool: toolUse.name, input: toolUse.name === "submit_fix" ? { files: ((toolUse.input as { files?: { path: string }[] }).files ?? []).map((f) => f.path) } : toolUse.input });
-
-      try {
-        const result = await executeTool(toolUse, params, filesRead);
-
-        // Check if this is the terminal submit_fix
-        if (toolUse.name === "submit_fix") {
-          const fix = JSON.parse(result) as { explanation: string; files: { path: string; content: string }[] };
-          emit("agentic_done", { turns: turn, files: fix.files.map((f) => f.path) });
-          return { explanation: fix.explanation, files: fix.files, turns: turn };
-        }
-
-        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });
-        emit("agentic_result", { turn, tool: toolUse.name, size: result.length });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+      emit("agentic_tool", { turn, tool: toolUse.name, input: toolUse.input });
+    }
+    const results = await Promise.allSettled(
+      toolUses.map((toolUse) => executeTool(toolUse, params, filesRead)),
+    );
+    for (let j = 0; j < toolUses.length; j++) {
+      const toolUse = toolUses[j];
+      const settled = results[j];
+      if (settled.status === "fulfilled") {
+        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: settled.value });
+        emit("agentic_result", { turn, tool: toolUse.name, size: settled.value.length });
+      } else {
+        const errMsg = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
         toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error: ${errMsg}`, is_error: true });
         emit("agentic_error", { turn, tool: toolUse.name, error: errMsg });
       }
@@ -324,4 +343,34 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   }
 
   throw new Error(`Agentic loop did not submit fix after ${MAX_TURNS} turns`);
+}
+
+// ── Context compaction ──────────────────────────────────────────────────────
+
+const COMPACT_THRESHOLD = 500; // chars — tool results shorter than this are kept as-is
+
+function compactMessages(messages: AIMessage[]): void {
+  // Keep first message (error context) and last 4 messages (recent turns) intact.
+  // Compact everything in between by replacing large tool_result contents with summaries.
+  const keepHead = 1;
+  const keepTail = 4;
+  if (messages.length <= keepHead + keepTail) return;
+
+  for (let i = keepHead; i < messages.length - keepTail; i++) {
+    const msg = messages[i];
+    if (msg.role !== "user" || typeof msg.content === "string") continue;
+
+    const blocks = msg.content as ContentBlock[];
+    for (let j = 0; j < blocks.length; j++) {
+      const block = blocks[j] as ToolResultBlock;
+      if (block.type !== "tool_result") continue;
+      if (typeof block.content !== "string") continue;
+      if (block.content.length <= COMPACT_THRESHOLD) continue;
+
+      // Replace large tool result with a summary line
+      const lines = block.content.split("\n").length;
+      const chars = block.content.length;
+      (blocks[j] as ToolResultBlock).content = `(compacted: ${lines} lines, ${chars} chars — content already processed in earlier turns)`;
+    }
+  }
 }
