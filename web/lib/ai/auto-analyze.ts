@@ -9,7 +9,9 @@ import { computeErrorFingerprint } from "./fingerprint";
 import { classifyAlert, type ClassificationResult, type TriageClass } from "./alert-classifier";
 import { assertWithinQuota, incrementQuota, QuotaExceededError } from "./quota";
 import { reservePlatformBudget, PlatformBudgetExceededError } from "./spend-guard";
+import { acquireAIConcurrency, ConcurrencyLimitError } from "./concurrency-gate";
 import { getRedis } from "@/lib/redis";
+import { heuristicAnalyze } from "./heuristic-fallback";
 import type { Alert } from "@/lib/db";
 
 // Pessimistic estimate for one auto-analyze call (Haiku/4o-mini, 300 max
@@ -82,6 +84,19 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     }
   }
 
+  // Concurrency gate — prevent a single user/project from saturating AI capacity.
+  let releaseConcurrency: (() => void) | null = null;
+  if (proj) {
+    try {
+      releaseConcurrency = acquireAIConcurrency(proj.userId, alert.projectId);
+    } catch (err) {
+      if (err instanceof ConcurrencyLimitError) return;
+      throw err;
+    }
+  }
+
+  try {
+
   // Classify alert to determine cheapest effective path.
   // Fine-tuned model (~$0.0001) or heuristic fallback (free).
   let classification: ClassificationResult | null = null;
@@ -126,14 +141,22 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
     },
   } : {};
 
-  const reasoning = await cascadeAnalyze(
-    aiKey.key,
-    aiKey.provider,
-    aiKey.isPlatformKey ?? false,
-    messages,
-    classification?.triageClass ?? null,
-    logCtx,
-  );
+  let reasoning: string;
+  try {
+    reasoning = await cascadeAnalyze(
+      aiKey.key,
+      aiKey.provider,
+      aiKey.isPlatformKey ?? false,
+      messages,
+      classification?.triageClass ?? null,
+      logCtx,
+    );
+  } catch {
+    // All AI providers failed — fall back to heuristic analysis.
+    // Better to show a regex-based diagnosis than nothing.
+    const fallback = heuristicAnalyze(alert.title, alert.body ?? "");
+    reasoning = fallback?.reasoning ?? "AI analysis temporarily unavailable. Please check alert details manually.";
+  }
 
   await db
     .update(alerts)
@@ -185,6 +208,10 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
   if (recentSiblings.length >= 1) {
     // Pass the full group (this alert + siblings) to the correlator
     await correlateProjectAlerts([alert, ...recentSiblings], alert.projectId);
+  }
+
+  } finally {
+    releaseConcurrency?.();
   }
 }
 

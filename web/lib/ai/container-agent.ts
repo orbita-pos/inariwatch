@@ -17,7 +17,8 @@ import { callAIWithTools } from "./client";
 const MAX_TURNS = 15;
 const MAX_FILE_SIZE = 15_000; // chars per file read
 const MAX_OUTPUT_SIZE = 10_000; // chars per command output
-const EXEC_TIMEOUT = 120; // seconds per command
+const EXEC_TIMEOUT = 30; // seconds per command (was 120 — most commands finish in <10s, a hung npm install shouldn't burn 2 min of budget)
+const BUILD_TIMEOUT = 60; // seconds for build/test commands (npm run build, cargo build, etc.)
 const READ_TIMEOUT = 10;
 
 // ── Blocked Files (shared with agentic-loop.ts) ─────────────────────────────
@@ -421,7 +422,10 @@ async function executeContainerTool(
       const check = isCommandAllowed(command);
       if (!check.allowed) return `Error: ${check.reason}`;
 
-      const result = await containerExec(containerUrl, containerId, command, stagingSecret);
+      // Build/test commands get a longer timeout than general commands
+      const isBuildCmd = /\b(build|test|check|compile|verify|tsc|mypy|pytest|cargo\s+build|go\s+build|mvn|gradle)\b/.test(command);
+      const timeout = isBuildCmd ? BUILD_TIMEOUT : EXEC_TIMEOUT;
+      const result = await containerExec(containerUrl, containerId, command, stagingSecret, timeout);
 
       const output = [
         `Exit code: ${result.exitCode}`,

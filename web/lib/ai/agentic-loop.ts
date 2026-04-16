@@ -240,6 +240,12 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   // saving GitHub API calls and preventing wasted turns.
   const filesRead = new Map<string, string>();
 
+  // Stall detection — if the agent re-reads the same files or makes no
+  // progress for 3 consecutive turns, abort early to save budget.
+  const MAX_STALL_TURNS = 3;
+  let stallCount = 0;
+  let lastToolSignature = "";
+
   // Start with the error context as the first message
   const messages: AIMessage[] = [
     { role: "user", content: errorContext },
@@ -298,6 +304,20 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
         emit("agentic_error", { turn, tool: toolUse.name, error: errMsg });
       }
     }
+
+    // Stall detection: if the agent calls the same tools with the same inputs
+    // for multiple turns in a row, it's stuck in a loop.
+    const turnSignature = toolUses.map((t) => `${t.name}:${JSON.stringify(t.input)}`).join("|");
+    if (turnSignature === lastToolSignature) {
+      stallCount++;
+      if (stallCount >= MAX_STALL_TURNS) {
+        emit("agentic_stall", { turn, stallCount, signature: turnSignature.slice(0, 200) });
+        throw new Error(`Agentic loop stalled — same tool calls for ${stallCount} consecutive turns`);
+      }
+    } else {
+      stallCount = 0;
+    }
+    lastToolSignature = turnSignature;
 
     // Add tool results as user message
     messages.push({ role: "user", content: toolResults as ContentBlock[] });
