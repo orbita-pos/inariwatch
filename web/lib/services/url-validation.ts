@@ -37,8 +37,16 @@ export function isSafeUrl(urlStr: string): boolean {
       if (ipv6.startsWith("fc")) return false; // unique local
     }
 
-    // Block internal/local TLDs
-    if (host.endsWith(".internal") || host.endsWith(".local") || host.endsWith(".localhost")) return false;
+    // Block internal/local TLDs + Kubernetes in-cluster DNS. The `.svc`
+    // endsWith catches the short form (`kubernetes.default.svc`); `.local`
+    // catches the long form (`kubernetes.default.svc.cluster.local`).
+    if (
+      host.endsWith(".internal") ||
+      host.endsWith(".local") ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".svc") ||
+      host === "metadata.google.internal"
+    ) return false;
 
     return true;
   } catch {
