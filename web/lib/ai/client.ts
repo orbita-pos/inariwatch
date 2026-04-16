@@ -4,6 +4,8 @@
  * Gemini uses its own REST API.
  */
 
+import type { LensFeature } from "./lens";
+
 export type AIMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
 export type AIVisionMessage = { role: "user"; text: string; imageBase64: string; beforeImageBase64?: string };
 
@@ -61,17 +63,7 @@ export interface AIResponse {
  */
 export interface AILogContext {
   userId: string;
-  feature:
-    | "auto-analyze"
-    | "remediation"
-    | "chat"
-    | "security-scan"
-    | "risk-assessment"
-    | "postmortem"
-    | "correlate"
-    | "context-gather"
-    | "self-review"
-    | "other";
+  feature: LensFeature;
   projectId?: string | null;
   alertId?: string | null;
   remediationSessionId?: string | null;

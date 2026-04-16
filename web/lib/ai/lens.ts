@@ -15,15 +15,50 @@ import { computeCost } from "./pricing";
 import { reconcilePlatformSpend } from "./spend-guard";
 import { scrub } from "./pii-scrub";
 
-const MAX_PROMPT_CHARS = 50_000;
-const MAX_RESPONSE_CHARS = 50_000;
+/**
+ * Canonical feature names for every AI call we log. Shared between the logger
+ * (this file) and the client dispatcher (client.ts) so adding a new feature
+ * requires one edit here — TypeScript will then flag every call site that
+ * needs an update, and the exhaustive `Record<LensFeature, ...>` below
+ * forces us to set storage limits for it.
+ */
+export type LensFeature =
+  | "auto-analyze"
+  | "remediation"
+  | "chat"
+  | "security-scan"
+  | "risk-assessment"
+  | "postmortem"
+  | "correlate"
+  | "context-gather"
+  | "self-review"
+  | "replay"
+  | "other";
+
+// Per-feature storage limits. Simple features (auto-analyze, correlate) are
+// kept tight to save storage; remediation needs full prompts because truncated
+// rows break debugging, break the replay feature, and are unusable as
+// training data for the future fine-tune (Phase 4 of the AI optimization plan).
+const FEATURE_LIMITS: Record<LensFeature, { prompt: number; response: number }> = {
+  "auto-analyze":    { prompt:  10_000, response:  5_000 },
+  "correlate":       { prompt:  20_000, response: 10_000 },
+  "risk-assessment": { prompt:  20_000, response: 10_000 },
+  "postmortem":      { prompt:  20_000, response: 10_000 },
+  "self-review":     { prompt: 100_000, response: 20_000 },
+  "security-scan":   { prompt: 100_000, response: 20_000 },
+  "remediation":     { prompt: 500_000, response: 80_000 },
+  "chat":            { prompt:  20_000, response: 10_000 },
+  "context-gather":  { prompt:  10_000, response:  5_000 },
+  "replay":          { prompt: 500_000, response: 80_000 },
+  "other":           { prompt:  50_000, response: 50_000 },
+};
 
 export interface LensLogParams {
   userId: string;
   projectId?: string | null;
   alertId?: string | null;
   remediationSessionId?: string | null;
-  feature: string;
+  feature: LensFeature;
   provider: string;
   model: string;
   inputTokens: number;
@@ -62,6 +97,8 @@ async function runLog(params: LensLogParams): Promise<void> {
     params.cachedInputTokens ?? 0
   );
 
+  const limits = FEATURE_LIMITS[params.feature];
+
   await db.insert(aiUsageLogs).values({
     userId: params.userId,
     projectId: params.projectId ?? null,
@@ -78,8 +115,8 @@ async function runLog(params: LensLogParams): Promise<void> {
     error: params.error ?? null,
     durationMs: params.durationMs ?? null,
     cached: params.cached ?? false,
-    prompt: scrub(params.prompt, { maxChars: MAX_PROMPT_CHARS }),
-    response: scrub(params.response, { maxChars: MAX_RESPONSE_CHARS }),
+    prompt: scrub(params.prompt, { maxChars: limits.prompt }),
+    response: scrub(params.response, { maxChars: limits.response }),
     replayOfRequestId: params.replayOfRequestId ?? null,
   });
 
