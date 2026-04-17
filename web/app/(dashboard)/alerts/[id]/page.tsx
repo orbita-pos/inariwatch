@@ -24,6 +24,7 @@ import { FleetVerificationCard } from "./fleet-verification-card";
 import { GitContextCard } from "./git-context-card";
 import { BreadcrumbsPanel } from "./breadcrumbs-panel";
 import { EnvironmentCard, UserContextCard, RequestContextCard } from "./capture-v2-cards";
+import { PerformanceBenchmarkCard } from "./performance-benchmark-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -317,6 +318,21 @@ export default async function AlertDetailPage({
       {/* Renders only when a remediation exists. Client-polls the worker's  */}
       {/* fleet-verification job for live progress + final gauge.            */}
       <FleetVerificationCard
+        alertId={alert.id}
+        remediationId={latestRemediation?.id ?? null}
+        remediationReady={
+          !!latestRemediation && (
+            latestRemediation.status === "completed" ||
+            latestRemediation.status === "proposing" ||
+            latestRemediation.status === "merging" ||
+            latestRemediation.status === "approved"
+          )
+        }
+      />
+
+      {/* ── Performance Benchmark card (VAR Gate 17) ─────────────────────── */}
+      {/* Reuses substrate event timings from Gate 12 — cheap, no clones.    */}
+      <PerformanceBenchmarkCard
         alertId={alert.id}
         remediationId={latestRemediation?.id ?? null}
         remediationReady={

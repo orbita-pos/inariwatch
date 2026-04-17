@@ -554,3 +554,72 @@ describe("Gate 12: fleet_verification", () => {
     expect(gate.reason).toMatch(/CIRCUIT BREAKER/);
   });
 });
+
+// ── Gate 17: performance_regression (VAR Q2 Week 4) ────────────────────────
+
+describe("Gate 17: performance_regression", () => {
+  it("no gate added when performanceBenchmark is null", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, performanceBenchmark: null });
+    expect(r.gates.map((g) => g.name)).not.toContain("performance_regression");
+  });
+
+  it("no gate added when regressionPercent is null (no http pairs)", () => {
+    // Service with no HTTP request/response pairs — pure-DB job, pure-CPU
+    // task. There's nothing to benchmark; gate should skip (not fail).
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      performanceBenchmark: { regressionPercent: null, thresholdPercent: 10, passed: null },
+    });
+    expect(r.gates.map((g) => g.name)).not.toContain("performance_regression");
+  });
+
+  it("passes when passed=true and regression is within threshold", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      performanceBenchmark: { regressionPercent: 5.3, thresholdPercent: 10, passed: true },
+    });
+    const gate = r.gates.find((g) => g.name === "performance_regression")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/5\.3%.*≤10%/);
+  });
+
+  it("fails when regression exceeds threshold", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      performanceBenchmark: { regressionPercent: 22.7, thresholdPercent: 10, passed: false },
+    });
+    const gate = r.gates.find((g) => g.name === "performance_regression")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/\+22\.7%.*10%/);
+    expect(r.strategy).toBe("draft_pr");
+  });
+
+  it("passes when fix is FASTER (negative regression)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      performanceBenchmark: { regressionPercent: -12.5, thresholdPercent: 10, passed: true },
+    });
+    const gate = r.gates.find((g) => g.name === "performance_regression")!;
+    expect(gate.passed).toBe(true);
+  });
+
+  it("respects custom thresholdPercent", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      performanceBenchmark: { regressionPercent: 8.2, thresholdPercent: 5, passed: false },
+    });
+    const gate = r.gates.find((g) => g.name === "performance_regression")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/5%/);
+  });
+
+  it("circuit breaker bypass overrides fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      performanceBenchmark: { regressionPercent: 50, thresholdPercent: 10, passed: false },
+      circuitBreakerBypassed: new Set(["performance_regression"]),
+    });
+    const gate = r.gates.find((g) => g.name === "performance_regression")!;
+    expect(gate.passed).toBe(true);
+  });
+});

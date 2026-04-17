@@ -8,7 +8,7 @@
 
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { pgTable, uuid, text, jsonb, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, integer, boolean, timestamp, doublePrecision } from "drizzle-orm/pg-core";
 
 // ── Remediation Sessions (container agent) ──────────────────────────────────
 
@@ -72,6 +72,31 @@ export const whatifReplays = pgTable("whatif_replays", {
 // Worker-side schema subset. Only columns the worker reads/writes: id,
 // alert+remediation fks, progress counters, session_results JSONB. Full
 // schema lives in web/lib/db/schema.ts.
+
+// ── Performance Benchmarks (VAR Q2 — Gate 17) ───────────────────────────────
+//
+// Worker-side schema subset. The performance-benchmark job reads substrate
+// events from whatif_replays, computes p50/p99 latency regression, writes
+// the result here. One row per (alert, remediation, sha).
+
+export const performanceBenchmarks = pgTable("performance_benchmarks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").notNull(),
+  remediationId: uuid("remediation_id").notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  baselineP50Ms: doublePrecision("baseline_p50_ms"),
+  baselineP99Ms: doublePrecision("baseline_p99_ms"),
+  fixP50Ms: doublePrecision("fix_p50_ms"),
+  fixP99Ms: doublePrecision("fix_p99_ms"),
+  regressionPercent: doublePrecision("regression_percent"),
+  affectedPaths: jsonb("affected_paths").notNull().default([]),
+  thresholdPercent: doublePrecision("threshold_percent").notNull().default(10),
+  passed: boolean("passed"),
+  status: text("status").notNull().default("running"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
 
 export const fleetVerificationRuns = pgTable("fleet_verification_runs", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -53,10 +53,20 @@ export function evaluateAutoMergeGates(params: {
     totalSessions: number;
     threshold: number;
   } | null;
+  /** VAR Q2 — Gate 17. Performance regression result. Shape:
+   *    - null:                              no benchmark run yet
+   *    - { regressionPercent: null }:       no HTTP pairs to measure (skip)
+   *    - { regressionPercent, threshold }:  pass/fail vs threshold
+   */
+  performanceBenchmark?: {
+    regressionPercent: number | null;
+    thresholdPercent: number;
+    passed: boolean | null;
+  } | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -182,6 +192,28 @@ export function evaluateAutoMergeGates(params: {
       fleetPassed
         ? `Fleet verification: ${pct}% of ${fleetVerification.totalSessions} sessions protected (≥${threshold}% threshold)`
         : `Fleet verification: only ${pct}% of ${fleetVerification.totalSessions} sessions protected (<${threshold}% threshold)`);
+  }
+
+  // Gate 17: Performance regression (VAR Q2 Week 4)
+  // Compares replayed-event latency (fix) vs recorded-event latency
+  // (baseline) from whatif_replays.substrate. Passes when p50
+  // regression is at or below thresholdPercent (default 10%).
+  // Skipped (no gate row) when:
+  //   - no benchmark exists
+  //   - benchmark found no HTTP pairs (pure-DB services,
+  //     regressionPercent=null). In that case there's nothing to measure
+  //     so the gate can't meaningfully pass or fail.
+  if (
+    performanceBenchmark != null &&
+    performanceBenchmark.regressionPercent != null &&
+    performanceBenchmark.passed != null
+  ) {
+    const pct = performanceBenchmark.regressionPercent;
+    const threshold = performanceBenchmark.thresholdPercent;
+    pushGate("performance_regression", performanceBenchmark.passed,
+      performanceBenchmark.passed
+        ? `Performance benchmark: p50 regression ${pct.toFixed(1)}% within threshold (≤${threshold}%)`
+        : `Performance regression: p50 +${pct.toFixed(1)}% exceeds threshold (${threshold}%)`);
   }
 
   const allPassed = gates.every((g) => g.passed);

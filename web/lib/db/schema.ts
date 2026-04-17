@@ -1406,3 +1406,32 @@ export const fleetVerificationRuns = pgTable("fleet_verification_runs", {
 
 export type FleetVerificationRun = typeof fleetVerificationRuns.$inferSelect;
 export type NewFleetVerificationRun = typeof fleetVerificationRuns.$inferInsert;
+
+// VAR Q2 Week 4 — Gate 17 "Performance Regression". Reuses substrate event
+// timings from whatif_replays (recorded vs replayed) to detect critical-path
+// slowdowns. One row per (alert, remediation, sha).
+
+export const performanceBenchmarks = pgTable("performance_benchmarks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  baselineP50Ms: doublePrecision("baseline_p50_ms"),
+  baselineP99Ms: doublePrecision("baseline_p99_ms"),
+  fixP50Ms: doublePrecision("fix_p50_ms"),
+  fixP99Ms: doublePrecision("fix_p99_ms"),
+  regressionPercent: doublePrecision("regression_percent"),
+  /** [{ url, method, baselineP50Ms, fixP50Ms, regressionPct, sampleSize, slowerThanThreshold }] */
+  affectedPaths: jsonb("affected_paths").notNull().default(sql`'[]'::jsonb`),
+  thresholdPercent: doublePrecision("threshold_percent").notNull().default(10),
+  passed: boolean("passed"),
+  status: text("status").notNull().default("running"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type PerformanceBenchmark = typeof performanceBenchmarks.$inferSelect;
+export type NewPerformanceBenchmark = typeof performanceBenchmarks.$inferInsert;

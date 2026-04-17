@@ -16,6 +16,7 @@ import { runAnomalyAggregation } from "../jobs/anomaly-aggregate.js";
 import { runDigest } from "../jobs/digest.js";
 import { pollWebhookFallback } from "../jobs/poll-integrations.js";
 import { runFleetVerification, type FleetJobInput } from "../jobs/fleet-verification.js";
+import { runPerformanceBenchmark, type PerfJobInput } from "../jobs/performance-benchmark.js";
 
 async function handler(job: Job): Promise<unknown> {
   switch (job.name) {
@@ -33,6 +34,9 @@ async function handler(job: Job): Promise<unknown> {
 
     case "fleet-verification":
       return await runFleetVerification(job.data as FleetJobInput);
+
+    case "performance-benchmark":
+      return await runPerformanceBenchmark(job.data as PerfJobInput);
 
     default:
       console.warn(`[low] Unknown job: ${job.name}`);
