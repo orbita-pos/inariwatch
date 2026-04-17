@@ -30,13 +30,23 @@ export async function sendAlertToTelegram(alert: Alert): Promise<void> {
     `\nSources: ${(alert.sourceIntegrations ?? []).join(", ") || "capture"}`,
   ].filter(Boolean).join("\n");
 
-  const buttons = [
+  // FullTrace deep link — added as a second row when the alert has a
+  // session_id. Telegram supports url= on inline buttons (opens in
+  // browser), no callback handler needed. Second row keeps the existing
+  // 3-button row visually compact.
+  const appUrl = (process.env.APP_URL ?? "https://app.inariwatch.com").replace(/\/$/, "");
+  const buttons: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [
     [
       { text: "👁️ Ack", callback_data: `ack:${alert.id}` },
       { text: "✅ Resolve", callback_data: `resolve:${alert.id}` },
       { text: "🔧 Fix", callback_data: `fix:${alert.id}` },
     ],
   ];
+  if (alert.sessionId) {
+    buttons.push([
+      { text: "🎬 View FullTrace", url: `${appUrl}/sessions/${encodeURIComponent(alert.sessionId)}` },
+    ]);
+  }
 
   for (const ch of channels) {
     const config = ch.config as { bot_token?: string; chat_id?: string };

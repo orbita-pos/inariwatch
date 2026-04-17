@@ -18,6 +18,7 @@ import { RemediationPanel } from "./remediation-panel";
 import { CommunityFixBanner } from "./community-fix-banner";
 import { PostmortemPanel } from "./postmortem-panel";
 import { VercelRollbackPanel } from "./vercel-rollback";
+import { FullTraceCard } from "./fulltrace-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -290,6 +291,11 @@ export default async function AlertDetailPage({
           aiReasoning={typeof alert.aiReasoning === "string" ? alert.aiReasoning : null}
         />
       </ProGate>
+
+      {/* ── FullTrace impact card ──────────────────────────────────────── */}
+      {/* Renders only if the alert has a session_id (Capture SDK v0.8+).   */}
+      {/* Server component runs its own impact query inline.                */}
+      <FullTraceCard alertId={alert.id} />
 
       {/* ── Vercel rollback ────────────────────────────────────────────── */}
       {isPro && alert.sourceIntegrations.includes("vercel") && !alert.isResolved && (
