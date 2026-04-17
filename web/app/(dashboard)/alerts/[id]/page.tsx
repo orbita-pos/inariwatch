@@ -78,6 +78,12 @@ export default async function AlertDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // Validate UUID shape BEFORE the SELECT — Postgres throws 22P02 on
+  // malformed uuid input which surfaces as a 500 (server component crash).
+  // A shape mismatch is the same outcome as "not found" from the user's
+  // perspective, so collapse to 404 here.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) notFound();
+
   const session = await getServerSession(authOptions);
   const userId  = (session?.user as { id?: string })?.id;
   if (!userId) notFound();
