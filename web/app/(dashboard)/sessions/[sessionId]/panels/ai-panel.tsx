@@ -477,13 +477,30 @@ function SubstrateTimelinePanel({
 
   const VIEW_W = 1000;
   const TRACK_H = 22;
-  const MARKER_W = 4;
+  const MARKER_W = 6;       // bumped 4→6 so dense clusters stay pickable
   const MARKER_H = 14;
+  const HIT_W = 16;         // invisible hit zone wider than the marker
   const TRACK_GAP = 8;
   const LABEL_W = 70;
 
   function xFor(ns: number): number {
     return LABEL_W + ((ns / maxNs) * (VIEW_W - LABEL_W - 4));
+  }
+
+  // Hover clears have a small grace window. Without it, moving the
+  // cursor across adjacent markers produces a rapid leave→enter flicker
+  // as the panel swaps content twice per second. 60ms is the sweet spot
+  // — imperceptible when you actually leave, but smooths the scrub.
+  const hoverTimer = useRef<number | null>(null);
+  function scheduleClearHover() {
+    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => setHoveredEvent(null), 60);
+  }
+  function cancelClearHover() {
+    if (hoverTimer.current !== null) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
   }
 
   return (
@@ -526,46 +543,81 @@ function SubstrateTimelinePanel({
           {/* Track baselines */}
           <line x1={LABEL_W} y1={TRACK_H / 2} x2={VIEW_W - 2} y2={TRACK_H / 2} className="stroke-line" strokeWidth={0.5} />
           <line x1={LABEL_W} y1={TRACK_H + TRACK_GAP + TRACK_H / 2} x2={VIEW_W - 2} y2={TRACK_H + TRACK_GAP + TRACK_H / 2} className="stroke-line" strokeWidth={0.5} />
-          {/* Recorded markers */}
+          {/* Recorded markers: visible rect + wider invisible hit zone so
+              pointer events don't flicker between adjacent narrow markers. */}
           {recorded.map((e, i) => {
             const cls = recordedClasses[i];
+            const cx = xFor(e.timestamp_ns);
+            const isHovered = hoveredEvent?.event === e;
             return (
-              <rect
+              <g
                 key={`r-${e.seq}-${i}`}
-                x={xFor(e.timestamp_ns) - MARKER_W / 2}
-                y={(TRACK_H - MARKER_H) / 2}
-                width={MARKER_W}
-                height={MARKER_H}
-                className={`${EVENT_CLASS_COLOR[cls]} cursor-pointer transition-opacity hover:opacity-100`}
-                style={{ opacity: hoveredEvent && hoveredEvent.event !== e ? 0.4 : 1 }}
-                onMouseEnter={() => setHoveredEvent({ track: "recorded", event: e, eventClass: cls })}
-                onMouseLeave={() => setHoveredEvent(null)}
+                className="cursor-pointer"
+                onMouseEnter={() => {
+                  cancelClearHover();
+                  setHoveredEvent({ track: "recorded", event: e, eventClass: cls });
+                }}
+                onMouseLeave={scheduleClearHover}
               >
+                <rect
+                  x={cx - HIT_W / 2}
+                  y={0}
+                  width={HIT_W}
+                  height={TRACK_H}
+                  fill="transparent"
+                />
+                <rect
+                  x={cx - MARKER_W / 2}
+                  y={(TRACK_H - MARKER_H) / 2}
+                  width={MARKER_W}
+                  height={MARKER_H}
+                  className={EVENT_CLASS_COLOR[cls]}
+                  stroke={isHovered ? "currentColor" : "none"}
+                  strokeWidth={isHovered ? 1 : 0}
+                  rx={1}
+                />
                 <title>
                   {`#${e.seq} ${e.kind.type} (${cls}) — ${(e.timestamp_ns / 1_000_000).toFixed(1)}ms`}
                 </title>
-              </rect>
+              </g>
             );
           })}
-          {/* Replayed markers */}
+          {/* Replayed markers — mirrored layout on the bottom track. */}
           {replayed.map((e, i) => {
             const cls = replayedClasses[i];
+            const cx = xFor(e.timestamp_ns);
+            const isHovered = hoveredEvent?.event === e;
             return (
-              <rect
+              <g
                 key={`p-${e.seq}-${i}`}
-                x={xFor(e.timestamp_ns) - MARKER_W / 2}
-                y={TRACK_H + TRACK_GAP + (TRACK_H - MARKER_H) / 2}
-                width={MARKER_W}
-                height={MARKER_H}
-                className={`${EVENT_CLASS_COLOR[cls]} cursor-pointer transition-opacity hover:opacity-100`}
-                style={{ opacity: hoveredEvent && hoveredEvent.event !== e ? 0.4 : 1 }}
-                onMouseEnter={() => setHoveredEvent({ track: "replayed", event: e, eventClass: cls })}
-                onMouseLeave={() => setHoveredEvent(null)}
+                className="cursor-pointer"
+                onMouseEnter={() => {
+                  cancelClearHover();
+                  setHoveredEvent({ track: "replayed", event: e, eventClass: cls });
+                }}
+                onMouseLeave={scheduleClearHover}
               >
+                <rect
+                  x={cx - HIT_W / 2}
+                  y={TRACK_H + TRACK_GAP}
+                  width={HIT_W}
+                  height={TRACK_H}
+                  fill="transparent"
+                />
+                <rect
+                  x={cx - MARKER_W / 2}
+                  y={TRACK_H + TRACK_GAP + (TRACK_H - MARKER_H) / 2}
+                  width={MARKER_W}
+                  height={MARKER_H}
+                  className={EVENT_CLASS_COLOR[cls]}
+                  stroke={isHovered ? "currentColor" : "none"}
+                  strokeWidth={isHovered ? 1 : 0}
+                  rx={1}
+                />
                 <title>
                   {`#${e.seq} ${e.kind.type} (${cls}) — ${(e.timestamp_ns / 1_000_000).toFixed(1)}ms`}
                 </title>
-              </rect>
+              </g>
             );
           })}
         </svg>
