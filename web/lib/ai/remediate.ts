@@ -447,7 +447,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
     const [proj] = await db.select().from(projects).where(eq(projects.id, session.projectId)).limit(1);
     const remediationContext = await gatherRemediationContext(
       session.projectId,
-      { title: alert.title, body: alert.body, sourceIntegrations: alert.sourceIntegrations },
+      { id: alert.id, title: alert.title, body: alert.body, sourceIntegrations: alert.sourceIntegrations },
       proj?.name ?? repo,
       emit
     );

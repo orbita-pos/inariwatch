@@ -27,7 +27,16 @@ export function buildAnalyzePrompt(alert: {
   severity: string;
   body: string;
   sourceIntegrations: string[];
+  /** VAR Q1 — when present, the alert was correlated to a browser session
+   *  via X-IW-Session-Id and we have its causal chain. Inserted as a
+   *  separate section so the model treats it as ground truth (not just
+   *  more body text). Skipped when null. */
+  fullTraceContext?: string | null;
 }): string {
+  const fullTraceSection = alert.fullTraceContext
+    ? `\n\n${alert.fullTraceContext}\n\nUse the FullTrace timeline above to ground your root-cause analysis. Specifically: which backend event (HTTP/DB/Exception) appears to be the proximate cause, and which user action (if any in the timeline) triggered it.`
+    : "";
+
   return `Analyze this monitoring alert and provide:
 
 1. Root cause — what most likely caused this (2-3 sentences)
@@ -38,7 +47,7 @@ Alert details:
 Title: ${alert.title}
 Severity: ${alert.severity}
 Source: ${alert.sourceIntegrations.join(", ")}
-Details: ${alert.body.slice(0, 1000)}
+Details: ${alert.body.slice(0, 1000)}${fullTraceSection}
 
 RESPONSE CONSTRAINTS:
 - Maximum 150 words total. Be concise — every sentence must add information.
@@ -103,6 +112,11 @@ export type RemediationContext = {
   codebaseContext: string | null;
   /** Past successful fixes for similar errors (fix replay via embeddings). */
   fixReplayContext: string | null;
+  /** VAR Q1 — FullTrace causal chain (browser session events + backend I/O
+   *  + AI lifecycle), already formatted as a prompt-friendly text block by
+   *  lib/fulltrace/context-for-prompt.ts. Null when alert has no
+   *  correlated session_id. */
+  fullTraceContext: string | null;
 };
 
 export type EapReceiptContext = {
@@ -259,6 +273,7 @@ export function buildDiagnosePrompt(
   if (context?.deployContext) contextSections.push(`RECENT DEPLOY (likely cause of the error):\n${context.deployContext.slice(0, 1000)}`);
   if (context?.codebaseContext) contextSections.push(`CODEBASE CONTEXT (relevant code patterns from this repository — follow these conventions):\n${truncateCodeContext(context.codebaseContext, 4000)}`);
   if (context?.fixReplayContext) contextSections.push(`PAST SUCCESSFUL FIXES (similar errors that were fixed before — use as strong hints):\n${context.fixReplayContext.slice(0, 1500)}`);
+  if (context?.fullTraceContext) contextSections.push(`FULLTRACE CAUSAL CHAIN (the browser session that produced this alert — backend I/O + AI events in chronological order):\n${context.fullTraceContext.slice(0, 3000)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";
