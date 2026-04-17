@@ -27,6 +27,9 @@ interface BackendPanelProps {
   events: BackendEvent[];
   currentMs: number;
   onSeek: (ms: number) => void;
+  /** VAR Q1 — fired with the row's event id on mouseenter, null on
+   *  mouseleave. Lets the timeline canvas overlay causal arrows. */
+  onHoverEvent?: (id: string | null) => void;
 }
 
 export function countBackendRows(events: BackendEvent[]): {
@@ -87,7 +90,7 @@ function findActiveBackendIndex(events: BackendEvent[], currentMs: number): numb
 
 type CategoryFilter = "all" | BackendCategory;
 
-export function BackendPanel({ events, currentMs, onSeek }: BackendPanelProps) {
+export function BackendPanel({ events, currentMs, onSeek, onHoverEvent }: BackendPanelProps) {
   const [filter, setFilter] = useState<CategoryFilter>("all");
 
   const counts = useMemo(() => countBackendRows(events), [events]);
@@ -153,7 +156,9 @@ export function BackendPanel({ events, currentMs, onSeek }: BackendPanelProps) {
                   isActive ? "bg-inari-accent/5" : "hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
                 }`}
                 onClick={() => onSeek(row.ts)}
-                title={`${row.type} — ${formatMs(row.ts)} — click to seek`}
+                onMouseEnter={() => onHoverEvent?.(row.id)}
+                onMouseLeave={() => onHoverEvent?.(null)}
+                title={`${row.type} — ${formatMs(row.ts)} — click to seek, hover to highlight related events`}
               >
                 {isActive && (
                   <span className="absolute left-0 top-0 h-full w-0.5 bg-inari-accent" aria-hidden="true" />

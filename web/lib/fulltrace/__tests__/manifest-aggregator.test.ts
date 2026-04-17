@@ -60,6 +60,9 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 import {
   aggregateBackendEvents,
   aggregateAiEvents,
+  crossLinkBackendAndAi,
+  type BackendEvent,
+  type AiEvent,
 } from "@/lib/fulltrace/manifest-aggregator";
 
 beforeEach(() => {
@@ -383,5 +386,195 @@ describe("aggregateAiEvents", () => {
     for (let i = 1; i < out.length; i++) {
       expect(out[i].ts).toBeGreaterThanOrEqual(out[i - 1].ts);
     }
+  });
+});
+
+// ── Causal linking ─────────────────────────────────────────────────────────
+
+describe("causal linking — backend parent_seq", () => {
+  it("links child to parent via parent_seq within same recording", async () => {
+    queryQueue = [
+      [{
+        recordingId: "rec-1",
+        startedAt: new Date(0),
+        events: [
+          { seq: 0, timestamp_ns: 0,         parent_seq: null, kind: { type: "HttpRequest", method: "POST", url: "/api/x" } },
+          { seq: 1, timestamp_ns: 500_000,   parent_seq: 0,    kind: { type: "DbQuery",     query: "SELECT 1" } },
+          { seq: 2, timestamp_ns: 1_000_000, parent_seq: 0,    kind: { type: "HttpResponse", status: 200, duration_ms: 1 } },
+        ],
+      }],
+    ];
+
+    const out = await aggregateBackendEvents("sess-1", 0);
+    const parent = out.find((e) => e.id === "rec-1-0")!;
+    const child1 = out.find((e) => e.id === "rec-1-1")!;
+    const child2 = out.find((e) => e.id === "rec-1-2")!;
+
+    // Forward links — parent knows its children
+    expect(parent.relatedIds).toContain("rec-1-1");
+    expect(parent.relatedIds).toContain("rec-1-2");
+    // Backward links — children know their parent
+    expect(child1.relatedIds).toEqual(["rec-1-0"]);
+    expect(child2.relatedIds).toEqual(["rec-1-0"]);
+  });
+
+  it("does NOT link across recordings (parent_seq is recording-local)", async () => {
+    queryQueue = [
+      [
+        {
+          recordingId: "rec-A", startedAt: new Date(0),
+          events: [{ seq: 0, timestamp_ns: 0, parent_seq: null, kind: { type: "HttpRequest", method: "GET", url: "/" } }],
+        },
+        {
+          recordingId: "rec-B", startedAt: new Date(0),
+          // parent_seq=0 in rec-B should NOT link to rec-A's seq 0.
+          events: [{ seq: 1, timestamp_ns: 0, parent_seq: 0, kind: { type: "DbQuery", query: "x" } }],
+        },
+      ],
+    ];
+
+    const out = await aggregateBackendEvents("sess-1", 0);
+    // No parent in rec-B (seq 0 doesn't exist there) → child has empty links.
+    const child = out.find((e) => e.id === "rec-B-1")!;
+    expect(child.relatedIds).toEqual([]);
+  });
+
+  it("handles missing parent_seq gracefully (no relatedIds)", async () => {
+    queryQueue = [
+      [{
+        recordingId: "rec-1", startedAt: new Date(0),
+        events: [
+          { seq: 0, timestamp_ns: 0, parent_seq: null, kind: { type: "Marker", label: "x" } },
+          { seq: 1, timestamp_ns: 0, kind: { type: "Marker", label: "y" } }, // parent_seq absent
+        ],
+      }],
+    ];
+
+    const out = await aggregateBackendEvents("sess-1", 0);
+    expect(out[0].relatedIds).toEqual([]);
+    expect(out[1].relatedIds).toEqual([]);
+  });
+});
+
+describe("causal linking — AI siblings", () => {
+  it("links events sharing the same alertId (alert ↔ diagnosis)", async () => {
+    queryQueue = [
+      [
+        { id: "alert-1", title: "X", severity: "info", aiReasoning: "Stripe timeout", isResolved: false, createdAt: new Date(0), resolvedAt: null },
+      ],
+      [],
+    ];
+
+    const out = await aggregateAiEvents("sess-1", 0);
+    const alert = out.find((e) => e.id === "alert-alert-1")!;
+    const diag = out.find((e) => e.id === "diag-alert-1")!;
+
+    expect(alert.relatedIds).toContain(diag.id);
+    expect(diag.relatedIds).toContain(alert.id);
+  });
+
+  it("links remediation lifecycle events that share a remediationId", async () => {
+    queryQueue = [
+      [
+        { id: "alert-1", title: "X", severity: "info", aiReasoning: null, isResolved: false, createdAt: new Date(0), resolvedAt: null },
+      ],
+      [
+        {
+          id: "rem-1", alertId: "alert-1", status: "completed",
+          steps: [
+            { type: "diagnose", message: "step1", status: "completed", timestamp: "1970-01-01T00:00:01.000Z" },
+            { type: "fix",      message: "step2", status: "completed", timestamp: "1970-01-01T00:00:02.000Z" },
+          ],
+          prUrl: null, mergedCommitSha: null, revertPrUrl: null, monitoringStatus: null,
+          createdAt: new Date(0), updatedAt: new Date(3000),
+        },
+      ],
+    ];
+
+    const out = await aggregateAiEvents("sess-1", 0);
+    const start = out.find((e) => e.id === "rem-start-rem-1")!;
+    const step1 = out.find((e) => e.id === "rem-step-rem-1-0")!;
+    const step2 = out.find((e) => e.id === "rem-step-rem-1-1")!;
+    const end   = out.find((e) => e.id === "rem-done-rem-1")!;
+
+    // Sibling-by-remediationId AND sibling-by-alertId both fire — every
+    // event in the rem lifecycle should reference the others.
+    for (const sibling of [step1, step2, end]) {
+      expect(start.relatedIds).toContain(sibling.id);
+    }
+  });
+
+  it("does NOT include the event itself in its own relatedIds", async () => {
+    queryQueue = [
+      [
+        { id: "alert-1", title: "X", severity: "info", aiReasoning: "x", isResolved: false, createdAt: new Date(0), resolvedAt: null },
+      ],
+      [],
+    ];
+
+    const out = await aggregateAiEvents("sess-1", 0);
+    for (const e of out) {
+      expect(e.relatedIds).not.toContain(e.id);
+    }
+  });
+});
+
+describe("crossLinkBackendAndAi", () => {
+  function bk(id: string, category: BackendEvent["category"], status?: number): BackendEvent {
+    return { id, ts: 0, category, type: "X", summary: "", recordingId: "rec-1", relatedIds: [], ...(status !== undefined ? { status } : {}) };
+  }
+  function al(id: string, kind: AiEvent["kind"] = "alert"): AiEvent {
+    return { id, ts: 0, kind, title: "X", relatedIds: [] };
+  }
+
+  it("links every alert to every backend exception in the session", () => {
+    const backend = [
+      bk("be-1", "http", 200),       // ok — should NOT link
+      bk("be-2", "exception"),       // should link
+      bk("be-3", "http", 500),       // should link (5xx)
+      bk("be-4", "http", 404),       // 4xx — should NOT link (the rule is 5xx only)
+    ];
+    const ai = [al("alert-1"), al("alert-2")];
+
+    crossLinkBackendAndAi(backend, ai);
+
+    expect(ai[0].relatedIds.sort()).toEqual(["be-2", "be-3"]);
+    expect(ai[1].relatedIds.sort()).toEqual(["be-2", "be-3"]);
+    expect(backend[0].relatedIds).toEqual([]);   // 200 OK untouched
+    expect(backend[1].relatedIds.sort()).toEqual(["alert-1", "alert-2"]); // exception
+    expect(backend[2].relatedIds.sort()).toEqual(["alert-1", "alert-2"]); // 5xx
+    expect(backend[3].relatedIds).toEqual([]);   // 4xx untouched
+  });
+
+  it("is a no-op when no alerts exist", () => {
+    const backend = [bk("be-1", "exception")];
+    const ai: AiEvent[] = [];
+    crossLinkBackendAndAi(backend, ai);
+    expect(backend[0].relatedIds).toEqual([]);
+  });
+
+  it("is a no-op when no failures exist (all OK responses)", () => {
+    const backend = [bk("be-1", "http", 200)];
+    const ai = [al("alert-1")];
+    crossLinkBackendAndAi(backend, ai);
+    expect(ai[0].relatedIds).toEqual([]);
+    expect(backend[0].relatedIds).toEqual([]);
+  });
+
+  it("does NOT link non-alert AI events (diagnoses, remediation steps)", () => {
+    const backend = [bk("be-1", "exception")];
+    const ai = [al("diag-1", "diagnosis"), al("step-1", "remediation_step")];
+    crossLinkBackendAndAi(backend, ai);
+    // Only alerts get cross-linked. Diagnosis/step rely on sibling-by-alertId.
+    expect(backend[0].relatedIds).toEqual([]);
+  });
+
+  it("is idempotent — calling twice doesn't duplicate ids", () => {
+    const backend = [bk("be-1", "exception")];
+    const ai = [al("alert-1")];
+    crossLinkBackendAndAi(backend, ai);
+    crossLinkBackendAndAi(backend, ai);
+    expect(backend[0].relatedIds).toEqual(["alert-1"]);
+    expect(ai[0].relatedIds).toEqual(["be-1"]);
   });
 });

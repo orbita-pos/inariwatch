@@ -20,8 +20,8 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
-    const firstReplay = await page.$('a[href*="/replays/s_"]');
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
+    const firstReplay = await page.$('a[href*="/sessions/s_"]');
     if (!firstReplay) throw new Error("No replay sessions");
     const href = await firstReplay.getAttribute("href");
     await page.goto(`${DASHBOARD_URL}${href}`, { waitUntil: "networkidle" });

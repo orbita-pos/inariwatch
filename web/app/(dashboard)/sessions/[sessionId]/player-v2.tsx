@@ -15,7 +15,7 @@ import type { BackendEvent, AiEvent } from "@/lib/fulltrace/manifest-aggregator"
 
 /**
  * Read the initial ?t=MS query param on mount — pre-seeks the player when
- * someone shares a URL like `/replays/abc?t=12500`. Returns 0 when the
+ * someone shares a URL like `/sessions/abc?t=12500`. Returns 0 when the
  * param is missing or malformed. Clamped to non-negative; the real upper
  * bound is enforced by `seek()` once we know the session's duration.
  */
@@ -123,6 +123,11 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
   const [pendingSeekMs] = useState<number>(() => readInitialTimestamp());
   const [shareCopied, setShareCopied] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // VAR Q1 — hover state shared between the side panels (Backend, AI) and
+  // the timeline canvas. When a panel row is hovered, the canvas finds the
+  // matching event by id and overlays a glow + dashed arrows to its
+  // `relatedIds`. Null = no active hover (canvas renders normally).
+  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   // Day 4 — comments lifted here so both the panel and the timeline canvas
   // markers consume one source of truth (and one initial fetch).
   const [comments, setComments] = useState<CommentRow[]>([]);
@@ -462,12 +467,14 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
     // VAR Q1 — append FullTrace events. These come from the manifest, NOT
     // from the rrweb event stream, so they have their own session-relative
     // timestamps already computed by the aggregator. Backend events render
-    // on the existing "io" track; AI events get the new "ai" track.
+    // on the existing "io" track; AI events get the new "ai" track. We
+    // carry their stable `id` so the canvas can match a hovered panel row
+    // to its dot for the causal-arrows overlay.
     for (const b of manifest.backendEvents ?? []) {
-      out.push({ timestamp: b.ts, kind: "io" });
+      out.push({ timestamp: b.ts, kind: "io", id: b.id });
     }
     for (const a of manifest.aiEvents ?? []) {
-      out.push({ timestamp: a.ts, kind: "ai" });
+      out.push({ timestamp: a.ts, kind: "ai", id: a.id });
     }
     return out;
   }, [events, manifest]);
@@ -570,6 +577,20 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
   }, [captureSize]);
 
   const aiData = useMemo(() => extractChaptersFromManifest(manifest?.aiChapters ?? null), [manifest?.aiChapters]);
+
+  // Look up the hovered event's `relatedIds` so the timeline canvas can draw
+  // arrows. Cheap O(n) scan because hover state changes infrequently and
+  // both arrays are small (typically <100 events combined). We accept the
+  // scan rather than building an id-indexed Map because TimelineEvent
+  // already provides id-based lookup at draw time.
+  const hoveredRelatedIds = useMemo<string[]>(() => {
+    if (!hoveredEventId || !manifest) return [];
+    const back = manifest.backendEvents?.find((e) => e.id === hoveredEventId);
+    if (back) return back.relatedIds;
+    const aiHit = manifest.aiEvents?.find((e) => e.id === hoveredEventId);
+    if (aiHit) return aiHit.relatedIds;
+    return [];
+  }, [hoveredEventId, manifest]);
 
   // Phase E — flatten rage + dead clicks into a single marker array for the
   // canvas. Both arrays carry session-relative timestamps from the analyzer.
@@ -707,9 +728,9 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
           // email or hash is available — those don't index uniquely enough
           // for a single journey view.
           const journeyHref = u.id
-            ? `/replays/users/${encodeURIComponent(u.id)}`
+            ? `/sessions/users/${encodeURIComponent(u.id)}`
             : u.email
-              ? `/replays?endUserEmail=${encodeURIComponent(u.email)}`
+              ? `/sessions?endUserEmail=${encodeURIComponent(u.email)}`
               : null;
           const pill = (
             <span
@@ -1006,6 +1027,7 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
           currentUserId={currentUserId}
           backendEvents={manifest?.backendEvents ?? []}
           aiEvents={manifest?.aiEvents ?? []}
+          onHoverEvent={setHoveredEventId}
         />
       </div>
 
@@ -1021,6 +1043,8 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
         causalChains={aiData.chains}
         onSeek={seek}
         tracks={TRACKS_WITH_FULLTRACE}
+        hoveredEventId={hoveredEventId}
+        hoveredRelatedIds={hoveredRelatedIds}
       />
 
       {/* AI summary (if present) */}

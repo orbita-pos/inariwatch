@@ -52,6 +52,17 @@ export interface BackendEvent {
   errorMessage?: string;
   /** Recording id this event came from — for deep-linking back to /recordings/[id]. */
   recordingId: string;
+  /** Causal links — ids of backend OR ai events that are causally connected
+   *  to this one. Computed in two passes by the aggregator:
+   *    - parent_seq within recording → backward link (the request that caused
+   *      this DB query) AND forward links (the responses + DB calls fired
+   *      under the same request)
+   *    - Exception events → linked to any alert sharing the same fingerprint
+   *      that fired in this session
+   *  Used by the timeline canvas to draw cross-track arrows on hover.
+   *  Empty array (not undefined) when nothing related — keeps the type
+   *  consumers honest. */
+  relatedIds: string[];
 }
 
 /**
@@ -84,6 +95,11 @@ export interface AiEvent {
   /** Severity for alert events; status for remediation events. Used to
    *  pick a tone (red/amber/green) without re-parsing the title. */
   tone?: "critical" | "warning" | "info" | "success" | "danger";
+  /** Causal links — backend event ids whose Exception or HTTP 5xx response
+   *  matches this alert's fingerprint, plus the ids of all sibling AI
+   *  events that share the same alertId (so hovering "fix merged" lights
+   *  up the original alert + diagnosis row). See `relatedIds` on BackendEvent. */
+  relatedIds: string[];
 }
 
 // ── Substrate aggregation ──────────────────────────────────────────────────
@@ -141,6 +157,11 @@ function summarize(kind: Record<string, unknown>): string {
  * matching `session_id`, flattens their `events` jsonb, and converts
  * timestamp_ns to session-relative ms.
  *
+ * Computes intra-recording causal links via `parent_seq`: each event's
+ * `relatedIds` includes the parent event's id (backward) AND every event
+ * whose parent_seq points back to it (forward). This drives the timeline
+ * canvas's hover-to-highlight feature without an extra round-trip.
+ *
  * For sessions with no Substrate recordings (Replay-only, server cron),
  * returns []. Never throws on malformed event payloads — we log and skip.
  */
@@ -158,6 +179,11 @@ export async function aggregateBackendEvents(
     .where(eq(substrateRecordings.sessionId, sessionId));
 
   const out: BackendEvent[] = [];
+  // Two-pass collection so we can resolve parent_seq → child_id links
+  // after every event has its stable id materialized. Keyed by recording
+  // because parent_seq is only meaningful within one recording.
+  type RawWithSeq = { id: string; recordingId: string; seq: number | null; parentSeq: number | null };
+  const rawIndex: RawWithSeq[] = [];
 
   for (const rec of recordings) {
     const events = Array.isArray(rec.events) ? rec.events : [];
@@ -176,7 +202,7 @@ export async function aggregateBackendEvents(
     const recordingOffsetMs = recBaseMs - baseTimeMs;
 
     for (const raw of events) {
-      const e = raw as { seq?: number; timestamp_ns?: number; kind?: Record<string, unknown> };
+      const e = raw as { seq?: number; timestamp_ns?: number; parent_seq?: number | null; kind?: Record<string, unknown> };
       if (!e.kind || typeof e.kind !== "object") continue;
 
       const ns = typeof e.timestamp_ns === "number" ? e.timestamp_ns : firstNs;
@@ -185,21 +211,50 @@ export async function aggregateBackendEvents(
 
       const type = String(e.kind.type ?? "");
       const category = CATEGORY_MAP[type] ?? "marker";
+      const id = `${rec.recordingId}-${e.seq ?? out.length}`;
 
       out.push({
-        id: `${rec.recordingId}-${e.seq ?? out.length}`,
+        id,
         ts,
         category,
         type,
         summary: summarize(e.kind),
         recordingId: rec.recordingId,
+        relatedIds: [],
         ...(typeof e.kind.duration_ms === "number" ? { durationMs: e.kind.duration_ms } : {}),
         ...(typeof e.kind.status === "number" ? { status: e.kind.status } : {}),
         ...(typeof e.kind.message === "string" && type === "Exception"
           ? { errorMessage: String(e.kind.message) }
           : {}),
       });
+
+      rawIndex.push({
+        id,
+        recordingId: rec.recordingId,
+        seq: typeof e.seq === "number" ? e.seq : null,
+        parentSeq: typeof e.parent_seq === "number" ? e.parent_seq : null,
+      });
     }
+  }
+
+  // Resolve parent_seq → ids. Build a per-recording (recordingId+seq) → id
+  // map so the lookup is O(1) per child. Then attach bidirectional links.
+  const seqToId = new Map<string, string>();
+  for (const r of rawIndex) {
+    if (r.seq !== null) seqToId.set(`${r.recordingId}:${r.seq}`, r.id);
+  }
+  const idToEvent = new Map<string, BackendEvent>();
+  for (const e of out) idToEvent.set(e.id, e);
+
+  for (const r of rawIndex) {
+    if (r.parentSeq === null) continue;
+    const parentId = seqToId.get(`${r.recordingId}:${r.parentSeq}`);
+    if (!parentId) continue;
+    const child = idToEvent.get(r.id);
+    const parent = idToEvent.get(parentId);
+    if (!child || !parent) continue;
+    if (!child.relatedIds.includes(parentId)) child.relatedIds.push(parentId);
+    if (!parent.relatedIds.includes(r.id)) parent.relatedIds.push(r.id);
   }
 
   // Stable order: by session-relative ts ascending, then by stable id.
@@ -299,6 +354,7 @@ export async function aggregateAiEvents(
       title: a.title,
       tone: SEVERITY_TONE[a.severity] ?? "info",
       alertId: a.id,
+      relatedIds: [],
     });
 
     if (a.aiReasoning) {
@@ -312,6 +368,7 @@ export async function aggregateAiEvents(
         body: a.aiReasoning.slice(0, 500),
         alertId: a.id,
         tone: "info",
+        relatedIds: [],
       });
     }
   }
@@ -326,6 +383,7 @@ export async function aggregateAiEvents(
       tone: "info",
       remediationId: r.id,
       alertId: r.alertId,
+      relatedIds: [],
     });
 
     const steps = Array.isArray(r.steps) ? (r.steps as Array<Record<string, unknown>>) : [];
@@ -349,6 +407,7 @@ export async function aggregateAiEvents(
         tone: s.status === "failed" ? "danger" : s.status === "completed" ? "success" : "info",
         remediationId: r.id,
         alertId: r.alertId,
+        relatedIds: [],
       });
     }
 
@@ -363,6 +422,7 @@ export async function aggregateAiEvents(
         tone: "success",
         remediationId: r.id,
         alertId: r.alertId,
+        relatedIds: [],
       });
     } else if (r.status === "failed" || r.status === "cancelled") {
       out.push({
@@ -373,6 +433,7 @@ export async function aggregateAiEvents(
         tone: "danger",
         remediationId: r.id,
         alertId: r.alertId,
+        relatedIds: [],
       });
     }
     if (r.monitoringStatus === "reverted" && r.revertPrUrl) {
@@ -385,10 +446,76 @@ export async function aggregateAiEvents(
         tone: "danger",
         remediationId: r.id,
         alertId: r.alertId,
+        relatedIds: [],
       });
     }
   }
 
+  // Sibling linking: every event sharing an alertId references the others
+  // (alert ↔ diagnosis ↔ remediation lifecycle), and likewise for events
+  // sharing a remediationId. This is what makes hovering "fix merged"
+  // light up the original alert + diagnosis + every step.
+  const byAlert = new Map<string, AiEvent[]>();
+  const byRem = new Map<string, AiEvent[]>();
+  for (const e of out) {
+    if (e.alertId) {
+      const arr = byAlert.get(e.alertId) ?? [];
+      arr.push(e);
+      byAlert.set(e.alertId, arr);
+    }
+    if (e.remediationId) {
+      const arr = byRem.get(e.remediationId) ?? [];
+      arr.push(e);
+      byRem.set(e.remediationId, arr);
+    }
+  }
+  const linkSiblings = (group: AiEvent[]) => {
+    for (const e of group) {
+      for (const sib of group) {
+        if (sib.id === e.id) continue;
+        if (!e.relatedIds.includes(sib.id)) e.relatedIds.push(sib.id);
+      }
+    }
+  };
+  for (const group of byAlert.values()) linkSiblings(group);
+  for (const group of byRem.values()) linkSiblings(group);
+
   out.sort((a, b) => (a.ts === b.ts ? a.id.localeCompare(b.id) : a.ts - b.ts));
   return out;
+}
+
+/**
+ * Cross-link backend and AI events. Mutates both arrays' `relatedIds`.
+ *
+ * The link rule for now (kept conservative — false positives ruin hover UX
+ * more than missing edges):
+ *   1. Every alert is linked bidirectionally to every backend Exception
+ *      AND every backend HTTP response with status >= 500 in the same
+ *      session. This is the strongest causal signal: if we had to pick
+ *      ONE backend event that "caused" a session-scoped alert, it's the
+ *      one that crashed.
+ *   2. Future iteration: link by recording_id when the alert was created
+ *      from a specific recording (substrate_recordings.alert_id).
+ *
+ * Call AFTER both aggregators have returned. Idempotent (relatedIds is
+ * deduped via includes-check before push).
+ */
+export function crossLinkBackendAndAi(
+  backend: BackendEvent[],
+  ai: AiEvent[],
+): void {
+  const alerts = ai.filter((e) => e.kind === "alert");
+  if (alerts.length === 0) return;
+
+  const failures = backend.filter(
+    (e) => e.category === "exception" || (typeof e.status === "number" && e.status >= 500),
+  );
+  if (failures.length === 0) return;
+
+  for (const alert of alerts) {
+    for (const fail of failures) {
+      if (!alert.relatedIds.includes(fail.id)) alert.relatedIds.push(fail.id);
+      if (!fail.relatedIds.includes(alert.id)) fail.relatedIds.push(alert.id);
+    }
+  }
 }

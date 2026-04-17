@@ -49,6 +49,10 @@ interface SidePanelsProps {
   backendEvents?: BackendEvent[];
   /** VAR Q1 — AI lifecycle events for the AI tab. Same hide-if-empty rule. */
   aiEvents?: AiEvent[];
+  /** VAR Q1 — fired when a Backend or AI panel row is hovered (or
+   *  un-hovered, with `null`). Drives the timeline canvas's causal-arrows
+   *  overlay. */
+  onHoverEvent?: (id: string | null) => void;
 }
 
 export function SidePanels({
@@ -63,6 +67,7 @@ export function SidePanels({
   currentUserId = null,
   backendEvents = [],
   aiEvents = [],
+  onHoverEvent,
 }: SidePanelsProps) {
   // SSR-safe: start with the default and hydrate from localStorage in an
   // effect. Using a `hydrated` *state* (not a ref) is critical — the write
@@ -195,7 +200,7 @@ export function SidePanels({
             }`}
             aria-hidden={activeTab !== "backend"}
           >
-            <BackendPanel events={backendEvents} currentMs={currentMs} onSeek={onSeek} />
+            <BackendPanel events={backendEvents} currentMs={currentMs} onSeek={onSeek} onHoverEvent={onHoverEvent} />
           </div>
         )}
         {showAi && (
@@ -205,7 +210,7 @@ export function SidePanels({
             }`}
             aria-hidden={activeTab !== "ai"}
           >
-            <AiPanel events={aiEvents} currentMs={currentMs} onSeek={onSeek} />
+            <AiPanel events={aiEvents} currentMs={currentMs} onSeek={onSeek} onHoverEvent={onHoverEvent} />
           </div>
         )}
         <div

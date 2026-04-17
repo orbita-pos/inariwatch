@@ -407,7 +407,7 @@ function PlayerDetails() {
     {
       icon: <Users className="h-4 w-4" />,
       title: "User journey pages",
-      body: "Click an end-user pill in any session to land on /replays/users/<id> — every session they&rsquo;ve ever had, with frustration-score sort.",
+      body: "Click an end-user pill in any session to land on /sessions/users/<id> — every session they&rsquo;ve ever had, with frustration-score sort.",
     },
   ];
   return (

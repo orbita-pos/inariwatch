@@ -118,9 +118,9 @@ async function main() {
       console.log(`   body = ${String(manifest.body).slice(0, 300)}`);
     }
 
-    // 6. Check /replays list
-    console.log("\n→ checking /replays list …");
-    await dash.goto(`${DASH}/replays?since=all`, { waitUntil: "networkidle" });
+    // 6. Check /sessions list
+    console.log("\n→ checking /sessions list …");
+    await dash.goto(`${DASH}/sessions?since=all`, { waitUntil: "networkidle" });
     const firstLink = await dash.$(`a[href*="${sid}"]`);
     console.log(`   session ${firstLink ? "FOUND" : "NOT FOUND"} in list`);
 

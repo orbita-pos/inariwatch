@@ -30,6 +30,9 @@ interface AiPanelProps {
   events: AiEvent[];
   currentMs: number;
   onSeek: (ms: number) => void;
+  /** VAR Q1 — fired with the row's event id on mouseenter, null on
+   *  mouseleave. Drives the timeline canvas's causal-arrows overlay. */
+  onHoverEvent?: (id: string | null) => void;
 }
 
 export function countAiRows(events: AiEvent[]): {
@@ -91,7 +94,7 @@ function isHttpUrl(maybe: string | undefined): maybe is string {
   return maybe.startsWith("http://") || maybe.startsWith("https://");
 }
 
-export function AiPanel({ events, currentMs, onSeek }: AiPanelProps) {
+export function AiPanel({ events, currentMs, onSeek, onHoverEvent }: AiPanelProps) {
   const counts = useMemo(() => countAiRows(events), [events]);
   const activeIndex = useMemo(() => findActiveAiIndex(events, currentMs), [events, currentMs]);
 
@@ -158,7 +161,9 @@ export function AiPanel({ events, currentMs, onSeek }: AiPanelProps) {
                 isActive ? "bg-inari-accent/5" : "hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
               }`}
               onClick={() => onSeek(evt.ts)}
-              title={`${formatMs(evt.ts)} — click to seek`}
+              onMouseEnter={() => onHoverEvent?.(evt.id)}
+              onMouseLeave={() => onHoverEvent?.(null)}
+              title={`${formatMs(evt.ts)} — click to seek, hover to highlight related events`}
             >
               <div className="flex items-start gap-2">
                 <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${tone.icon}`} aria-hidden="true" />

@@ -9,7 +9,7 @@
  *   3. Close the tester page → fires `pagehide` → final flush with
  *      isFinal: true.
  *   4. Login to dashboard at localhost:3000 as demo@inariwatch.com.
- *   5. Navigate to /replays, click the newest session.
+ *   5. Navigate to /sessions, click the newest session.
  *   6. Wait for the rrweb iframe to mount, then inspect:
  *         - iframe has children in body?
  *         - wrapper transform != scale(0)?
@@ -102,8 +102,8 @@ async function inspectReplayViewport(page: Page, sessionId: string): Promise<{
   ok: boolean;
   diagnostics: Record<string, unknown>;
 }> {
-  console.log(`\n[5/6] Opening /replays/${sessionId} …`);
-  await page.goto(`${DASHBOARD_URL}/replays/${sessionId}`, { waitUntil: "networkidle", timeout: 20000 });
+  console.log(`\n[5/6] Opening /sessions/${sessionId} …`);
+  await page.goto(`${DASHBOARD_URL}/sessions/${sessionId}`, { waitUntil: "networkidle", timeout: 20000 });
 
   // Wait for the player to mount the rrweb iframe
   try {
@@ -111,7 +111,7 @@ async function inspectReplayViewport(page: Page, sessionId: string): Promise<{
   } catch {
     return {
       ok: false,
-      diagnostics: { error: "iframe never mounted on /replays page" },
+      diagnostics: { error: "iframe never mounted on /sessions page" },
     };
   }
 

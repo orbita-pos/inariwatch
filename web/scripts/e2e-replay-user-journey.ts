@@ -2,8 +2,8 @@
  * Day 1 AM E2E: multi-session journey page.
  *
  * Verifies:
- *   1. /replays/users/<unknown-id> renders an empty state, not 404
- *   2. Player header pill links to /replays/users/<id> (not the old filter URL)
+ *   1. /sessions/users/<unknown-id> renders an empty state, not 404
+ *   2. Player header pill links to /sessions/users/<id> (not the old filter URL)
  *   3. The page loads when reached via the pill link
  */
 import { chromium } from "playwright";
@@ -24,15 +24,15 @@ async function main() {
     ]);
 
     // 1. Empty state for an unknown user
-    await page.goto(`${DASHBOARD_URL}/replays/users/u_does_not_exist_99999`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions/users/u_does_not_exist_99999`, { waitUntil: "networkidle" });
     const emptyHeading = await page.$('text=No sessions for this user');
     if (!emptyHeading) throw new Error("Empty state not rendered for unknown user");
     console.log("[1] Empty state for unknown user ✓");
 
     // 2. Find a session that DOES have an end user. Most demo sessions
     //    don't; if none exist, skip the rest gracefully.
-    await page.goto(`${DASHBOARD_URL}/replays?since=all`, { waitUntil: "networkidle" });
-    const cards = await page.$$('a[href*="/replays/s_"]');
+    await page.goto(`${DASHBOARD_URL}/sessions?since=all`, { waitUntil: "networkidle" });
+    const cards = await page.$$('a[href*="/sessions/s_"]');
     let foundUserSession = null as { sessionId: string; userId: string } | null;
     for (const card of cards.slice(0, 20)) {
       const href = await card.getAttribute("href");
@@ -57,17 +57,17 @@ async function main() {
       process.exit(0);
     }
 
-    // 3. Player header points to /replays/users/<id>
-    await page.goto(`${DASHBOARD_URL}/replays/${foundUserSession.sessionId}`, { waitUntil: "networkidle" });
+    // 3. Player header points to /sessions/users/<id>
+    await page.goto(`${DASHBOARD_URL}/sessions/${foundUserSession.sessionId}`, { waitUntil: "networkidle" });
     await page.waitForSelector("iframe", { timeout: 15000 });
     await page.waitForTimeout(1500);
-    const journeyLink = await page.$(`a[href="/replays/users/${encodeURIComponent(foundUserSession.userId)}"]`);
+    const journeyLink = await page.$(`a[href="/sessions/users/${encodeURIComponent(foundUserSession.userId)}"]`);
     if (!journeyLink) throw new Error("Journey link missing in player header");
-    console.log("[2] Player header links to /replays/users/<id> ✓");
+    console.log("[2] Player header links to /sessions/users/<id> ✓");
 
     // 4. Click into the journey page
     await journeyLink.click();
-    await page.waitForURL(/\/replays\/users\//, { timeout: 5000 });
+    await page.waitForURL(/\/sessions\/users\//, { timeout: 5000 });
     const heading = await page.$eval("h1", (el) => el.textContent ?? "");
     if (!heading) throw new Error("Journey page heading missing");
     console.log(`[3] Journey page loaded — heading: "${heading.slice(0, 60)}…"`);

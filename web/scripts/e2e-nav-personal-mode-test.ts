@@ -23,7 +23,7 @@ async function setActiveOrg(value: string | null) {
 async function replaysLinkVisible(page: Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>["newPage"]>>) {
   return page.evaluate(() => {
     const links = Array.from(document.querySelectorAll("nav a"));
-    return links.some((a) => a.getAttribute("href") === "/replays");
+    return links.some((a) => a.getAttribute("href") === "/sessions");
   });
 }
 

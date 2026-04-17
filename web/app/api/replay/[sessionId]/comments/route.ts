@@ -230,7 +230,7 @@ export async function POST(
 /**
  * Send "@you were mentioned" emails. Best-effort: per-recipient errors are
  * logged but don't propagate. Subject + body kept minimal — the deep link
- * to `/replays/<id>?t=<ms>` is the call-to-action.
+ * to `/sessions/<id>?t=<ms>` is the call-to-action.
  */
 async function notifyMentions(opts: {
   sessionId: string;
@@ -248,7 +248,7 @@ async function notifyMentions(opts: {
   const authorLabel = author?.name || author?.email || "Someone";
 
   const appUrl = process.env.APP_URL ?? "https://inariwatch.com";
-  const link = `${appUrl}/replays/${encodeURIComponent(opts.sessionId)}?t=${opts.timestampMs}`;
+  const link = `${appUrl}/sessions/${encodeURIComponent(opts.sessionId)}?t=${opts.timestampMs}`;
   const subject = `${authorLabel} mentioned you in a replay`;
   const html = `
     <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:16px;color:#222">

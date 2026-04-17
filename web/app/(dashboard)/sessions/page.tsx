@@ -250,7 +250,7 @@ export default async function ReplaysPage({
           </p>
           <p className="text-sm text-fg-base">
             {active ? (
-              <Link href="/replays" className="text-inari-accent underline underline-offset-2 hover:text-inari-accent/80">
+              <Link href="/sessions" className="text-inari-accent underline underline-offset-2 hover:text-inari-accent/80">
                 Clear all filters
               </Link>
             ) : (

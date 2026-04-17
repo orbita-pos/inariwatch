@@ -10,6 +10,7 @@ import { isReplayV2Enabled } from "@/lib/feature-flags";
 import {
   aggregateBackendEvents,
   aggregateAiEvents,
+  crossLinkBackendAndAi,
   type BackendEvent,
   type AiEvent,
 } from "@/lib/fulltrace/manifest-aggregator";
@@ -176,6 +177,10 @@ export async function GET(
     buildEndUserPayload(row.projectId, row.endUserId, row.endUserEmail, row.endUserEmailHash),
     buildRepoPayload(row.projectId),
   ]);
+
+  // Final cross-link pass: alerts ↔ backend exceptions / 5xx. Mutates
+  // both arrays in place. Cheap (O(alerts × failures), both small).
+  crossLinkBackendAndAi(backendEvents, aiEvents);
 
   const response: ManifestResponse = {
     sessionId: row.sessionId,

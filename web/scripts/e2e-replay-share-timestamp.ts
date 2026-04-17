@@ -27,8 +27,8 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
-    const firstLink = await page.$('a[href*="/replays/s_"]');
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
+    const firstLink = await page.$('a[href*="/sessions/s_"]');
     if (!firstLink) {
       console.log("[skip] No replay sessions");
       process.exit(0);
@@ -37,7 +37,7 @@ async function main() {
     const sid = href!.split("/").pop()!;
 
     // 1. Open player at t=0; verify ?t= appears once it advances
-    await page.goto(`${DASHBOARD_URL}/replays/${sid}`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions/${sid}`, { waitUntil: "networkidle" });
     await page.waitForSelector("iframe", { timeout: 15000 });
     await page.waitForTimeout(2000);
 
@@ -67,7 +67,7 @@ async function main() {
     await shareBtn.click();
     await page.waitForTimeout(300);
     const clipText = await page.evaluate(() => navigator.clipboard.readText());
-    if (!clipText.includes(`/replays/${sid}`)) {
+    if (!clipText.includes(`/sessions/${sid}`)) {
       throw new Error(`clipboard missing replay path: ${clipText}`);
     }
     if (!clipText.match(/[?&]t=\d+/)) {
@@ -81,7 +81,7 @@ async function main() {
     console.log("[3] 'Copied' feedback shown ✓");
 
     // 3. Load player with ?t=5000 — verify it pre-seeks
-    await page.goto(`${DASHBOARD_URL}/replays/${sid}?t=5000`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions/${sid}?t=5000`, { waitUntil: "networkidle" });
     await page.waitForSelector("iframe", { timeout: 15000 });
     await page.waitForTimeout(2000);
 

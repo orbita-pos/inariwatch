@@ -29,16 +29,16 @@ const config: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  // VAR Q1 — `/sessions` is the canonical path going forward (FullTrace makes
-  // sessions the primary entity, replays were a strict subset). The directory
-  // move from /replays → /sessions ships in a follow-up PR; for now we expose
-  // the new URL and forward to the existing pages so marketing copy and
-  // external links can adopt /sessions immediately without breakage.
+  // VAR Q1 — `/sessions` is the canonical path. `/replays/*` is a permanent
+  // redirect (301) to its new home so external links, Slack/email
+  // notifications generated before the rename, and any cached search results
+  // continue to land on the right page. Browser bookmark survival matters
+  // more than 301-vs-302 SEO nuance here.
   async redirects() {
     return [
-      { source: "/sessions",                  destination: "/replays",                  permanent: false },
-      { source: "/sessions/:sessionId",       destination: "/replays/:sessionId",       permanent: false },
-      { source: "/sessions/users/:endUserId", destination: "/replays/users/:endUserId", permanent: false },
+      { source: "/replays",                  destination: "/sessions",                  permanent: true },
+      { source: "/replays/:sessionId",       destination: "/sessions/:sessionId",       permanent: true },
+      { source: "/replays/users/:endUserId", destination: "/sessions/users/:endUserId", permanent: true },
     ];
   },
 };
