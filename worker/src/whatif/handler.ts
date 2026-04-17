@@ -32,6 +32,7 @@ import { db } from "../db.js";
 import { remediationSessions, substrateRecordings } from "../db.js";
 import { prepareWorkspace, PrepareWorkspaceError } from "./prepare-workspace.js";
 import { detectCommand } from "./detect-command.js";
+import { redactEvents } from "./redact.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -365,11 +366,13 @@ function runSubstrateSimulate(opts: {
           recommendations: first.risk_report.recommendations ?? [],
           // --include-events fields are absent when substrate is run
           // without the flag; callers must tolerate undefined here.
-          // We cap each events array at 500 items to keep the final
-          // response under Vercel's 4.5MB serverless response limit —
-          // 500 events × ~4KB/event JSON ≈ 2MB per track, 4MB total.
-          recordedEvents: capEvents(first.recorded_events),
-          replayedEvents: capEvents(first.replayed_events),
+          // Cap each events array at 500 items (Vercel's 4.5MB response
+          // limit) AND redact sensitive headers/DB params so the payload
+          // that persists to whatif_replays.result (JSONB, no TTL) never
+          // carries auth tokens even if the SDK's agent-side redactor
+          // missed something.
+          recordedEvents: redactEvents(capEvents(first.recorded_events)),
+          replayedEvents: redactEvents(capEvents(first.replayed_events)),
           divergences: first.divergences ?? undefined,
         });
       } catch (e) {

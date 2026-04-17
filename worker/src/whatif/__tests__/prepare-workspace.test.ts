@@ -9,7 +9,20 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCloneUrl, isSafePath, scrub } from "../prepare-workspace.js";
+import { mkdtemp, mkdir, symlink, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  buildCloneUrl,
+  isSafePath,
+  scrub,
+  ensureNoSymlinksInAncestors,
+} from "../prepare-workspace.js";
+
+async function scratch(): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  const path = await mkdtemp(join(tmpdir(), "iw-pw-test-"));
+  return { path, cleanup: () => rm(path, { recursive: true, force: true }) };
+}
 
 // ── buildCloneUrl ─────────────────────────────────────────────────────────
 
@@ -82,4 +95,96 @@ test("scrub: noop when token undefined", () => {
 
 test("scrub: noop when token absent from text", () => {
   assert.equal(scrub("nothing here", "AAA"), "nothing here");
+});
+
+// ── ensureNoSymlinksInAncestors ───────────────────────────────────────────
+//
+// Windows creates symlinks only with elevated privileges (or Developer
+// Mode). Since the worker runs on Linux in production, skipping the
+// symlink tests on Windows is acceptable — the CI of the monorepo and
+// Hetzner itself will exercise them.
+const SKIP_SYMLINK_TESTS = process.platform === "win32";
+
+test("ensureNoSymlinksInAncestors: accepts plain nested directory", async () => {
+  const s = await scratch();
+  try {
+    await mkdir(join(s.path, "src", "lib"), { recursive: true });
+    // Should not throw — every ancestor is a real directory.
+    await ensureNoSymlinksInAncestors(s.path, "src/lib/app.ts");
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("ensureNoSymlinksInAncestors: ancestor that doesn't exist yet is OK", async () => {
+  const s = await scratch();
+  try {
+    // `new/deep/nested/path.ts` — none of the ancestors exist; the
+    // function should silently pass (mkdir will create them later).
+    await ensureNoSymlinksInAncestors(s.path, "new/deep/nested/path.ts");
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("ensureNoSymlinksInAncestors: REJECTS when an ancestor dir is a symlink", { skip: SKIP_SYMLINK_TESTS }, async () => {
+  const s = await scratch();
+  try {
+    // Simulate a repo that committed `docs` as a symlink pointing at /etc.
+    // Use a sibling tmp dir as a safe symlink target so we're not actually
+    // poking /etc during tests.
+    const evilTarget = await scratch();
+    try {
+      await symlink(evilTarget.path, join(s.path, "docs"));
+      await assert.rejects(
+        ensureNoSymlinksInAncestors(s.path, "docs/passwd"),
+        /symlinked ancestor/,
+      );
+    } finally {
+      await evilTarget.cleanup();
+    }
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("ensureNoSymlinksInAncestors: REJECTS when a deep ancestor is a symlink", { skip: SKIP_SYMLINK_TESTS }, async () => {
+  const s = await scratch();
+  try {
+    await mkdir(join(s.path, "real"), { recursive: true });
+    const evilTarget = await scratch();
+    try {
+      // real/ is a real directory, but real/escape is a symlink.
+      // Writing to real/escape/x.txt should be blocked because escape
+      // dir is a symlink.
+      await symlink(evilTarget.path, join(s.path, "real", "escape"));
+      await assert.rejects(
+        ensureNoSymlinksInAncestors(s.path, "real/escape/file.txt"),
+        /symlinked ancestor/,
+      );
+    } finally {
+      await evilTarget.cleanup();
+    }
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("ensureNoSymlinksInAncestors: does NOT check the final file component", { skip: SKIP_SYMLINK_TESTS }, async () => {
+  // The final component is handled by O_NOFOLLOW on open(), not here.
+  // This test locks in that the ancestor-walker stops before the leaf.
+  const s = await scratch();
+  try {
+    const evilTarget = await scratch();
+    try {
+      await writeFile(join(evilTarget.path, "target"), "original");
+      await symlink(join(evilTarget.path, "target"), join(s.path, "leaflink"));
+      // The file itself is a symlink, but it's the leaf — ancestors are fine.
+      await ensureNoSymlinksInAncestors(s.path, "leaflink");
+    } finally {
+      await evilTarget.cleanup();
+    }
+  } finally {
+    await s.cleanup();
+  }
 });

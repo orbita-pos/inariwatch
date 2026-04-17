@@ -22,7 +22,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, open, lstat, rm } from "node:fs/promises";
+import { constants as FS } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -85,6 +86,16 @@ export async function prepareWorkspace(input: PrepareWorkspaceInput): Promise<Pr
     // Apply fileChanges — write each file's full content, creating parent
     // directories as needed. Mirrors how the remediation agent pushed the
     // branch (same bytes end up on disk).
+    //
+    // Symlink safety: a malicious repo can commit a symlink like
+    // `docs -> /etc`, and an attacker-controlled remediation could then
+    // emit fileChanges like `{ path: "docs/passwd", content: "..." }` to
+    // escape the workspace. isSafePath only catches syntactic traversal
+    // (`..`, absolute); symlinks require runtime inspection, which we do
+    // in two layers: (1) lstat each ancestor component before mkdir and
+    // reject if any is a symlink, (2) open the target file with O_NOFOLLOW
+    // so a symlink created after our ancestor check (TOCTOU race window)
+    // fails the open itself.
     for (const change of input.fileChanges) {
       if (!isSafePath(change.path)) {
         throw new PrepareWorkspaceError(
@@ -92,9 +103,30 @@ export async function prepareWorkspace(input: PrepareWorkspaceInput): Promise<Pr
           "patch",
         );
       }
+      await ensureNoSymlinksInAncestors(tempRoot, change.path);
       const target = join(tempRoot, change.path);
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, change.content, "utf-8");
+      // O_NOFOLLOW makes open() fail with ELOOP if the final path
+      // component is a symlink. O_TRUNC overwrites existing content.
+      // File mode 0o644 — owner rw, others read; matches writeFile default.
+      const fh = await open(
+        target,
+        FS.O_WRONLY | FS.O_CREAT | FS.O_TRUNC | FS.O_NOFOLLOW,
+        0o644,
+      ).catch((e: NodeJS.ErrnoException) => {
+        if (e.code === "ELOOP") {
+          throw new PrepareWorkspaceError(
+            `refusing to write through symlink: ${change.path}`,
+            "patch",
+          );
+        }
+        throw e;
+      });
+      try {
+        await fh.writeFile(change.content, "utf-8");
+      } finally {
+        await fh.close();
+      }
     }
 
     return { path: tempRoot, cleanup };
@@ -119,6 +151,45 @@ export async function prepareWorkspace(input: PrepareWorkspaceInput): Promise<Pr
 export function buildCloneUrl(repo: string, token: string | undefined): string {
   if (!token) return `https://github.com/${repo}.git`;
   return `https://x-access-token:${token}@github.com/${repo}.git`;
+}
+
+/**
+ * Walk each ancestor of `relPath` from `tempRoot` down and reject if any
+ * segment is a symlink. Must run BEFORE `mkdir(..., { recursive: true })`
+ * because mkdir traverses symlinks — if `tempRoot/docs` is already a
+ * symlink to `/etc`, mkdir is happy to create `/etc/subdir`.
+ *
+ * ENOENT is not an error — it just means the directory doesn't exist yet
+ * and we're about to create it. We only care about segments that DO
+ * exist and happen to be symlinks.
+ *
+ * Does NOT check the final file component; that is handled by O_NOFOLLOW
+ * on the open() call which catches both "symlink exists at final path"
+ * and "symlink gets created between check and write" (TOCTOU).
+ *
+ * Exported for the unit test suite; not part of the module's contract.
+ */
+export async function ensureNoSymlinksInAncestors(tempRoot: string, relPath: string): Promise<void> {
+  const parts = relPath.replace(/\\/g, "/").split("/");
+  let current = tempRoot;
+  for (const part of parts.slice(0, -1)) {
+    if (!part) continue;
+    current = join(current, part);
+    let stats;
+    try {
+      stats = await lstat(current);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") continue; // ancestor doesn't exist yet — fine
+      throw e;
+    }
+    if (stats.isSymbolicLink()) {
+      throw new PrepareWorkspaceError(
+        `refusing to write through symlinked ancestor: ${part}`,
+        "patch",
+      );
+    }
+  }
 }
 
 /**

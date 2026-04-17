@@ -35,7 +35,8 @@ export type CronRoute =
   | "budget-alert"
   | "replay-retention"
   | "replay-stats"
-  | "cleanup-ai-logs";
+  | "cleanup-ai-logs"
+  | "whatif-retention";
 
 export function cronLog(
   route: CronRoute,

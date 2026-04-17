@@ -29,6 +29,44 @@ const PORT = Number(process.env.WORKER_PORT ?? 9401);
 const SECRET = process.env.STAGING_API_SECRET ?? "";
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT_JOBS ?? 2);
 
+// ── Secret scrubbing for logs ──────────────────────────────────────────────
+//
+// Defense in depth against GitHub / internal token leakage via log lines.
+// /worker/whatif receives `githubToken` in its body; if any code path
+// throws an Error whose `.message` happens to include the raw body JSON
+// (e.g. a future debug log added by a careless patch), console.error
+// would write the token to systemd journal. The scrubber runs on every
+// message at log time and replaces common token shapes with `***`.
+//
+// Patterns covered:
+//   - GitHub fine-grained PATs (github_pat_...)
+//   - GitHub classic PATs + OAuth tokens (gh[pousr]_...)
+//   - Bearer headers followed by any opaque token
+//   - x-access-token:<token>@ pattern from clone URLs
+const SECRET_PATTERNS: RegExp[] = [
+  /github_pat_[A-Za-z0-9_]{20,}/g,
+  /gh[pousr]_[A-Za-z0-9_]{20,}/g,
+  /Bearer\s+[A-Za-z0-9._~+\-/]{20,}/g,
+  /x-access-token:[^@\s]+@/g,
+];
+
+function scrubSecrets(message: string): string {
+  let out = message;
+  for (const re of SECRET_PATTERNS) out = out.replace(re, "***");
+  // Also scrub the bearer secret explicitly when it's the ONE the worker
+  // knows about — covers custom secret shapes that don't match the
+  // generic regex (e.g. hex UUID style STAGING_API_SECRET values).
+  if (SECRET.length >= 16) {
+    out = out.split(SECRET).join("***");
+  }
+  return out;
+}
+
+function logError(prefix: string, err: unknown): void {
+  const raw = err instanceof Error ? err.stack ?? err.message : String(err);
+  console.error(`${prefix} ${scrubSecrets(raw)}`);
+}
+
 // ── Job store (agent jobs) ─────────────────────────────────────────────────
 
 interface Job {
@@ -111,8 +149,11 @@ async function handleRun(req: IncomingMessage, res: ServerResponse): Promise<voi
     console.log(`[${jobId}] completed in ${result.turns} turns (verified: ${result.verified})`);
   }).catch((err) => {
     job.status = "failed";
+    // Preserve the raw message on the job record (admin dashboard shows
+    // this to an authed operator who needs the detail). Logs get the
+    // scrubbed version — the journal is a lower-trust surface.
     job.error = err instanceof Error ? err.message : String(err);
-    console.error(`[${jobId}] failed: ${job.error}`);
+    logError(`[${jobId}] failed:`, err);
   });
 
   json(res, 202, { jobId, status: "running" });
@@ -192,8 +233,25 @@ async function handleEnqueue(req: IncomingMessage, res: ServerResponse): Promise
  *
  * Body: { sessionId, remediationId, githubToken? }
  * Auth: Bearer STAGING_API_SECRET (checked above in the server handler).
+ *
+ * Concurrency cap: each run does a shallow clone + substrate simulate
+ * (~90s wall time) and writes to disk. Without a cap a client with the
+ * bearer could saturate the Hetzner CX22's 2 vCPU + 4GB RAM by firing
+ * N requests in parallel. We reject with 503 past the cap — the web
+ * caller already has graceful degradation (falls back to AI).
  */
+let activeWhatIfJobs = 0;
+const MAX_WHATIF_CONCURRENT = Number(process.env.MAX_WHATIF_CONCURRENT ?? 2);
+
 async function handleWhatIf(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (activeWhatIfJobs >= MAX_WHATIF_CONCURRENT) {
+    json(res, 503, {
+      error: `What-If worker at capacity (${activeWhatIfJobs}/${MAX_WHATIF_CONCURRENT}). Retry shortly.`,
+      code: "capacity",
+    });
+    return;
+  }
+
   let body: { sessionId?: string; remediationId?: string; githubToken?: string };
   try {
     body = JSON.parse(await readBody(req));
@@ -206,16 +264,21 @@ async function handleWhatIf(req: IncomingMessage, res: ServerResponse): Promise<
     return;
   }
 
-  const outcome = await runWhatIf({
-    sessionId: body.sessionId,
-    remediationId: body.remediationId,
-    githubToken: body.githubToken,
-  });
+  activeWhatIfJobs++;
+  try {
+    const outcome = await runWhatIf({
+      sessionId: body.sessionId,
+      remediationId: body.remediationId,
+      githubToken: body.githubToken,
+    });
 
-  if (outcome.ok) {
-    json(res, 200, outcome.result);
-  } else {
-    json(res, outcome.status, outcome.error);
+    if (outcome.ok) {
+      json(res, 200, outcome.result);
+    } else {
+      json(res, outcome.status, outcome.error);
+    }
+  } finally {
+    activeWhatIfJobs--;
   }
 }
 
@@ -306,7 +369,7 @@ const server = createServer(async (req, res) => {
       json(res, 404, { error: "Not found" });
     }
   } catch (err) {
-    console.error(`[server] error:`, err instanceof Error ? err.message : String(err));
+    logError("[server] error:", err);
     json(res, 500, { error: "Internal server error" });
   }
 });
