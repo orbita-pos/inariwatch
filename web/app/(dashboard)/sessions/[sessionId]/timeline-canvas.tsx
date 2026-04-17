@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useMemo } from "react";
 
-export type TrackKind = "dom" | "network" | "console" | "io" | "error" | "nav";
+export type TrackKind = "dom" | "network" | "console" | "io" | "error" | "nav" | "ai";
 
 export type TrackDef = {
   id: TrackKind;
@@ -14,6 +14,11 @@ export type TimelineEvent = {
   timestamp: number;
   kind: TrackKind;
   summary?: string;
+  /** Stable id — present for events promoted from BackendEvent / AiEvent so
+   *  the canvas can match a hovered panel row to its dot on the timeline.
+   *  Optional because rrweb-derived events (DOM mutations, console msgs)
+   *  don't have stable ids and don't participate in causal hover. */
+  id?: string;
 };
 
 export type Chapter = {
@@ -47,7 +52,9 @@ export type UiCausalChain = {
 /**
  * Default track set — unchanged from the original 5-track layout so
  * existing callers that don't pass a `tracks` prop keep the same look.
- * Phase C adds `nav` to the Player's own config, not here.
+ * Phase C adds `nav` to the Player's own config, not here. VAR Q1 adds
+ * `ai` for FullTrace AI events (alerts, diagnoses, remediations) — also
+ * opt-in per caller (player-v2 passes TRACKS_WITH_FULLTRACE).
  */
 export const DEFAULT_TRACKS: TrackDef[] = [
   { id: "dom",     label: "DOM",     color: "#60a5fa" }, // blue-400
@@ -89,6 +96,13 @@ interface TimelineCanvasProps {
    * original 5-track view.
    */
   tracks?: TrackDef[];
+  /** VAR Q1 hover state — when a panel row is hovered, the canvas finds
+   *  the matching event by id, draws a glow ring, and connects it with
+   *  dashed arrows to every related event. Pass null when no hover. */
+  hoveredEventId?: string | null;
+  /** Ids of events causally related to `hoveredEventId`. Canvas draws
+   *  a smaller glow on each + an arrow from the hovered event. */
+  hoveredRelatedIds?: string[];
 }
 
 const TRACK_LABEL_WIDTH = 68;
@@ -105,6 +119,8 @@ export function TimelineCanvas({
   causalChains = [],
   onSeek,
   tracks = DEFAULT_TRACKS,
+  hoveredEventId = null,
+  hoveredRelatedIds = [],
 }: TimelineCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -292,6 +308,71 @@ export function TimelineCanvas({
       ctx.restore();
     }
 
+    // VAR Q1 — Hover causal arrows. Drawn ABOVE static causal chains and
+    // BELOW the scrubber so the active hover is the most prominent layer
+    // without ever obscuring the playhead.
+    if (hoveredEventId) {
+      const findEventById = (id: string): { x: number; y: number; track: TrackKind } | null => {
+        const evt = events.find((e) => e.id === id);
+        if (!evt) return null;
+        const idx = trackIdxById[evt.kind];
+        if (typeof idx !== "number") return null;
+        const x = eventsAreaLeft + (evt.timestamp / effectiveDuration) * eventsAreaWidth;
+        const y = HEADER_HEIGHT + idx * trackHeight + trackHeight / 2;
+        return { x, y, track: evt.kind };
+      };
+
+      const hovered = findEventById(hoveredEventId);
+      const related = hoveredRelatedIds
+        .map((id) => findEventById(id))
+        .filter((p): p is { x: number; y: number; track: TrackKind } => p !== null);
+
+      if (hovered) {
+        ctx.save();
+        // 1) Dashed amber arrows from hovered → each related. Curved with a
+        //    quadratic control point at the midpoint vertical-shifted by the
+        //    track delta — keeps lines readable when both events are on
+        //    different tracks (most common case for cross-track hover).
+        ctx.strokeStyle = "rgba(249, 115, 22, 0.85)"; // orange-500 (inari-accent)
+        ctx.lineWidth = 1.75;
+        ctx.setLineDash([5, 4]);
+        for (const r of related) {
+          ctx.beginPath();
+          ctx.moveTo(hovered.x, hovered.y);
+          const midX = (hovered.x + r.x) / 2;
+          // Bow the curve away from the straight line slightly so overlapping
+          // arrows don't fully occlude each other.
+          const midY = (hovered.y + r.y) / 2 + (r.y > hovered.y ? -8 : 8);
+          ctx.quadraticCurveTo(midX, midY, r.x, r.y);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        // 2) Filled glow on every related event (smaller).
+        ctx.fillStyle = "rgba(249, 115, 22, 0.35)";
+        for (const r of related) {
+          ctx.beginPath();
+          ctx.arc(r.x, r.y, 7, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+
+        // 3) Strong glow ring on the hovered event itself (the source of
+        //    the hover). Layered: outer faded ring + inner solid ring.
+        ctx.strokeStyle = "rgba(249, 115, 22, 0.45)";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(hovered.x, hovered.y, 9, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(249, 115, 22, 1)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(hovered.x, hovered.y, 5.5, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+
     // Scrubber — vertical white/red line
     const scrubX = eventsAreaLeft + (Math.min(currentMs, effectiveDuration) / effectiveDuration) * eventsAreaWidth;
     ctx.strokeStyle = "#f8fafc"; // slate-50
@@ -309,7 +390,7 @@ export function TimelineCanvas({
     ctx.lineTo(scrubX, 6);
     ctx.closePath();
     ctx.fill();
-  }, [duration, currentMs, chapters, errorMarkers, frustrationMarkers, commentMarkers, eventsByTrack, tracks, trackIdxById, causalChains]);
+  }, [duration, currentMs, chapters, errorMarkers, frustrationMarkers, commentMarkers, eventsByTrack, tracks, trackIdxById, causalChains, events, hoveredEventId, hoveredRelatedIds]);
 
   // Re-draw on any prop change (draw is stable via useCallback)
   useEffect(() => {

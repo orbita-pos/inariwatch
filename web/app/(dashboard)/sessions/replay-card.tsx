@@ -102,7 +102,7 @@ function shortBrowser(ua: string | null): string | null {
 }
 
 export function ReplayCard(props: ReplayCardProps) {
-  const href = `/replays/${encodeURIComponent(props.sessionId)}`;
+  const href = `/sessions/${encodeURIComponent(props.sessionId)}`;
   const userLabel = endUserLabel(props);
   const worst = worstVital(props.webVitals);
   const severity = cardSeverity({

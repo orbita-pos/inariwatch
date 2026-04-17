@@ -2709,8 +2709,8 @@ cost_saved   = hours_saved × $150 / hr`}</CodeBlock>
               personal workspaces.
             </P>
             <P>
-              Lives at <InlineCode>/replays</InlineCode> (list) and{" "}
-              <InlineCode>/replays/[sessionId]</InlineCode> (player). Storage on Cloudflare R2.
+              Lives at <InlineCode>/sessions</InlineCode> (list) and{" "}
+              <InlineCode>/sessions/[sessionId]</InlineCode> (player). Storage on Cloudflare R2.
               Replays with errors auto-correlate to alerts (or create one) so the Generate Fix
               button is wired the moment a session lands.
             </P>

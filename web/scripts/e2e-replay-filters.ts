@@ -1,5 +1,5 @@
 /**
- * Phase D E2E: rich filters on /replays.
+ * Phase D E2E: rich filters on /sessions.
  *
  * Verifies:
  *   1. Filter bar renders all new controls (fingerprint, urlPath, dates, sort)
@@ -27,7 +27,7 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
 
     // Phase D+UI — the fingerprint / urlPath / email / date inputs live
     // under the "More filters" disclosure. Expand it before asserting.
@@ -115,7 +115,7 @@ async function main() {
     //    the controls hydrate to the filter state.
     const sharePage = await context.newPage();
     await sharePage.goto(
-      `${DASHBOARD_URL}/replays?urlPath=%2Fcheckout&sortBy=durationMs&sortDir=asc`,
+      `${DASHBOARD_URL}/sessions?urlPath=%2Fcheckout&sortBy=durationMs&sortDir=asc`,
       { waitUntil: "networkidle" },
     );
     const hydratedUrl = await sharePage.$eval(

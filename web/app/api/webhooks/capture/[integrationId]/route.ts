@@ -11,6 +11,8 @@ import { PLAN_LIMITS } from "@/lib/db";
 import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
 import { db } from "@/lib/db";
 import { substrateRecordings } from "@/lib/db/schema";
+import { productMetrics, VAR_EVENTS } from "@/lib/telemetry/product-metrics";
+import { extractSessionId } from "@/lib/fulltrace/session-header";
 import crypto from "crypto";
 
 /**
@@ -119,6 +121,19 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // FullTrace correlation id — checked after JSON parse so we can fall back
+  // to the event payload when the SDK's fetch interceptor was bypassed.
+  // Null = this event is not part of a tracked session (cron jobs, pollers,
+  // legacy SDKs). Don't error — just skip correlation.
+  const sessionId = extractSessionId(req, event);
+  if (sessionId) {
+    productMetrics.emit(VAR_EVENTS.SESSION_ID_RECEIVED, {
+      organizationId: null,
+      valueText: sessionId,
+      metadata: { source: "capture_webhook", projectId: integ.projectId },
+    });
+  }
+
   const title = (event.title as string) || "Captured error";
   const VALID_SEVERITIES = new Set(["critical", "warning", "info"]);
   const severity = VALID_SEVERITIES.has(event.severity as string)
@@ -162,11 +177,20 @@ export async function POST(
       correlationData: Object.keys(correlationData).length > 0 ? correlationData : undefined,
       isRead: false,
       isResolved: false,
+      sessionId,
     },
     integ.projectId
   );
 
   if (result) {
+    if (sessionId) {
+      productMetrics.emit(VAR_EVENTS.SESSION_CORRELATED_TO_ALERT, {
+        organizationId: null,
+        valueText: sessionId,
+        metadata: { alertId: result.id, fingerprint, projectId: integ.projectId },
+      });
+    }
+
     autoAnalyzeAlert(result).catch(() => {});
 
     // Save inline session recording (rrweb) linked to this specific alert
@@ -178,6 +202,7 @@ export async function POST(
           recordingId,
           alertId: result.id,
           projectId: integ.projectId,
+          sessionId,
           runtime: (event.runtime as string) || "browser",
           startedAt: new Date(),
           eventCount: 0,
@@ -195,12 +220,20 @@ export async function POST(
           recordingId,
           alertId: result.id,
           projectId: integ.projectId,
+          sessionId,
           runtime: (event.runtime as string) || "node",
           startedAt: new Date(),
           eventCount: substrateEvents.length,
           events: substrateEvents,
         })
         .catch((err) => console.error("[capture-webhook] substrate recording insert failed:", err));
+      if (sessionId) {
+        productMetrics.emit(VAR_EVENTS.SESSION_CORRELATED_TO_SUBSTRATE, {
+          organizationId: null,
+          valueText: sessionId,
+          metadata: { alertId: result.id, recordingId, projectId: integ.projectId },
+        });
+      }
     }
   }
 

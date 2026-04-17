@@ -2,7 +2,7 @@
  * Phase E E2E: rage + dead click filter toggles + badge.
  *
  * Verifies:
- *   1. /replays page renders the new "Rage" and "Dead" filter buttons
+ *   1. /sessions page renders the new "Rage" and "Dead" filter buttons
  *   2. Clicking each toggle updates the URL
  *   3. /api/replay/[sid]/manifest includes rageClicks/deadClicks/frustrationScore arrays
  *   4. Player header omits the badge when there are no signals (most demo
@@ -26,7 +26,7 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
 
     // 1. Rage / Dead toggles present
     const rageBtn = await page.$('button[aria-pressed][title*="rage-click"]');
@@ -62,10 +62,10 @@ async function main() {
     console.log("[2b] hasDeadClicks toggle propagates ✓");
 
     // Reset filters
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
 
     // 3. Manifest carries the fields. Pick the first session.
-    const firstLink = await page.$('a[href*="/replays/s_"]');
+    const firstLink = await page.$('a[href*="/sessions/s_"]');
     if (!firstLink) {
       console.log("[3] Skipped — no replay sessions to inspect manifest for");
     } else {

@@ -24,8 +24,8 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
-    const first = await page.$('a[href*="/replays/s_"]');
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
+    const first = await page.$('a[href*="/sessions/s_"]');
     if (!first) { console.log("[skip] no sessions"); process.exit(0); }
     const href = await first.getAttribute("href");
     await page.goto(`${DASHBOARD_URL}${href}`, { waitUntil: "networkidle" });

@@ -78,15 +78,15 @@ async function main() {
     let sessionId = sessionIdArg;
     if (!sessionId) {
       console.log("Finding newest replay session …");
-      await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
-      const firstLink = await page.$('a[href*="/replays/s_"]');
+      await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
+      const firstLink = await page.$('a[href*="/sessions/s_"]');
       if (!firstLink) throw new Error("No replay sessions on dashboard");
       const href = await firstLink.getAttribute("href");
       sessionId = href?.split("/").pop() ?? "";
     }
 
-    console.log(`Opening /replays/${sessionId} …`);
-    await page.goto(`${DASHBOARD_URL}/replays/${sessionId}`, { waitUntil: "networkidle" });
+    console.log(`Opening /sessions/${sessionId} …`);
+    await page.goto(`${DASHBOARD_URL}/sessions/${sessionId}`, { waitUntil: "networkidle" });
 
     await page.waitForSelector("iframe", { timeout: 15000 });
     await page.waitForTimeout(1500);  // let fullsnapshot-rebuilded fire

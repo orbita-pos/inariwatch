@@ -2,7 +2,7 @@
  * Phase F E2E: end-user identification + filters + privacy toggle.
  *
  * Verifies:
- *   1. /replays renders the new "user email contains…" filter input
+ *   1. /sessions renders the new "user email contains…" filter input
  *   2. Filter propagates to the URL (?endUserEmail=...)
  *   3. Manifest carries `endUser` payload (null or object)
  *   4. Player header renders user pill + "Show all sessions" link IF the
@@ -27,7 +27,7 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
 
     // 1. End-user email input present
     const emailInput = await page.$('input[aria-label="End-user email"]');
@@ -45,10 +45,10 @@ async function main() {
     console.log("[2] endUserEmail propagates to URL ✓");
 
     // Reset
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
 
     // 3. Manifest has endUser field (may be null for anonymous sessions)
-    const firstLink = await page.$('a[href*="/replays/s_"]');
+    const firstLink = await page.$('a[href*="/sessions/s_"]');
     if (!firstLink) {
       console.log("[3] Skipped — no sessions");
     } else {

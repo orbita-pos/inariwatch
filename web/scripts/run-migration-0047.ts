@@ -1,7 +1,7 @@
 /**
  * One-off migration runner for 0047_replay_urls_index.sql.
  * Adds the GIN index on replay_sessions.urls_visited and a trigram index
- * on replay_sessions.browser to speed up the /replays list search.
+ * on replay_sessions.browser to speed up the /sessions list search.
  *
  * Idempotent (CREATE INDEX / EXTENSION IF NOT EXISTS), safe to re-run.
  *

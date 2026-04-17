@@ -29,6 +29,18 @@ const config: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // VAR Q1 — `/sessions` is the canonical path. `/replays/*` is a permanent
+  // redirect (301) to its new home so external links, Slack/email
+  // notifications generated before the rename, and any cached search results
+  // continue to land on the right page. Browser bookmark survival matters
+  // more than 301-vs-302 SEO nuance here.
+  async redirects() {
+    return [
+      { source: "/replays",                  destination: "/sessions",                  permanent: true },
+      { source: "/replays/:sessionId",       destination: "/sessions/:sessionId",       permanent: true },
+      { source: "/replays/users/:endUserId", destination: "/sessions/users/:endUserId", permanent: true },
+    ];
+  },
 };
 
 export default withInariWatch(config as Record<string, unknown>) as NextConfig;

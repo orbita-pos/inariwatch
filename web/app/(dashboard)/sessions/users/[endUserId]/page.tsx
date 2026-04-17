@@ -27,7 +27,7 @@ export const metadata: Metadata = { title: "User journey" };
  * way more useful than the previous behaviour (filtered list page) for
  * support workflows: "show me everything for juan@acme.com".
  *
- * Auth model mirrors /replays + /replays/[sessionId]: org owner or member.
+ * Auth model mirrors /sessions + /sessions/[sessionId]: org owner or member.
  * Privacy: when the project's `hashEndUserEmails` toggle is on, the raw
  * email + id are masked alongside the same way the list page does it.
  */
@@ -232,11 +232,11 @@ export default async function UserJourneyPage({
 function BackLink() {
   return (
     <Link
-      href="/replays"
+      href="/sessions"
       className="inline-flex items-center gap-1 text-xs text-fg-base/60 hover:text-fg-base"
     >
       <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-      All replays
+      All sessions
     </Link>
   );
 }

@@ -29,8 +29,8 @@ async function main() {
       page.click('button[type="submit"]'),
     ]);
 
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
-    const firstLink = await page.$('a[href*="/replays/s_"]');
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
+    const firstLink = await page.$('a[href*="/sessions/s_"]');
     if (!firstLink) {
       console.log("[skip] No sessions to inspect");
       process.exit(0);
@@ -53,13 +53,13 @@ async function main() {
     console.log(`[1] manifest.webVitals — ${vCount} metric(s) present ✓`);
 
     // 2. Player loads cleanly
-    await page.goto(`${DASHBOARD_URL}/replays/${sid}`, { waitUntil: "networkidle" });
+    await page.goto(`${DASHBOARD_URL}/sessions/${sid}`, { waitUntil: "networkidle" });
     await page.waitForSelector("iframe", { timeout: 15000 });
     console.log("[2] Player mounts when webVitals empty ✓");
 
     // 3. List card render check (no crash means pass)
-    await page.goto(`${DASHBOARD_URL}/replays`, { waitUntil: "networkidle" });
-    const cards = await page.$$('a[href*="/replays/s_"]');
+    await page.goto(`${DASHBOARD_URL}/sessions`, { waitUntil: "networkidle" });
+    const cards = await page.$$('a[href*="/sessions/s_"]');
     if (cards.length === 0) throw new Error("List page rendered no cards");
     console.log(`[3] List rendered ${cards.length} card(s) without crash ✓`);
 

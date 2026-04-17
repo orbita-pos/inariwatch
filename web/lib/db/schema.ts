@@ -8,6 +8,7 @@ import {
   jsonb,
   integer,
   numeric,
+  doublePrecision,
   bigint,
   index,
   uniqueIndex,
@@ -359,6 +360,10 @@ export const alerts = pgTable("alerts", {
   // errorFingerprint matching this alert. ON DELETE SET NULL — retention
   // sweep must not cascade-delete the alert.
   replaySessionId: uuid("replay_session_id"),
+  // VAR Q1 — raw session id from X-IW-Session-Id header. Independent of
+  // replaySessionId (uuid FK) so we can correlate even before a replay
+  // row exists. See migration 0057.
+  sessionId: text("session_id"),
   sentAt: timestamp("sent_at"),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -894,6 +899,8 @@ export const substrateRecordings = pgTable("substrate_recordings", {
   alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
   replaySessionId: uuid("replay_session_id").references(() => replaySessions.id, { onDelete: "set null" }),
+  // VAR Q1 — raw session id from X-IW-Session-Id header (matches alerts.sessionId).
+  sessionId: text("session_id"),
   command: text("command"),
   runtime: text("runtime").default("node"),
   startedAt: timestamp("started_at", { withTimezone: true }),
@@ -1333,3 +1340,39 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
   eventType: text("event_type").notNull(),
   processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ── VAR Q1 — telemetry + What-If cache ──────────────────────────────────────
+// Append-only event log driving the VAR roadmap. Every new feature emits at
+// least one event. Helper at web/lib/telemetry/product-metrics.ts.
+
+export const productMetrics = pgTable("product_metrics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  event: text("event").notNull(),
+  valueNumeric: doublePrecision("value_numeric"),
+  valueText: text("value_text"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ProductMetric = typeof productMetrics.$inferSelect;
+export type NewProductMetric = typeof productMetrics.$inferInsert;
+
+// What-If replay cache. Deterministic — keyed by (session_id, fix_commit_sha).
+// Same inputs always produce same output, so we never invalidate by TTL.
+
+export const whatifReplays = pgTable("whatif_replays", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  fixId: uuid("fix_id"),
+  /** { events: [...], divergence_at_ms, summary, error? } — see Substrate replay output. */
+  result: jsonb("result").notNull(),
+  status: text("status").notNull().default("ready"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type WhatifReplay = typeof whatifReplays.$inferSelect;
+export type NewWhatifReplay = typeof whatifReplays.$inferInsert;
