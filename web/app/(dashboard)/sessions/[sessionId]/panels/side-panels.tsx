@@ -117,8 +117,12 @@ export function SidePanels({
     if (activeTab === "comments" && !sessionId) setActiveTab("console");
   }, [hydrated, activeTab, showBackend, showAi, sessionId]);
 
+  // Horizontal scroll + shrink-0 on each tab keeps the strip usable when
+  // the FullTrace tabs (Backend, AI) push the count past 4 and the 360px
+  // panel width can no longer fit every tab inline. Scrollbar is hidden
+  // in normal use; only appears on overflow which doubles as an affordance.
   const tabs = (
-    <div className="flex items-center gap-0.5 rounded-md bg-surface-inner p-0.5">
+    <div className="flex items-center gap-0.5 rounded-md bg-surface-inner p-0.5 overflow-x-auto max-w-full [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:bg-fg-base/20 [&::-webkit-scrollbar-thumb]:rounded">
       <TabButton
         active={activeTab === "console"}
         onClick={() => setActiveTab("console")}
@@ -265,7 +269,7 @@ function TabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`relative flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+      className={`shrink-0 relative flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition-colors ${
         active
           ? "bg-surface text-fg-strong shadow-sm"
           : "text-fg-base/60 hover:text-fg-base"
