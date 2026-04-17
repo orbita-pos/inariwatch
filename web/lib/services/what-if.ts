@@ -105,6 +105,15 @@ export interface WhatIfInput {
   /** Working directory for the substrate command. Defaults to the
    *  recording's recorded cwd. */
   substrateCwd?: string;
+  /**
+   * Sesión 5B-2 — GitHub token for cloning the repo from the Hetzner
+   * worker. When set together with `WORKER_URL`, the worker becomes the
+   * preferred compute path: it handles clone + patch + entry-point
+   * detection + substrate simulate on localhost (no Vercel timeout).
+   * When unset or worker unavailable, the local substrate or AI paths
+   * handle the request.
+   */
+  githubToken?: string;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -170,10 +179,19 @@ export async function readCache(
 // ── Internals ──────────────────────────────────────────────────────────────
 
 async function compute(input: WhatIfInput): Promise<Omit<WhatIfResult, "fromCache"> | null> {
-  // Try Substrate replay first — it's deterministic, uses real I/O
-  // recordings, and produces structured blast-radius data the AI path
-  // can't. Falls through to AI on any failure (binary missing, recording
-  // not found, command rejected by guard, timeout, parse error).
+  // Sesión 5B-2: when the Hetzner worker is configured, delegate the full
+  // substrate pipeline to it. The worker clones the repo at the fix
+  // commit, applies fileChanges, detects the entry point, and runs
+  // substrate simulate — all on localhost, no Vercel timeout. We only
+  // need a remediationId + github token; the worker handles the rest.
+  if (isWorkerConfigured() && input.remediationId && input.githubToken) {
+    const workerResult = await tryComputeViaWorker(input).catch(() => null);
+    if (workerResult) return workerResult;
+  }
+
+  // Local substrate path — used in dev and as a fallback when the caller
+  // already knows the substrateCommand (e.g. manually constructed in
+  // tests or self-hosted). Same scoring/shape as the worker path.
   if (input.substrateCommand && isSubstrateConfigured()) {
     const substrateResult = await tryComputeSubstrate(input).catch(() => null);
     if (substrateResult) return substrateResult;
@@ -206,6 +224,112 @@ async function compute(input: WhatIfInput): Promise<Omit<WhatIfResult, "fromCach
     analysis: result.analysis,
     mode: "ai_analysis",
     computedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * True iff WORKER_URL is set to an https:// or localhost url. We reject
+ * plain http:// to non-localhost — the token travels in the request body
+ * and would be exposed on the wire otherwise.
+ */
+function isWorkerConfigured(): boolean {
+  const url = process.env.WORKER_URL;
+  if (!url) return false;
+  return url.startsWith("https://") || url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
+}
+
+/**
+ * Call the Hetzner worker's /worker/whatif endpoint. The worker handles
+ * clone + patch + entry-point detection + substrate simulate, returning
+ * the same substrate response shape the local runner produces. Returns
+ * null for recoverable worker failures (no_recording, no_entry_point,
+ * substrate_not_configured) so the caller can fall back to AI. Throws
+ * on infrastructure failures (5xx, network, auth) — those are surfaced
+ * via the outer catch in compute().
+ *
+ * Contract with the worker handler:
+ *   - 200 → WhatIfResponse (substrate result shape)
+ *   - 4xx with code in FALLBACK_CODES → null (AI fallback)
+ *   - 4xx with other code → throw (caller decides; real bug)
+ *   - 5xx → throw (infra issue; AI fallback via outer catch)
+ */
+async function tryComputeViaWorker(input: WhatIfInput): Promise<Omit<WhatIfResult, "fromCache"> | null> {
+  const workerUrl = process.env.WORKER_URL;
+  const secret = process.env.STAGING_API_SECRET;
+  if (!workerUrl || !secret || !input.remediationId || !input.githubToken) return null;
+
+  // 120s matches the worker's internal budget (clone 30s + detect 1s +
+  // substrate 90s). A lower timeout would abort legitimate replays; a
+  // higher one delays the AI fallback users are waiting for.
+  const res = await fetch(`${workerUrl}/worker/whatif`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      remediationId: input.remediationId,
+      githubToken: input.githubToken,
+    }),
+    signal: AbortSignal.timeout(130_000),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ code: "unknown", error: `HTTP ${res.status}` })) as {
+      code?: string; error?: string;
+    };
+    // Codes the worker returns when the inputs aren't there — AI can
+    // handle these. Anything else (auth, 5xx) surfaces as a thrown error
+    // so we don't silently lose signal.
+    const FALLBACK_CODES = new Set([
+      "no_recording",
+      "no_entry_point",
+      "no_fix_commit",
+      "substrate_not_configured",
+      "substrate_timeout",
+      "substrate_failed",
+      "clone_failed",
+      "remediation_not_found",
+    ]);
+    if (err.code && FALLBACK_CODES.has(err.code)) return null;
+    throw new Error(`worker/whatif ${res.status}: ${err.error ?? "unknown"}`);
+  }
+
+  const data = await res.json() as {
+    matched: boolean;
+    eventCountBefore: number;
+    eventCountAfter: number;
+    riskScore: number;
+    riskLevel: "low" | "medium" | "high" | "critical";
+    blastRadius: {
+      httpPaths: string[];
+      dbTables: string[];
+      filePaths: string[];
+      totalSurfaces: number;
+    };
+    recommendations: string[];
+    detectedCommand: string;
+    commandSource: string;
+  };
+
+  return {
+    outcome: substrateOutcome(data.matched, data.riskLevel),
+    confidence: data.matched ? 95 : 70,
+    riskScore: data.riskScore,
+    analysis: data.recommendations[0] ?? (data.matched
+      ? `Substrate replay matched the original I/O sequence (command: ${data.detectedCommand}) — fix preserves recorded behavior.`
+      : `Substrate replay diverged from the original (command: ${data.detectedCommand}, source: ${data.commandSource}) — see blast radius for affected surfaces.`),
+    mode: "substrate_replay",
+    computedAt: new Date().toISOString(),
+    substrate: {
+      matched: data.matched,
+      eventCountBefore: data.eventCountBefore,
+      eventCountAfter: data.eventCountAfter,
+      riskLevel: data.riskLevel,
+      blastRadius: data.blastRadius,
+      recommendations: data.recommendations,
+    },
   };
 }
 

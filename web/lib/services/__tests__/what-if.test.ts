@@ -64,6 +64,19 @@ vi.mock("@/lib/db/schema", () => ({
     computedAt: "computed_at",
     lastAccessedAt: "last_accessed_at",
   },
+  // substrateRecordings is imported at module-load time via what-if.ts;
+  // the worker-path tests never read it (they short-circuit before the
+  // local substrate fallback), so an empty marker object is enough to
+  // keep the import resolution happy.
+  substrateRecordings: {
+    recordingId: "recording_id",
+    events: "events",
+    command: "command",
+    runtime: "runtime",
+    startedAt: "started_at",
+    endedAt: "ended_at",
+    sessionId: "session_id",
+  },
 }));
 
 vi.mock("@/lib/ai/substrate-replay", () => ({
@@ -246,5 +259,214 @@ describe("getOrComputeWhatIf — outcome derivation", () => {
   it("passed=false but low confidence = uncertain (don't claim a fail you're unsure of)", async () => {
     const r = await runWith(false, 40, 50);
     expect(r?.outcome).toBe("uncertain");
+  });
+});
+
+// ── Worker path (Sesión 5B-2) ─────────────────────────────────────────────
+
+describe("getOrComputeWhatIf — Hetzner worker path", () => {
+  const originalFetch = global.fetch;
+  const originalWorkerUrl = process.env.WORKER_URL;
+  const originalSecret = process.env.STAGING_API_SECRET;
+
+  beforeEach(() => {
+    process.env.WORKER_URL = "https://worker.inari.test";
+    process.env.STAGING_API_SECRET = "test-secret";
+  });
+
+  function restoreEnv() {
+    if (originalWorkerUrl === undefined) delete process.env.WORKER_URL;
+    else process.env.WORKER_URL = originalWorkerUrl;
+    if (originalSecret === undefined) delete process.env.STAGING_API_SECRET;
+    else process.env.STAGING_API_SECRET = originalSecret;
+    global.fetch = originalFetch;
+  }
+
+  const workerInput = {
+    ...baseInput,
+    githubToken: "ghp_fake_token",
+  };
+
+  it("calls /worker/whatif with bearer auth and maps matched response to substrate_replay result", async () => {
+    queryQueue = [[]]; // cache miss
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({
+        matched: true,
+        eventCountBefore: 12,
+        eventCountAfter: 12,
+        riskScore: 15,
+        riskLevel: "low",
+        blastRadius: { httpPaths: ["/api/checkout"], dbTables: [], filePaths: [], totalSurfaces: 1 },
+        recommendations: ["Replay matched — fix preserves recorded behavior."],
+        detectedCommand: "npm start",
+        commandSource: "npm_start",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const r = await getOrComputeWhatIf(workerInput);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, opts] = fetchMock.mock.calls[0];
+      expect(url).toBe("https://worker.inari.test/worker/whatif");
+      expect((opts as RequestInit).method).toBe("POST");
+      expect((opts as RequestInit).headers).toMatchObject({
+        Authorization: "Bearer test-secret",
+      });
+
+      expect(r).toMatchObject({
+        outcome: "would_prevent",
+        mode: "substrate_replay",
+        confidence: 95,
+        riskScore: 15,
+        fromCache: false,
+      });
+      expect(r?.substrate).toMatchObject({
+        matched: true,
+        riskLevel: "low",
+        blastRadius: { totalSurfaces: 1 },
+      });
+      // AI path must NOT be invoked when worker succeeds — that's the
+      // entire cost savings of this integration.
+      expect(analyzeReplayMock).not.toHaveBeenCalled();
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("falls back to AI when worker returns no_recording", async () => {
+    queryQueue = [[]]; // cache miss
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ code: "no_recording", error: "no recording for session" }),
+      { status: 422 },
+    ));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    analyzeReplayMock.mockResolvedValue({
+      passed: true, confidence: 80, riskScore: 30, analysis: "AI guess.", replayedEvents: 1, mode: "ai_analysis",
+    });
+
+    try {
+      const r = await getOrComputeWhatIf(workerInput);
+      expect(r?.mode).toBe("ai_analysis");
+      expect(analyzeReplayMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("falls back to AI when worker reports substrate_not_configured", async () => {
+    queryQueue = [[]];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ code: "substrate_not_configured", error: "binary missing" }),
+      { status: 503 },
+    ));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    analyzeReplayMock.mockResolvedValue({
+      passed: true, confidence: 72, riskScore: 25, analysis: "AI covered.", replayedEvents: 1, mode: "ai_analysis",
+    });
+
+    try {
+      const r = await getOrComputeWhatIf(workerInput);
+      expect(r?.mode).toBe("ai_analysis");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("skips worker entirely when githubToken is missing", async () => {
+    queryQueue = [[]];
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    analyzeReplayMock.mockResolvedValue({
+      passed: true, confidence: 70, riskScore: 40, analysis: "AI.", replayedEvents: 1, mode: "ai_analysis",
+    });
+
+    try {
+      // Intentionally omit githubToken — worker gate requires it.
+      await getOrComputeWhatIf(baseInput);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(analyzeReplayMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("skips worker when WORKER_URL is plain http:// (non-localhost)", async () => {
+    process.env.WORKER_URL = "http://untrusted.example.com";
+    queryQueue = [[]];
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    analyzeReplayMock.mockResolvedValue({
+      passed: true, confidence: 70, riskScore: 30, analysis: "AI.", replayedEvents: 1, mode: "ai_analysis",
+    });
+
+    try {
+      await getOrComputeWhatIf(workerInput);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(analyzeReplayMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("maps matched=false + critical risk to would_not_prevent with confidence 70", async () => {
+    queryQueue = [[]];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({
+        matched: false,
+        eventCountBefore: 8,
+        eventCountAfter: 5,
+        riskScore: 85,
+        riskLevel: "critical",
+        blastRadius: { httpPaths: ["/api/checkout", "/api/refund"], dbTables: ["orders"], filePaths: [], totalSurfaces: 3 },
+        recommendations: ["Divergence detected on /api/refund — review before merging."],
+        detectedCommand: "node server.js",
+        commandSource: "node_entry",
+      }),
+      { status: 200 },
+    ));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const r = await getOrComputeWhatIf(workerInput);
+      expect(r).toMatchObject({
+        outcome: "would_not_prevent",
+        mode: "substrate_replay",
+        confidence: 70,
+        riskScore: 85,
+      });
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("caches worker result under substrate_replay mode", async () => {
+    queryQueue = [[]];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({
+        matched: true,
+        eventCountBefore: 3, eventCountAfter: 3,
+        riskScore: 10, riskLevel: "low",
+        blastRadius: { httpPaths: [], dbTables: [], filePaths: [], totalSurfaces: 0 },
+        recommendations: [],
+        detectedCommand: "npm start",
+        commandSource: "npm_start",
+      }),
+      { status: 200 },
+    ));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      await getOrComputeWhatIf(workerInput);
+      expect(insertCalls).toHaveLength(1);
+      const inserted = insertCalls[0] as { result: { mode: string } };
+      expect(inserted.result.mode).toBe("substrate_replay");
+    } finally {
+      restoreEnv();
+    }
   });
 });
