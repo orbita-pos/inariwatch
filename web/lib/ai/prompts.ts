@@ -128,6 +128,17 @@ export type RemediationContext = {
    *    stack trace alone can't surface. */
   gitContext: string | null;
   breadcrumbsContext: string | null;
+  /** VAR Q2 Week 3 — additional Capture SDK v2 fields.
+   *  envContext: Node version + platform + memory at time of crash.
+   *    Used by the AI to detect version-specific bugs.
+   *  userContext: id + role of the user who hit the error (email stripped
+   *    by the SDK). Helps reason about tier/permission-specific behavior.
+   *  requestContext: URL + method + safe headers + query + redacted body
+   *    of the request that triggered the crash. Often enough to
+   *    reproduce locally alongside the stack trace. */
+  envContext: string | null;
+  userContext: string | null;
+  requestContext: string | null;
 };
 
 export type EapReceiptContext = {
@@ -287,6 +298,9 @@ export function buildDiagnosePrompt(
   if (context?.fullTraceContext) contextSections.push(`FULLTRACE CAUSAL CHAIN (the browser session that produced this alert — backend I/O + AI events in chronological order):\n${context.fullTraceContext.slice(0, 3000)}`);
   if (context?.gitContext) contextSections.push(`GIT CONTEXT (commit that shipped when the error fired — use to decide what changed recently):\n${context.gitContext.slice(0, 500)}`);
   if (context?.breadcrumbsContext) contextSections.push(`BREADCRUMBS (chronological trail of console + fetch events in the last ~30 seconds before the crash — likely holds the trigger):\n${context.breadcrumbsContext.slice(0, 2500)}`);
+  if (context?.envContext) contextSections.push(`RUNTIME ENVIRONMENT (versions + resource state at crash time — check for version-specific bugs, memory pressure):\n${context.envContext.slice(0, 400)}`);
+  if (context?.userContext) contextSections.push(`USER CONTEXT (who hit the error — check for tier/permission-specific paths):\n${context.userContext.slice(0, 200)}`);
+  if (context?.requestContext) contextSections.push(`REQUEST CONTEXT (the HTTP request that triggered the crash — URL + method + safe headers + redacted body):\n${context.requestContext.slice(0, 1500)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";

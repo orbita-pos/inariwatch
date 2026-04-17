@@ -429,14 +429,51 @@ function buildCaptureCorrelationData(diverge: boolean, ts: number) {
     // stepping on the dedicated cards.
     env: {
       runtime: "node",
-      node_version: "20.11.1",
+      node: "v20.11.1",
       platform: "linux",
+      arch: "x64",
       app_version: diverge ? "2.4.0-rc1" : "2.3.8",
+      heapUsedMB: diverge ? 218 : 142,
+      heapTotalMB: 256,
+      uptime: diverge ? 3812 : 1045,
     },
     user: {
       id: diverge ? "usr_8af32b" : "usr_4ef701",
+      role: diverge ? "admin" : "member",
       plan: "pro",
     },
+    request: diverge
+      ? {
+          method: "POST",
+          url: "https://app.inariwatch.com/api/checkout",
+          headers: {
+            "content-type": "application/json",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36",
+            "x-forwarded-for": "203.0.113.42",
+            "authorization": "[REDACTED]",
+            "cookie": "[REDACTED]",
+          },
+          query: { plan: "pro", coupon: "LAUNCH20" },
+          body: {
+            amount: 5000,
+            currency: "usd",
+            password: "[REDACTED]",
+            metadata: { source: "web" },
+          },
+          ip: "203.0.113.42",
+        }
+      : {
+          method: "POST",
+          url: "https://app.inariwatch.com/api/charge",
+          headers: {
+            "content-type": "application/json",
+            "user-agent": "curl/8.4.0",
+            "authorization": "[REDACTED]",
+          },
+          query: {},
+          body: { amount: 12900, currency: "usd" },
+          ip: "198.51.100.7",
+        },
   };
 }
 

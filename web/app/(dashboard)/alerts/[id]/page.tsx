@@ -23,6 +23,7 @@ import { ImpactBadge } from "./impact-badge";
 import { FleetVerificationCard } from "./fleet-verification-card";
 import { GitContextCard } from "./git-context-card";
 import { BreadcrumbsPanel } from "./breadcrumbs-panel";
+import { EnvironmentCard, UserContextCard, RequestContextCard } from "./capture-v2-cards";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -381,6 +382,18 @@ export default async function AlertDetailPage({
       {/* the crash. Color-coded by level.                                      */}
       {alert.correlationData
         ? <BreadcrumbsPanel data={(alert.correlationData as Record<string, unknown>).breadcrumbs} />
+        : null}
+
+      {/* ── Environment / User / Request (Capture SDK v2 — Week 3) ───────── */}
+      {/* Each card hides itself when its slice of correlationData is missing. */}
+      {alert.correlationData
+        ? <EnvironmentCard data={(alert.correlationData as Record<string, unknown>).env} />
+        : null}
+      {alert.correlationData
+        ? <UserContextCard data={(alert.correlationData as Record<string, unknown>).user} />
+        : null}
+      {alert.correlationData
+        ? <RequestContextCard data={(alert.correlationData as Record<string, unknown>).request} />
         : null}
 
       {/* ── Correlation (raw JSON dump for anything not covered above) ──── */}

@@ -362,6 +362,9 @@ export async function gatherRemediationContext(
     fullTraceContext: null,
     gitContext: null,
     breadcrumbsContext: null,
+    envContext: null,
+    userContext: null,
+    requestContext: null,
   };
 
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, projectId));
@@ -514,13 +517,21 @@ export async function gatherRemediationContext(
           .where(eq(alertsTable.id, alert.id!))
           .limit(1);
         const data = (row?.correlationData ?? {}) as Record<string, unknown>;
-        const { formatGitContext, formatBreadcrumbsContext } = await import("./capture-context");
+        const {
+          formatGitContext,
+          formatBreadcrumbsContext,
+          formatEnvContext,
+          formatUserContext,
+          formatRequestContext,
+        } = await import("./capture-context");
         result.gitContext = formatGitContext(data.git);
         result.breadcrumbsContext = formatBreadcrumbsContext(data.breadcrumbs);
-        emit("context", {
-          source: "capture",
-          status: (result.gitContext || result.breadcrumbsContext) ? "found" : "empty",
-        });
+        result.envContext = formatEnvContext(data.env);
+        result.userContext = formatUserContext(data.user);
+        result.requestContext = formatRequestContext(data.request);
+        const anyFound =
+          !!(result.gitContext || result.breadcrumbsContext || result.envContext || result.userContext || result.requestContext);
+        emit("context", { source: "capture", status: anyFound ? "found" : "empty" });
       } catch {
         emit("context", { source: "capture", status: "empty" });
       }
