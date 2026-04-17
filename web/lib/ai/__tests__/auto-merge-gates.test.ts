@@ -623,3 +623,145 @@ describe("Gate 17: performance_regression", () => {
     expect(gate.passed).toBe(true);
   });
 });
+
+// ── Gate 13: behavioral_drift (VAR Q2 Week 5) ──────────────────────────────
+
+describe("Gate 13: behavioral_drift", () => {
+  it("no gate added when behavioralDrift is null", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, behavioralDrift: null });
+    expect(r.gates.map((g) => g.name)).not.toContain("behavioral_drift");
+  });
+
+  it("no gate added when passed is null (insufficient data / no replays)", () => {
+    // No fleet replays, or every touched endpoint had <50 baseline samples.
+    // There's nothing to measure — skip, don't fail.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 0,
+        driftedEndpoints: 0,
+        improvedEndpoints: 0,
+        thresholdDriftedPercent: 20,
+        passed: null,
+      },
+    });
+    expect(r.gates.map((g) => g.name)).not.toContain("behavioral_drift");
+  });
+
+  it("passes when drifted_percent is within threshold", () => {
+    // 2 of 20 endpoints drifted = 10% — under the 20% threshold.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 20,
+        driftedEndpoints: 2,
+        improvedEndpoints: 3,
+        thresholdDriftedPercent: 20,
+        passed: true,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/2\/20.*10\.0%/);
+  });
+
+  it("fails when drifted_percent exceeds threshold", () => {
+    // 5 of 10 endpoints drifted = 50% — way over 20% threshold.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 10,
+        driftedEndpoints: 5,
+        improvedEndpoints: 0,
+        thresholdDriftedPercent: 20,
+        passed: false,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/5\/10.*50\.0%.*20%/);
+    expect(r.strategy).toBe("draft_pr");
+  });
+
+  it("passes when zero endpoints drifted (ideal case)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 15,
+        driftedEndpoints: 0,
+        improvedEndpoints: 4,
+        thresholdDriftedPercent: 20,
+        passed: true,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/\+4 improved/);
+  });
+
+  it("improvements are cosmetic — they do NOT fail the gate", () => {
+    // Yellow light semantics: even with 30 improvements, if NO endpoints
+    // drifted, the gate passes. Improvements are a cosmetic signal only.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 50,
+        driftedEndpoints: 3,
+        improvedEndpoints: 30,
+        thresholdDriftedPercent: 20,
+        passed: true,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.passed).toBe(true);
+  });
+
+  it("improvements annotation omitted when zero", () => {
+    // Don't pollute the reason line with "(+0 improved)".
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 10,
+        driftedEndpoints: 1,
+        improvedEndpoints: 0,
+        thresholdDriftedPercent: 20,
+        passed: true,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.reason).not.toMatch(/improved/);
+  });
+
+  it("respects custom thresholdDriftedPercent", () => {
+    // Strict workspace setting — 10% threshold instead of default 20%.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 10,
+        driftedEndpoints: 2,
+        improvedEndpoints: 0,
+        thresholdDriftedPercent: 10,
+        passed: false,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/10%/);
+  });
+
+  it("circuit breaker bypass overrides fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      behavioralDrift: {
+        analyzedEndpoints: 10,
+        driftedEndpoints: 8,
+        improvedEndpoints: 0,
+        thresholdDriftedPercent: 20,
+        passed: false,
+      },
+      circuitBreakerBypassed: new Set(["behavioral_drift"]),
+    });
+    const gate = r.gates.find((g) => g.name === "behavioral_drift")!;
+    expect(gate.passed).toBe(true);
+  });
+});

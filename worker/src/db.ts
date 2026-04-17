@@ -118,6 +118,46 @@ export const fleetVerificationRuns = pgTable("fleet_verification_runs", {
   error: text("error"),
 });
 
+// ── VAR Q2 Week 5: Gate 13 Behavioral Drift ─────────────────────────────────
+
+export const sessionEndpointMetrics = pgTable("session_endpoint_metrics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  substrateRecordingId: uuid("substrate_recording_id").notNull(),
+  projectId: uuid("project_id").notNull(),
+  endpointSignature: text("endpoint_signature").notNull(),
+  endpointUrlRaw: text("endpoint_url_raw"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  healthy: boolean("healthy").notNull().default(true),
+  latencyMs: doublePrecision("latency_ms"),
+  dbQueryCount: integer("db_query_count").notNull().default(0),
+  externalHttpCount: integer("external_http_count").notNull().default(0),
+  topStatus: integer("top_status"),
+  downstreamSignatures: jsonb("downstream_signatures").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const behavioralDriftRuns = pgTable("behavioral_drift_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").notNull(),
+  remediationId: uuid("remediation_id").notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  windowDays: integer("window_days").notNull().default(7),
+  status: text("status").notNull().default("running"),
+  analyzedEndpoints: integer("analyzed_endpoints").notNull().default(0),
+  insufficientDataEndpoints: integer("insufficient_data_endpoints").notNull().default(0),
+  driftedEndpoints: integer("drifted_endpoints").notNull().default(0),
+  improvedEndpoints: integer("improved_endpoints").notNull().default(0),
+  maxDriftScore: doublePrecision("max_drift_score"),
+  endpointDetails: jsonb("endpoint_details").notNull().default([]),
+  improvementsDetected: jsonb("improvements_detected").notNull().default([]),
+  thresholdDriftedPercent: doublePrecision("threshold_drifted_percent").notNull().default(20),
+  passed: boolean("passed"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
 // ── Uptime Monitoring ───────────────────────────────────────────────────────
 
 export const uptimeMonitors = pgTable("uptime_monitors", {

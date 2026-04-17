@@ -25,6 +25,7 @@ import { GitContextCard } from "./git-context-card";
 import { BreadcrumbsPanel } from "./breadcrumbs-panel";
 import { EnvironmentCard, UserContextCard, RequestContextCard } from "./capture-v2-cards";
 import { PerformanceBenchmarkCard } from "./performance-benchmark-card";
+import { BehavioralDriftCard } from "./behavioral-drift-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -333,6 +334,22 @@ export default async function AlertDetailPage({
       {/* ── Performance Benchmark card (VAR Gate 17) ─────────────────────── */}
       {/* Reuses substrate event timings from Gate 12 — cheap, no clones.    */}
       <PerformanceBenchmarkCard
+        alertId={alert.id}
+        remediationId={latestRemediation?.id ?? null}
+        remediationReady={
+          !!latestRemediation && (
+            latestRemediation.status === "completed" ||
+            latestRemediation.status === "proposing" ||
+            latestRemediation.status === "merging" ||
+            latestRemediation.status === "approved"
+          )
+        }
+      />
+
+      {/* ── Behavioral Drift card (VAR Gate 13) ──────────────────────────── */}
+      {/* Compares fix replay against 7d baseline of healthy recordings.    */}
+      {/* Yellow light: improvements are surfaced separately, never fail.   */}
+      <BehavioralDriftCard
         alertId={alert.id}
         remediationId={latestRemediation?.id ?? null}
         remediationReady={

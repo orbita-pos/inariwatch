@@ -1435,3 +1435,84 @@ export const performanceBenchmarks = pgTable("performance_benchmarks", {
 
 export type PerformanceBenchmark = typeof performanceBenchmarks.$inferSelect;
 export type NewPerformanceBenchmark = typeof performanceBenchmarks.$inferInsert;
+
+// VAR Q2 Week 5 — Gate 13 "Behavioral Drift". Two tables:
+//   sessionEndpointMetrics — raw per-(recording, endpoint) samples written
+//   by the substrate-extract worker after /api/recordings/upload persists
+//   a substrate_recordings row. Baseline percentiles (p50/p95/p99) are
+//   computed with percentile_cont over a rolling N-day window at gate time.
+//
+//   behavioralDriftRuns — one row per (alert, remediation, fix_commit_sha),
+//   populated by the behavioral-drift BullMQ job on the low queue. Yellow-
+//   light semantics: improvements_detected is populated for wins but never
+//   fails the gate. Permissive calibration: only drifted_percent drives
+//   pass/fail, structural drift does not push max_drift_score.
+
+export const sessionEndpointMetrics = pgTable("session_endpoint_metrics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  substrateRecordingId: uuid("substrate_recording_id")
+    .references(() => substrateRecordings.id, { onDelete: "cascade" })
+    .notNull(),
+  projectId: uuid("project_id")
+    .references(() => projects.id, { onDelete: "cascade" })
+    .notNull(),
+  /** Normalized route signature, e.g. "POST /api/users/:id". Framework
+   *  route template from correlationData takes precedence over the
+   *  heuristic normalizer when available. */
+  endpointSignature: text("endpoint_signature").notNull(),
+  /** First URL observed for this row — debug-only, never grouped by. */
+  endpointUrlRaw: text("endpoint_url_raw"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  /** TRUE when the source recording has alert_id NULL and no error-kind
+   *  events. Baseline reads filter on this — unhealthy rows are kept for
+   *  future trend-delta work but never contribute to the baseline. */
+  healthy: boolean("healthy").notNull().default(true),
+  latencyMs: doublePrecision("latency_ms"),
+  dbQueryCount: integer("db_query_count").notNull().default(0),
+  externalHttpCount: integer("external_http_count").notNull().default(0),
+  topStatus: integer("top_status"),
+  /** Deduped, sorted array of downstream signatures this endpoint called.
+   *  Shape: ["postgres:VERB-TABLE", "https://api.stripe.com/v1/charges"] */
+  downstreamSignatures: jsonb("downstream_signatures").notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type SessionEndpointMetric = typeof sessionEndpointMetrics.$inferSelect;
+export type NewSessionEndpointMetric = typeof sessionEndpointMetrics.$inferInsert;
+
+export const behavioralDriftRuns = pgTable("behavioral_drift_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  /** Rolling window used for the baseline on THIS run. Stored on the row
+   *  so later threshold/window changes stay reproducible. */
+  windowDays: integer("window_days").notNull().default(7),
+  status: text("status").notNull().default("running"),
+  analyzedEndpoints: integer("analyzed_endpoints").notNull().default(0),
+  insufficientDataEndpoints: integer("insufficient_data_endpoints").notNull().default(0),
+  driftedEndpoints: integer("drifted_endpoints").notNull().default(0),
+  improvedEndpoints: integer("improved_endpoints").notNull().default(0),
+  /** Worst per-endpoint MAGNITUDE score in [0,1]. Structural drift does NOT
+   *  push this value (permissive calibration). Null when analyzed=0. */
+  maxDriftScore: doublePrecision("max_drift_score"),
+  /** [{ signature, magnitudeScore, hasStructuralDrift, baselineSamples,
+   *     fixSamples, structural: { missingDownstreams, newDownstreams,
+   *     statusShift }, magnitude: { latencyMs, dbQueryCount,
+   *     externalHttpCount } }] — flagged endpoints only. */
+  endpointDetails: jsonb("endpoint_details").notNull().default(sql`'[]'::jsonb`),
+  /** Same shape as endpointDetails. Directionally-better endpoints only
+   *  (wins). Rendered in UI as green signals, NEVER fails the gate. */
+  improvementsDetected: jsonb("improvements_detected").notNull().default(sql`'[]'::jsonb`),
+  thresholdDriftedPercent: doublePrecision("threshold_drifted_percent").notNull().default(20),
+  passed: boolean("passed"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
+export type BehavioralDriftRun = typeof behavioralDriftRuns.$inferSelect;
+export type NewBehavioralDriftRun = typeof behavioralDriftRuns.$inferInsert;

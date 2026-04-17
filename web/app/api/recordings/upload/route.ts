@@ -5,6 +5,7 @@ import { db, users, PLAN_LIMITS, BETA_PLAN } from "@/lib/db";
 import { substrateRecordings, projects } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import crypto from "crypto";
+import { enqueue } from "@/lib/queue";
 
 // Per-user storage caps. Compute-on-demand from substrate_recordings — no
 // counter to maintain. The (user_id) index on substrate_recordings makes
@@ -209,21 +210,32 @@ export async function POST(req: NextRequest) {
     }
 
     // Insert new recording.
-    await db.insert(substrateRecordings).values({
-      recordingId,
-      alertId: alertId || null,
-      projectId: projectId || null,
-      command: Array.isArray(command) ? command.join(" ") : command,
-      runtime: runtime || "node",
-      startedAt: startedAt ? new Date(startedAt) : new Date(),
-      endedAt: endedAt ? new Date(endedAt) : null,
-      eventCount: eventCount || 0,
-      durationMs: durationMs || null,
-      categories: categories || null,
-      context: context || null,
-      events: events || null,
-      uiEvents: uiEvents || null,
-    });
+    const [inserted] = await db
+      .insert(substrateRecordings)
+      .values({
+        recordingId,
+        alertId: alertId || null,
+        projectId: projectId || null,
+        command: Array.isArray(command) ? command.join(" ") : command,
+        runtime: runtime || "node",
+        startedAt: startedAt ? new Date(startedAt) : new Date(),
+        endedAt: endedAt ? new Date(endedAt) : null,
+        eventCount: eventCount || 0,
+        durationMs: durationMs || null,
+        categories: categories || null,
+        context: context || null,
+        events: events || null,
+        uiEvents: uiEvents || null,
+      })
+      .returning({ id: substrateRecordings.id });
+
+    // VAR Gate 13 feeder — fire-and-forget extract of per-endpoint metrics
+    // into session_endpoint_metrics. Only fires for recordings scoped to a
+    // project (baseline is project-scoped) and with events to walk. Failure
+    // here never fails the upload.
+    if (inserted?.id && projectId && events) {
+      void enqueue("substrate-extract", { recordingId: inserted.id }, { queue: "low" });
+    }
 
     return NextResponse.json({
       ok: true,

@@ -63,10 +63,27 @@ export function evaluateAutoMergeGates(params: {
     thresholdPercent: number;
     passed: boolean | null;
   } | null;
+  /** VAR Q2 — Gate 13. Behavioral drift result. Shape:
+   *    - null:              no drift run yet (gate not evaluated)
+   *    - { passed: null }:  nothing to analyze (no fleet replays, no
+   *                         endpoints extracted, or every touched endpoint
+   *                         had <50 baseline samples → insufficient_data)
+   *    - { passed, ... }:   pass/fail on drifted_percent threshold
+   *  Permissive calibration — structural drift flags an endpoint but does
+   *  not dominate the overall score. Yellow light — improvements_detected
+   *  is informational only and never fails the gate.
+   */
+  behavioralDrift?: {
+    driftedEndpoints: number;
+    analyzedEndpoints: number;
+    improvedEndpoints: number;
+    thresholdDriftedPercent: number;
+    passed: boolean | null;
+  } | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -214,6 +231,30 @@ export function evaluateAutoMergeGates(params: {
       performanceBenchmark.passed
         ? `Performance benchmark: p50 regression ${pct.toFixed(1)}% within threshold (≤${threshold}%)`
         : `Performance regression: p50 +${pct.toFixed(1)}% exceeds threshold (${threshold}%)`);
+  }
+
+  // Gate 13: Behavioral drift (VAR Q2 Week 5)
+  // Compares fix's replay I/O against the 7d rolling baseline of healthy
+  // production recordings. Yellow-light: improvements are informational,
+  // only drifted_percent > threshold fails the gate. Permissive calibration:
+  // structural changes flag the endpoint but don't dominate the score.
+  // Skipped (no gate row) when:
+  //   - no drift run exists
+  //   - run completed with passed=null (no fleet replays, zero endpoints
+  //     extracted, or every touched endpoint was insufficient_data). There's
+  //     nothing to measure so the gate can't meaningfully pass or fail.
+  if (behavioralDrift != null && behavioralDrift.passed != null) {
+    const { driftedEndpoints, analyzedEndpoints, improvedEndpoints, thresholdDriftedPercent } = behavioralDrift;
+    const pct = analyzedEndpoints > 0
+      ? (driftedEndpoints / analyzedEndpoints) * 100
+      : 0;
+    const improvementsNote = improvedEndpoints > 0
+      ? ` (+${improvedEndpoints} improved)`
+      : "";
+    pushGate("behavioral_drift", behavioralDrift.passed,
+      behavioralDrift.passed
+        ? `Behavioral drift: ${driftedEndpoints}/${analyzedEndpoints} endpoints drifted (${pct.toFixed(1)}% ≤ ${thresholdDriftedPercent}% threshold)${improvementsNote}`
+        : `Behavioral drift: ${driftedEndpoints}/${analyzedEndpoints} endpoints drifted (${pct.toFixed(1)}% > ${thresholdDriftedPercent}% threshold)${improvementsNote}`);
   }
 
   const allPassed = gates.every((g) => g.passed);
