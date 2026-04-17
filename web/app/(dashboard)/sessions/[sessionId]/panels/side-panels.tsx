@@ -214,7 +214,7 @@ export function SidePanels({
             }`}
             aria-hidden={activeTab !== "ai"}
           >
-            <AiPanel events={aiEvents} currentMs={currentMs} onSeek={onSeek} onHoverEvent={onHoverEvent} />
+            <AiPanel events={aiEvents} currentMs={currentMs} onSeek={onSeek} onHoverEvent={onHoverEvent} sessionId={sessionId} />
           </div>
         )}
         <div

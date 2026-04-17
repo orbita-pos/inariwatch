@@ -20,9 +20,9 @@
  * touching the player. Click-to-seek is the secondary affordance.
  */
 
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import type { LucideIcon } from "lucide-react";
-import { AlertTriangle, Brain, Wrench, GitMerge, RotateCcw, CheckCircle2, XCircle, ChevronRight, ExternalLink } from "lucide-react";
+import { AlertTriangle, Brain, Wrench, GitMerge, RotateCcw, CheckCircle2, XCircle, ChevronRight, ExternalLink, FlaskConical, Loader2 } from "lucide-react";
 import { formatMs } from "../format-time";
 import type { AiEvent, AiEventKind } from "@/lib/fulltrace/manifest-aggregator";
 
@@ -33,7 +33,17 @@ interface AiPanelProps {
   /** VAR Q1 — fired with the row's event id on mouseenter, null on
    *  mouseleave. Drives the timeline canvas's causal-arrows overlay. */
   onHoverEvent?: (id: string | null) => void;
+  /** VAR Q1 Sesión 5 — required for the What-If button on remediation
+   *  events. When omitted the button is hidden. */
+  sessionId?: string;
 }
+
+/** Local state per row for the What-If button. Keyed by AiEvent.id. */
+type WhatIfState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; outcome: string; confidence: number; riskScore: number; analysis: string; fromCache: boolean }
+  | { status: "error"; message: string };
 
 export function countAiRows(events: AiEvent[]): {
   total: number;
@@ -94,7 +104,52 @@ function isHttpUrl(maybe: string | undefined): maybe is string {
   return maybe.startsWith("http://") || maybe.startsWith("https://");
 }
 
-export function AiPanel({ events, currentMs, onSeek, onHoverEvent }: AiPanelProps) {
+/** Event kinds where running What-If is meaningful — both have a remediationId
+ *  AND there's a fix to evaluate against the recorded session. We deliberately
+ *  exclude `remediation_started` (no fix yet) and `remediation_failed` (nothing
+ *  to test). */
+const WHATIF_ELIGIBLE_KINDS: AiEventKind[] = ["remediation_completed", "fix_merged"];
+
+export function AiPanel({ events, currentMs, onSeek, onHoverEvent, sessionId }: AiPanelProps) {
+  // What-If state per row. Map keyed by event id keeps independent UI state
+  // for each remediation event, since a session can have multiple completed
+  // remediations (different attempts, different alerts).
+  const [whatIfStates, setWhatIfStates] = useState<Map<string, WhatIfState>>(new Map());
+
+  const runWhatIf = useCallback(async (evt: AiEvent) => {
+    if (!sessionId || !evt.remediationId) return;
+    setWhatIfStates((prev) => new Map(prev).set(evt.id, { status: "loading" }));
+    try {
+      const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/what-if`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remediationId: evt.remediationId }),
+      });
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+        setWhatIfStates((prev) =>
+          new Map(prev).set(evt.id, { status: "error", message: errBody.error ?? `HTTP ${r.status}` }),
+        );
+        return;
+      }
+      const data = await r.json();
+      setWhatIfStates((prev) =>
+        new Map(prev).set(evt.id, {
+          status: "ready",
+          outcome: data.outcome,
+          confidence: data.confidence,
+          riskScore: data.riskScore,
+          analysis: data.analysis,
+          fromCache: data.fromCache,
+        }),
+      );
+    } catch (e) {
+      setWhatIfStates((prev) =>
+        new Map(prev).set(evt.id, { status: "error", message: e instanceof Error ? e.message : "Network error" }),
+      );
+    }
+  }, [sessionId]);
+
   const counts = useMemo(() => countAiRows(events), [events]);
   const activeIndex = useMemo(() => findActiveAiIndex(events, currentMs), [events, currentMs]);
 
@@ -214,6 +269,15 @@ export function AiPanel({ events, currentMs, onSeek, onHoverEvent }: AiPanelProp
                       </>
                     )
                   )}
+                  {/* VAR Q1 Sesión 5A — What-If button + inline result.
+                      Renders only for completed/merged remediation events
+                      with a remediationId AND when sessionId is wired in. */}
+                  {sessionId && evt.remediationId && WHATIF_ELIGIBLE_KINDS.includes(evt.kind) && (
+                    <WhatIfWidget
+                      state={whatIfStates.get(evt.id) ?? { status: "idle" }}
+                      onRun={() => runWhatIf(evt)}
+                    />
+                  )}
                 </div>
               </div>
             </li>
@@ -233,4 +297,75 @@ function prettifyUrl(url: string): string {
   } catch {
     return url.slice(0, 40);
   }
+}
+
+// ── What-If widget ────────────────────────────────────────────────────────
+//
+// Inline button + result render for the AI panel. Stateless — the parent
+// AiPanel owns the per-row state map and passes the current value plus a
+// run callback. Three visual states: idle (button), loading (spinner),
+// ready (outcome chip + analysis), error (small red message).
+
+const OUTCOME_TONE: Record<string, { bg: string; text: string; label: string }> = {
+  would_prevent:     { bg: "bg-emerald-500/15", text: "text-emerald-600 dark:text-emerald-400", label: "Would prevent" },
+  uncertain:         { bg: "bg-amber-500/15",   text: "text-amber-600 dark:text-amber-400",     label: "Uncertain" },
+  would_not_prevent: { bg: "bg-red-500/15",     text: "text-red-600 dark:text-red-400",         label: "Would NOT prevent" },
+};
+
+function WhatIfWidget({ state, onRun }: { state: WhatIfState; onRun: () => void }) {
+  if (state.status === "idle") {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRun();
+        }}
+        className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-inner px-2 py-1 text-[10px] font-medium text-fg-base/80 transition-colors hover:border-inari-accent/40 hover:text-fg-strong"
+        title="Predict whether this fix would have prevented the recorded incident"
+      >
+        <FlaskConical className="h-3 w-3 text-inari-accent" aria-hidden="true" />
+        Run What-If
+      </button>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-inner px-2 py-1 text-[10px] text-fg-base/60">
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        Predicting outcome…
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="mt-2 text-[10px] text-red-500/80" title={state.message}>
+        ⚠ What-If failed: {state.message}
+      </div>
+    );
+  }
+
+  // ready
+  const tone = OUTCOME_TONE[state.outcome] ?? OUTCOME_TONE.uncertain;
+  return (
+    <div className="mt-2 rounded-md border border-line bg-surface-inner p-2">
+      <div className="flex items-center gap-2">
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${tone.bg} ${tone.text}`}>
+          {tone.label}
+        </span>
+        <span className="text-[10px] tabular-nums text-fg-base/60">
+          confidence {state.confidence}%
+        </span>
+        <span className="text-[10px] tabular-nums text-fg-base/60">
+          risk {state.riskScore}/100
+        </span>
+        {state.fromCache && (
+          <span className="ml-auto text-[9px] uppercase tracking-wider text-fg-base/40">cached</span>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] leading-snug text-fg-base/80">{state.analysis}</p>
+    </div>
+  );
 }
