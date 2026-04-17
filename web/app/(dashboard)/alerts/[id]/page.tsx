@@ -20,6 +20,7 @@ import { PostmortemPanel } from "./postmortem-panel";
 import { VercelRollbackPanel } from "./vercel-rollback";
 import { FullTraceCard } from "./fulltrace-card";
 import { ImpactBadge } from "./impact-badge";
+import { FleetVerificationCard } from "./fleet-verification-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -308,6 +309,22 @@ export default async function AlertDetailPage({
       {/* Renders only if the alert has a session_id (Capture SDK v0.8+).   */}
       {/* Server component runs its own impact query inline.                */}
       <FullTraceCard alertId={alert.id} />
+
+      {/* ── Fleet Verification card (VAR Gate 12) ────────────────────────── */}
+      {/* Renders only when a remediation exists. Client-polls the worker's  */}
+      {/* fleet-verification job for live progress + final gauge.            */}
+      <FleetVerificationCard
+        alertId={alert.id}
+        remediationId={latestRemediation?.id ?? null}
+        remediationReady={
+          !!latestRemediation && (
+            latestRemediation.status === "completed" ||
+            latestRemediation.status === "proposing" ||
+            latestRemediation.status === "merging" ||
+            latestRemediation.status === "approved"
+          )
+        }
+      />
 
       {/* ── Vercel rollback ────────────────────────────────────────────── */}
       {isPro && alert.sourceIntegrations.includes("vercel") && !alert.isResolved && (

@@ -44,6 +44,12 @@ export const VAR_EVENTS = {
   GATE_PASSED: "gate_passed",
   GATE_FAILED: "gate_failed",
 
+  // Q2 Gate 12 — Fleet verification (What-If Across Fleet)
+  FLEET_VERIFICATION_STARTED: "fleet_verification_started",
+  FLEET_VERIFICATION_COMPLETED: "fleet_verification_completed",
+  FLEET_VERIFICATION_PASSED: "fleet_verification_passed",
+  FLEET_VERIFICATION_FAILED: "fleet_verification_failed",
+
   // Q2 — Progressive rollout
   ROLLOUT_PROMOTED: "rollout_promoted",
   ROLLOUT_AUTO_REVERTED: "rollout_auto_reverted",

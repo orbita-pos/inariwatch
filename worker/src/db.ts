@@ -48,6 +48,32 @@ export const substrateRecordings = pgTable("substrate_recordings", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Fleet Verification (VAR Q2 — Gate 12) ───────────────────────────────────
+//
+// Worker-side schema subset. Only columns the worker reads/writes: id,
+// alert+remediation fks, progress counters, session_results JSONB. Full
+// schema lives in web/lib/db/schema.ts.
+
+export const fleetVerificationRuns = pgTable("fleet_verification_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").notNull(),
+  remediationId: uuid("remediation_id").notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  status: text("status").notNull().default("running"),
+  sessionsTotal: integer("sessions_total").notNull(),
+  sessionsAttempted: integer("sessions_attempted").notNull().default(0),
+  countMatched: integer("count_matched").notNull().default(0),
+  countUncertain: integer("count_uncertain").notNull().default(0),
+  countWouldNotPrevent: integer("count_would_not_prevent").notNull().default(0),
+  countErrored: integer("count_errored").notNull().default(0),
+  sessionResults: jsonb("session_results").notNull().default([]),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
 // ── Uptime Monitoring ───────────────────────────────────────────────────────
 
 export const uptimeMonitors = pgTable("uptime_monitors", {
@@ -87,6 +113,10 @@ export const alerts = pgTable("alerts", {
   sourceIntegrations: text("source_integrations").array().notNull().default([]),
   isResolved: boolean("is_resolved").default(false).notNull(),
   isRead: boolean("is_read").default(false).notNull(),
+  // VAR Q1/Q2 — correlation columns used by fleet verification and the
+  // FullTrace aggregator. Kept nullable to match the web schema.
+  sessionId: text("session_id"),
+  fingerprint: text("fingerprint"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

@@ -2,10 +2,11 @@
  * Low Worker — processes background, non-urgent jobs.
  *
  * Jobs:
- *   anomaly-aggregate   — pre-aggregate hourly alert counts + spike detection
- *   digest              — trigger digest email processing
- *   escalation-sweep    — fallback sweep for missed escalations
+ *   anomaly-aggregate     — pre-aggregate hourly alert counts + spike detection
+ *   digest                — trigger digest email processing
+ *   escalation-sweep      — fallback sweep for missed escalations
  *   poll-webhook-fallback — weekly fallback poll for GitHub/Vercel/Sentry
+ *   fleet-verification    — VAR Gate 12 — batched What-If across top N sessions
  */
 
 import { Worker, type Job } from "bullmq";
@@ -14,6 +15,7 @@ import { escalationSweep } from "../jobs/escalate-alert.js";
 import { runAnomalyAggregation } from "../jobs/anomaly-aggregate.js";
 import { runDigest } from "../jobs/digest.js";
 import { pollWebhookFallback } from "../jobs/poll-integrations.js";
+import { runFleetVerification, type FleetJobInput } from "../jobs/fleet-verification.js";
 
 async function handler(job: Job): Promise<unknown> {
   switch (job.name) {
@@ -28,6 +30,9 @@ async function handler(job: Job): Promise<unknown> {
 
     case "poll-webhook-fallback":
       return await pollWebhookFallback();
+
+    case "fleet-verification":
+      return await runFleetVerification(job.data as FleetJobInput);
 
     default:
       console.warn(`[low] Unknown job: ${job.name}`);

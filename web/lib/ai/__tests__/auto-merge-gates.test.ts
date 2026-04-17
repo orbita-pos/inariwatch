@@ -474,3 +474,83 @@ describe("Cross-gate adversarial", () => {
     expect(gate.passed).toBe(true);
   });
 });
+
+// ── Gate 12: fleet_verification (VAR Q2) ───────────────────────────────────
+
+describe("Gate 12: fleet_verification", () => {
+  it("no gate added when fleetVerification is null (not run yet)", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, fleetVerification: null });
+    expect(r.gates.map((g) => g.name)).not.toContain("fleet_verification");
+  });
+
+  it("no gate added when totalSessions=0 (singleton alert)", () => {
+    // Singleton alerts have no siblings to verify across. The single-
+    // session What-If already covered them; fleet gate is skipped.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 0, totalSessions: 0, threshold: 90 },
+    });
+    expect(r.gates.map((g) => g.name)).not.toContain("fleet_verification");
+  });
+
+  it("passes at exactly 90% (threshold boundary)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 90, totalSessions: 100, threshold: 90 },
+    });
+    const gate = r.gates.find((g) => g.name === "fleet_verification")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/90%.*100.*≥90%/);
+  });
+
+  it("passes at 100% (ideal)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 100, totalSessions: 50, threshold: 90 },
+    });
+    const gate = r.gates.find((g) => g.name === "fleet_verification")!;
+    expect(gate.passed).toBe(true);
+  });
+
+  it("fails at 89% (just below threshold)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 89, totalSessions: 100, threshold: 90 },
+    });
+    const gate = r.gates.find((g) => g.name === "fleet_verification")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/89%.*<90%/);
+    expect(r.strategy).toBe("draft_pr");
+  });
+
+  it("fails at 0% (catastrophic)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 0, totalSessions: 100, threshold: 90 },
+    });
+    const gate = r.gates.find((g) => g.name === "fleet_verification")!;
+    expect(gate.passed).toBe(false);
+    expect(r.passed).toBe(false);
+  });
+
+  it("honors custom threshold (80%)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 85, totalSessions: 40, threshold: 80 },
+    });
+    const gate = r.gates.find((g) => g.name === "fleet_verification")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/≥80%/);
+  });
+
+  it("circuit breaker bypass overrides fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      fleetVerification: { matchedPercent: 20, totalSessions: 100, threshold: 90 },
+      circuitBreakerBypassed: new Set(["fleet_verification"]),
+    });
+    const gate = r.gates.find((g) => g.name === "fleet_verification")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/CIRCUIT BREAKER/);
+  });
+});

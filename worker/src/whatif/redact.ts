@@ -65,7 +65,6 @@ function looksLikeToken(s: string): boolean {
 
 type EventLike = {
   kind?: Record<string, unknown>;
-  [k: string]: unknown;
 };
 
 function redactHeaders(headers: unknown): unknown {
