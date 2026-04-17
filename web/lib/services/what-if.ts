@@ -24,9 +24,16 @@
  */
 
 import { db } from "@/lib/db";
-import { whatifReplays } from "@/lib/db/schema";
+import { whatifReplays, substrateRecordings } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { analyzeReplay } from "@/lib/ai/substrate-replay";
+import {
+  isSubstrateConfigured,
+  runSubstrateSimulate,
+  SubstrateNotConfiguredError,
+  type SubstrateRecordingShape,
+  type RiskLevel,
+} from "@/lib/services/substrate-runner";
 import type { AIProvider } from "@/lib/ai/client";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -35,18 +42,35 @@ export type WhatIfOutcome = "would_prevent" | "uncertain" | "would_not_prevent";
 
 export interface WhatIfResult {
   outcome: WhatIfOutcome;
-  /** 0–100. AI's self-reported confidence in the outcome. */
+  /** 0–100. Backend's self-reported confidence (AI: model self-report;
+   *  Substrate: 95 when matched, 70 otherwise). */
   confidence: number;
-  /** 0–100. Lower = safer fix. Inverse of "would the fix introduce new risk". */
+  /** 0–100. Lower = safer fix. */
   riskScore: number;
   /** Human-readable 2–3 sentence explanation. */
   analysis: string;
-  /** Which backend produced the result. Future-proofing for Sesión 5B. */
+  /** Which backend produced the result. */
   mode: "ai_analysis" | "substrate_replay";
   /** True when the result came from the cache (skip AI cost on hit). */
   fromCache: boolean;
   /** ISO timestamp the cached row was originally computed. */
   computedAt: string;
+  /** Substrate-only fields. Present iff mode === "substrate_replay". */
+  substrate?: {
+    /** True when the replayed I/O matched the original recording exactly. */
+    matched: boolean;
+    eventCountBefore: number;
+    eventCountAfter: number;
+    riskLevel: RiskLevel;
+    blastRadius: {
+      httpPaths: string[];
+      dbTables: string[];
+      filePaths: string[];
+      totalSurfaces: number;
+    };
+    /** Recommendations from the substrate risk report (1–4 short strings). */
+    recommendations: string[];
+  };
 }
 
 export interface WhatIfInput {
@@ -66,6 +90,21 @@ export interface WhatIfInput {
   model: string;
   userId: string;
   isPlatformKey?: boolean;
+  /**
+   * Sesión 5B-1 — when present AND the substrate binary is configured,
+   * runs the deterministic Substrate replay against the original recording
+   * with this command instead of asking the AI. The command should run
+   * the FIXED code (e.g. "node app.js" after the patches in fixFiles have
+   * been applied to a checkout of the repo at fixCommitSha). When absent
+   * or substrate unavailable, falls back to AI prediction.
+   *
+   * Sesión 5B-2 will add automatic repo checkout + fix application so
+   * callers don't need to construct this manually.
+   */
+  substrateCommand?: string;
+  /** Working directory for the substrate command. Defaults to the
+   *  recording's recorded cwd. */
+  substrateCwd?: string;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -131,11 +170,18 @@ export async function readCache(
 // ── Internals ──────────────────────────────────────────────────────────────
 
 async function compute(input: WhatIfInput): Promise<Omit<WhatIfResult, "fromCache"> | null> {
-  // analyzeReplay does the heavy lifting — pulls the recording, formats
-  // it for the AI analyst, calls the model, parses the JSON response.
-  // Reusing it keeps the AI prompt + scoring rubric consistent with the
-  // pre-merge gate (substrate_replay) so the dashboard doesn't show
-  // contradictory verdicts for the same fix.
+  // Try Substrate replay first — it's deterministic, uses real I/O
+  // recordings, and produces structured blast-radius data the AI path
+  // can't. Falls through to AI on any failure (binary missing, recording
+  // not found, command rejected by guard, timeout, parse error).
+  if (input.substrateCommand && isSubstrateConfigured()) {
+    const substrateResult = await tryComputeSubstrate(input).catch(() => null);
+    if (substrateResult) return substrateResult;
+  }
+
+  // AI fallback. Same scoring rubric as the pre-merge substrate_replay
+  // gate so the dashboard doesn't show contradictory verdicts for the
+  // same fix when the AI path takes over.
   const result = await analyzeReplay(
     input.projectId,
     input.alertId,
@@ -161,6 +207,87 @@ async function compute(input: WhatIfInput): Promise<Omit<WhatIfResult, "fromCach
     mode: "ai_analysis",
     computedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Pulls the most recent substrate recording for the session, materializes
+ * it to .substrate file shape, runs `substrate simulate` with the fixed
+ * command. Returns null on any failure so the caller falls back to AI.
+ */
+async function tryComputeSubstrate(input: WhatIfInput): Promise<Omit<WhatIfResult, "fromCache"> | null> {
+  if (!input.substrateCommand) return null;
+
+  const [rec] = await db
+    .select({
+      recordingId: substrateRecordings.recordingId,
+      events: substrateRecordings.events,
+      command: substrateRecordings.command,
+      runtime: substrateRecordings.runtime,
+      startedAt: substrateRecordings.startedAt,
+      endedAt: substrateRecordings.endedAt,
+    })
+    .from(substrateRecordings)
+    .where(eq(substrateRecordings.sessionId, input.sessionId))
+    .limit(1);
+
+  if (!rec || !Array.isArray(rec.events) || rec.events.length === 0) return null;
+
+  const recording: SubstrateRecordingShape = {
+    meta: {
+      id: rec.recordingId,
+      started_at: (rec.startedAt ?? new Date()).toISOString(),
+      ended_at: (rec.endedAt ?? new Date()).toISOString(),
+      command: (rec.command ?? "node app.js").split(/\s+/),
+      cwd: input.substrateCwd ?? process.cwd(),
+      env: {},
+      substrate_version: "0.1.0",
+      runtime: rec.runtime ?? "node",
+    },
+    events: rec.events as unknown[],
+  };
+
+  try {
+    const sim = await runSubstrateSimulate({
+      recording,
+      command: input.substrateCommand,
+      cwd: input.substrateCwd,
+      timeoutMs: 60_000,
+    });
+
+    return {
+      outcome: substrateOutcome(sim.matched, sim.riskLevel),
+      // Confidence is mechanical for substrate: deterministic match = 95,
+      // mismatch = 70 (we know SOMETHING is different but the report tells
+      // us specifically what). Higher than typical AI self-reports because
+      // the underlying signal is concrete.
+      confidence: sim.matched ? 95 : 70,
+      riskScore: sim.riskScore,
+      analysis: sim.recommendations[0] ?? (sim.matched
+        ? "Substrate replay matched the original I/O sequence — fix preserves recorded behavior."
+        : "Substrate replay diverged from the original — see blast radius for affected surfaces."),
+      mode: "substrate_replay",
+      computedAt: new Date().toISOString(),
+      substrate: {
+        matched: sim.matched,
+        eventCountBefore: sim.eventCountBefore,
+        eventCountAfter: sim.eventCountAfter,
+        riskLevel: sim.riskLevel,
+        blastRadius: sim.blastRadius,
+        recommendations: sim.recommendations,
+      },
+    };
+  } catch (e) {
+    if (e instanceof SubstrateNotConfiguredError) return null;
+    // Re-throw any unexpected error so the caller's catch can swallow it
+    // and fall back to AI without us silently losing diagnostics.
+    throw e;
+  }
+}
+
+function substrateOutcome(matched: boolean, riskLevel: RiskLevel): WhatIfOutcome {
+  if (matched && (riskLevel === "low" || riskLevel === "medium")) return "would_prevent";
+  if (!matched && riskLevel === "critical") return "would_not_prevent";
+  return "uncertain";
 }
 
 /**
