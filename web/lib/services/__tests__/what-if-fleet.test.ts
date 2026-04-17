@@ -46,6 +46,11 @@ vi.mock("@/lib/db/schema", () => ({
   alerts: { id: "id", projectId: "project_id", sessionId: "session_id", fingerprint: "fingerprint" },
   substrateRecordings: { sessionId: "session_id" },
   remediationSessions: { id: "id" },
+  replaySessions: {
+    sessionId: "session_id",
+    projectId: "project_id",
+    errorFingerprints: "error_fingerprints",
+  },
   fleetVerificationRuns: {
     id: "id",
     alertId: "alert_id",

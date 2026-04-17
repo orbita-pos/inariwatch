@@ -33,8 +33,10 @@ import {
   db,
   alerts,
   remediationSessions,
+  replaySessions,
   substrateRecordings,
   fleetVerificationRuns,
+  whatifReplays,
 } from "../db.js";
 import { runWhatIf } from "../whatif/handler.js";
 
@@ -141,30 +143,48 @@ export async function runFleetVerification({ runId, githubToken }: FleetJobInput
     let sessionResult: SessionResult;
 
     try {
-      const outcome = await runWhatIf({
-        sessionId,
-        remediationId: run.remediationId,
-        githubToken,
-      });
-      const durationMs = Date.now() - started;
-
-      if (outcome.ok) {
-        const classified = classifyOutcome(outcome.result);
+      // Cache short-circuit. Fleet verification frequently runs against
+      // sessions that already had an individual What-If computed (a user
+      // clicked "Run What-If" on that session earlier). Re-running would
+      // reproduce the same outcome — deterministic replay — so we
+      // consult whatif_replays before spending a clone + substrate cycle.
+      const cached = await readWhatIfCache(sessionId, run.fixCommitSha);
+      if (cached) {
+        const durationMs = Date.now() - started;
+        const classified = classifyOutcome(cached);
         counters[classified]++;
         sessionResult = {
           sessionId,
           outcome: classified === "wouldNotPrevent" ? "would_not_prevent" : classified,
-          riskScore: outcome.result.riskScore,
+          riskScore: cached.riskScore,
           durationMs,
         };
       } else {
-        counters.errored++;
-        sessionResult = {
+        const outcome = await runWhatIf({
           sessionId,
-          outcome: "errored",
-          errorCode: outcome.error.code,
-          durationMs,
-        };
+          remediationId: run.remediationId,
+          githubToken,
+        });
+        const durationMs = Date.now() - started;
+
+        if (outcome.ok) {
+          const classified = classifyOutcome(outcome.result);
+          counters[classified]++;
+          sessionResult = {
+            sessionId,
+            outcome: classified === "wouldNotPrevent" ? "would_not_prevent" : classified,
+            riskScore: outcome.result.riskScore,
+            durationMs,
+          };
+        } else {
+          counters.errored++;
+          sessionResult = {
+            sessionId,
+            outcome: "errored",
+            errorCode: outcome.error.code,
+            durationMs,
+          };
+        }
       }
     } catch (err) {
       counters.errored++;
@@ -207,6 +227,49 @@ export async function runFleetVerification({ runId, githubToken }: FleetJobInput
   );
 }
 
+/**
+ * Fast path: pull a cached What-If result for this (session, fix) pair.
+ * Returns null on miss, on any DB error (we'd rather lose the cache
+ * optimization than fail the whole fleet run), or when the stored
+ * result isn't a substrate_replay shape. The shape narrowing is
+ * intentional — we only short-circuit when we have the exact fields
+ * classifyOutcome() reads. AI-analysis cache rows also live in this
+ * table but don't expose `riskLevel`, so they don't apply here.
+ */
+async function readWhatIfCache(
+  sessionId: string,
+  fixCommitSha: string,
+): Promise<{ matched: boolean; riskLevel: "low" | "medium" | "high" | "critical"; riskScore: number } | null> {
+  try {
+    const [row] = await db
+      .select({ result: whatifReplays.result })
+      .from(whatifReplays)
+      .where(
+        and(
+          eq(whatifReplays.sessionId, sessionId),
+          eq(whatifReplays.fixCommitSha, fixCommitSha),
+          eq(whatifReplays.status, "ready"),
+        ),
+      )
+      .limit(1);
+
+    if (!row) return null;
+    const stored = row.result as { mode?: string; substrate?: { matched?: boolean; riskLevel?: string }; riskScore?: number };
+    if (stored.mode !== "substrate_replay") return null;
+    const s = stored.substrate;
+    if (!s || typeof s.matched !== "boolean") return null;
+    const riskLevel = s.riskLevel as "low" | "medium" | "high" | "critical" | undefined;
+    if (!riskLevel || !["low", "medium", "high", "critical"].includes(riskLevel)) return null;
+    return {
+      matched: s.matched,
+      riskLevel,
+      riskScore: typeof stored.riskScore === "number" ? stored.riskScore : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function failRun(runId: string, reason: string): Promise<void> {
   await db
     .update(fleetVerificationRuns)
@@ -230,38 +293,35 @@ async function pickCandidateSessions({
   excludeSessionId,
   limit,
 }: PickInput): Promise<string[]> {
-  // Two-step pick keeps the query simple + correct:
+  // Why replay_sessions instead of alerts: the alerts table has a partial
+  // UNIQUE(project_id, fingerprint) dedup index, so 1 fingerprint = 1
+  // alert row. The "same error across many sessions" signal actually
+  // lives in `replay_sessions.error_fingerprints` — a text[] column
+  // where /api/replay/ingest pushes each fingerprint seen during that
+  // session. That's the authoritative source for fleet verification.
   //
-  // Step 1: collect alerts in this project with the same fingerprint that
-  //   have a session_id. Dedupe to sessionIds.
-  // Step 2: keep only sessionIds that actually have a substrate_recording
-  //   (otherwise What-If returns 422 no_recording and we waste a worker
-  //   slot on a guaranteed miss).
-  //
-  // Ordering: by the alert's createdAt desc, so recent incidents are
-  // probed first. "Recent" matters because an old session might be on
-  // stale client code that wouldn't exercise the fix anyway.
+  // Step 1: collect replay sessions whose error_fingerprints contains
+  //   our fingerprint, scoped to the project, recency-ordered.
+  // Step 2: keep only session_ids that actually have a substrate_recording
+  //   (otherwise What-If would no_recording — wasted worker time).
 
-  const relatedAlerts = await db
+  const relatedSessions = await db
     .select({
-      sessionId: alerts.sessionId,
+      sessionId: replaySessions.sessionId,
     })
-    .from(alerts)
+    .from(replaySessions)
     .where(
       and(
-        eq(alerts.projectId, projectId),
-        eq(alerts.fingerprint, fingerprint),
-        isNotNull(alerts.sessionId),
+        eq(replaySessions.projectId, projectId),
+        dsql`${replaySessions.errorFingerprints} @> ARRAY[${fingerprint}]::text[]`,
       ),
     )
-    .orderBy(desc(alerts.createdAt))
-    .limit(limit * 2); // oversample to account for dedup + no-recording drops
+    .orderBy(desc(replaySessions.startedAt))
+    .limit(limit * 2);
 
-  // Dedup + exclude the seed session (which was already single-session
-  // verified via the standard What-If button).
   const seen = new Set<string>();
   const unique: string[] = [];
-  for (const row of relatedAlerts) {
+  for (const row of relatedSessions) {
     if (!row.sessionId) continue;
     if (row.sessionId === excludeSessionId) continue;
     if (seen.has(row.sessionId)) continue;
@@ -272,8 +332,7 @@ async function pickCandidateSessions({
 
   if (unique.length === 0) return [];
 
-  // Filter to sessions that actually have a substrate_recording. No
-  // recording = deterministic fail at the worker, wasted wall-time.
+  // Filter to sessions that actually have a substrate_recording.
   const withRecording = await db
     .select({ sessionId: substrateRecordings.sessionId })
     .from(substrateRecordings)

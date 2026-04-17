@@ -48,6 +48,25 @@ export const substrateRecordings = pgTable("substrate_recordings", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── What-If Replay Cache (VAR Q1) ───────────────────────────────────────────
+//
+// Read-only from the worker's perspective — the web service writes
+// these rows after the first compute. The fleet verification job
+// consults this cache before spending a clone+substrate round per
+// sibling, which makes the common "same fix verified across N
+// sessions" case O(1) per session instead of O(minutes).
+
+export const whatifReplays = pgTable("whatif_replays", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  fixId: uuid("fix_id"),
+  result: jsonb("result").notNull(),
+  status: text("status").notNull().default("ready"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Fleet Verification (VAR Q2 — Gate 12) ───────────────────────────────────
 //
 // Worker-side schema subset. Only columns the worker reads/writes: id,
@@ -118,6 +137,22 @@ export const alerts = pgTable("alerts", {
   sessionId: text("session_id"),
   fingerprint: text("fingerprint"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Replay Sessions (VAR Q1/Q2) ─────────────────────────────────────────────
+//
+// Worker-side subset. The fleet verification job queries this table to
+// find all sessions that hit a given error fingerprint (via the
+// error_fingerprints text[] column). `alerts` can't be the source
+// because its partial UNIQUE(project_id, fingerprint) dedupes to one
+// row per error — so fleet signal lives in replay_sessions instead.
+
+export const replaySessions = pgTable("replay_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull().unique(),
+  projectId: uuid("project_id"),
+  errorFingerprints: text("error_fingerprints").array().notNull().default([]),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
 });
 
 // ── Projects ────────────────────────────────────────────────────────────────

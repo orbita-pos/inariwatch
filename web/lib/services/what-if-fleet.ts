@@ -23,6 +23,7 @@ import {
   alerts,
   fleetVerificationRuns,
   remediationSessions,
+  replaySessions,
   substrateRecordings,
   type FleetVerificationRun,
 } from "@/lib/db/schema";
@@ -220,18 +221,17 @@ async function countCandidateSessions({
 
   if (!alert) return 0;
 
-  // Same logic as the worker's pickCandidateSessions but count-only.
-  // Duplicated deliberately — the initial estimate drives the UI
-  // progress bar; the worker's own query is authoritative for the
-  // actual run.
+  // Matches the worker's pickCandidateSessions query: we count replay
+  // sessions whose error_fingerprints array contains the fingerprint.
+  // alerts.fingerprint is deduped (1 alert per fingerprint) so querying
+  // alerts would always return count=1 regardless of real fleet size.
   const related = await db
-    .select({ sessionId: alerts.sessionId })
-    .from(alerts)
+    .select({ sessionId: replaySessions.sessionId })
+    .from(replaySessions)
     .where(
       and(
-        eq(alerts.projectId, alert.projectId),
-        eq(alerts.fingerprint, fingerprint),
-        isNotNull(alerts.sessionId),
+        eq(replaySessions.projectId, alert.projectId),
+        sql`${replaySessions.errorFingerprints} @> ARRAY[${fingerprint}]::text[]`,
       ),
     )
     .limit(DEFAULT_MAX_SESSIONS * 2);
