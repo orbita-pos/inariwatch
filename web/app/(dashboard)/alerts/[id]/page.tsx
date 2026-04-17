@@ -26,6 +26,7 @@ import { BreadcrumbsPanel } from "./breadcrumbs-panel";
 import { EnvironmentCard, UserContextCard, RequestContextCard } from "./capture-v2-cards";
 import { PerformanceBenchmarkCard } from "./performance-benchmark-card";
 import { BehavioralDriftCard } from "./behavioral-drift-card";
+import { MultiEnvCoverageCard } from "./multi-env-coverage-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -350,6 +351,22 @@ export default async function AlertDetailPage({
       {/* Compares fix replay against 7d baseline of healthy recordings.    */}
       {/* Yellow light: improvements are surfaced separately, never fail.   */}
       <BehavioralDriftCard
+        alertId={alert.id}
+        remediationId={latestRemediation?.id ?? null}
+        remediationReady={
+          !!latestRemediation && (
+            latestRemediation.status === "completed" ||
+            latestRemediation.status === "proposing" ||
+            latestRemediation.status === "merging" ||
+            latestRemediation.status === "approved"
+          )
+        }
+      />
+
+      {/* ── Multi-Environment Coverage card (VAR Gate 16) ─────────────── */}
+      {/* Compares fleet replay env distribution vs project Node runtime. */}
+      {/* Fails when a Node major with >20% traffic wasn't exercised.    */}
+      <MultiEnvCoverageCard
         alertId={alert.id}
         remediationId={latestRemediation?.id ?? null}
         remediationReady={

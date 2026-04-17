@@ -1516,3 +1516,48 @@ export const behavioralDriftRuns = pgTable("behavioral_drift_runs", {
 
 export type BehavioralDriftRun = typeof behavioralDriftRuns.$inferSelect;
 export type NewBehavioralDriftRun = typeof behavioralDriftRuns.$inferInsert;
+
+// VAR Q2 Week 8 — Gate 16 "Multi-Environment Coverage". Compares the env
+// distribution of fleet sessions replayed by Gate 12 against the full
+// project runtime distribution from substrate_recordings. passed=null
+// means SKIP (single-env project, fleet run incomplete, or no env data)
+// and auto-merge treats null as skip, NOT fail — matches Gate 13/17.
+
+export const multiEnvCoverageRuns = pgTable("multi_env_coverage_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  /** Rolling window for the project distribution query. Default 30d. */
+  windowDays: integer("window_days").notNull().default(30),
+  /** Missing env at >threshold_high_percent traffic = HIGH → fails gate. */
+  thresholdHighPercent: numeric("threshold_high_percent").notNull().default("20"),
+  /** Missing env between medium and high = MEDIUM → surfaces, never fails. */
+  thresholdMediumPercent: numeric("threshold_medium_percent").notNull().default("10"),
+  /** { "node@18": { trafficPercent, sessionCount }, ... } */
+  projectEnvDistribution: jsonb("project_env_distribution").notNull().default(sql`'{}'::jsonb`),
+  fleetEnvDistribution: jsonb("fleet_env_distribution").notNull().default(sql`'{}'::jsonb`),
+  /** Node majors missing from fleet above high threshold (fails gate). */
+  missingEnvsHigh: text("missing_envs_high").array().notNull().default(sql`'{}'::text[]`),
+  /** Node majors missing from fleet in medium band (yellow-light). */
+  missingEnvsMedium: text("missing_envs_medium").array().notNull().default(sql`'{}'::text[]`),
+  /** Sum of project traffic % for envs present in both distributions. */
+  coveragePercent: numeric("coverage_percent"),
+  /** Full env vectors from fleet sessions — platform/arch/app_version
+   *  stored for future gate logic (v1 only scores on node major). */
+  observedEnvVectors: jsonb("observed_env_vectors").notNull().default(sql`'[]'::jsonb`),
+  passed: boolean("passed"),
+  /** running | completed | failed | skipped. "skipped" + passed=null
+   *  is the single-env / fleet-incomplete / no-env-data path. */
+  status: text("status").notNull().default("running"),
+  skipReason: text("skip_reason"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type MultiEnvCoverageRun = typeof multiEnvCoverageRuns.$inferSelect;
+export type NewMultiEnvCoverageRun = typeof multiEnvCoverageRuns.$inferInsert;

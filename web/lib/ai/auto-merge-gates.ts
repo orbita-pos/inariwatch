@@ -94,10 +94,27 @@ export function evaluateAutoMergeGates(params: {
     soc2Count: number;
     pciCount: number;
   } | null;
+  /** VAR Q2 — Gate 16. Multi-environment coverage. Shape:
+   *    - null:                       gate not run
+   *    - { passed: null, skipReason }: skipped (single-env, fleet
+   *                                     incomplete, or no env data).
+   *                                     Auto-merge treats as SKIP.
+   *    - { passed, ... }:            pass/fail on missing_envs_high.
+   *  Evidence-based — compares fleet replay envs (from Gate 12) against
+   *  the project's runtime distribution over the window. Missing env
+   *  above 20% traffic fails; 10-20% surfaces but doesn't fail.
+   */
+  multiEnvCoverage?: {
+    passed: boolean | null;
+    missingEnvsHigh: string[];
+    missingEnvsMedium: string[];
+    coveragePercent: number | null;
+    skipReason: string | null;
+  } | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, complianceScan, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, complianceScan, multiEnvCoverage, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -291,6 +308,29 @@ export function evaluateAutoMergeGates(params: {
           ? "Compliance scan passed — no GDPR/SOC2/PCI violations introduced"
           : `Compliance scan passed — 0 HIGH findings (${complianceScan.totalViolations} medium/low to review${breakdown ? `: ${breakdown}` : ""})`
         : `Compliance scan found ${complianceScan.highCount} HIGH severity violation(s)${breakdown ? ` (${breakdown})` : ""}`);
+  }
+
+  // Gate 16: Multi-environment coverage (VAR Q2 Week 8)
+  // Compares fleet-replay env distribution against project runtime
+  // distribution. Passes when no HIGH-severity missing envs (>20%
+  // traffic missing from fleet). MEDIUM misses (10-20%) surface but
+  // don't fail — yellow-light, same spirit as Gate 13 + Gate 15.
+  // Skipped (no gate row) when:
+  //   - no multiEnvCoverage data
+  //   - passed is null (single-env project, fleet incomplete, or no env
+  //     data from Capture SDK) — skipReason explains why in the UI.
+  if (multiEnvCoverage != null && multiEnvCoverage.passed != null) {
+    const { missingEnvsHigh, missingEnvsMedium, coveragePercent } = multiEnvCoverage;
+    const mediumNote = missingEnvsMedium.length > 0
+      ? ` (review ${missingEnvsMedium.length} medium)`
+      : "";
+    const coverageLabel = coveragePercent !== null
+      ? `${coveragePercent.toFixed(1)}% traffic covered`
+      : "coverage n/a";
+    pushGate("multi_env_coverage", multiEnvCoverage.passed,
+      multiEnvCoverage.passed
+        ? `Multi-env coverage: ${coverageLabel}${mediumNote}`
+        : `Multi-env coverage gap: ${missingEnvsHigh.length} env(s) >20% traffic missing from fleet replay (${missingEnvsHigh.join(", ")})${mediumNote}`);
   }
 
   const allPassed = gates.every((g) => g.passed);

@@ -859,3 +859,123 @@ describe("Gate 15: compliance", () => {
     expect(gate.passed).toBe(true);
   });
 });
+
+// ── Gate 16: multi_env_coverage (VAR Q2 Week 8) ────────────────────────────
+
+describe("Gate 16: multi_env_coverage", () => {
+  it("no gate added when multiEnvCoverage is null", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, multiEnvCoverage: null });
+    expect(r.gates.map((g) => g.name)).not.toContain("multi_env_coverage");
+  });
+
+  it("no gate added when passed is null (skipped — single-env)", () => {
+    // Project runs only one Node major. Gate is meaningless; skip.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: null,
+        missingEnvsHigh: [],
+        missingEnvsMedium: [],
+        coveragePercent: 100,
+        skipReason: "single-env",
+      },
+    });
+    expect(r.gates.map((g) => g.name)).not.toContain("multi_env_coverage");
+  });
+
+  it("no gate added when skipped — fleet incomplete", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: null,
+        missingEnvsHigh: [],
+        missingEnvsMedium: [],
+        coveragePercent: null,
+        skipReason: "fleet-incomplete",
+      },
+    });
+    expect(r.gates.map((g) => g.name)).not.toContain("multi_env_coverage");
+  });
+
+  it("passes when fleet covers all project envs", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: true,
+        missingEnvsHigh: [],
+        missingEnvsMedium: [],
+        coveragePercent: 100,
+        skipReason: null,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "multi_env_coverage")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/100\.0% traffic covered/);
+  });
+
+  it("passes when only MEDIUM misses exist (yellow-light)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: true,
+        missingEnvsHigh: [],
+        missingEnvsMedium: ["node@16"],
+        coveragePercent: 85,
+        skipReason: null,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "multi_env_coverage")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/85\.0% traffic covered/);
+    expect(gate.reason).toMatch(/review 1 medium/);
+  });
+
+  it("fails when a HIGH-severity env is missing from fleet", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: false,
+        missingEnvsHigh: ["node@18"],
+        missingEnvsMedium: [],
+        coveragePercent: 65,
+        skipReason: null,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "multi_env_coverage")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/1 env\(s\) >20% traffic missing/);
+    expect(gate.reason).toMatch(/node@18/);
+    expect(r.strategy).toBe("draft_pr");
+  });
+
+  it("includes medium miss count alongside high fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: false,
+        missingEnvsHigh: ["node@18"],
+        missingEnvsMedium: ["node@22"],
+        coveragePercent: 60,
+        skipReason: null,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "multi_env_coverage")!;
+    expect(gate.reason).toMatch(/review 1 medium/);
+  });
+
+  it("circuit breaker bypass overrides fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      multiEnvCoverage: {
+        passed: false,
+        missingEnvsHigh: ["node@18", "node@22"],
+        missingEnvsMedium: [],
+        coveragePercent: 50,
+        skipReason: null,
+      },
+      circuitBreakerBypassed: new Set(["multi_env_coverage"]),
+    });
+    const gate = r.gates.find((g) => g.name === "multi_env_coverage")!;
+    expect(gate.passed).toBe(true);
+  });
+});
