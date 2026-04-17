@@ -117,6 +117,17 @@ export type RemediationContext = {
    *  lib/fulltrace/context-for-prompt.ts. Null when alert has no
    *  correlated session_id. */
   fullTraceContext: string | null;
+  /** VAR Q2 Week 2 — Capture SDK v2 fields.
+   *  gitContext: formatted commit info (sha/branch/message/dirty/timestamp)
+   *    so the AI sees "fix landed at SHA X, error fired at SHA Y" and can
+   *    reason about the diff. Null when the user's SDK build-time plugin
+   *    didn't inject git env vars (older SDK or non-framework build).
+   *  breadcrumbsContext: last 30 console+fetch+custom events from the
+   *    crashing session as a chronological trail. Enables diagnoses like
+   *    "4 fetches to /api/x, last one 500 → then exception" that the
+   *    stack trace alone can't surface. */
+  gitContext: string | null;
+  breadcrumbsContext: string | null;
 };
 
 export type EapReceiptContext = {
@@ -274,6 +285,8 @@ export function buildDiagnosePrompt(
   if (context?.codebaseContext) contextSections.push(`CODEBASE CONTEXT (relevant code patterns from this repository — follow these conventions):\n${truncateCodeContext(context.codebaseContext, 4000)}`);
   if (context?.fixReplayContext) contextSections.push(`PAST SUCCESSFUL FIXES (similar errors that were fixed before — use as strong hints):\n${context.fixReplayContext.slice(0, 1500)}`);
   if (context?.fullTraceContext) contextSections.push(`FULLTRACE CAUSAL CHAIN (the browser session that produced this alert — backend I/O + AI events in chronological order):\n${context.fullTraceContext.slice(0, 3000)}`);
+  if (context?.gitContext) contextSections.push(`GIT CONTEXT (commit that shipped when the error fired — use to decide what changed recently):\n${context.gitContext.slice(0, 500)}`);
+  if (context?.breadcrumbsContext) contextSections.push(`BREADCRUMBS (chronological trail of console + fetch events in the last ~30 seconds before the crash — likely holds the trigger):\n${context.breadcrumbsContext.slice(0, 2500)}`);
   const buildLogSection = contextSections.length > 0 ? `\n\n${contextSections.join("\n\n")}` : "";
 
   let memorySection = "";

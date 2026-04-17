@@ -267,6 +267,8 @@ describe("buildDiagnosePrompt", () => {
       codebaseContext: null,
       fixReplayContext: null,
       fullTraceContext: null,
+      gitContext: null,
+      breadcrumbsContext: null,
     };
     const prompt = buildDiagnosePrompt(alert, repoFiles, context);
     expect(prompt).toContain("SENTRY STACK TRACE");
@@ -286,6 +288,8 @@ describe("buildDiagnosePrompt", () => {
       codebaseContext: null,
       fixReplayContext: null,
       fullTraceContext: null,
+      gitContext: null,
+      breadcrumbsContext: null,
     };
     const prompt = buildDiagnosePrompt(alert, repoFiles, context);
     expect(prompt).toContain("SENTRY STACK TRACE");

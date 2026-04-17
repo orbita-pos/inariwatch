@@ -360,6 +360,8 @@ export async function gatherRemediationContext(
     codebaseContext: null,
     fixReplayContext: null,
     fullTraceContext: null,
+    gitContext: null,
+    breadcrumbsContext: null,
   };
 
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, projectId));
@@ -492,6 +494,35 @@ export async function gatherRemediationContext(
         emit("context", { source: "fulltrace", status: ctx ? "found" : "empty" });
       } catch {
         emit("context", { source: "fulltrace", status: "empty" });
+      }
+    })());
+  }
+
+  // VAR Q2 Week 2 — Capture SDK v2 context. The webhook stashes git +
+  // breadcrumbs in alerts.correlationData; we shape them for the LLM
+  // prompt here. Best-effort — if correlationData is missing or the
+  // shape is unexpected, we silently skip (old alerts from pre-0.9
+  // SDK, or alerts from integrations that don't emit these fields).
+  if (alert.id) {
+    tasks.push((async () => {
+      emit("context", { source: "capture", status: "fetching" });
+      try {
+        const { alerts: alertsTable } = await import("@/lib/db/schema");
+        const [row] = await db
+          .select({ correlationData: alertsTable.correlationData })
+          .from(alertsTable)
+          .where(eq(alertsTable.id, alert.id!))
+          .limit(1);
+        const data = (row?.correlationData ?? {}) as Record<string, unknown>;
+        const { formatGitContext, formatBreadcrumbsContext } = await import("./capture-context");
+        result.gitContext = formatGitContext(data.git);
+        result.breadcrumbsContext = formatBreadcrumbsContext(data.breadcrumbs);
+        emit("context", {
+          source: "capture",
+          status: (result.gitContext || result.breadcrumbsContext) ? "found" : "empty",
+        });
+      } catch {
+        emit("context", { source: "capture", status: "empty" });
       }
     })());
   }

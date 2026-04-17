@@ -21,6 +21,8 @@ import { VercelRollbackPanel } from "./vercel-rollback";
 import { FullTraceCard } from "./fulltrace-card";
 import { ImpactBadge } from "./impact-badge";
 import { FleetVerificationCard } from "./fleet-verification-card";
+import { GitContextCard } from "./git-context-card";
+import { BreadcrumbsPanel } from "./breadcrumbs-panel";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -364,7 +366,24 @@ export default async function AlertDetailPage({
         />
       </ProGate>
 
-      {/* ── Correlation ─────────────────────────────────────────────────── */}
+      {/* ── Git Context (Capture SDK v2) ─────────────────────────────────── */}
+      {/* Pretty-print the commit SHA + branch that shipped when the error     */}
+      {/* fired. Renders nothing when the payload is missing/malformed.         */}
+      {alert.correlationData
+        ? <GitContextCard
+            data={(alert.correlationData as Record<string, unknown>).git}
+            repo={latestRemediation?.repo ?? null}
+          />
+        : null}
+
+      {/* ── Breadcrumbs (Capture SDK v2) ─────────────────────────────────── */}
+      {/* Collapsible timeline of console + fetch events in the ~30s before    */}
+      {/* the crash. Color-coded by level.                                      */}
+      {alert.correlationData
+        ? <BreadcrumbsPanel data={(alert.correlationData as Record<string, unknown>).breadcrumbs} />
+        : null}
+
+      {/* ── Correlation (raw JSON dump for anything not covered above) ──── */}
       {alert.correlationData
         ? <CorrelationCard data={alert.correlationData as Record<string, unknown>} />
         : null}
