@@ -7,6 +7,12 @@ import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { getSessionBlockUrls } from "@/lib/storage/replay-storage";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
+import {
+  aggregateBackendEvents,
+  aggregateAiEvents,
+  type BackendEvent,
+  type AiEvent,
+} from "@/lib/fulltrace/manifest-aggregator";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -50,6 +56,12 @@ interface ManifestResponse {
   resolvedErrors: unknown[];
   repo: { githubOwner: string; githubRepo: string; defaultBranch: string } | null;
   blocks: { index: number; startMs: number; endMs: number; url: string }[];
+  /** VAR Q1 — FullTrace backend track. Substrate I/O events from every
+   *  recording with a matching session_id, normalized to session-relative ms. */
+  backendEvents: BackendEvent[];
+  /** VAR Q1 — FullTrace AI track. Alerts + diagnoses + remediation steps
+   *  for this session, in chronological order. */
+  aiEvents: AiEvent[];
 }
 
 /**
@@ -148,6 +160,23 @@ export async function GET(
     return NextResponse.json({ error: "Storage unavailable" }, { status: 503 });
   }
 
+  // VAR Q1 — FullTrace data fetched in parallel with the rest. Aggregator
+  // returns [] when no Substrate / AI activity exists, so the player's
+  // panels gracefully render an empty state instead of erroring.
+  const baseTimeMs = row.startedAt.getTime();
+  const [backendEvents, aiEvents, endUserPayload, repoPayload] = await Promise.all([
+    aggregateBackendEvents(row.sessionId, baseTimeMs).catch((e) => {
+      console.error("[replay/manifest] aggregateBackendEvents failed:", e instanceof Error ? e.message : e);
+      return [];
+    }),
+    aggregateAiEvents(row.sessionId, baseTimeMs).catch((e) => {
+      console.error("[replay/manifest] aggregateAiEvents failed:", e instanceof Error ? e.message : e);
+      return [];
+    }),
+    buildEndUserPayload(row.projectId, row.endUserId, row.endUserEmail, row.endUserEmailHash),
+    buildRepoPayload(row.projectId),
+  ]);
+
   const response: ManifestResponse = {
     sessionId: row.sessionId,
     startedAt: row.startedAt.toISOString(),
@@ -169,11 +198,13 @@ export async function GET(
     rageClicks: Array.isArray(row.rageClicks) ? (row.rageClicks as ManifestResponse["rageClicks"]) : [],
     deadClicks: Array.isArray(row.deadClicks) ? (row.deadClicks as ManifestResponse["deadClicks"]) : [],
     frustrationScore: row.frustrationScore ?? 0,
-    endUser: await buildEndUserPayload(row.projectId, row.endUserId, row.endUserEmail, row.endUserEmailHash),
+    endUser: endUserPayload,
     webVitals: (row.webVitals ?? {}) as ManifestResponse["webVitals"],
     resolvedErrors: Array.isArray(row.resolvedErrors) ? row.resolvedErrors : [],
-    repo: await buildRepoPayload(row.projectId),
+    repo: repoPayload,
     blocks,
+    backendEvents,
+    aiEvents,
   };
 
   return NextResponse.json(response);

@@ -11,6 +11,7 @@ import { BreadcrumbStrip } from "./breadcrumb-strip";
 import { ShortcutsModal } from "./shortcuts-modal";
 import { findPrevEventIndex, findNextEventIndex } from "./frame-scrub";
 import type { CommentRow } from "./panels/comments-panel";
+import type { BackendEvent, AiEvent } from "@/lib/fulltrace/manifest-aggregator";
 
 /**
  * Read the initial ?t=MS query param on mount — pre-seeks the player when
@@ -31,9 +32,12 @@ function readInitialTimestamp(): number {
 // Phase C: append a 6th track for SPA navigation events. Kept here (not
 // in timeline-canvas) so existing default callers keep the original 5-track
 // look without surprise.
-const TRACKS_WITH_NAV: TrackDef[] = [
+// VAR Q1: append a 7th track for AI events (alerts, diagnoses, remediations).
+// FullTrace renders the full causal stack on the timeline.
+const TRACKS_WITH_FULLTRACE: TrackDef[] = [
   ...DEFAULT_TRACKS,
   { id: "nav", label: "Nav", color: "#f472b6" }, // pink-400
+  { id: "ai",  label: "AI",  color: "#f97316" }, // orange-500 — matches inari-accent
 ];
 
 interface SignedBlock {
@@ -77,6 +81,10 @@ interface Manifest {
   /** Phase I.c — linked GitHub repo for building "open source" links. */
   repo?: { githubOwner: string; githubRepo: string; defaultBranch: string } | null;
   blocks: SignedBlock[];
+  /** VAR Q1 — server-side I/O events from Substrate, sorted by ts. */
+  backendEvents?: BackendEvent[];
+  /** VAR Q1 — alerts + diagnoses + remediation steps for this session. */
+  aiEvents?: AiEvent[];
 }
 
 function extractChaptersFromManifest(ai: Manifest["aiChapters"]): { chapters: Chapter[]; chains: UiCausalChain[] } {
@@ -450,6 +458,16 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
       if (e.type === 6) { out.push({ timestamp: ts, kind: "console" }); continue; }
       if (e.type === 4) { out.push({ timestamp: ts, kind: "nav" }); continue; }
       if (e.type === 3 || e.type === 2) out.push({ timestamp: ts, kind: "dom" });
+    }
+    // VAR Q1 — append FullTrace events. These come from the manifest, NOT
+    // from the rrweb event stream, so they have their own session-relative
+    // timestamps already computed by the aggregator. Backend events render
+    // on the existing "io" track; AI events get the new "ai" track.
+    for (const b of manifest.backendEvents ?? []) {
+      out.push({ timestamp: b.ts, kind: "io" });
+    }
+    for (const a of manifest.aiEvents ?? []) {
+      out.push({ timestamp: a.ts, kind: "ai" });
     }
     return out;
   }, [events, manifest]);
@@ -986,6 +1004,8 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
           comments={comments}
           onCommentsChange={setComments}
           currentUserId={currentUserId}
+          backendEvents={manifest?.backendEvents ?? []}
+          aiEvents={manifest?.aiEvents ?? []}
         />
       </div>
 
@@ -1000,7 +1020,7 @@ export function PlayerV2({ sessionId, currentUserId = null }: PlayerV2Props) {
         commentMarkers={commentMarkerTimestamps}
         causalChains={aiData.chains}
         onSeek={seek}
-        tracks={TRACKS_WITH_NAV}
+        tracks={TRACKS_WITH_FULLTRACE}
       />
 
       {/* AI summary (if present) */}

@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useMemo } from "react";
 
-export type TrackKind = "dom" | "network" | "console" | "io" | "error" | "nav";
+export type TrackKind = "dom" | "network" | "console" | "io" | "error" | "nav" | "ai";
 
 export type TrackDef = {
   id: TrackKind;
@@ -47,7 +47,9 @@ export type UiCausalChain = {
 /**
  * Default track set — unchanged from the original 5-track layout so
  * existing callers that don't pass a `tracks` prop keep the same look.
- * Phase C adds `nav` to the Player's own config, not here.
+ * Phase C adds `nav` to the Player's own config, not here. VAR Q1 adds
+ * `ai` for FullTrace AI events (alerts, diagnoses, remediations) — also
+ * opt-in per caller (player-v2 passes TRACKS_WITH_FULLTRACE).
  */
 export const DEFAULT_TRACKS: TrackDef[] = [
   { id: "dom",     label: "DOM",     color: "#60a5fa" }, // blue-400
