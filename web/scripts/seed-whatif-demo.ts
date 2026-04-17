@@ -73,20 +73,57 @@ async function main() {
   const projWhere = PROJECT_SLUG
     ? and(eq(projects.userId, user.id), eq(projects.slug, PROJECT_SLUG))
     : eq(projects.userId, user.id);
-  const [project] = await db.select({ id: projects.id, slug: projects.slug, name: projects.name })
+  const [project] = await db.select({
+    id: projects.id,
+    slug: projects.slug,
+    name: projects.name,
+    organizationId: projects.organizationId,
+  })
     .from(projects).where(projWhere).limit(1);
   if (!project) {
     console.error(`No project found for user ${EMAIL}${PROJECT_SLUG ? ` with slug ${PROJECT_SLUG}` : ""}`);
     process.exit(1);
   }
 
+  // /sessions/[sessionId] uses replay_sessions.organization_id for
+  // both the authz check and the REPLAY_V2_ORGS feature flag gate.
+  // Fall back ladder: project.org → user's owned org → user's membership.
+  let organizationId = project.organizationId;
+  if (!organizationId) {
+    const { organizations: orgsTable, organizationMembers: membersTable } =
+      await import("@/lib/db/schema");
+
+    const [owned] = await db.select({ id: orgsTable.id })
+      .from(orgsTable).where(eq(orgsTable.ownerId, user.id)).limit(1);
+    if (owned) {
+      organizationId = owned.id;
+    } else {
+      const [member] = await db.select({ id: membersTable.organizationId })
+        .from(membersTable).where(eq(membersTable.userId, user.id)).limit(1);
+      if (member) organizationId = member.id;
+    }
+
+    if (!organizationId) {
+      console.error("User has no organization — /sessions/[id] auth check will fail. Create an org first.");
+      process.exit(1);
+    }
+
+    // Wire the project to the resolved org so future seeds skip this
+    // fallback. Idempotent — re-running won't harm anything.
+    await db.update(projects)
+      .set({ organizationId })
+      .where(eq(projects.id, project.id));
+  }
+
   console.log(`User:     ${EMAIL} (${user.id})`);
   console.log(`Project:  ${project.name} (slug=${project.slug})`);
+  console.log(`Org:      ${organizationId}`);
   console.log("");
 
   await seedScenario({
     label: "matched",
     projectId: project.id,
+    organizationId,
     userId: user.id,
     diverge: false,
   });
@@ -94,6 +131,7 @@ async function main() {
   await seedScenario({
     label: "divergent",
     projectId: project.id,
+    organizationId,
     userId: user.id,
     diverge: true,
   });
@@ -104,11 +142,12 @@ async function main() {
 interface ScenarioInput {
   label: "matched" | "divergent";
   projectId: string;
+  organizationId: string;
   userId: string;
   diverge: boolean;
 }
 
-async function seedScenario({ label, projectId, userId, diverge }: ScenarioInput): Promise<void> {
+async function seedScenario({ label, projectId, organizationId, userId, diverge }: ScenarioInput): Promise<void> {
   const ts = Date.now();
   const sessionId = `demo-whatif-${label}-${ts}`;
   const alertId = randomUUID();
@@ -124,6 +163,7 @@ async function seedScenario({ label, projectId, userId, diverge }: ScenarioInput
   await db.insert(replaySessions).values({
     sessionId,
     projectId,
+    organizationId,
     userId,
     startedAt,
     endedAt,
@@ -133,7 +173,7 @@ async function seedScenario({ label, projectId, userId, diverge }: ScenarioInput
     totalBytes: 0,
     clickSelectors: ["button.checkout", "input[name=email]"],
     urlsVisited: ["/checkout", "/api/pay"],
-    errorFingerprints: [`whatif-${label}-fp`],
+    errorFingerprints: [`whatif-${label}-fp-${ts}`],
     frustrationScore: diverge ? 75 : 10,
     browser: "Chrome",
     os: "macOS",
@@ -174,7 +214,7 @@ async function seedScenario({ label, projectId, userId, diverge }: ScenarioInput
     aiReasoning: diverge
       ? "Null-check missing on session; occurs when user hits /checkout before auth middleware runs."
       : "No explicit timeout; default 30s; retry logic missing on idempotent charge calls.",
-    fingerprint: `whatif-${label}-fp`,
+    fingerprint: `whatif-${label}-fp-${ts}`,
     alertType: "error",
   });
 
@@ -215,7 +255,7 @@ async function seedScenario({ label, projectId, userId, diverge }: ScenarioInput
       { phase: "push", status: "completed", ts: new Date(startedAt.getTime() + 120_000).toISOString() },
       { phase: "merge", status: "completed", ts: endedAt.toISOString() },
     ],
-    fingerprint: `whatif-${label}-fp`,
+    fingerprint: `whatif-${label}-fp-${ts}`,
   });
 
   // 5. whatif_replays — the precomputed cache row that makes the UI
