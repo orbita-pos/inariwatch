@@ -1561,3 +1561,71 @@ export const multiEnvCoverageRuns = pgTable("multi_env_coverage_runs", {
 
 export type MultiEnvCoverageRun = typeof multiEnvCoverageRuns.$inferSelect;
 export type NewMultiEnvCoverageRun = typeof multiEnvCoverageRuns.$inferInsert;
+
+// VAR Q2 Week 9 — Gate 14 "Cost Impact". Frozen snapshot of AI spend
+// for a remediation, computed from ai_usage_logs. One row per
+// (alert, remediation, fix_commit_sha). Passes when
+// remediation_cost_usd <= threshold_usd. Skip semantics via passed=null
+// when no ai_usage_logs rows exist for the remediation.
+
+export const costImpactRuns = pgTable("cost_impact_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  /** Sum of ai_usage_logs.cost_usd for this remediation, frozen at eval. */
+  remediationCostUsd: numeric("remediation_cost_usd", { precision: 12, scale: 8 })
+    .notNull()
+    .default("0"),
+  tokenCountInput: integer("token_count_input").notNull().default(0),
+  tokenCountOutput: integer("token_count_output").notNull().default(0),
+  tokenCountCached: integer("token_count_cached").notNull().default(0),
+  callCount: integer("call_count").notNull().default(0),
+  /** { "<feature>": { costUsd, inputTokens, outputTokens, callCount } } */
+  costBreakdown: jsonb("cost_breakdown").notNull().default(sql`'{}'::jsonb`),
+  thresholdUsd: numeric("threshold_usd", { precision: 12, scale: 8 }).notNull().default("1"),
+  passed: boolean("passed"),
+  status: text("status").notNull().default("running"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type CostImpactRun = typeof costImpactRuns.$inferSelect;
+export type NewCostImpactRun = typeof costImpactRuns.$inferInsert;
+
+// VAR Q2 Week 12 — Progressive Rollout state machine. 1% → 10% → 50%
+// → 100% with per-stage health checks. v1 is manual-advance (operator
+// clicks "next stage") with automatic rollback on regression. Auto-
+// advance via cron is a v2 addition over the same table.
+
+export const rolloutRuns = pgTable("rollout_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  /** pending | canary_1 | canary_10 | canary_50 | full_100 | complete
+   *  | reverted | failed */
+  currentStage: text("current_stage").notNull().default("pending"),
+  /** When the CURRENT stage started — reset on every advance. */
+  stageStartedAt: timestamp("stage_started_at", { withTimezone: true }).defaultNow().notNull(),
+  /** [{ stage, startedAt, endedAt, outcome, metrics, triggeredBy }] */
+  stageHistory: jsonb("stage_history").notNull().default(sql`'[]'::jsonb`),
+  autoRollbackEnabled: boolean("auto_rollback_enabled").notNull().default(true),
+  rollbackReason: text("rollback_reason"),
+  rollbackPrUrl: text("rollback_pr_url"),
+  thresholdNewErrors: integer("threshold_new_errors").notNull().default(0),
+  thresholdUptimeFailures: integer("threshold_uptime_failures").notNull().default(1),
+  thresholdFingerprintRegressions: integer("threshold_fingerprint_regressions").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type RolloutRun = typeof rolloutRuns.$inferSelect;
+export type NewRolloutRun = typeof rolloutRuns.$inferInsert;

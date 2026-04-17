@@ -111,10 +111,23 @@ export function evaluateAutoMergeGates(params: {
     coveragePercent: number | null;
     skipReason: string | null;
   } | null;
+  /** VAR Q2 — Gate 14. Cost Impact. Shape:
+   *    - null:              scan not run (gate skipped)
+   *    - { passed: null }:  no ai_usage_logs for this remediation (skip)
+   *    - { passed, ... }:   pass/fail on remediationCostUsd vs thresholdUsd
+   *  Evidence-based — aggregates ai_usage_logs.cost_usd by
+   *  remediation_session_id. Passes when total <= threshold.
+   */
+  costImpact?: {
+    passed: boolean | null;
+    remediationCostUsd: number;
+    thresholdUsd: number;
+    callCount: number;
+  } | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, complianceScan, multiEnvCoverage, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, complianceScan, multiEnvCoverage, costImpact, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -331,6 +344,26 @@ export function evaluateAutoMergeGates(params: {
       multiEnvCoverage.passed
         ? `Multi-env coverage: ${coverageLabel}${mediumNote}`
         : `Multi-env coverage gap: ${missingEnvsHigh.length} env(s) >20% traffic missing from fleet replay (${missingEnvsHigh.join(", ")})${mediumNote}`);
+  }
+
+  // Gate 14: Cost Impact (VAR Q2 Week 9)
+  // Aggregates AI spend across every ai_usage_logs row for this
+  // remediation (diagnose + self-review + security-scan + fix gen).
+  // Passes when total cost <= threshold (default $1 USD). Skipped
+  // (no gate row) when:
+  //   - no costImpact data
+  //   - passed is null (ai_usage_logs empty — AI path wasn't logged,
+  //     e.g. BYOK user with telemetry disabled). Auto-merge treats
+  //     as skip, not fail — same contract as Gate 15/16.
+  if (costImpact != null && costImpact.passed != null) {
+    const cost = costImpact.remediationCostUsd;
+    const threshold = costImpact.thresholdUsd;
+    const costLabel = `$${cost.toFixed(4)}`;
+    const thresholdLabel = `$${threshold.toFixed(2)}`;
+    pushGate("cost_impact", costImpact.passed,
+      costImpact.passed
+        ? `Cost impact: ${costLabel} in ${costImpact.callCount} call(s) — within budget (≤${thresholdLabel})`
+        : `Cost impact: ${costLabel} in ${costImpact.callCount} call(s) — exceeds budget (>${thresholdLabel})`);
   }
 
   const allPassed = gates.every((g) => g.passed);

@@ -27,6 +27,8 @@ import { EnvironmentCard, UserContextCard, RequestContextCard } from "./capture-
 import { PerformanceBenchmarkCard } from "./performance-benchmark-card";
 import { BehavioralDriftCard } from "./behavioral-drift-card";
 import { MultiEnvCoverageCard } from "./multi-env-coverage-card";
+import { CostImpactCard } from "./cost-impact-card";
+import { RolloutCard } from "./rollout-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import type { Metadata } from "next";
@@ -367,6 +369,38 @@ export default async function AlertDetailPage({
       {/* Compares fleet replay env distribution vs project Node runtime. */}
       {/* Fails when a Node major with >20% traffic wasn't exercised.    */}
       <MultiEnvCoverageCard
+        alertId={alert.id}
+        remediationId={latestRemediation?.id ?? null}
+        remediationReady={
+          !!latestRemediation && (
+            latestRemediation.status === "completed" ||
+            latestRemediation.status === "proposing" ||
+            latestRemediation.status === "merging" ||
+            latestRemediation.status === "approved"
+          )
+        }
+      />
+
+      {/* ── Cost Impact card (VAR Gate 14) ─────────────────────────────── */}
+      {/* Aggregates AI spend from ai_usage_logs for this remediation.   */}
+      {/* Gate fails when total cost exceeds the configured budget.      */}
+      <CostImpactCard
+        alertId={alert.id}
+        remediationId={latestRemediation?.id ?? null}
+        remediationReady={
+          !!latestRemediation && (
+            latestRemediation.status === "completed" ||
+            latestRemediation.status === "proposing" ||
+            latestRemediation.status === "merging" ||
+            latestRemediation.status === "approved"
+          )
+        }
+      />
+
+      {/* ── Progressive Rollout (VAR Q2 Week 12) ───────────────────────── */}
+      {/* Stages fix through 1% → 10% → 50% → 100% with manual advance   */}
+      {/* + rollback controls. Stage history + per-stage metrics audit.  */}
+      <RolloutCard
         alertId={alert.id}
         remediationId={latestRemediation?.id ?? null}
         remediationReady={

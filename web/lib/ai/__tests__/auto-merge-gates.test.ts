@@ -979,3 +979,104 @@ describe("Gate 16: multi_env_coverage", () => {
     expect(gate.passed).toBe(true);
   });
 });
+
+// ── Gate 14: cost_impact (VAR Q2 Week 9) ───────────────────────────────────
+
+describe("Gate 14: cost_impact", () => {
+  it("no gate added when costImpact is null", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, costImpact: null });
+    expect(r.gates.map((g) => g.name)).not.toContain("cost_impact");
+  });
+
+  it("no gate added when passed is null (no logs found)", () => {
+    // ai_usage_logs empty — likely BYOK with telemetry off. Skip, not fail.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      costImpact: {
+        passed: null,
+        remediationCostUsd: 0,
+        thresholdUsd: 1.0,
+        callCount: 0,
+      },
+    });
+    expect(r.gates.map((g) => g.name)).not.toContain("cost_impact");
+  });
+
+  it("passes when cost is within budget", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      costImpact: {
+        passed: true,
+        remediationCostUsd: 0.2543,
+        thresholdUsd: 1.0,
+        callCount: 4,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "cost_impact")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/\$0\.2543/);
+    expect(gate.reason).toMatch(/4 call/);
+    expect(gate.reason).toMatch(/≤\$1\.00/);
+  });
+
+  it("fails when cost exceeds threshold", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      costImpact: {
+        passed: false,
+        remediationCostUsd: 2.145,
+        thresholdUsd: 1.0,
+        callCount: 12,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "cost_impact")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/\$2\.1450/);
+    expect(gate.reason).toMatch(/>\$1\.00/);
+    expect(r.strategy).toBe("draft_pr");
+  });
+
+  it("formats sub-cent cost correctly (4 decimals)", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      costImpact: {
+        passed: true,
+        remediationCostUsd: 0.000312,
+        thresholdUsd: 0.5,
+        callCount: 1,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "cost_impact")!;
+    expect(gate.reason).toMatch(/\$0\.0003/);
+  });
+
+  it("respects custom thresholdUsd", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      costImpact: {
+        passed: false,
+        remediationCostUsd: 0.12,
+        thresholdUsd: 0.1,
+        callCount: 2,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "cost_impact")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/\$0\.10/);
+  });
+
+  it("circuit breaker bypass overrides fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      costImpact: {
+        passed: false,
+        remediationCostUsd: 5.0,
+        thresholdUsd: 1.0,
+        callCount: 20,
+      },
+      circuitBreakerBypassed: new Set(["cost_impact"]),
+    });
+    const gate = r.gates.find((g) => g.name === "cost_impact")!;
+    expect(gate.passed).toBe(true);
+  });
+});
