@@ -2,6 +2,10 @@
  * Breadcrumbs — automatic trail of actions before a crash.
  * Ring buffer of last 30 events: console, fetch, custom.
  * Secrets are scrubbed from messages automatically.
+ *
+ * Also the injection point for FullTrace's X-IW-Session-Id header — we
+ * already wrap globalThis.fetch here for breadcrumb capture, so adding
+ * one header to the same wrapper avoids a second monkey-patch.
  */
 import type { Breadcrumb } from "./types.js";
 /** Strip sensitive query params from URLs */

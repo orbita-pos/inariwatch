@@ -4,6 +4,7 @@ import { getGitContext } from "./git.js";
 import { getEnvironmentContext } from "./environment.js";
 import { getBreadcrumbs, initBreadcrumbs } from "./breadcrumbs.js";
 import { getUser, getTags, getRequestContext } from "./scope.js";
+import { initFullTrace, getSessionId } from "./fulltrace.js";
 let globalTransport = null;
 let globalConfig = null;
 let lastReportedRelease = null;
@@ -28,6 +29,14 @@ export function init(config = {}) {
     else {
         const parsed = parseDSN(dsn);
         globalTransport = createTransport(globalConfig, parsed);
+    }
+    // FullTrace session id propagation (browser-only). Default: enabled.
+    // Initialized BEFORE breadcrumbs because the fetch interceptor in
+    // breadcrumbs.ts calls injectSessionHeader on every request — needs
+    // the session id to already exist.
+    if (config.fullTrace !== false) {
+        const ftConfig = typeof config.fullTrace === "object" ? config.fullTrace : {};
+        initFullTrace(ftConfig);
     }
     // Initialize breadcrumbs (auto-intercept console + fetch)
     initBreadcrumbs();
@@ -114,14 +123,17 @@ function reportDeploy(release, environment) {
         transport.send(event);
     });
 }
-/** Enrich event with git, env, breadcrumbs, user, tags, request context, replay session id */
+/** Enrich event with git, env, breadcrumbs, user, tags, request context, session id */
 function enrichEvent(event) {
-    // Pick up replay session id (set by replay.ts when Replay V2 is active).
-    // This lets the server link a server-side error back to the browser session
-    // for synced timeline playback.
-    const replaySessionId = typeof window !== "undefined"
+    // FullTrace session id. Same value the SDK propagates as X-IW-Session-Id
+    // on outbound fetches — including it on the error event lets the backend
+    // correlate even when the failing request happened to bypass our fetch
+    // interceptor (XHR, third-party SDK, beacon API).
+    // Falls back to window.__INARIWATCH_SESSION__ for hosts running the
+    // capture-replay package without the FullTrace init path.
+    const sessionId = getSessionId() ?? (typeof window !== "undefined"
         ? window.__INARIWATCH_SESSION__
-        : undefined;
+        : undefined);
     return {
         ...event,
         git: getGitContext() ?? undefined,
@@ -130,8 +142,8 @@ function enrichEvent(event) {
         user: getUser(),
         tags: getTags(),
         request: getRequestContext() ?? event.request,
-        metadata: replaySessionId
-            ? { ...event.metadata, replaySessionId }
+        metadata: sessionId
+            ? { ...event.metadata, replaySessionId: sessionId, sessionId }
             : event.metadata,
     };
 }

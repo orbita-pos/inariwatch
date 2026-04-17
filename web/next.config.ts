@@ -29,6 +29,18 @@ const config: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // VAR Q1 — `/sessions` is the canonical path going forward (FullTrace makes
+  // sessions the primary entity, replays were a strict subset). The directory
+  // move from /replays → /sessions ships in a follow-up PR; for now we expose
+  // the new URL and forward to the existing pages so marketing copy and
+  // external links can adopt /sessions immediately without breakage.
+  async redirects() {
+    return [
+      { source: "/sessions",                  destination: "/replays",                  permanent: false },
+      { source: "/sessions/:sessionId",       destination: "/replays/:sessionId",       permanent: false },
+      { source: "/sessions/users/:endUserId", destination: "/replays/users/:endUserId", permanent: false },
+    ];
+  },
 };
 
 export default withInariWatch(config as Record<string, unknown>) as NextConfig;

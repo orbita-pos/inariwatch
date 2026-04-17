@@ -17,7 +17,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Monitor",
     items: [
       { href: "/alerts",    label: "Alerts",    icon: Bell },
-      { href: "/replays",   label: "Replays",   icon: Film, flag: "replayV2" },
+      { href: "/replays",   label: "Sessions",  icon: Film, flag: "replayV2" },
       { href: "/on-call",   label: "On-Call",   icon: Phone },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
     ],
