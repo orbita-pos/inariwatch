@@ -80,10 +80,24 @@ export function evaluateAutoMergeGates(params: {
     thresholdDriftedPercent: number;
     passed: boolean | null;
   } | null;
+  /** VAR Q2 — Gate 15. Compliance scan result. Shape:
+   *    - null:                    scan not run (gate skipped)
+   *    - { highCount, total... }: pass/fail on HIGH-severity count
+   *  Passes when highCount === 0. Medium/low never fail the gate —
+   *  they're surfaced to the reviewer but need human context (e.g.,
+   *  an email column may be encrypted at the app layer).
+   */
+  complianceScan?: {
+    highCount: number;
+    totalViolations: number;
+    gdprCount: number;
+    soc2Count: number;
+    pciCount: number;
+  } | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, performanceBenchmark, behavioralDrift, complianceScan, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -255,6 +269,28 @@ export function evaluateAutoMergeGates(params: {
       behavioralDrift.passed
         ? `Behavioral drift: ${driftedEndpoints}/${analyzedEndpoints} endpoints drifted (${pct.toFixed(1)}% ≤ ${thresholdDriftedPercent}% threshold)${improvementsNote}`
         : `Behavioral drift: ${driftedEndpoints}/${analyzedEndpoints} endpoints drifted (${pct.toFixed(1)}% > ${thresholdDriftedPercent}% threshold)${improvementsNote}`);
+  }
+
+  // Gate 15: Compliance scan (VAR Q2 Week 7)
+  // Regex-based static scan over the fix diff for GDPR/SOC2/PCI DSS
+  // violations (lib/ai/compliance-scan.ts, 19 rules). Passes when zero
+  // HIGH-severity findings are introduced. MEDIUM/LOW findings are
+  // informational and do NOT fail the gate — they need human context
+  // (e.g., an email column may be encrypted at the app layer).
+  // Skipped (no gate row) when the scan wasn't run.
+  if (complianceScan != null) {
+    const compliancePassed = complianceScan.highCount === 0;
+    const breakdown = [
+      complianceScan.gdprCount > 0 ? `GDPR ${complianceScan.gdprCount}` : null,
+      complianceScan.soc2Count > 0 ? `SOC2 ${complianceScan.soc2Count}` : null,
+      complianceScan.pciCount > 0 ? `PCI ${complianceScan.pciCount}` : null,
+    ].filter(Boolean).join(", ");
+    pushGate("compliance", compliancePassed,
+      compliancePassed
+        ? complianceScan.totalViolations === 0
+          ? "Compliance scan passed — no GDPR/SOC2/PCI violations introduced"
+          : `Compliance scan passed — 0 HIGH findings (${complianceScan.totalViolations} medium/low to review${breakdown ? `: ${breakdown}` : ""})`
+        : `Compliance scan found ${complianceScan.highCount} HIGH severity violation(s)${breakdown ? ` (${breakdown})` : ""}`);
   }
 
   const allPassed = gates.every((g) => g.passed);

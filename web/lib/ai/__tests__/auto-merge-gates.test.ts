@@ -765,3 +765,97 @@ describe("Gate 13: behavioral_drift", () => {
     expect(gate.passed).toBe(true);
   });
 });
+
+// ── Gate 15: compliance (VAR Q2 Week 7) ────────────────────────────────────
+
+describe("Gate 15: compliance", () => {
+  it("no gate added when complianceScan is null", () => {
+    const r = evaluateAutoMergeGates({ ...passingBase, complianceScan: null });
+    expect(r.gates.map((g) => g.name)).not.toContain("compliance");
+  });
+
+  it("passes when zero violations across all categories", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      complianceScan: {
+        highCount: 0, totalViolations: 0,
+        gdprCount: 0, soc2Count: 0, pciCount: 0,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "compliance")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/no GDPR\/SOC2\/PCI violations/);
+  });
+
+  it("passes when only MEDIUM/LOW findings exist (no HIGH)", () => {
+    // Yellow-light cousin of Gate 13 — medium findings are surfaced for
+    // review but don't fail the merge. E.g., an email column that may
+    // be encrypted at the app layer.
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      complianceScan: {
+        highCount: 0, totalViolations: 3,
+        gdprCount: 2, soc2Count: 1, pciCount: 0,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "compliance")!;
+    expect(gate.passed).toBe(true);
+    expect(gate.reason).toMatch(/3 medium\/low to review/);
+    expect(gate.reason).toMatch(/GDPR 2/);
+    expect(gate.reason).toMatch(/SOC2 1/);
+  });
+
+  it("fails when any HIGH violation is introduced", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      complianceScan: {
+        highCount: 1, totalViolations: 2,
+        gdprCount: 0, soc2Count: 0, pciCount: 1,
+      },
+    });
+    const gate = r.gates.find((g) => g.name === "compliance")!;
+    expect(gate.passed).toBe(false);
+    expect(gate.reason).toMatch(/1 HIGH severity violation/);
+    expect(gate.reason).toMatch(/PCI 1/);
+    expect(r.strategy).toBe("draft_pr");
+  });
+
+  it("emits a breakdown chip per non-zero regulation", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      complianceScan: {
+        highCount: 3, totalViolations: 3,
+        gdprCount: 1, soc2Count: 1, pciCount: 1,
+      },
+    });
+    const reason = r.gates.find((g) => g.name === "compliance")!.reason;
+    expect(reason).toMatch(/GDPR 1.*SOC2 1.*PCI 1/);
+  });
+
+  it("omits a regulation from the breakdown when count is zero", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      complianceScan: {
+        highCount: 1, totalViolations: 1,
+        gdprCount: 0, soc2Count: 0, pciCount: 1,
+      },
+    });
+    const reason = r.gates.find((g) => g.name === "compliance")!.reason;
+    expect(reason).not.toMatch(/GDPR/);
+    expect(reason).not.toMatch(/SOC2/);
+    expect(reason).toMatch(/PCI/);
+  });
+
+  it("circuit breaker bypass overrides fail", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      complianceScan: {
+        highCount: 5, totalViolations: 7,
+        gdprCount: 2, soc2Count: 2, pciCount: 3,
+      },
+      circuitBreakerBypassed: new Set(["compliance"]),
+    });
+    const gate = r.gates.find((g) => g.name === "compliance")!;
+    expect(gate.passed).toBe(true);
+  });
+});
