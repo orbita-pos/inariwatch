@@ -17,10 +17,34 @@ export const remediationSessions = pgTable("remediation_sessions", {
   status: text("status").notNull().default("analyzing"),
   steps: jsonb("steps").notNull().default([]),
   error: text("error"),
+  // Repo slug "owner/name" — needed by the What-If pipeline to clone.
+  repo: text("repo"),
+  branch: text("branch"),
+  baseBranch: text("base_branch"),
+  mergedCommitSha: text("merged_commit_sha"),
   fileChanges: jsonb("file_changes"),
   confidenceScore: integer("confidence_score"),
   checkpointPhase: text("checkpoint_phase"),
   checkpointData: jsonb("checkpoint_data"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Substrate Recordings (for What-If replay) ──────────────────────────────
+
+export const substrateRecordings = pgTable("substrate_recordings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  recordingId: text("recording_id").notNull().unique(),
+  alertId: uuid("alert_id"),
+  projectId: uuid("project_id"),
+  // VAR Q1 — correlation id from X-IW-Session-Id header. Allows the
+  // worker to look up "give me the recording for this browser session".
+  sessionId: text("session_id"),
+  command: text("command"),
+  runtime: text("runtime").default("node"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  eventCount: integer("event_count").default(0),
+  events: jsonb("events"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

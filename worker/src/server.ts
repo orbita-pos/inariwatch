@@ -17,6 +17,7 @@ import "dotenv/config";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import crypto from "node:crypto";
 import { runAgentJob, type AgentJobParams, type AgentJobResult } from "./container-agent.js";
+import { runWhatIf } from "./whatif/handler.js";
 import { getQueue, allQueues } from "./queues.js";
 import { startScheduler } from "./scheduler.js";
 import { startCriticalWorker } from "./workers/critical.worker.js";
@@ -179,6 +180,45 @@ async function handleEnqueue(req: IncomingMessage, res: ServerResponse): Promise
   json(res, 201, { ok: true, jobId: job.id, queue: queue.name });
 }
 
+// ── Routes: What-If Replay ─────────────────────────────────────────────────
+
+/**
+ * POST /worker/whatif
+ *
+ * Runs a deterministic Substrate replay against a merged remediation.
+ * The web app calls this when WORKER_URL is set — the worker clones the
+ * repo, applies fileChanges, auto-detects the entry point, and runs
+ * substrate simulate on localhost (avoids the 15s Vercel timeout).
+ *
+ * Body: { sessionId, remediationId, githubToken? }
+ * Auth: Bearer STAGING_API_SECRET (checked above in the server handler).
+ */
+async function handleWhatIf(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let body: { sessionId?: string; remediationId?: string; githubToken?: string };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    json(res, 400, { error: "Invalid JSON" });
+    return;
+  }
+  if (!body.sessionId || !body.remediationId) {
+    json(res, 400, { error: "Missing required fields: sessionId, remediationId" });
+    return;
+  }
+
+  const outcome = await runWhatIf({
+    sessionId: body.sessionId,
+    remediationId: body.remediationId,
+    githubToken: body.githubToken,
+  });
+
+  if (outcome.ok) {
+    json(res, 200, outcome.result);
+  } else {
+    json(res, outcome.status, outcome.error);
+  }
+}
+
 async function handleQueueStats(res: ServerResponse): Promise<void> {
   const stats = await Promise.all(
     allQueues.map(async (q) => {
@@ -258,6 +298,8 @@ const server = createServer(async (req, res) => {
       handleJobStatus(res, jobId);
     } else if (req.method === "POST" && path === "/worker/enqueue") {
       await handleEnqueue(req, res);
+    } else if (req.method === "POST" && path === "/worker/whatif") {
+      await handleWhatIf(req, res);
     } else if (req.method === "GET" && path === "/worker/queues") {
       await handleQueueStats(res);
     } else {

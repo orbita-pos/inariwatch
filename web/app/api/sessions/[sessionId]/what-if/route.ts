@@ -6,12 +6,14 @@ import {
   alerts,
   remediationSessions,
   projects,
+  projectIntegrations,
   organizations,
   organizationMembers,
 } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { getOrComputeWhatIf, readCache } from "@/lib/services/what-if";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "@/lib/ai/get-key";
+import { decryptConfig } from "@/lib/crypto";
 import { productMetrics, VAR_EVENTS } from "@/lib/telemetry/product-metrics";
 
 export const dynamic = "force-dynamic";
@@ -142,6 +144,11 @@ export async function POST(
     return NextResponse.json({ error: "No AI key available for project" }, { status: 503 });
   }
 
+  // Resolve GitHub token so the worker can clone the repo at fix SHA.
+  // Missing token is not fatal — the What-If service will fall back to
+  // local substrate (dev) or AI prediction if the worker path can't run.
+  const githubToken = await resolveGithubToken(row.projectId);
+
   productMetrics.emit(VAR_EVENTS.WHATIF_REPLAY_REQUESTED, {
     organizationId: null,
     valueText: sessionId,
@@ -165,6 +172,7 @@ export async function POST(
     model: aiKey.modelPrefs?.remediation ?? PLATFORM_MODEL,
     userId,
     isPlatformKey: aiKey.isPlatformKey,
+    githubToken,
   });
 
   if (!result) {
@@ -180,8 +188,43 @@ export async function POST(
     organizationId: null,
     valueText: sessionId,
     valueNumeric: result.confidence,
-    metadata: { remediationId, outcome: result.outcome, riskScore: result.riskScore, fromCache: result.fromCache },
+    metadata: {
+      remediationId,
+      outcome: result.outcome,
+      riskScore: result.riskScore,
+      fromCache: result.fromCache,
+      mode: result.mode,
+    },
   });
 
   return NextResponse.json(result);
+}
+
+/**
+ * Look up the GitHub integration token for a project. Returns undefined
+ * when the project hasn't connected GitHub or the stored blob fails to
+ * decrypt — the What-If service treats missing token as "worker path
+ * unavailable" and falls back to local substrate or AI. We don't surface
+ * errors from here because What-If has a graceful degradation path; the
+ * worker path is an optimization, not a requirement.
+ */
+async function resolveGithubToken(projectId: string): Promise<string | undefined> {
+  try {
+    const rows = await db
+      .select({ configEncrypted: projectIntegrations.configEncrypted })
+      .from(projectIntegrations)
+      .where(
+        and(
+          eq(projectIntegrations.projectId, projectId),
+          eq(projectIntegrations.service, "github"),
+        ),
+      )
+      .limit(1);
+    if (!rows[0]?.configEncrypted) return undefined;
+    const config = decryptConfig(rows[0].configEncrypted);
+    const token = config.token;
+    return typeof token === "string" && token.length > 0 ? token : undefined;
+  } catch {
+    return undefined;
+  }
 }
