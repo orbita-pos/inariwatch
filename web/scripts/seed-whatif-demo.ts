@@ -203,6 +203,9 @@ async function seedScenario({ label, projectId, organizationId, userId, diverge 
   await db.insert(alerts).values({
     id: alertId,
     projectId,
+    // VAR Q1 session correlation — without this, the AI tab aggregator
+    // returns empty and the "Run What-If" button never appears in the UI.
+    sessionId,
     severity: "critical",
     title: diverge
       ? "TypeError: Cannot read property 'user' of undefined"
