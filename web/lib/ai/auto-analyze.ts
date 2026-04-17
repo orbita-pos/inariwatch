@@ -3,6 +3,7 @@ import { eq, and, gt, ne, sql } from "drizzle-orm";
 import { callAI } from "./client";
 import type { AIProvider } from "./client";
 import { SYSTEM_ANALYZER, buildAnalyzePrompt } from "./prompts";
+import { getFullTraceContextForAlert } from "@/lib/fulltrace/context-for-prompt";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "./get-key";
 import { correlateProjectAlerts } from "./correlate";
 import { computeErrorFingerprint } from "./fingerprint";
@@ -120,11 +121,19 @@ export async function autoAnalyzeAlert(alert: Alert): Promise<void> {
   //
   // BYOK users always use their own configured model (no cascade).
 
+  // VAR Q1 — pull FullTrace causal chain when the alert is correlated to
+  // a browser session. Returns null for legacy alerts (no sessionId) or
+  // sessions with no recorded data; the prompt skips the section in those
+  // cases. Best-effort: a DB hiccup here drops to plain analysis instead
+  // of failing the whole alert.
+  const fullTraceContext = await getFullTraceContextForAlert(alert.id).catch(() => null);
+
   const prompt = buildAnalyzePrompt({
     title: alert.title,
     severity: alert.severity,
     body: alert.body ?? "",
     sourceIntegrations: alert.sourceIntegrations,
+    fullTraceContext,
   });
   const messages: { role: "user"; content: string }[] = [{ role: "user", content: prompt }];
   const logCtx = proj ? {

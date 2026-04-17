@@ -266,6 +266,7 @@ describe("buildDiagnosePrompt", () => {
       deployContext: null,
       codebaseContext: null,
       fixReplayContext: null,
+      fullTraceContext: null,
     };
     const prompt = buildDiagnosePrompt(alert, repoFiles, context);
     expect(prompt).toContain("SENTRY STACK TRACE");
@@ -284,6 +285,7 @@ describe("buildDiagnosePrompt", () => {
       deployContext: "Files changed: src/api.ts",
       codebaseContext: null,
       fixReplayContext: null,
+      fullTraceContext: null,
     };
     const prompt = buildDiagnosePrompt(alert, repoFiles, context);
     expect(prompt).toContain("SENTRY STACK TRACE");

@@ -15,9 +15,10 @@ const SEVERITY_COLOR: Record<string, string> = {
 // ── Alert message ────────────────────────────────────────────────────────────
 
 export function buildAlertBlocks(
-  alert: { id: string; title: string; body: string; severity: string; sourceIntegrations?: string[] | null; createdAt?: Date | null },
+  alert: { id: string; title: string; body: string; severity: string; sourceIntegrations?: string[] | null; createdAt?: Date | null; sessionId?: string | null },
   projectName: string,
   aiDiagnosis: string | null,
+  appUrl?: string,
 ): { blocks: KnownBlock[]; text: string; color: string } {
   const emoji = SEVERITY_EMOJI[alert.severity] || ":white_circle:";
   const color = SEVERITY_COLOR[alert.severity] || "#95a5a6";
@@ -66,32 +67,52 @@ export function buildAlertBlocks(
     ],
   });
 
-  // Action buttons
-  blocks.push({
-    type: "actions",
-    elements: [
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Fix It" },
-        style: "danger",
-        action_id: "fix_alert",
-        value: alert.id,
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Acknowledge" },
-        action_id: "ack_alert",
-        value: alert.id,
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Resolve" },
-        style: "primary",
-        action_id: "resolve_alert",
-        value: alert.id,
-      },
-    ],
-  });
+  // Action buttons. The "FullTrace" button is appended only when the
+  // alert carries a session_id (Capture SDK v0.8+). Slack caps actions
+  // at 5 elements per row — we're at 4 max so it fits inline.
+  const actionElements: Array<{
+    type: "button";
+    text: { type: "plain_text"; text: string };
+    style?: "danger" | "primary";
+    action_id?: string;
+    value?: string;
+    url?: string;
+  }> = [
+    {
+      type: "button",
+      text: { type: "plain_text", text: "Fix It" },
+      style: "danger",
+      action_id: "fix_alert",
+      value: alert.id,
+    },
+    {
+      type: "button",
+      text: { type: "plain_text", text: "Acknowledge" },
+      action_id: "ack_alert",
+      value: alert.id,
+    },
+    {
+      type: "button",
+      text: { type: "plain_text", text: "Resolve" },
+      style: "primary",
+      action_id: "resolve_alert",
+      value: alert.id,
+    },
+  ];
+
+  // FullTrace deep link — uses Slack's url-button (no callback handler
+  // needed; it just opens in a new tab). Appended last so the existing
+  // Fix/Ack/Resolve actions stay in their familiar order.
+  const baseUrl = appUrl ?? process.env.APP_URL ?? "https://app.inariwatch.com";
+  if (alert.sessionId) {
+    actionElements.push({
+      type: "button",
+      text: { type: "plain_text", text: "FullTrace ↗" },
+      url: `${baseUrl.replace(/\/$/, "")}/sessions/${encodeURIComponent(alert.sessionId)}`,
+    });
+  }
+
+  blocks.push({ type: "actions", elements: actionElements });
 
   const text = `${emoji} [${alert.severity.toUpperCase()}] ${alert.title}`;
   return { blocks, text, color };

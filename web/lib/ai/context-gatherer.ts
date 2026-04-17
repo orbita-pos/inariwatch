@@ -19,6 +19,10 @@ type AlertInfo = {
   title: string;
   body: string;
   sourceIntegrations: string[];
+  /** VAR Q1 — when present, gatherRemediationContext fetches the FullTrace
+   *  causal chain for this alert. Optional because not every caller has the
+   *  id at hand (e.g. dry-run prompt builders). */
+  id?: string;
 };
 
 type Emit = (event: string, data: unknown) => void;
@@ -355,6 +359,7 @@ export async function gatherRemediationContext(
     deployContext: null,
     codebaseContext: null,
     fixReplayContext: null,
+    fullTraceContext: null,
   };
 
   const integrations = await db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, projectId));
@@ -469,6 +474,24 @@ export async function gatherRemediationContext(
       if (apiKey && appKey) {
         result.datadogMetrics = await withServiceHealth("datadog", () => fetchDatadogContext(apiKey, appKey, alert));
         emit("context", { source: "datadog", status: result.datadogMetrics ? "found" : "empty" });
+      }
+    })());
+  }
+
+  // VAR Q1 — FullTrace causal chain. Fetches when the alert has an id we
+  // can map to a session. Best-effort: any failure (DB hiccup, no
+  // session, no events) falls back to result.fullTraceContext = null,
+  // which the prompt builder handles by skipping the section.
+  if (alert.id) {
+    tasks.push((async () => {
+      emit("context", { source: "fulltrace", status: "fetching" });
+      try {
+        const { getFullTraceContextForAlert } = await import("@/lib/fulltrace/context-for-prompt");
+        const ctx = await getFullTraceContextForAlert(alert.id!);
+        result.fullTraceContext = ctx;
+        emit("context", { source: "fulltrace", status: ctx ? "found" : "empty" });
+      } catch {
+        emit("context", { source: "fulltrace", status: "empty" });
       }
     })());
   }
