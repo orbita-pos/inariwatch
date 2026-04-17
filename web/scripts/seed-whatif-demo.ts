@@ -200,6 +200,9 @@ async function seedScenario({ label, projectId, organizationId, userId, diverge 
 
   // 3. alerts — carrying the same session_id that links it to the
   //    recording + replay session. Fingerprint seeds the impact card.
+  //    correlationData carries the Capture SDK v2 payload (git +
+  //    breadcrumbs + env) so the alert detail page renders the Q2 Week 2
+  //    cards and the AI remediation prompt gets the new context sections.
   await db.insert(alerts).values({
     id: alertId,
     projectId,
@@ -219,6 +222,7 @@ async function seedScenario({ label, projectId, organizationId, userId, diverge 
       : "No explicit timeout; default 30s; retry logic missing on idempotent charge calls.",
     fingerprint: `whatif-${label}-fp-${ts}`,
     alertType: "error",
+    correlationData: buildCaptureCorrelationData(diverge, ts),
   });
 
   // Sticky link back — replay_sessions.alertId sets up the "see this
@@ -394,6 +398,82 @@ function divergentCacheRow(recorded: Record<string, unknown>[]) {
       ],
     },
   };
+}
+
+// ── Capture SDK v2 payload (git + breadcrumbs) ───────────────────────────
+//
+// Mirrors the shape @inariwatch/capture@^0.9.0 ships in production. The
+// webhook stashes this verbatim in alerts.correlationData, which
+// capture-context.ts formats for the LLM prompt and git-context-card /
+// breadcrumbs-panel render in the UI.
+
+function buildCaptureCorrelationData(diverge: boolean, ts: number) {
+  const crashIso = new Date(ts).toISOString();
+  const committedIso = new Date(ts - 45 * 60 * 1000).toISOString();
+
+  return {
+    git: {
+      commit: diverge
+        ? "3c9f2a1d8e4f5b6c7a8d9e0f1a2b3c4d5e6f7a89"
+        : "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b",
+      branch: diverge ? "feature/auth-middleware" : "main",
+      message: diverge
+        ? "refactor auth middleware to use new session adapter"
+        : "bump stripe SDK + adjust charge flow",
+      timestamp: committedIso,
+      dirty: false,
+    },
+    breadcrumbs: buildBreadcrumbs(diverge, ts),
+    // env + user are Week 3 additions — still include minimal shapes
+    // so the generic CorrelationCard has something to render without
+    // stepping on the dedicated cards.
+    env: {
+      runtime: "node",
+      node_version: "20.11.1",
+      platform: "linux",
+      app_version: diverge ? "2.4.0-rc1" : "2.3.8",
+    },
+    user: {
+      id: diverge ? "usr_8af32b" : "usr_4ef701",
+      plan: "pro",
+    },
+  };
+}
+
+function buildBreadcrumbs(diverge: boolean, crashMs: number) {
+  // Anchor timestamps backwards from the crash moment. The UI's
+  // "-Xms" prefix is derived from the LAST crumb's timestamp so
+  // these land right before the crash.
+  function at(offsetMs: number): string {
+    return new Date(crashMs - offsetMs).toISOString();
+  }
+
+  if (diverge) {
+    return [
+      { timestamp: at(8200), category: "fetch", level: "info",    message: "GET /api/auth/session" },
+      { timestamp: at(8150), category: "fetch", level: "info",    message: "GET /api/auth/session → 200" },
+      { timestamp: at(6400), category: "console", level: "info",  message: "User clicked 'Checkout'" },
+      { timestamp: at(6380), category: "fetch", level: "info",    message: "POST /api/cart/validate" },
+      { timestamp: at(6200), category: "fetch", level: "info",    message: "POST /api/cart/validate → 200" },
+      { timestamp: at(5000), category: "console", level: "warning", message: "Session not hydrated yet, proceeding anyway" },
+      { timestamp: at(4800), category: "fetch", level: "info",    message: "POST /api/checkout" },
+      { timestamp: at(4200), category: "fetch", level: "warning", message: "POST /api/checkout → 500" },
+      { timestamp: at(3500), category: "console", level: "info",  message: "Retrying checkout..." },
+      { timestamp: at(2100), category: "fetch", level: "info",    message: "POST /api/checkout" },
+      { timestamp: at(1600), category: "fetch", level: "error",   message: "POST /api/checkout → 500" },
+      { timestamp: at(800),  category: "console", level: "error", message: "TypeError: Cannot read property 'user' of undefined" },
+      { timestamp: at(10),   category: "console", level: "error", message: "at src/middleware/auth.js:42" },
+    ];
+  }
+  return [
+    { timestamp: at(28000), category: "console", level: "info",   message: "App initialized" },
+    { timestamp: at(21000), category: "fetch",   level: "info",   message: "GET /api/products" },
+    { timestamp: at(20800), category: "fetch",   level: "info",   message: "GET /api/products → 200" },
+    { timestamp: at(12000), category: "console", level: "info",   message: "Cart item added: SKU-9182" },
+    { timestamp: at(10200), category: "fetch",   level: "info",   message: "POST /api/charge" },
+    { timestamp: at(400),   category: "fetch",   level: "warning", message: "POST /api/charge → timeout (30s)" },
+    { timestamp: at(50),    category: "console", level: "error",  message: "RequestTimeout: Stripe charge took >30s" },
+  ];
 }
 
 // ── Run ────────────────────────────────────────────────────────────────────
