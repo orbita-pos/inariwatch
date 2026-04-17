@@ -38,7 +38,7 @@ test("redactEvents: scrubs Authorization header (http_request)", () => {
 });
 
 test("redactEvents: scrubs Cookie + Set-Cookie both directions", () => {
-  const events = [
+  const events: Array<{ seq: number; timestamp_ns: number; kind: Record<string, unknown> }> = [
     {
       seq: 1, timestamp_ns: 0,
       kind: { type: "http_request", headers: { cookie: "session=abc123" } },

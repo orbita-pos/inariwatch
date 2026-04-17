@@ -1376,3 +1376,33 @@ export const whatifReplays = pgTable("whatif_replays", {
 
 export type WhatifReplay = typeof whatifReplays.$inferSelect;
 export type NewWhatifReplay = typeof whatifReplays.$inferInsert;
+
+// VAR Q2 — Gate 12 "What-If Across Fleet". One row per (alert, remediation,
+// fix_commit_sha); the worker updates counters in place as each session's
+// replay finishes. Powers the Fleet Verification card + auto-merge gate.
+
+export const fleetVerificationRuns = pgTable("fleet_verification_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  status: text("status").notNull().default("running"),
+  sessionsTotal: integer("sessions_total").notNull(),
+  sessionsAttempted: integer("sessions_attempted").notNull().default(0),
+  countMatched: integer("count_matched").notNull().default(0),
+  countUncertain: integer("count_uncertain").notNull().default(0),
+  countWouldNotPrevent: integer("count_would_not_prevent").notNull().default(0),
+  countErrored: integer("count_errored").notNull().default(0),
+  /** [{ sessionId, outcome, riskScore?, errorCode?, durationMs }] */
+  sessionResults: jsonb("session_results").notNull().default(sql`'[]'::jsonb`),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
+export type FleetVerificationRun = typeof fleetVerificationRuns.$inferSelect;
+export type NewFleetVerificationRun = typeof fleetVerificationRuns.$inferInsert;

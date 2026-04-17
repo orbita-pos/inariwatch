@@ -43,10 +43,20 @@ export function evaluateAutoMergeGates(params: {
   e2eStagingPassed?: boolean | null;
   /** Whether the fix was verified (tsc + build) inside a container before push. */
   containerVerified?: boolean | null;
+  /** VAR Q2 — Gate 12. Fleet verification result. Shape:
+   *    - null:           no fleet run exists yet (gate informational-only)
+   *    - { ..., totalSessions: 0 }: singleton alert, no siblings to verify
+   *    - { passedPercent, totalSessions }: pass/fail on the ≥90% threshold
+   */
+  fleetVerification?: {
+    matchedPercent: number;
+    totalSessions: number;
+    threshold: number;
+  } | null;
   /** Gate names bypassed by circuit breaker (pre-computed by caller) */
   circuitBreakerBypassed?: Set<string>;
 }): GateResult {
-  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, circuitBreakerBypassed } = params;
+  const { config, confidenceScore, selfReviewResult, linesChanged, ciPassed, simulateRiskScore, eapChainVerified, predictionRiskScore, securityScanHighCount, substrateReplayPassed, substrateReplayUsedFrontendContext, e2eStagingPassed, containerVerified, fleetVerification, circuitBreakerBypassed } = params;
   const gates: GateResult["gates"] = [];
   const bypassed = circuitBreakerBypassed ?? new Set<string>();
 
@@ -157,6 +167,21 @@ export function evaluateAutoMergeGates(params: {
       containerVerified
         ? "Fix verified in container — tsc and build passed before push"
         : "Container verification ran but tsc/build failed");
+  }
+
+  // Gate 12: Fleet verification (VAR Q2 — What-If Across Fleet)
+  // Passes when ≥90% of affected sessions are predicted to be protected.
+  // Skipped (no gate row) when no fleet run exists OR the alert is a
+  // singleton (totalSessions=0) — in both cases the single-session
+  // verification carries the load.
+  if (fleetVerification != null && fleetVerification.totalSessions > 0) {
+    const pct = fleetVerification.matchedPercent;
+    const threshold = fleetVerification.threshold;
+    const fleetPassed = pct >= threshold;
+    pushGate("fleet_verification", fleetPassed,
+      fleetPassed
+        ? `Fleet verification: ${pct}% of ${fleetVerification.totalSessions} sessions protected (≥${threshold}% threshold)`
+        : `Fleet verification: only ${pct}% of ${fleetVerification.totalSessions} sessions protected (<${threshold}% threshold)`);
   }
 
   const allPassed = gates.every((g) => g.passed);
