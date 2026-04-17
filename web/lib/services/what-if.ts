@@ -40,6 +40,21 @@ import type { AIProvider } from "@/lib/ai/client";
 
 export type WhatIfOutcome = "would_prevent" | "uncertain" | "would_not_prevent";
 
+/** Minimal TS shape of a substrate event — mirrors the Rust Event struct's
+ *  JSON serialization. `kind` is a tagged union the UI narrows at render. */
+export interface SubstrateEvent {
+  seq: number;
+  timestamp_ns: number;
+  kind: { type: string;[key: string]: unknown };
+  parent_seq?: number | null;
+  stack?: string | null;
+}
+
+export interface SubstrateDivergence {
+  category: string;
+  detail: string;
+}
+
 export interface WhatIfResult {
   outcome: WhatIfOutcome;
   /** 0–100. Backend's self-reported confidence (AI: model self-report;
@@ -70,6 +85,13 @@ export interface WhatIfResult {
     };
     /** Recommendations from the substrate risk report (1–4 short strings). */
     recommendations: string[];
+    /** Sesión 7 — per-event arrays for side-by-side timeline rendering.
+     *  Present when the worker path produced this result; AI path never
+     *  populates them (AI can't synthesize per-event I/O). Each array
+     *  is capped at 500 by the worker (sampled first 250 + last 250). */
+    recordedEvents?: SubstrateEvent[];
+    replayedEvents?: SubstrateEvent[];
+    divergences?: SubstrateDivergence[];
   };
 }
 
@@ -311,6 +333,9 @@ async function tryComputeViaWorker(input: WhatIfInput): Promise<Omit<WhatIfResul
     recommendations: string[];
     detectedCommand: string;
     commandSource: string;
+    recordedEvents?: SubstrateEvent[];
+    replayedEvents?: SubstrateEvent[];
+    divergences?: SubstrateDivergence[];
   };
 
   return {
@@ -329,6 +354,9 @@ async function tryComputeViaWorker(input: WhatIfInput): Promise<Omit<WhatIfResul
       riskLevel: data.riskLevel,
       blastRadius: data.blastRadius,
       recommendations: data.recommendations,
+      recordedEvents: data.recordedEvents,
+      replayedEvents: data.replayedEvents,
+      divergences: data.divergences,
     },
   };
 }

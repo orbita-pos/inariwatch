@@ -25,6 +25,7 @@ import type { LucideIcon } from "lucide-react";
 import { AlertTriangle, Brain, Wrench, GitMerge, RotateCcw, CheckCircle2, XCircle, ChevronRight, ExternalLink, FlaskConical, Loader2 } from "lucide-react";
 import { formatMs } from "../format-time";
 import type { AiEvent, AiEventKind } from "@/lib/fulltrace/manifest-aggregator";
+import type { SubstrateEvent, SubstrateDivergence } from "@/lib/services/what-if";
 
 interface AiPanelProps {
   events: AiEvent[];
@@ -38,11 +39,38 @@ interface AiPanelProps {
   sessionId?: string;
 }
 
-/** Local state per row for the What-If button. Keyed by AiEvent.id. */
+/** Local state per row for the What-If button. Keyed by AiEvent.id.
+ *  The `ready` variant carries optional substrate fields populated by
+ *  the worker path — when present, the widget renders the side-by-side
+ *  timeline + divergences instead of the compact summary card. */
 type WhatIfState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; outcome: string; confidence: number; riskScore: number; analysis: string; fromCache: boolean }
+  | {
+      status: "ready";
+      outcome: string;
+      confidence: number;
+      riskScore: number;
+      analysis: string;
+      fromCache: boolean;
+      mode: "ai_analysis" | "substrate_replay";
+      substrate?: {
+        matched: boolean;
+        eventCountBefore: number;
+        eventCountAfter: number;
+        riskLevel: "low" | "medium" | "high" | "critical";
+        blastRadius: {
+          httpPaths: string[];
+          dbTables: string[];
+          filePaths: string[];
+          totalSurfaces: number;
+        };
+        recommendations: string[];
+        recordedEvents?: SubstrateEvent[];
+        replayedEvents?: SubstrateEvent[];
+        divergences?: SubstrateDivergence[];
+      };
+    }
   | { status: "error"; message: string };
 
 export function countAiRows(events: AiEvent[]): {
@@ -141,6 +169,8 @@ export function AiPanel({ events, currentMs, onSeek, onHoverEvent, sessionId }: 
           riskScore: data.riskScore,
           analysis: data.analysis,
           fromCache: data.fromCache,
+          mode: data.mode,
+          substrate: data.substrate,
         }),
       );
     } catch (e) {
@@ -349,6 +379,10 @@ function WhatIfWidget({ state, onRun }: { state: WhatIfState; onRun: () => void 
 
   // ready
   const tone = OUTCOME_TONE[state.outcome] ?? OUTCOME_TONE.uncertain;
+  const hasTimeline = state.mode === "substrate_replay"
+    && state.substrate
+    && (state.substrate.recordedEvents?.length ?? 0) + (state.substrate.replayedEvents?.length ?? 0) > 0;
+
   return (
     <div className="mt-2 rounded-md border border-line bg-surface-inner p-2">
       <div className="flex items-center gap-2">
@@ -361,11 +395,273 @@ function WhatIfWidget({ state, onRun }: { state: WhatIfState; onRun: () => void 
         <span className="text-[10px] tabular-nums text-fg-base/60">
           risk {state.riskScore}/100
         </span>
+        {state.mode === "substrate_replay" && (
+          <span className="rounded bg-inari-accent/10 px-1 text-[9px] font-medium uppercase tracking-wider text-inari-accent/80">
+            substrate
+          </span>
+        )}
         {state.fromCache && (
           <span className="ml-auto text-[9px] uppercase tracking-wider text-fg-base/40">cached</span>
         )}
       </div>
       <p className="mt-1.5 text-[11px] leading-snug text-fg-base/80">{state.analysis}</p>
+
+      {/* Side-by-side timeline — only when worker path produced per-event data */}
+      {hasTimeline && state.substrate && (
+        <SubstrateTimelinePanel substrate={state.substrate} />
+      )}
+    </div>
+  );
+}
+
+// ── Substrate side-by-side timeline ───────────────────────────────────────
+//
+// Dual-track rendering of recorded vs replayed events. The reviewer's
+// goal here is to answer "where did the fix make things different?" in
+// one glance — green markers align, red markers diverge, divergence
+// details below tell them the specific semantic change.
+//
+// Positioning: timestamp_ns mapped linearly to x-axis within [0, maxNs].
+// When recordings and replays have different max timestamps (common —
+// a fix that returns faster shifts the entire tail), we use the joint
+// max so both tracks use the same scale.
+//
+// Classification heuristic (index-based): i-th event of recorded pairs
+// with i-th event of replayed. Pairs match if kind.type is equal, which
+// catches "same operation, different outcome" implicitly via the full
+// Divergences list below — the reviewer correlates the two.
+
+type EventClass = "matched" | "kind_changed" | "missing" | "extra";
+
+function classifyEvents(
+  recorded: SubstrateEvent[],
+  replayed: SubstrateEvent[],
+): { recordedClasses: EventClass[]; replayedClasses: EventClass[] } {
+  const n = Math.min(recorded.length, replayed.length);
+  const recordedClasses: EventClass[] = recorded.map((e, i) => {
+    if (i >= n) return "missing";
+    return e.kind.type === replayed[i].kind.type ? "matched" : "kind_changed";
+  });
+  const replayedClasses: EventClass[] = replayed.map((e, i) => {
+    if (i >= n) return "extra";
+    return e.kind.type === recorded[i].kind.type ? "matched" : "kind_changed";
+  });
+  return { recordedClasses, replayedClasses };
+}
+
+const EVENT_CLASS_COLOR: Record<EventClass, string> = {
+  matched: "fill-emerald-500/70",
+  kind_changed: "fill-amber-500/80",
+  missing: "fill-red-500/80",
+  extra: "fill-red-500/80",
+};
+
+function SubstrateTimelinePanel({
+  substrate,
+}: {
+  substrate: NonNullable<Extract<WhatIfState, { status: "ready" }>["substrate"]>;
+}) {
+  const recorded = substrate.recordedEvents ?? [];
+  const replayed = substrate.replayedEvents ?? [];
+  const divergences = substrate.divergences ?? [];
+  const [hoveredEvent, setHoveredEvent] = useState<
+    { track: "recorded" | "replayed"; event: SubstrateEvent; eventClass: EventClass } | null
+  >(null);
+
+  const { recordedClasses, replayedClasses, maxNs } = useMemo(() => {
+    const classes = classifyEvents(recorded, replayed);
+    const maxRec = recorded.length > 0 ? recorded[recorded.length - 1].timestamp_ns : 0;
+    const maxRep = replayed.length > 0 ? replayed[replayed.length - 1].timestamp_ns : 0;
+    return { ...classes, maxNs: Math.max(maxRec, maxRep, 1) };
+  }, [recorded, replayed]);
+
+  const VIEW_W = 1000;
+  const TRACK_H = 22;
+  const MARKER_W = 4;
+  const MARKER_H = 14;
+  const TRACK_GAP = 8;
+  const LABEL_W = 70;
+
+  function xFor(ns: number): number {
+    return LABEL_W + ((ns / maxNs) * (VIEW_W - LABEL_W - 4));
+  }
+
+  return (
+    <div className="mt-2 space-y-2">
+      {/* Counts headline */}
+      <div className="flex items-center gap-3 text-[10px] text-fg-base/60">
+        <span>
+          recorded <span className="tabular-nums text-fg-base/90">{substrate.eventCountBefore}</span>
+        </span>
+        <span className="text-fg-base/30">→</span>
+        <span>
+          replayed <span className="tabular-nums text-fg-base/90">{substrate.eventCountAfter}</span>
+        </span>
+        {substrate.eventCountBefore !== substrate.eventCountAfter && (
+          <span className="rounded bg-red-500/10 px-1 py-0.5 text-[9px] font-medium text-red-600 dark:text-red-400">
+            count mismatch
+          </span>
+        )}
+        {(recorded.length > substrate.eventCountBefore || replayed.length > substrate.eventCountAfter) && (
+          <span className="ml-auto text-[9px] uppercase tracking-wider text-fg-base/40" title="Events are a sampled subset (first 250 + last 250)">
+            sampled
+          </span>
+        )}
+      </div>
+
+      {/* Dual-track SVG */}
+      <div className="relative overflow-hidden rounded border border-line/60 bg-surface p-1">
+        <svg
+          viewBox={`0 0 ${VIEW_W} ${TRACK_H * 2 + TRACK_GAP}`}
+          preserveAspectRatio="none"
+          className="h-14 w-full"
+        >
+          {/* Track labels */}
+          <text x={4} y={TRACK_H / 2 + 4} className="fill-fg-base/60" fontSize={10}>
+            recorded
+          </text>
+          <text x={4} y={TRACK_H + TRACK_GAP + TRACK_H / 2 + 4} className="fill-fg-base/60" fontSize={10}>
+            replayed
+          </text>
+          {/* Track baselines */}
+          <line x1={LABEL_W} y1={TRACK_H / 2} x2={VIEW_W - 2} y2={TRACK_H / 2} className="stroke-line" strokeWidth={0.5} />
+          <line x1={LABEL_W} y1={TRACK_H + TRACK_GAP + TRACK_H / 2} x2={VIEW_W - 2} y2={TRACK_H + TRACK_GAP + TRACK_H / 2} className="stroke-line" strokeWidth={0.5} />
+          {/* Recorded markers */}
+          {recorded.map((e, i) => {
+            const cls = recordedClasses[i];
+            return (
+              <rect
+                key={`r-${e.seq}-${i}`}
+                x={xFor(e.timestamp_ns) - MARKER_W / 2}
+                y={(TRACK_H - MARKER_H) / 2}
+                width={MARKER_W}
+                height={MARKER_H}
+                className={`${EVENT_CLASS_COLOR[cls]} cursor-pointer transition-opacity hover:opacity-100`}
+                style={{ opacity: hoveredEvent && hoveredEvent.event !== e ? 0.4 : 1 }}
+                onMouseEnter={() => setHoveredEvent({ track: "recorded", event: e, eventClass: cls })}
+                onMouseLeave={() => setHoveredEvent(null)}
+              >
+                <title>
+                  {`#${e.seq} ${e.kind.type} (${cls}) — ${(e.timestamp_ns / 1_000_000).toFixed(1)}ms`}
+                </title>
+              </rect>
+            );
+          })}
+          {/* Replayed markers */}
+          {replayed.map((e, i) => {
+            const cls = replayedClasses[i];
+            return (
+              <rect
+                key={`p-${e.seq}-${i}`}
+                x={xFor(e.timestamp_ns) - MARKER_W / 2}
+                y={TRACK_H + TRACK_GAP + (TRACK_H - MARKER_H) / 2}
+                width={MARKER_W}
+                height={MARKER_H}
+                className={`${EVENT_CLASS_COLOR[cls]} cursor-pointer transition-opacity hover:opacity-100`}
+                style={{ opacity: hoveredEvent && hoveredEvent.event !== e ? 0.4 : 1 }}
+                onMouseEnter={() => setHoveredEvent({ track: "replayed", event: e, eventClass: cls })}
+                onMouseLeave={() => setHoveredEvent(null)}
+              >
+                <title>
+                  {`#${e.seq} ${e.kind.type} (${cls}) — ${(e.timestamp_ns / 1_000_000).toFixed(1)}ms`}
+                </title>
+              </rect>
+            );
+          })}
+        </svg>
+
+        {/* Hover detail panel */}
+        {hoveredEvent && (
+          <div className="mt-1 rounded border border-line/60 bg-surface-inner px-2 py-1 text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className="font-medium capitalize text-fg-strong">{hoveredEvent.track}</span>
+              <span className="tabular-nums text-fg-base/60">#{hoveredEvent.event.seq}</span>
+              <span className="text-fg-base/60">·</span>
+              <span className="tabular-nums text-fg-base/60">
+                {(hoveredEvent.event.timestamp_ns / 1_000_000).toFixed(1)}ms
+              </span>
+              <span
+                className={`ml-auto rounded px-1 text-[9px] uppercase tracking-wider ${
+                  hoveredEvent.eventClass === "matched" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : hoveredEvent.eventClass === "kind_changed" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                  : "bg-red-500/15 text-red-600 dark:text-red-400"
+                }`}
+              >
+                {hoveredEvent.eventClass.replace("_", " ")}
+              </span>
+            </div>
+            <div className="mt-0.5 truncate font-mono text-fg-base/70">
+              {hoveredEvent.event.kind.type}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Divergences list */}
+      {divergences.length > 0 && (
+        <details className="group rounded border border-line/60 bg-surface px-2 py-1 text-[10px]">
+          <summary className="cursor-pointer select-none text-fg-base/80">
+            <span className="font-semibold">{divergences.length} divergence{divergences.length === 1 ? "" : "s"}</span>
+            <span className="ml-1 text-fg-base/50">— click to expand</span>
+          </summary>
+          <ul className="mt-1 space-y-0.5">
+            {divergences.map((d, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="shrink-0 rounded bg-red-500/10 px-1 font-mono text-red-600 dark:text-red-400">
+                  {d.category}
+                </span>
+                <span className="text-fg-base/70">{d.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {/* Blast radius — rendered only when something was affected */}
+      {substrate.blastRadius.totalSurfaces > 0 && (
+        <div className="rounded border border-line/60 bg-surface px-2 py-1 text-[10px]">
+          <div className="mb-0.5 text-fg-base/60">
+            Blast radius <span className="tabular-nums">({substrate.blastRadius.totalSurfaces} surface{substrate.blastRadius.totalSurfaces === 1 ? "" : "s"})</span>
+          </div>
+          <BlastRadiusLines blast={substrate.blastRadius} />
+        </div>
+      )}
+
+      {/* Recommendations — substrate always emits at least one */}
+      {substrate.recommendations.length > 0 && (
+        <ul className="space-y-0.5 text-[10px] text-fg-base/70">
+          {substrate.recommendations.map((r, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span className="text-fg-base/40">·</span>
+              <span>{r}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function BlastRadiusLines({
+  blast,
+}: {
+  blast: { httpPaths: string[]; dbTables: string[]; filePaths: string[] };
+}) {
+  const rows: { label: string; paths: string[] }[] = [
+    { label: "HTTP", paths: blast.httpPaths },
+    { label: "DB", paths: blast.dbTables },
+    { label: "Files", paths: blast.filePaths },
+  ].filter((r) => r.paths.length > 0);
+  return (
+    <div className="space-y-0.5">
+      {rows.map((r) => (
+        <div key={r.label} className="flex gap-2">
+          <span className="w-10 shrink-0 text-fg-base/50">{r.label}</span>
+          <span className="truncate font-mono text-fg-base/80" title={r.paths.join(", ")}>
+            {r.paths.join(", ")}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

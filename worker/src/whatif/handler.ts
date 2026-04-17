@@ -46,6 +46,23 @@ export type WhatIfErrorCode =
   | "substrate_failed"
   | "substrate_timeout";
 
+/** Minimal shape of a substrate Event — mirrors `substrate_core::Event`'s
+ *  JSON serialization. The `kind` field is a tagged union; we keep it as
+ *  unknown because the UI layer narrows it at render time and we don't
+ *  want to duplicate the full discriminated union here. */
+export interface SubstrateEvent {
+  seq: number;
+  timestamp_ns: number;
+  kind: { type: string;[key: string]: unknown };
+  parent_seq?: number | null;
+  stack?: string | null;
+}
+
+export interface SubstrateDivergence {
+  category: string;
+  detail: string;
+}
+
 export interface WhatIfResponse {
   sessionId: string;
   remediationId: string;
@@ -65,6 +82,10 @@ export interface WhatIfResponse {
   recommendations: string[];
   detectedCommand: string;
   commandSource: string;
+  /** Sesión 7 — present when substrate was invoked with --include-events. */
+  recordedEvents?: SubstrateEvent[];
+  replayedEvents?: SubstrateEvent[];
+  divergences?: SubstrateDivergence[];
 }
 
 export interface WhatIfError {
@@ -198,6 +219,9 @@ export async function runWhatIf(
         recommendations: simResult.recommendations,
         detectedCommand: detected.command,
         commandSource: detected.source,
+        recordedEvents: simResult.recordedEvents,
+        replayedEvents: simResult.replayedEvents,
+        divergences: simResult.divergences,
       },
     };
   } catch (err) {
@@ -236,6 +260,9 @@ interface SimulateResult {
     totalSurfaces: number;
   };
   recommendations: string[];
+  recordedEvents?: SubstrateEvent[];
+  replayedEvents?: SubstrateEvent[];
+  divergences?: SubstrateDivergence[];
 }
 
 function runSubstrateSimulate(opts: {
@@ -254,9 +281,14 @@ function runSubstrateSimulate(opts: {
       return;
     }
 
+    // --include-events: return recorded_events + replayed_events +
+    // divergences in the JSON so the UI can render a side-by-side
+    // timeline. JSON payload grows ~100x but that's fine for our
+    // use case (the worker posts to Vercel; body limit is 4.5MB and
+    // typical recordings stay well under that).
     const child = spawn(
       opts.binary,
-      ["simulate", "--command", opts.command, "--format", "json", opts.recordingPath],
+      ["simulate", "--include-events", "--command", opts.command, "--format", "json", opts.recordingPath],
       {
         cwd: opts.cwd,
         shell: false,
@@ -274,7 +306,13 @@ function runSubstrateSimulate(opts: {
       reject(new SubstrateTimeout(`substrate simulate exceeded ${opts.timeoutMs}ms`));
     }, opts.timeoutMs);
 
-    const MAX_OUTPUT = 4 * 1024 * 1024;
+    // Bumped from 4MB → 32MB to accommodate --include-events payloads.
+    // A typical recording with 200 HTTP events averaging 50KB bodies
+    // produces ~10MB of JSON; critical ones with binary uploads can
+    // reach 20MB. 32MB gives headroom without risking runaway memory
+    // (a malicious recording returning gigabytes of events still gets
+    // killed).
+    const MAX_OUTPUT = 32 * 1024 * 1024;
     let outputSize = 0;
     child.stdout.on("data", (c: Buffer) => {
       outputSize += c.length;
@@ -325,6 +363,14 @@ function runSubstrateSimulate(opts: {
             totalSurfaces: first.risk_report.blast_radius.total_surfaces ?? 0,
           },
           recommendations: first.risk_report.recommendations ?? [],
+          // --include-events fields are absent when substrate is run
+          // without the flag; callers must tolerate undefined here.
+          // We cap each events array at 500 items to keep the final
+          // response under Vercel's 4.5MB serverless response limit —
+          // 500 events × ~4KB/event JSON ≈ 2MB per track, 4MB total.
+          recordedEvents: capEvents(first.recorded_events),
+          replayedEvents: capEvents(first.replayed_events),
+          divergences: first.divergences ?? undefined,
         });
       } catch (e) {
         reject(new SubstrateFailed(`parse failed: ${e instanceof Error ? e.message : String(e)}`));
@@ -337,4 +383,23 @@ function fail(code: WhatIfErrorCode, error: string, status: number): {
   ok: false; error: WhatIfError; status: number;
 } {
   return { ok: false, error: { code, error }, status };
+}
+
+/** Cap the number of forwarded events. Returns undefined when input is
+ *  absent (substrate was called without --include-events) so the worker
+ *  response omits the key entirely instead of sending `null`. */
+const MAX_FORWARDED_EVENTS = 500;
+function capEvents(events: unknown): SubstrateEvent[] | undefined {
+  if (!Array.isArray(events)) return undefined;
+  if (events.length <= MAX_FORWARDED_EVENTS) return events as SubstrateEvent[];
+  // Truncation strategy: sample first half from the start (startup
+  // context — warm-up requests, module loads) and last half from the
+  // tail (where divergences typically cluster — the crash itself). This
+  // beats a naive `slice(0, MAX)` which loses the failing tail, and a
+  // `slice(-MAX)` which hides the setup a reviewer needs to understand
+  // the timeline. Middle events get dropped, which shows up in the UI
+  // as a gap — acceptable given this only triggers on > 500 events.
+  const half = Math.floor(MAX_FORWARDED_EVENTS / 2);
+  const arr = events as SubstrateEvent[];
+  return [...arr.slice(0, half), ...arr.slice(arr.length - half)];
 }
