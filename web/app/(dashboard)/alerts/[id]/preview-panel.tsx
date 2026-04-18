@@ -187,7 +187,6 @@ export function PreviewPanel({ alertId, eapReceiptId: initialReceipt }: PanelPro
     }
   }, [shareUrl]);
 
-  const previewId = state.kind === "ready" ? state.data.id : null;
   const revokedAt = state.kind === "ready" ? state.data.revokedAt : null;
   const [revokePending, startRevoke] = useTransition();
 
