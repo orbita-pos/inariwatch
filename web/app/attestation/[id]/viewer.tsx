@@ -69,14 +69,16 @@ interface ExecutionReceipt {
   surfaces: AttestationSurfaces;
   parents?: ChainLink[];
   signature?: {
-    attestor: string;
+    attestor_name: string;
+    public_key?: string;
     signature: string;
   };
 }
 
 interface VerifyReport {
-  verified: boolean;
-  chain_depth: number;
+  all_signatures_valid: boolean;
+  depth: number;
+  links_missing?: string[];
   errors?: string[];
   [k: string]: unknown;
 }
@@ -249,7 +251,8 @@ function SuccessPanel({ data }: { data: ChainResponse }) {
 }
 
 function VerificationBadge({ report }: { report: VerifyReport }) {
-  const passed = report.verified;
+  const missingCount = Array.isArray(report.links_missing) ? report.links_missing.length : 0;
+  const passed = report.all_signatures_valid && missingCount === 0;
   const tone = passed
     ? {
         bg: "bg-emerald-500/15",
@@ -271,7 +274,7 @@ function VerificationBadge({ report }: { report: VerifyReport }) {
         <tone.Icon className="h-4 w-4" aria-hidden />
         <span className="font-semibold">{tone.label}</span>
         <span className="text-[10px] uppercase tracking-wider opacity-70">
-          chain depth: {report.chain_depth}
+          chain depth: {report.depth}
         </span>
       </div>
       {Array.isArray(report.errors) && report.errors.length > 0 && (
@@ -334,8 +337,13 @@ function TopReceiptCard({ receipt }: { receipt: ExecutionReceipt }) {
               Ed25519 signature
             </div>
             <div className="font-mono break-all text-fg-base/70">
-              attestor: {receipt.signature.attestor}
+              attestor: {receipt.signature.attestor_name}
             </div>
+            {receipt.signature.public_key && (
+              <div className="font-mono break-all text-fg-base/70">
+                pubkey: {receipt.signature.public_key.slice(0, 32)}…
+              </div>
+            )}
             <div className="font-mono break-all text-fg-base/70">
               sig: {receipt.signature.signature.slice(0, 32)}…
             </div>

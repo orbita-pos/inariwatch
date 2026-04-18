@@ -117,7 +117,7 @@ describe("proxy to upstream EAP server", () => {
           surfaces: {},
         },
       ],
-      verification: { verified: true, chain_depth: 1 },
+      verification: { all_signatures_valid: true, depth: 1, signed: 1, total: 1, links_missing: [] },
     };
     vi.stubGlobal(
       "fetch",
