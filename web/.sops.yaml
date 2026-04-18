@@ -22,6 +22,4 @@ creation_rules:
     # Encrypt everything except comment lines (those stay plaintext so
     # you can annotate which secret is which without decrypting).
     encrypted_regex: "^(?!#).*"
-    # Replace <AGE_PUBLIC_KEY> below with the output of `age-keygen -o keys.txt`.
-    # Looks like: age1abc123...xyz789
-    age: <AGE_PUBLIC_KEY>
+    age: age1rky23nt0kp79lmd5h6kypf4rnpq3p76p98fzxeyysw58tp6w7c9s4sqe5s
