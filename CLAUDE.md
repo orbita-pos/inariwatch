@@ -343,6 +343,25 @@ See `web/.env.example`. Key vars:
 - `WORKER_URL` — Hetzner AI worker URL (enables worker mode for container agent)
 - `STAGING_API_SECRET` — authenticates requests to Hetzner Go server + worker
 
+## Deploy cadence (hard rule — ~1 push every 2-3 days)
+
+Every `git push` triggers a Vercel production build. Each build burns ~$1-2 in build minutes. On 2026-04-18 we burned $22 (a month's Pro credit) in 3 days because of iterative pushes — 7 deploys for the same feature in one session.
+
+**Budget:** Vercel Pro credits reset monthly. Keeping total infra cost under ~$30/mo means ~$1/day in build minutes — roughly **one push every 2-3 days on average**.
+
+Healthy SaaS (Vercel, Stripe, Linear, Anthropic) deploy several times per day — but they also have teams of engineers producing coordinated work. For a solo founder + AI iterating on a single codebase, the economics are different: each push costs real money AND every push for the same feature means that feature wasn't ready yet.
+
+**Rules (all AI sessions and human commits):**
+
+1. **Default: 1 push every 2-3 days.** Anything more frequent requires an explicit "ship this now", a live-prod hotfix, or a planned launch-day patch batch.
+2. **Commit locally as often as you want** (free) while iterating. **Push only when a feature is end-to-end validated OR the session is wrapping up.**
+3. **Batch everything possible.** If you find 3 bugs during a test session = 1 commit with 3 fixes + 1 push the next day, NOT 3 separate pushes today.
+4. **Iterate locally with `next dev` + `next build`** before pushing. Don't use production deploys as a validation loop — that's what cost us a month's credits in 3 days.
+5. **First-launch days** may need 2-3 patch deploys — fine if planned upfront and announced as a batch, not accidental.
+6. **Anchor:** a good week produces 2-3 pushes, not 15.
+
+**AI assistants (Claude/Cursor/etc.) reading this:** before suggesting `git push`, check when the last push happened (`git log -1 --format=%cr origin/main`). If less than 2 days ago and it's not a clear hotfix/explicit-ship request, **stage the commits locally but do NOT push** — tell the user "changes committed locally, queued for the next push". Let them decide when enough has batched to justify a deploy.
+
 ## Security considerations
 
 - CSP hardened (`unsafe-eval` removed in production, only in dev)
