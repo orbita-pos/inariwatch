@@ -463,7 +463,10 @@ export default async function AlertDetailPage({
       {/* ── Preview Fix — two-tier visual preview of the autonomous fix ────── */}
       {latestRemediation?.status === "completed" &&
         latestRemediation.mergedCommitSha &&
-        isPreviewFixEnabled(project.organizationId) && (
+        isPreviewFixEnabled({
+          organizationId: project.organizationId,
+          userId: project.userId,
+        }) && (
           <PreviewPanel
             alertId={alert.id}
             remediationSessionId={latestRemediation.id}

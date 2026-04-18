@@ -54,7 +54,12 @@ export async function POST(
 
   const authed = await authorizeAlert(alertId, userId);
   if (!authed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (!isPreviewFixEnabled(authed.organizationId)) {
+  if (
+    !isPreviewFixEnabled({
+      organizationId: authed.organizationId,
+      userId: authed.projectOwnerId,
+    })
+  ) {
     return NextResponse.json({ error: "Preview Fix not enabled for this workspace" }, { status: 403 });
   }
 
@@ -126,7 +131,7 @@ export async function POST(
 async function authorizeAlert(
   alertId: string,
   userId: string,
-): Promise<{ organizationId: string | null; projectId: string } | null> {
+): Promise<{ organizationId: string | null; projectId: string; projectOwnerId: string } | null> {
   const [row] = await db
     .select({
       projectId: alerts.projectId,
@@ -139,7 +144,9 @@ async function authorizeAlert(
     .limit(1);
 
   if (!row) return null;
-  if (row.ownerId === userId) return { organizationId: row.organizationId, projectId: row.projectId };
+  if (row.ownerId === userId) {
+    return { organizationId: row.organizationId, projectId: row.projectId, projectOwnerId: row.ownerId };
+  }
   if (!row.organizationId) return null;
 
   const [access] = await db
@@ -160,5 +167,7 @@ async function authorizeAlert(
     )
     .limit(1);
 
-  return access ? { organizationId: row.organizationId, projectId: row.projectId } : null;
+  return access
+    ? { organizationId: row.organizationId, projectId: row.projectId, projectOwnerId: row.ownerId }
+    : null;
 }
