@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, ShieldCheck, ExternalLink, AlertTriangle, Copy, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { Loader2, ShieldCheck, ExternalLink, AlertTriangle, Copy, Sparkles, Ban } from "lucide-react";
+import { toast } from "sonner";
 
 /**
  * Preview Fix panel — two-tier visual preview of an autonomous remediation.
@@ -186,6 +187,37 @@ export function PreviewPanel({ alertId, eapReceiptId: initialReceipt }: PanelPro
     }
   }, [shareUrl]);
 
+  const previewId = state.kind === "ready" ? state.data.id : null;
+  const revokedAt = state.kind === "ready" ? state.data.revokedAt : null;
+  const [revokePending, startRevoke] = useTransition();
+
+  const revoke = useCallback(() => {
+    if (!previewId) return;
+    if (!confirm("Revoke the public share URL? Anyone holding it will see a 410 Gone page. The live preview and screenshot stay on this page.")) {
+      return;
+    }
+    startRevoke(async () => {
+      try {
+        const res = await fetch(`/api/preview/${previewId}/revoke`, { method: "POST" });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast.error(body.error ?? "Failed to revoke");
+          return;
+        }
+        toast.success("Share URL revoked");
+        setState((prev) => {
+          if (prev.kind !== "ready") return prev;
+          return {
+            ...prev,
+            data: { ...prev.data, revokedAt: new Date().toISOString() },
+          };
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to revoke");
+      }
+    });
+  }, [previewId]);
+
   return (
     <section className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
       <header className="mb-3 flex items-center justify-between">
@@ -233,15 +265,36 @@ export function PreviewPanel({ alertId, eapReceiptId: initialReceipt }: PanelPro
 
           {shareUrl && (
             <footer className="mt-3 flex items-center gap-2 border-t border-line/60 pt-3 text-[11px] text-fg-base/70">
-              <span className="font-mono truncate">{shareUrl}</span>
-              <button
-                type="button"
-                onClick={copyShareUrl}
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-line bg-surface-inner px-2 py-1 text-[10px] font-medium text-fg-base/80 hover:text-fg-strong"
-              >
-                <Copy className="h-3 w-3" aria-hidden />
-                {copied ? "Copied" : "Share"}
-              </button>
+              <span className={`font-mono truncate ${revokedAt ? "line-through opacity-50" : ""}`}>
+                {shareUrl}
+              </span>
+              {revokedAt ? (
+                <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-600 dark:text-red-300">
+                  <Ban className="h-3 w-3" aria-hidden />
+                  Revoked
+                </span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={copyShareUrl}
+                    className="ml-auto inline-flex items-center gap-1 rounded-md border border-line bg-surface-inner px-2 py-1 text-[10px] font-medium text-fg-base/80 hover:text-fg-strong"
+                  >
+                    <Copy className="h-3 w-3" aria-hidden />
+                    {copied ? "Copied" : "Share"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={revoke}
+                    disabled={revokePending}
+                    title="Revoke the public share URL"
+                    className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-inner px-2 py-1 text-[10px] font-medium text-fg-base/60 hover:border-red-400/40 hover:text-red-500 disabled:opacity-50"
+                  >
+                    <Ban className="h-3 w-3" aria-hidden />
+                    {revokePending ? "Revoking…" : "Revoke"}
+                  </button>
+                </>
+              )}
             </footer>
           )}
         </>
