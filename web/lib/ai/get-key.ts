@@ -44,6 +44,17 @@ export function getPlatformAnthropicKey(): AIKeyResult | null {
 }
 
 /**
+ * Get the platform OpenAI key — the canonical web default for analysis,
+ * remediation, and anything that doesn't explicitly demand a Claude-only
+ * path. Mirrors `getPlatformAnthropicKey` for symmetry. Returns null if
+ * PLATFORM_AI_KEY is not configured.
+ */
+export function getPlatformOpenAIKey(): AIKeyResult | null {
+  if (!PLATFORM_KEY) return null;
+  return { key: PLATFORM_KEY, provider: "openai", modelPrefs: null, isPlatformKey: true };
+}
+
+/**
  * Fetch the user's AI key + model preferences from the database.
  * Uses first available key in priority order: claude → openai → grok → deepseek → gemini.
  */

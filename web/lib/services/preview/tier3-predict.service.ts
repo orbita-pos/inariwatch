@@ -2,12 +2,13 @@
  * Preview Fix — Tier 3 (AI-predicted HTML) service.
  *
  * Flow:
- *   1. Cache-first lookup by (alert_id, merged_commit_sha). Hits skip Claude.
+ *   1. Cache-first lookup by (alert_id, merged_commit_sha). Hits skip the AI call.
  *   2. Locate the alert's substrate_recording + extract the last rrweb
  *      FullSnapshot as HTML via `rrweb-html.ts`.
  *   3. Hydrate external stylesheets via `css-hydrate.ts`.
  *   4. Fetch the commit diff via `github-api.getCommitDiff`.
- *   5. Call Claude Sonnet 4.6 with a strict structured-JSON system prompt.
+ *   5. Call the platform LLM (GPT-5.4 — same as the remediation tier)
+ *      with a strict structured-JSON system prompt.
  *   6. Zod-validate the response; on malformed output run one repair retry;
  *      on second failure, fall back to returning the original HTML with
  *      `prediction_status = 'failed'` so the UI still shows *something*.
@@ -16,8 +17,9 @@
  * The service is fire-and-forget from the POST route — any failure is
  * persisted on the preview_sessions row and surfaced to the client via SSE.
  *
- * Cost envelope (per cache miss): Sonnet 4.6 at ~5K in / ~3K out ≈ 6¢. At
- * 1K previews/mo with 70% cache miss = ~$42/mo in Claude cost.
+ * Cost envelope (per cache miss): GPT-5.4 at ~5K in / ~3K out ≈ 3.6¢. At
+ * 1K previews/mo with 70% cache miss = ~$25/mo in AI cost. Cheaper than
+ * the earlier Claude Sonnet 4.6 baseline by ~40%.
  */
 
 import {
@@ -32,18 +34,24 @@ import {
 } from "@/lib/db";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { callAI } from "@/lib/ai/client";
-import { getPlatformAnthropicKey } from "@/lib/ai/get-key";
+import { getPlatformOpenAIKey } from "@/lib/ai/get-key";
 import { extractLastSnapshot } from "@/lib/ai/rrweb-html";
 import { hydrateExternalStylesheets, mergeStylesheetsIntoHtml } from "@/lib/ai/css-hydrate";
 import { getCommitDiff } from "@/lib/services/github-api";
 import { decryptConfig } from "@/lib/crypto";
 
-const MODEL = "claude-sonnet-4-6";
+/**
+ * Matches the `remediation` tier in lib/ai/models.ts — GPT-5.4 is the web
+ * default for code-generation-shaped tasks. Preview Fix fits the same
+ * shape: long structured output from a code diff + context. Cheaper than
+ * Claude Sonnet 4.6 at tied SWE-bench quality.
+ */
+const MODEL = "gpt-5.4";
 const MAX_HTML_BYTES = 400 * 1024;
 const MAX_DIFF_BYTES = 150 * 1024;
 const AI_TIMEOUT_MS = 30_000;
 
-/** Predicted-HTML shape Claude is required to return. Validated manually —
+/** Predicted-HTML shape the model is required to return. Validated manually —
  *  adding zod for one narrow schema isn't worth the extra dep. */
 interface ValidatedPrediction {
   predicted_html: string;
@@ -185,7 +193,7 @@ export async function kickoffTier3(previewSessionId: string): Promise<Tier3Outco
     hydrated,
   ).slice(0, MAX_HTML_BYTES);
 
-  // Fetch commit diff for Claude's context.
+  // Fetch commit diff for the model's context.
   const { token, owner } = await loadGithubCreds(remediation.projectId);
   if (!token || !owner) {
     return markFailed(previewSessionId, "no-github-token", "GitHub integration missing token/owner");
@@ -203,9 +211,9 @@ export async function kickoffTier3(previewSessionId: string): Promise<Tier3Outco
   );
   const diff = rawDiff ?? `(diff unavailable for ${remediation.mergedCommitSha})`;
 
-  const aiKey = getPlatformAnthropicKey();
+  const aiKey = getPlatformOpenAIKey();
   if (!aiKey) {
-    return markFailed(previewSessionId, "ai-key-unavailable", "PLATFORM_ANTHROPIC_KEY not set");
+    return markFailed(previewSessionId, "ai-key-unavailable", "PLATFORM_AI_KEY not set");
   }
 
   let validated: ValidatedPrediction | null = null;
@@ -213,7 +221,7 @@ export async function kickoffTier3(previewSessionId: string): Promise<Tier3Outco
   let tokensIn = 0;
   let tokensOut = 0;
   try {
-    rawResponse = await callClaudeWithTimeout(
+    rawResponse = await callAIWithTimeout(
       aiKey.key,
       buildSystemPrompt(),
       buildUserPrompt(originalHtml, diff, preview.alertId),
@@ -225,7 +233,7 @@ export async function kickoffTier3(previewSessionId: string): Promise<Tier3Outco
       validated = parsed;
     } else {
       // Repair retry — ask the model to fix its own output.
-      const repair = await callClaudeWithTimeout(
+      const repair = await callAIWithTimeout(
         aiKey.key,
         buildSystemPrompt(),
         buildRepairPrompt(rawResponse),
@@ -233,7 +241,7 @@ export async function kickoffTier3(previewSessionId: string): Promise<Tier3Outco
       );
       validated = tryParsePrediction(repair);
       if (!validated) {
-        return markFailed(previewSessionId, "malformed-output", "Claude returned invalid JSON twice");
+        return markFailed(previewSessionId, "malformed-output", "Model returned invalid JSON twice");
       }
     }
   } catch (err) {
@@ -323,21 +331,21 @@ async function loadGithubCreds(projectId: string): Promise<{ token?: string; own
   };
 }
 
-function callClaudeWithTimeout(
+function callAIWithTimeout(
   apiKey: string,
   system: string,
   userContent: string,
   timeoutMs: number,
 ): Promise<string> {
   const promise = callAI(apiKey, system, [{ role: "user", content: userContent }], {
-    provider: "claude",
+    provider: "openai",
     model: MODEL,
     maxTokens: 8192,
   });
   return Promise.race([
     promise,
     new Promise<string>((_, reject) =>
-      setTimeout(() => reject(new Error("claude timeout")), timeoutMs),
+      setTimeout(() => reject(new Error("ai timeout")), timeoutMs),
     ),
   ]);
 }
@@ -429,9 +437,10 @@ async function sanitizeHtml(html: string): Promise<string> {
   });
 }
 
-/** Sonnet 4.6 pricing: $3/M input, $15/M output. */
+/** GPT-5.4 pricing (matches `lib/ai/pricing.ts`): $1.25/M input, $10/M output.
+ *  Typical preview miss (~5K in / ~3K out) lands around 3-4¢. */
 function approxCostCents(inputTokens: number, outputTokens: number): number {
-  const inputCents = (inputTokens * 3) / 10_000;
-  const outputCents = (outputTokens * 15) / 10_000;
+  const inputCents = (inputTokens * 1.25) / 10_000;
+  const outputCents = (outputTokens * 10) / 10_000;
   return Math.round(inputCents + outputCents);
 }
