@@ -6,8 +6,8 @@ import Image from "next/image";
 import { db, blogPosts, errorPatterns, communityFixes, fixRatings } from "@/lib/db";
 import { eq, desc, sql } from "drizzle-orm";
 
-const LANDING_TITLE       = "InariWatch — AI Monitoring That Fixes Your Code";
-const LANDING_DESCRIPTION = "Your CI broke. The PR is already open. InariWatch monitors GitHub, Vercel, Sentry and more — then writes the fix autonomously.";
+const LANDING_TITLE       = "InariWatch — Monitoring that ships the fix";
+const LANDING_DESCRIPTION = "Verifiable autonomous remediation for production monitoring. 17 safety gates, cryptographic proof chain, live preview of every fix.";
 
 export const metadata: Metadata = {
   title:       LANDING_TITLE,
@@ -37,7 +37,7 @@ import {
   NextjsIcon, RemixIcon, BunIcon, FastifyIcon, ExpressIcon,
   ClaudeIcon, CursorIcon, WindsurfIcon, VSCodeIcon, CodexIcon, GeminiIcon, OpenClawIcon,
 } from "@/components/brand-icons";
-import { ArrowRight, CheckCircle2, GitPullRequest } from "lucide-react";
+import { ArrowRight, CheckCircle2, GitPullRequest, ShieldCheck, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
@@ -111,15 +111,16 @@ function Hero({ latestPost }: { latestPost: LatestPost }) {
               style={{ animation: "card-in 0.6s ease 0.15s both" }}
             >
               Monitoring that<br />
-              <span className="text-gradient-accent">fixes itself.</span>
+              <span className="text-gradient-accent">ships the fix.</span>
             </h1>
 
             <p
-              className="mt-6 text-[16px] text-fg-base max-w-[380px] mx-auto lg:mx-0 leading-relaxed"
+              className="mt-6 text-[16px] text-fg-base max-w-[440px] mx-auto lg:mx-0 leading-relaxed"
               style={{ animation: "card-in 0.5s ease 0.3s both" }}
             >
-              When something breaks, AI reads your code, writes the fix, and opens a PR.
-              CI passes. You approve.
+              InariWatch reads your code when something breaks, writes the remediation,
+              and runs it through 17 safety gates. Every fix is cryptographically
+              signed — and rendered live before it merges.
             </p>
 
             <div
@@ -131,9 +132,9 @@ function Hero({ latestPost }: { latestPost: LatestPost }) {
                   Start free <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
               </Link>
-              <Link href="#how">
-                <Button variant="ghost" size="lg" className="min-w-[148px]">
-                  See how it works
+              <Link href="#preview-fix">
+                <Button variant="ghost" size="lg" className="min-w-[180px]">
+                  See a live preview
                 </Button>
               </Link>
             </div>
@@ -892,6 +893,134 @@ async function getNetworkHeadlineStats(): Promise<NetworkHeadlineStats | null> {
   }
 }
 
+// ── Preview Fix showcase ──────────────────────────────────────────────────────
+
+function PreviewFixSection() {
+  return (
+    <section id="preview-fix" className="py-24 sm:py-32 border-t border-inari-border">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <p className="text-xs font-mono text-inari-accent uppercase tracking-widest mb-4">
+            Preview Fix
+          </p>
+          <h2 className="text-4xl sm:text-5xl font-semibold tracking-tight text-fg-strong">
+            See the fix,<br />
+            <span className="text-gradient-accent">before it matters.</span>
+          </h2>
+          <p className="mt-5 text-lg text-fg-base max-w-xl mx-auto">
+            Every autonomous remediation gets a shareable URL with a real
+            screenshot, a cryptographic receipt, and a 24&#8209;hour live sandbox.
+            Paste the link in Slack, share on Twitter, gate the merge on a
+            teammate&apos;s thumbs&#8209;up.
+          </p>
+        </div>
+      </div>
+
+      {/* Share card mockup */}
+      <div className="mx-auto max-w-4xl px-6 mt-14">
+        <div className="relative rounded-xl border border-inari-border bg-inari-card shadow-lg dark:shadow-2xl overflow-hidden">
+          {/* Browser chrome */}
+          <div className="flex items-center gap-3 border-b border-inari-border px-4 py-2.5 bg-inari-bg">
+            <div className="flex gap-1.5">
+              <span className="h-3 w-3 rounded-full bg-red-400/70" aria-hidden />
+              <span className="h-3 w-3 rounded-full bg-amber-400/70" aria-hidden />
+              <span className="h-3 w-3 rounded-full bg-emerald-400/70" aria-hidden />
+            </div>
+            <div className="flex-1 truncate rounded-md bg-inari-card border border-inari-border px-3 py-1 text-[11px] font-mono text-fg-base/70">
+              app.inariwatch.com/preview/M37DF4M2WGTS
+            </div>
+            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+              <ShieldCheck className="h-3 w-3" aria-hidden />
+              Verified
+            </span>
+          </div>
+
+          {/* Screenshot area — stylized mock of a store preview */}
+          <div className="relative aspect-[1280/720] bg-gradient-to-br from-inari-accent/5 via-inari-bg to-purple-500/5">
+            <div className="absolute inset-0 p-8 sm:p-10 flex flex-col gap-6">
+              {/* Top nav */}
+              <div className="flex items-center justify-between">
+                <div className="h-6 w-28 rounded-md bg-fg-strong/10" aria-hidden />
+                <div className="flex gap-3">
+                  <div className="h-6 w-16 rounded-md bg-fg-strong/10" aria-hidden />
+                  <div className="h-6 w-20 rounded-md bg-fg-strong/10" aria-hidden />
+                  <div className="h-6 w-6 rounded-md bg-fg-strong/10" aria-hidden />
+                </div>
+              </div>
+              {/* Hero */}
+              <div className="flex flex-col gap-3 max-w-md">
+                <div className="h-8 w-3/4 rounded-md bg-fg-strong/15" aria-hidden />
+                <div className="h-4 w-2/3 rounded-md bg-fg-strong/10" aria-hidden />
+                <div className="h-4 w-1/2 rounded-md bg-fg-strong/10" aria-hidden />
+              </div>
+              {/* Product grid */}
+              <div className="flex-1 grid grid-cols-3 gap-4">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg bg-fg-strong/5 border border-inari-border p-3 flex flex-col gap-2"
+                  >
+                    <div className="aspect-square rounded bg-fg-strong/10" aria-hidden />
+                    <div className="h-3 w-3/4 rounded bg-fg-strong/10" aria-hidden />
+                    <div className="h-3 w-1/2 rounded bg-fg-strong/10" aria-hidden />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Bottom CTA overlay — matches the real PreviewPanel hero card */}
+            <div className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/55 via-black/15 to-transparent p-4">
+              <div className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow">
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                Open live preview
+              </div>
+            </div>
+          </div>
+
+          {/* Meta footer */}
+          <div className="border-t border-inari-border bg-inari-bg px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] text-fg-base/70">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="inline-flex items-center gap-1.5">
+                <ShieldCheck className="h-3 w-3 text-emerald-500" aria-hidden />
+                EAP receipt&nbsp;
+                <span className="font-mono">dd2043e45d…</span>
+              </span>
+              <span className="text-fg-base/30">·</span>
+              <span>17/17 gates passed</span>
+            </div>
+            <span className="font-mono text-fg-base/50">expires in 23h 42m</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Three-column explainer */}
+      <div className="mx-auto max-w-5xl px-6 mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
+        <div>
+          <h3 className="font-semibold text-fg-strong mb-2">AI-predicted, instantly</h3>
+          <p className="text-sm text-fg-base">
+            A GPT-rendered HTML preview lands in 2&#8209;3 seconds — the panel
+            is usable before the sandbox finishes building.
+          </p>
+        </div>
+        <div>
+          <h3 className="font-semibold text-fg-strong mb-2">Live sandbox</h3>
+          <p className="text-sm text-fg-base">
+            The fix branch runs in an ephemeral Docker container for 24 hours.
+            Same app, real traffic, zero risk to production.
+          </p>
+        </div>
+        <div>
+          <h3 className="font-semibold text-fg-strong mb-2">Cryptographically verified</h3>
+          <p className="text-sm text-fg-base">
+            Every preview links to the EAP receipt — a signed chain of the 17
+            gates the fix passed, verifiable forever.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Replay teaser section ─────────────────────────────────────────────────────
 
 function ReplaySection() {
@@ -1354,6 +1483,7 @@ export default async function LandingPage() {
         <HowItWorks />
         <TerminalPreview />
         <Features />
+        <PreviewFixSection />
         <ReplaySection />
         <NetworkSection stats={networkStats} />
         <McpSection />
