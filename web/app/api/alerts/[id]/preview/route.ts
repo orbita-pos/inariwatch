@@ -140,6 +140,15 @@ export async function POST(
         summary: null,
         confidence: null,
       },
+      screenshot: {
+        url: result.session.screenshotUrl
+          ? `/api/preview/${result.session.id}/screenshot.png`
+          : null,
+        takenAt: result.session.screenshotTakenAt,
+        width: result.session.screenshotWidth,
+        height: result.session.screenshotHeight,
+        error: result.session.screenshotError,
+      },
       eapReceiptId: result.session.eapReceiptId,
       createdAt: result.session.createdAt,
       revokedAt: result.session.revokedAt,

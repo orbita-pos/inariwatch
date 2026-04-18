@@ -91,6 +91,12 @@ export async function GET(
       summary: prediction?.summary ?? null,
       confidence: prediction?.confidence ?? null,
     },
+    screenshot: {
+      url: preview.screenshotUrl ? `/api/preview/${preview.id}/screenshot.png` : null,
+      takenAt: preview.screenshotTakenAt,
+      width: preview.screenshotWidth,
+      height: preview.screenshotHeight,
+    },
     eapReceiptId: preview.eapReceiptId,
     createdAt: preview.createdAt,
   });

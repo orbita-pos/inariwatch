@@ -39,6 +39,13 @@ type PreviewResponse = {
     summary: string | null;
     confidence: number | null;
   };
+  screenshot?: {
+    url: string | null;
+    takenAt: string | null;
+    width: number | null;
+    height: number | null;
+    error?: string | null;
+  };
   eapReceiptId: string | null;
   createdAt: string;
   revokedAt: string | null;
@@ -132,7 +139,15 @@ export function PreviewPanel({ alertId, eapReceiptId: initialReceipt }: PanelPro
         });
         const bothTerminal =
           isTerminalLive(data.live.status) && isTerminalPrediction(data.prediction.status);
-        if (bothTerminal) return;
+        // After Tier 1 reaches `running` the screenshot capture is still
+        // in flight — keep polling a bit longer so the image appears
+        // in-place. `screenshotPending` is bounded by the live timeout
+        // above; if capture fails, `screenshot_error` is set and we stop.
+        const screenshotPending =
+          data.live.status === "running" &&
+          !data.screenshot?.url &&
+          !data.screenshot?.error;
+        if (bothTerminal && !screenshotPending) return;
       } catch {
         // Swallow transient errors — keep polling.
       }
@@ -212,7 +227,7 @@ export function PreviewPanel({ alertId, eapReceiptId: initialReceipt }: PanelPro
             {activeTab === "prediction" ? (
               <PredictionView data={state.data.prediction} />
             ) : (
-              <LiveView data={state.data.live} />
+              <LiveView data={state.data.live} screenshot={state.data.screenshot} />
             )}
           </div>
 
@@ -382,31 +397,15 @@ function PredictionView({
   );
 }
 
-function LiveView({ data }: { data: PreviewResponse["live"] }) {
+function LiveView({
+  data,
+  screenshot,
+}: {
+  data: PreviewResponse["live"];
+  screenshot?: PreviewResponse["screenshot"];
+}) {
   if (data.status === "running" && data.url) {
-    return (
-      <div className="overflow-hidden rounded-xl border border-line bg-white">
-        <div className="flex items-center gap-2 border-b border-line bg-surface-inner px-3 py-2 text-[11px] text-fg-base/80">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-          <span className="font-mono truncate">{data.url}</span>
-          <a
-            href={data.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[10px] font-medium text-fg-base/80 hover:text-fg-strong"
-          >
-            <ExternalLink className="h-3 w-3" aria-hidden />
-            Open
-          </a>
-        </div>
-        <iframe
-          src={data.url}
-          sandbox="allow-scripts allow-forms allow-same-origin"
-          title="Live preview of the fixed application"
-          className="h-[560px] w-full"
-        />
-      </div>
-    );
+    return <RunningLiveView url={data.url} screenshot={screenshot} />;
   }
   if (data.status === "failed") {
     return (
@@ -444,6 +443,108 @@ function LiveView({ data }: { data: PreviewResponse["live"] }) {
         </span>
       </div>
       <div className="mt-1.5 text-[10px] text-fg-base/50">Usually 30–60 seconds.</div>
+    </div>
+  );
+}
+
+/**
+ * Hero card shown when Tier 1 is `running`.
+ *
+ * Two-stage reveal:
+ *   1. Default — screenshot + big "Open live preview" CTA. Works in every
+ *      browser (no iframe cross-origin blocks, no tracking-prevention
+ *      surprises), loads instantly from CDN.
+ *   2. Opt-in — "Try embedded view" toggle drops in the iframe for users
+ *      whose browser permits it. Kept off by default because Edge / Brave
+ *      / Safari / Firefox-ETP routinely block cross-origin iframes.
+ *
+ * Before the screenshot lands we show a skeleton with the same aspect
+ * ratio, so the card doesn't layout-shift when the image arrives.
+ */
+function RunningLiveView({
+  url,
+  screenshot,
+}: {
+  url: string;
+  screenshot?: PreviewResponse["screenshot"];
+}) {
+  const [showIframe, setShowIframe] = useState(false);
+  const hasScreenshot = !!screenshot?.url;
+  const aspect =
+    screenshot?.width && screenshot?.height
+      ? `${screenshot.width} / ${screenshot.height}`
+      : "1280 / 800";
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-line bg-white dark:bg-surface">
+      <div className="flex items-center gap-2 border-b border-line bg-surface-inner px-3 py-2 text-[11px] text-fg-base/80">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+        <span className="font-mono truncate">{url}</span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[10px] font-medium text-fg-base/80 hover:text-fg-strong"
+        >
+          <ExternalLink className="h-3 w-3" aria-hidden />
+          Open
+        </a>
+      </div>
+
+      {showIframe ? (
+        <iframe
+          src={url}
+          sandbox="allow-scripts allow-forms allow-same-origin"
+          title="Live preview of the fixed application"
+          className="h-[560px] w-full bg-white"
+        />
+      ) : (
+        <div className="relative">
+          {hasScreenshot ? (
+            // Capped at 560px viewport height to match the iframe view; the
+            // img scales to contain so the whole above-the-fold hero shows.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={screenshot!.url!}
+              alt="Live preview of the fixed application"
+              width={screenshot?.width ?? 1280}
+              height={screenshot?.height ?? 800}
+              className="block max-h-[560px] w-full object-contain bg-surface-inner"
+              loading="eager"
+            />
+          ) : (
+            <div
+              className="w-full bg-surface-inner"
+              style={{ aspectRatio: aspect }}
+              aria-hidden
+            >
+              <div className="flex h-full w-full items-center justify-center text-[11px] text-fg-base/50">
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden />
+                Capturing preview screenshot…
+              </div>
+            </div>
+          )}
+
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/50 via-black/15 to-transparent p-3">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-medium text-fg-strong shadow-sm transition hover:bg-white"
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+              Open live preview
+            </a>
+            <button
+              type="button"
+              onClick={() => setShowIframe(true)}
+              className="pointer-events-auto rounded-md border border-white/20 bg-black/30 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm hover:bg-black/40"
+            >
+              Try embedded view
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

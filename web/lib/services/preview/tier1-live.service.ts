@@ -37,17 +37,11 @@ import {
 } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
-
-/** Secrets we never pass into the preview container's env. */
-const SECRET_ENV_PATTERNS: RegExp[] = [
-  /_API_KEY$/i,
-  /SECRET/i,
-  /TOKEN/i,
-  /DATABASE_URL/i,
-  /STRIPE/i,
-  /_PASSWORD$/i,
-  /_PRIVATE_KEY$/i,
-];
+import {
+  looksLikeGitHubAuthFailure,
+  markGitHubTokenInvalid,
+} from "@/lib/integrations/health";
+import { captureAndStoreScreenshot } from "./screenshot.service";
 
 /** Redactor for build-log storage — nobody should see secrets in the UI. */
 const SECRET_LOG_REGEXES: RegExp[] = [
@@ -66,23 +60,32 @@ function redactSecrets(s: string): string {
 }
 
 /**
- * Replace secret-looking env vars with a sentinel. The preview app can
- * detect `NEXT_PUBLIC_INARIWATCH_PREVIEW=1` to render a "Preview mode"
- * banner + disable destructive actions. This is cooperative — security
- * does NOT rely on the app respecting it; the sentinel replacement alone
- * prevents secret leakage into the running container.
+ * Build the env the preview container runs with.
+ *
+ * Trust model: the project owner has explicitly curated `project.staging_env`
+ * as the env that should be available to ephemeral preview deploys (same
+ * trust level as Vercel's "Preview Environment Variables"). We pass it
+ * through verbatim — scrubbing what the owner already curated would make
+ * Preview Fix unusable for any app that renders against a DB or external
+ * API (the overwhelming majority).
+ *
+ * Safety rests on the fact that staging_env is configured deliberately per
+ * project, separate from production env, and best-practice is to populate
+ * it with preview-specific credentials (throwaway DB, test Stripe keys,
+ * etc.) — not production secrets. We document that expectation; we do not
+ * police it.
+ *
+ * We still layer two preview-only signals on top:
+ *   - `NEXT_PUBLIC_INARIWATCH_PREVIEW=1` so the app can render a "Preview
+ *     mode" banner / disable destructive actions. Cooperative, not
+ *     enforced.
+ *   - `NODE_ENV=production` unless the owner set it — `next start` refuses
+ *     to boot otherwise.
  */
-function scrubEnv(input: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(input)) {
-    if (SECRET_ENV_PATTERNS.some((p) => p.test(k))) {
-      out[k] = "PREVIEW_SCRUBBED";
-    } else {
-      out[k] = v;
-    }
-  }
+function preparePreviewEnv(ownerProvided: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = { ...ownerProvided };
   out.NEXT_PUBLIC_INARIWATCH_PREVIEW = "1";
-  out.NODE_ENV = out.NODE_ENV ?? "preview";
+  out.NODE_ENV = out.NODE_ENV ?? "production";
   return out;
 }
 
@@ -154,8 +157,7 @@ export async function kickoffTier1(previewSessionId: string): Promise<void> {
     const repoUrl = `https://github.com/${repoSlug}.git`;
 
     // Read project staging env (if configured) and scrub secrets.
-    const projectStagingEnv = readProjectStagingEnv(project);
-    const envVars = scrubEnv(projectStagingEnv);
+    const envVars = preparePreviewEnv(readProjectStagingEnv(project));
 
     // 24h TTL — long-lived preview URLs are the point. The cron sweep
     // tears them down at `live_expires_at`.
@@ -196,6 +198,17 @@ export async function kickoffTier1(previewSessionId: string): Promise<void> {
         updatedAt: new Date(),
       })
       .where(eq(previewSessions.id, previewSessionId));
+
+    // Detach a polling loop so the DB row keeps advancing (building → running
+    // / failed) even if no client is subscribed to an SSE stream. Without
+    // this the row sits on "building" forever and the panel never flips to
+    // "ready". No-op `onEvent` — if/when the stream endpoint ships, the SSE
+    // handler can invoke `pollAndStreamTier1Progress` directly; this
+    // detached loop is safe to run alongside it because all writes are
+    // idempotent updates keyed on the same previewSessionId.
+    void pollAndStreamTier1Progress(previewSessionId, () => {}).catch(() => {
+      /* swallow — errors already persisted on the row */
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await markFailed(previewSessionId, msg.slice(0, 500));
@@ -310,6 +323,17 @@ export async function pollAndStreamTier1Progress(
               updatedAt: new Date(),
             })
             .where(eq(previewSessions.id, previewSessionId));
+
+          // Kick off the hero screenshot asynchronously. Whatever it
+          // writes lands on the same row the panel is already polling, so
+          // the image appears in-place without any extra wiring on the
+          // client. Errors are captured on `screenshot_error` — this never
+          // fails the preview itself.
+          void captureAndStoreScreenshot({
+            previewSessionId,
+            previewUrl: status.url,
+            publicSlug: row.publicSlug,
+          });
         } else if (normalized === "failed") {
           payload.error = status.error ?? "build failed";
           await db
@@ -320,6 +344,19 @@ export async function pollAndStreamTier1Progress(
               updatedAt: new Date(),
             })
             .where(eq(previewSessions.id, previewSessionId));
+          // If Hetzner's error string matches a GitHub auth-failure
+          // fingerprint, proactively flag the project's GitHub integration
+          // as broken so /integrations shows a red banner with a Reconnect
+          // CTA. Otherwise the user would only discover the token expired
+          // through this opaque "build failed" message.
+          if (
+            looksLikeGitHubAuthFailure({ errorString: status.error ?? "" })
+          ) {
+            await markGitHubTokenInvalid(
+              row.projectId,
+              "GitHub token was rejected. Reconnect to keep Preview Fix and autonomous remediation working.",
+            );
+          }
         } else {
           await db
             .update(previewSessions)

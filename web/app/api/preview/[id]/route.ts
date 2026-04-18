@@ -82,6 +82,15 @@ export async function GET(
       summary: prediction?.summary ?? null,
       confidence: prediction?.confidence ?? null,
     },
+    screenshot: {
+      // `screenshotUrl` is the R2 key internally; surface a CDN-served
+      // proxy URL so clients don't need R2 credentials.
+      url: preview.screenshotUrl ? `/api/preview/${preview.id}/screenshot.png` : null,
+      takenAt: preview.screenshotTakenAt,
+      width: preview.screenshotWidth,
+      height: preview.screenshotHeight,
+      error: preview.screenshotError,
+    },
     eapReceiptId: preview.eapReceiptId,
     createdAt: preview.createdAt,
     revokedAt: preview.revokedAt,

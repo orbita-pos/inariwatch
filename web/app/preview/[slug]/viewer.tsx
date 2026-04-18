@@ -35,6 +35,12 @@ type PublicPreviewResponse = {
     summary: string | null;
     confidence: number | null;
   };
+  screenshot?: {
+    url: string | null;
+    takenAt: string | null;
+    width: number | null;
+    height: number | null;
+  };
   eapReceiptId: string | null;
   createdAt: string;
 };
@@ -164,7 +170,11 @@ export function PreviewViewer({
           {activeTab === "prediction" ? (
             <PredictionBody prediction={prediction ?? null} initialStatus={initialPreview.predictionStatus} />
           ) : (
-            <LiveBody live={live ?? null} initialStatus={initialPreview.liveStatus} />
+            <LiveBody
+              live={live ?? null}
+              screenshot={data?.screenshot}
+              initialStatus={initialPreview.liveStatus}
+            />
           )}
         </div>
       </div>
@@ -284,34 +294,80 @@ function PredictionBody({
 
 function LiveBody({
   live,
+  screenshot,
   initialStatus,
 }: {
   live: PublicPreviewResponse["live"] | null;
+  screenshot?: PublicPreviewResponse["screenshot"];
   initialStatus: string;
 }) {
   const status = live?.status ?? initialStatus;
+  const [showIframe, setShowIframe] = useState(false);
   if (status === "running" && live?.url) {
+    const url = live.url;
+    const hasShot = !!screenshot?.url;
+    if (showIframe) {
+      return (
+        <div>
+          <div className="flex items-center gap-2 border-b border-line bg-surface-inner px-4 py-2 text-[11px]">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+            <code className="min-w-0 flex-1 truncate font-mono text-fg-base/80">{url}</code>
+            <button
+              type="button"
+              onClick={() => setShowIframe(false)}
+              className="rounded-md border border-line bg-surface px-2 py-1 text-[10px] font-medium text-fg-base/80 hover:text-fg-strong"
+            >
+              Back to preview
+            </button>
+          </div>
+          <iframe
+            src={url}
+            sandbox="allow-scripts allow-forms allow-same-origin"
+            title="Live preview of the fixed application"
+            className="h-[720px] w-full bg-white"
+          />
+        </div>
+      );
+    }
     return (
-      <div>
-        <div className="flex items-center gap-2 border-b border-line bg-surface-inner px-4 py-2 text-[11px]">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-          <code className="min-w-0 flex-1 truncate font-mono text-fg-base/80">{live.url}</code>
+      <div className="relative">
+        {hasShot ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={screenshot!.url!}
+            alt="Live preview of the fixed application"
+            width={screenshot?.width ?? 1280}
+            height={screenshot?.height ?? 800}
+            className="block h-auto w-full bg-surface-inner"
+            loading="eager"
+          />
+        ) : (
+          <div
+            className="flex w-full items-center justify-center bg-surface-inner text-[12px] text-fg-base/60"
+            style={{ aspectRatio: "1280 / 800" }}
+          >
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+            Capturing preview screenshot…
+          </div>
+        )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 bg-gradient-to-t from-black/60 via-black/20 to-transparent p-5">
           <a
-            href={live.url}
+            href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[10px] font-medium text-fg-base/80 hover:text-fg-strong"
+            className="pointer-events-auto inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-fg-strong shadow transition hover:bg-white/95"
           >
-            <ExternalLink className="h-3 w-3" aria-hidden />
-            Open
+            <ExternalLink className="h-4 w-4" aria-hidden />
+            Open live preview
           </a>
+          <button
+            type="button"
+            onClick={() => setShowIframe(true)}
+            className="pointer-events-auto rounded-md border border-white/30 bg-black/40 px-3 py-1.5 text-xs font-medium text-white/90 backdrop-blur-sm hover:bg-black/50"
+          >
+            Try embedded view
+          </button>
         </div>
-        <iframe
-          src={live.url}
-          sandbox="allow-scripts allow-forms allow-same-origin"
-          title="Live preview of the fixed application"
-          className="h-[720px] w-full bg-white"
-        />
       </div>
     );
   }

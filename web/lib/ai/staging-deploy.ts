@@ -153,7 +153,21 @@ export async function deployStagingEnvironment(params: {
 export async function pollStagingStatus(deployId: string): Promise<StagingStatus> {
   const res = await stagingFetch(`/status/${deployId}`);
   if (!res.ok) throw new Error(`status check failed (${res.status})`);
-  return res.json();
+  // The Go staging server returns snake_case (build_logs, created_at, ...).
+  // The interface uses camelCase, so we normalize here once rather than
+  // forcing every caller to remember the shape drift.
+  const raw = (await res.json()) as Record<string, unknown>;
+  return {
+    id: String(raw.id ?? ""),
+    status: String(raw.status ?? ""),
+    url: String(raw.url ?? ""),
+    port: Number(raw.port ?? 0),
+    createdAt: String(raw.created_at ?? raw.createdAt ?? ""),
+    expiresAt: String(raw.expires_at ?? raw.expiresAt ?? ""),
+    startedAt: (raw.started_at ?? raw.startedAt) as string | undefined,
+    buildLogs: (raw.build_logs ?? raw.buildLogs) as string | undefined,
+    error: raw.error as string | undefined,
+  };
 }
 
 /** Wait for staging to reach "running" state. Polls every 5s, max timeout. */
