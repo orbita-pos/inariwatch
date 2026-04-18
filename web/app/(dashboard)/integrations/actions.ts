@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projects, projectIntegrations, users, PLAN_LIMITS, BETA_PLAN } from "@/lib/db";
+import { db, projects, projectIntegrations, organizations, users, PLAN_LIMITS, BETA_PLAN } from "@/lib/db";
 import { eq, and, count, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { generateWebhookSecret } from "@/lib/webhooks/shared";
@@ -406,29 +406,53 @@ export async function saveAlertConfig(
   revalidatePath("/integrations");
 }
 
-export async function disconnectIntegration(integrationId: string): Promise<void> {
+export type DisconnectResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export async function disconnectIntegration(integrationId: string): Promise<DisconnectResult> {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string })?.id;
-  if (!userId) return;
+  if (!userId) return { ok: false, error: "You need to be signed in." };
 
   const [integ] = await db
     .select({ id: projectIntegrations.id, projectId: projectIntegrations.projectId })
     .from(projectIntegrations)
     .where(eq(projectIntegrations.id, integrationId))
     .limit(1);
-  if (!integ) return;
+  if (!integ) return { ok: false, error: "Integration not found." };
 
+  // Allow disconnect if the user owns the project directly OR is the owner of
+  // the organization the project belongs to. Anything else → 403-style toast.
   const [project] = await db
-    .select()
+    .select({
+      id: projects.id,
+      userId: projects.userId,
+      organizationId: projects.organizationId,
+    })
     .from(projects)
-    .where(and(eq(projects.id, integ.projectId), eq(projects.userId, userId)))
+    .where(eq(projects.id, integ.projectId))
     .limit(1);
-  if (!project) return;
+  if (!project) return { ok: false, error: "Project not found." };
+
+  let authorized = project.userId === userId;
+  if (!authorized && project.organizationId) {
+    const [org] = await db
+      .select({ ownerId: organizations.ownerId })
+      .from(organizations)
+      .where(eq(organizations.id, project.organizationId))
+      .limit(1);
+    if (org?.ownerId === userId) authorized = true;
+  }
+  if (!authorized) {
+    return { ok: false, error: "You're not the owner of this project." };
+  }
 
   await db.delete(projectIntegrations).where(eq(projectIntegrations.id, integrationId));
   logAudit({ userId, action: "integration.disconnect", resource: "integration", resourceId: integrationId });
   revalidatePath("/integrations");
   revalidatePath("/dashboard");
+  return { ok: true };
 }
 
 export async function fetchIntegrationOptions(

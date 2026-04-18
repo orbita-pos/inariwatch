@@ -285,6 +285,8 @@ export const projectIntegrations = pgTable("project_integrations", {
   lastCheckedAt: timestamp("last_checked_at"),
   lastSuccessAt: timestamp("last_success_at"),
   errorCount: integer("error_count").default(0).notNull(),
+  lastErrorAt: timestamp("last_error_at"),
+  lastErrorMessage: text("last_error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -709,6 +711,16 @@ export const previewSessions = pgTable("preview_sessions", {
   viewCount: integer("view_count").notNull().default(0),
   tier1ClickCount: integer("tier1_click_count").notNull().default(0),
   tier3ClickCount: integer("tier3_click_count").notNull().default(0),
+
+  /** CDN-served PNG of the running preview. Captured by the Hetzner worker
+   *  via Playwright once Tier 1 reaches `running`, uploaded to Vercel Blob,
+   *  and referenced here by URL. Persists past the 24h preview TTL so a
+   *  share URL tweet or Slack unfurl keeps rendering the image. */
+  screenshotUrl: text("screenshot_url"),
+  screenshotTakenAt: timestamp("screenshot_taken_at"),
+  screenshotWidth: integer("screenshot_width"),
+  screenshotHeight: integer("screenshot_height"),
+  screenshotError: text("screenshot_error"),
 
   /** Set by the org owner's "revoke share" action. When non-null the public
    *  slug endpoint returns 410 Gone. Internal lookups by id still resolve. */

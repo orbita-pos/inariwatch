@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CookieConsent } from "@/components/cookie-consent";
+import { Toaster } from "sonner";
 import { satoshi, clashDisplay } from "./fonts";
 
 const BASE_URL           = "https://inariwatch.com";
@@ -126,6 +127,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           {children}
           <CookieConsent />
+          <Toaster
+            theme="dark"
+            position="bottom-right"
+            richColors
+            closeButton
+            toastOptions={{ className: "font-sans" }}
+          />
         </ThemeProvider>
       </body>
     </html>

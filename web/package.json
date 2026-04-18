@@ -54,6 +54,7 @@
     "rrweb": "^2.0.0-alpha.18",
     "rrweb-player": "^1.0.0-alpha.4",
     "simple-icons": "^16.12.0",
+    "sonner": "^2.0.7",
     "source-map-js": "^1.2.1",
     "stripe": "^22.0.1",
     "tailwind-merge": "^2.5.4",

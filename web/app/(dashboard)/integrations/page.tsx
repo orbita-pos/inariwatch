@@ -6,7 +6,7 @@ import { getActiveOrgId } from "@/lib/workspace";
 import { formatRelativeTime } from "@/lib/utils";
 import {
   CheckCircle2, XCircle, Clock, Plus,
-  Terminal, Settings2, Unplug,
+  Terminal, Settings2,
 } from "lucide-react";
 import {
   GitHubIcon, VercelIcon, SentryIcon, PostgreSQLIcon, NpmIcon, GitIcon, UptimeIcon, DatadogIcon, ExpoIcon, CaptureIcon, AgentIcon,
@@ -17,7 +17,8 @@ import { Button } from "@/components/ui/button";
 import { ConnectModal }       from "./connect-modal";
 import { CreateProjectModal } from "./create-project-modal";
 import { ConfigModal }        from "./config-modal";
-import { disconnectIntegration } from "./actions";
+import { DisconnectButton } from "./disconnect-button";
+import { IntegrationHealthBanner } from "./health-banner";
 import { WebhookInfo } from "./webhook-info";
 import { decrypt, decryptConfig } from "@/lib/crypto";
 import type { Metadata } from "next";
@@ -177,6 +178,19 @@ export default async function IntegrationsPage() {
         </CreateProjectModal>
       </div>
 
+      {/* ── Integration health (auto-disabled after 401) ───────────────── */}
+      <IntegrationHealthBanner
+        broken={allIntegrations
+          .filter((r) => !r.isActive && r.lastErrorAt)
+          .map((r) => ({
+            id: r.id,
+            service: r.service,
+            projectName: r.projectName,
+            lastErrorAt: r.lastErrorAt,
+            lastErrorMessage: r.lastErrorMessage,
+          }))}
+      />
+
       {/* ── No projects ────────────────────────────────────────────────── */}
       {userProjects.length === 0 && (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-20 text-center">
@@ -242,7 +256,7 @@ function CardShell({
   connected,
   children,
 }: {
-  item: { label: string; desc: string; icon: ElementType };
+  item: { service: string; label: string; desc: string; icon: ElementType };
   connected: ConnectedRow[];
   children: React.ReactNode;
 }) {
@@ -251,9 +265,12 @@ function CardShell({
   const hasErrors = connected.some((c) => c.errorCount > 0);
 
   return (
-    <div className={`relative flex flex-col overflow-hidden rounded-xl border bg-surface transition-all ${
-      isActive ? "border-line-medium" : "border-line"
-    }`}>
+    <div
+      id={`service-${item.service}`}
+      className={`relative flex flex-col overflow-hidden rounded-xl border bg-surface transition-all scroll-mt-16 ${
+        isActive ? "border-line-medium" : "border-line"
+      }`}
+    >
       {/* Top accent bar when connected */}
       {isActive && (
         <div className={`h-[2px] w-full ${hasErrors ? "bg-amber-400/60" : "bg-green-500/40"}`} />
@@ -347,16 +364,7 @@ function WebCard({
                       <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />
                     </button>
                   </ConfigModal>
-                  <form action={disconnectIntegration.bind(null, row.id)}>
-                    <button
-                      type="submit"
-                      title="Disconnect"
-                      aria-label="Disconnect integration"
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/50 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
-                    >
-                      <Unplug aria-hidden="true" className="h-3.5 w-3.5" />
-                    </button>
-                  </form>
+                  <DisconnectButton integrationId={row.id} serviceLabel={item.label} />
                 </div>
               </div>
 
@@ -422,16 +430,7 @@ function CliCard({
                   )}
                 </div>
               </div>
-              <form action={disconnectIntegration.bind(null, row.id)}>
-                <button
-                  type="submit"
-                  title="Disconnect"
-                  aria-label="Disconnect integration"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-fg-base/50 transition-colors hover:bg-red-400/[0.06] hover:text-red-400"
-                >
-                  <Unplug aria-hidden="true" className="h-3.5 w-3.5" />
-                </button>
-              </form>
+              <DisconnectButton integrationId={row.id} serviceLabel={item.label} />
             </li>
           ))}
         </ul>
