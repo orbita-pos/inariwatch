@@ -1884,41 +1884,44 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               preview-specific credentials (throwaway DB branch, test Stripe keys), not production.
             </Callout>
 
-            <SubHeading id="preview-fix-enable">Enable it for your workspace</SubHeading>
+            <SubHeading id="preview-fix-access">Getting access</SubHeading>
             <P>
-              Preview Fix is behind a feature flag so you control the rollout — curate a private alpha,
-              enable for one org, or flip it on globally when you&apos;re ready. Two env vars, either is
-              enough; both are checked.
+              Preview Fix is rolling out to alpha workspaces first. If your org is on the allowlist,
+              the panel appears automatically on any alert whose remediation reached the
+              completed + merged state — no toggles, no config on your end.
+            </P>
+            <P>
+              Not seeing the panel on a merged fix?{" "}
+              <a href="mailto:hello@inariwatch.com?subject=Preview Fix early access" className="underline">
+                Email hello@inariwatch.com
+              </a>{" "}
+              with your workspace slug and we&apos;ll add you.
+            </P>
+
+            <SubHeading id="preview-fix-self-host">Self-hosted rollout flag</SubHeading>
+            <P>
+              Only relevant if you&apos;re running your own InariWatch instance (the hosted service at
+              <InlineCode>app.inariwatch.com</InlineCode> is managed for you). Two env vars gate access,
+              checked at the request level — either match is enough.
             </P>
             <Table
               head={["Value", "Who can use Preview Fix"]}
               rows={[
                 ["*", "Everyone (global rollout)"],
-                ["<uuid>,<uuid>,<uuid>", "Comma-separated allowlist of org or user UUIDs"],
+                ["<uuid>,<uuid>", "Comma-separated allowlist of org or user UUIDs"],
                 ["(unset or empty)", "Nobody — the panel is hidden and the create API returns 403"],
               ]}
             />
-            <CodeBlock label=".env.local (development) or Vercel Environment (production)">{`# Option 1 — global on. Panel renders for every user with a merged remediation.
+            <CodeBlock label=".env.local / Vercel Environment">{`# Global on: panel renders for every user with a merged remediation.
 PREVIEW_FIX_ORGS=*
 
-# Option 2 — curated alpha. Only the listed orgs / users see the panel.
-PREVIEW_FIX_ORGS=f4b0ed46-aab2-4d2b-aa0d-e8c0ae37f5f7,abc...
-PREVIEW_FIX_USERS=c70684ce-871b-497e-90de-6135249fb495
+# Curated alpha: only the listed orgs / users see the panel.
+PREVIEW_FIX_ORGS=<org-uuid>,<org-uuid>
+PREVIEW_FIX_USERS=<user-uuid>
 
-# Option 3 — leave both unset to keep the feature hidden.
-
-# Kill switch — independent of the flags above. When "1", /api/alerts/:id/preview
-# returns 503; existing previews still render from DB, no new ones kick off.
+# Kill switch, independent of the flags above. When "1",
+# /api/alerts/:id/preview returns 503; existing previews still render.
 PREVIEW_FIX_KILL=`}</CodeBlock>
-            <Callout type="tip">
-              Finding your UUIDs: your user id is the <InlineCode>id</InlineCode> column in the <InlineCode>users</InlineCode> table for
-              your email; your org id is <InlineCode>organizations.id</InlineCode> for your workspace. A quick SQL:
-              <InlineCode>{"SELECT u.id AS user_id, u.active_org_id AS org_id FROM users u WHERE email = 'you@example.com'"}</InlineCode>.
-            </Callout>
-            <P>
-              Once the flag matches, every alert detail page with a completed + merged remediation
-              renders the Preview Fix panel automatically — no per-project toggle.
-            </P>
 
             <SubHeading id="preview-fix-how">How it works</SubHeading>
             <StepList steps={[
