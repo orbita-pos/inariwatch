@@ -27,7 +27,11 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { db, previewSessions } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
-const WORKER_TIMEOUT_MS = 40_000;
+// Generous — the worker internally retries on transient SSL / DNS errors
+// (first-cert provisioning on a fresh preview subdomain can take ~10-20s
+// under Caddy's ACME DNS-01 flow). Aggregate is well below the 10min
+// polling cap that pollAndStreamTier1Progress enforces.
+const WORKER_TIMEOUT_MS = 60_000;
 
 function getR2(): { client: S3Client; bucket: string } | null {
   const accountId = process.env.R2_ACCOUNT_ID;

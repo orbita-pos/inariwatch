@@ -60,6 +60,11 @@ async function main() {
     console.log(`predictionError:  ${r.predictionError ?? "(none)"}`);
     console.log(`predictionDurationMs: ${r.predictionDurationMs ?? "(none)"}`);
     console.log(`predictionCents:  ${r.predictionCents ?? "(none)"}`);
+    console.log();
+    console.log(`screenshotUrl:    ${r.screenshotUrl ?? "(none)"}`);
+    console.log(`screenshotTakenAt:${r.screenshotTakenAt?.toISOString() ?? "(none)"}`);
+    console.log(`screenshotSize:   ${r.screenshotWidth ?? "?"}x${r.screenshotHeight ?? "?"}`);
+    console.log(`screenshotError:  ${r.screenshotError ?? "(none)"}`);
     console.log(`createdAt:        ${r.createdAt.toISOString()}`);
   }
   process.exit(0);

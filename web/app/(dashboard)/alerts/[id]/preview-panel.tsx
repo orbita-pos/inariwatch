@@ -470,6 +470,7 @@ function RunningLiveView({
 }) {
   const [showIframe, setShowIframe] = useState(false);
   const hasScreenshot = !!screenshot?.url;
+  const screenshotErrored = !!screenshot?.error;
   const aspect =
     screenshot?.width && screenshot?.height
       ? `${screenshot.width} / ${screenshot.height}`
@@ -498,39 +499,24 @@ function RunningLiveView({
           title="Live preview of the fixed application"
           className="h-[560px] w-full bg-white"
         />
-      ) : (
+      ) : hasScreenshot ? (
+        // Screenshot is ready: hero card with the real render + overlay CTAs.
         <div className="relative">
-          {hasScreenshot ? (
-            // Capped at 560px viewport height to match the iframe view; the
-            // img scales to contain so the whole above-the-fold hero shows.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={screenshot!.url!}
-              alt="Live preview of the fixed application"
-              width={screenshot?.width ?? 1280}
-              height={screenshot?.height ?? 800}
-              className="block max-h-[560px] w-full object-contain bg-surface-inner"
-              loading="eager"
-            />
-          ) : (
-            <div
-              className="w-full bg-surface-inner"
-              style={{ aspectRatio: aspect }}
-              aria-hidden
-            >
-              <div className="flex h-full w-full items-center justify-center text-[11px] text-fg-base/50">
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden />
-                Capturing preview screenshot…
-              </div>
-            </div>
-          )}
-
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/50 via-black/15 to-transparent p-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={screenshot!.url!}
+            alt="Live preview of the fixed application"
+            width={screenshot?.width ?? 1280}
+            height={screenshot?.height ?? 800}
+            className="block max-h-[560px] w-full object-contain bg-surface-inner"
+            loading="eager"
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/60 via-black/20 to-transparent p-3">
             <a
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-medium text-fg-strong shadow-sm transition hover:bg-white"
+              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow transition hover:bg-white/95"
             >
               <ExternalLink className="h-3.5 w-3.5" aria-hidden />
               Open live preview
@@ -539,6 +525,44 @@ function RunningLiveView({
               type="button"
               onClick={() => setShowIframe(true)}
               className="pointer-events-auto rounded-md border border-white/20 bg-black/30 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm hover:bg-black/40"
+            >
+              Try embedded view
+            </button>
+          </div>
+        </div>
+      ) : (
+        // Capturing: skeleton + centered primary CTA so the user can jump to
+        // the live preview in a new tab without waiting for the screenshot.
+        // The skeleton holds the card's final aspect ratio so there's no
+        // layout shift when the image arrives.
+        <div
+          className="relative w-full bg-surface-inner"
+          style={{ aspectRatio: aspect }}
+        >
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-lg bg-fg-strong px-5 py-2.5 text-sm font-semibold text-bg shadow transition hover:opacity-90"
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              Open live preview
+            </a>
+            {screenshotErrored ? (
+              <div className="text-[11px] text-fg-base/50">
+                Screenshot unavailable — the live URL still works.
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-[11px] text-fg-base/60">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Capturing screenshot in the background…
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowIframe(true)}
+              className="text-[10px] text-fg-base/50 underline-offset-4 hover:underline"
             >
               Try embedded view
             </button>
