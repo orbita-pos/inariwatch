@@ -292,6 +292,87 @@ async function handleQueueStats(res: ServerResponse): Promise<void> {
   json(res, 200, { queues: stats });
 }
 
+// ── Routes: Screenshot ─────────────────────────────────────────────────────
+
+/**
+ * POST /worker/screenshot
+ *
+ * Renders the given URL via Playwright (Chromium) and returns the PNG as
+ * the response body with `Content-Type: image/png`. Used by Preview Fix
+ * Tier 1 to capture a hero image once the ephemeral deploy reaches
+ * `running`. The web app uploads the returned bytes to Vercel Blob and
+ * stores the Blob URL on preview_sessions.
+ *
+ * Body: { url, width?, height?, fullPage?, timeoutMs? }
+ * Returns: raw PNG bytes (image/png), or JSON error.
+ *
+ * Concurrency cap mirrors whatif's — Chromium is the single biggest RAM
+ * consumer on the CX22 box (~400MB per warm browser + per-context
+ * overhead). Unlimited parallel requests would OOM the worker.
+ */
+let activeScreenshotJobs = 0;
+const MAX_SCREENSHOT_CONCURRENT = Number(process.env.MAX_SCREENSHOT_CONCURRENT ?? 3);
+
+async function handleScreenshot(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (activeScreenshotJobs >= MAX_SCREENSHOT_CONCURRENT) {
+    json(res, 503, {
+      error: `Screenshot worker at capacity (${activeScreenshotJobs}/${MAX_SCREENSHOT_CONCURRENT}). Retry shortly.`,
+    });
+    return;
+  }
+
+  let body: { url?: string; width?: number; height?: number; fullPage?: boolean; timeoutMs?: number };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    json(res, 400, { error: "Invalid JSON" });
+    return;
+  }
+
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  if (!url) {
+    json(res, 400, { error: "Missing required field: url" });
+    return;
+  }
+  // Reject anything that isn't http(s) — we don't want the headless
+  // Chromium chasing file://, data:, javascript:, or internal hostnames.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    json(res, 400, { error: "Invalid URL" });
+    return;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    json(res, 400, { error: "Only http(s) URLs allowed" });
+    return;
+  }
+
+  activeScreenshotJobs += 1;
+  try {
+    const { takeScreenshot } = await import("./screenshot.js");
+    const result = await takeScreenshot({
+      url,
+      width: typeof body.width === "number" ? body.width : undefined,
+      height: typeof body.height === "number" ? body.height : undefined,
+      fullPage: body.fullPage,
+      timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : undefined,
+    });
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": String(result.png.length),
+      "X-Screenshot-Width": String(result.width),
+      "X-Screenshot-Height": String(result.height),
+    });
+    res.end(result.png);
+  } catch (err) {
+    logError("[screenshot] failed:", err);
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    activeScreenshotJobs -= 1;
+  }
+}
+
 // ── Routes: Health ─────────────────────────────────────────────────────────
 
 let workers: Worker[] = [];
@@ -363,6 +444,8 @@ const server = createServer(async (req, res) => {
       await handleEnqueue(req, res);
     } else if (req.method === "POST" && path === "/worker/whatif") {
       await handleWhatIf(req, res);
+    } else if (req.method === "POST" && path === "/worker/screenshot") {
+      await handleScreenshot(req, res);
     } else if (req.method === "GET" && path === "/worker/queues") {
       await handleQueueStats(res);
     } else {
