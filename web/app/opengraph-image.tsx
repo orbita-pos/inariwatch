@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime     = "edge";
-export const alt         = "InariWatch — AI monitoring that writes the fix autonomously";
+export const alt         = "InariWatch — Monitoring that ships the fix. Verifiably.";
 export const size        = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -110,18 +110,18 @@ export default async function OgImage() {
               color:          "transparent",
             }}
           >
-            fixes itself.
+            ships the fix.
           </div>
           <div
             style={{
               fontSize:   28,
               lineHeight: 1.4,
               color:      "rgba(245,245,247,0.7)",
-              maxWidth:   860,
+              maxWidth:   900,
               marginTop:  10,
             }}
           >
-            AI reads your code, writes the fix, runs 11 safety gates, and opens a PR. CI passes. You approve.
+            17 safety gates. Cryptographic proof chain. Live preview of every autonomous fix.
           </div>
         </div>
 

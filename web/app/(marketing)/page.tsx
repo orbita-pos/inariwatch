@@ -465,9 +465,9 @@ function HowItWorks() {
     },
     {
       fig: "FIG 0.3",
-      title: "Verify & ship",
+      title: "Verify, ship, prove",
       body:
-        "11 safety gates — CI, self-review, security scan, staging E2E. All green, auto-merge. One red, draft PR for you.",
+        "17 safety gates — CI, self-review, security scan, substrate replay, staging E2E. All green, auto-merge with a cryptographic receipt and a visual preview of the result.",
       icon: <FigGates />,
     },
   ];
