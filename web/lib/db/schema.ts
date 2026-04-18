@@ -614,6 +614,12 @@ export const remediationSessions = pgTable("remediation_sessions", {
   fixEmbedding: vector("fix_embedding"),
   /** When the fix was proposed to the human (status → proposing). Used to compute time-to-decide. */
   proposedAt: timestamp("proposed_at", { withTimezone: true }),
+  /** VAR Q3 Phase 2 — EAP receipt ID (64-char hex Merkle root). Populated
+   *  by eap-attestation.service after successful remediation when a
+   *  substrate recording is available. Null for remediations without a
+   *  recording or that predate Phase 2. Drives the "View attestation"
+   *  link on the alert detail page. */
+  eapReceiptId: text("eap_receipt_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

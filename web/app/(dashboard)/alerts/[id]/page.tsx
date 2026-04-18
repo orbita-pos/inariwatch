@@ -423,6 +423,41 @@ export default async function AlertDetailPage({
         <CommunityFixBanner alertId={alert.id} fingerprint={alert.fingerprint} />
       )}
 
+      {/* ── EAP Attestation deep link (VAR Q3 Phase 2) ────────────────── */}
+      {/* Renders only when the remediation has produced a signed EAP    */}
+      {/* receipt. Points to the public audit page at /attestation/:id.  */}
+      {latestRemediation?.eapReceiptId && (
+        <Link
+          href={`/attestation/${latestRemediation.eapReceiptId}`}
+          className="group flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-xs text-fg-base/80 hover:border-inari-accent/40 hover:text-fg-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-3.5 w-3.5 shrink-0 text-emerald-500"
+            aria-hidden="true"
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-fg-strong">
+              EAP attestation available
+            </div>
+            <div className="text-[11px] text-fg-base/60 font-mono truncate">
+              {latestRemediation.eapReceiptId.slice(0, 16)}… · Merkle-rooted, Ed25519-signed
+            </div>
+          </div>
+          <span className="text-[10px] uppercase tracking-wider text-fg-base/50 group-hover:text-inari-accent">
+            view audit →
+          </span>
+        </Link>
+      )}
+
       {/* ── AI Remediation (not for agent/kernel alerts — those need operational response, not code fixes) */}
       {!alert.sourceIntegrations.includes("agent") && <ProGate isPro={isPro} feature="AI Remediation">
         <RemediationPanel

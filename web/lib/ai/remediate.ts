@@ -22,6 +22,7 @@ import * as gh from "@/lib/services/github-api";
 import { gatherRemediationContext } from "./context-gatherer";
 import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
 import { startPostMergeMonitoring } from "./post-merge-monitor";
+import { submitReceiptForRemediation } from "@/lib/services/eap-attestation.service";
 import { linkRemediationToIncident, updateIncidentStatus, resolveIncident as resolveStatusIncident } from "./status-page-automation";
 import { generatePostmortemInternal } from "./postmortem";
 import { triggerEscalation, type EscalationContext } from "./escalation-engine";
@@ -2082,6 +2083,23 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
                   message: `Fix merged successfully. Monitoring for regressions (10 min).`,
                 });
               } catch (e) { log.warn("incident_status_update_failed", { phase: "monitoring", error: e instanceof Error ? e.message : String(e) }); }
+
+              // VAR Q3 Phase 2 — submit EAP attestation receipt for this
+              // remediation. Fire-and-forget: a failed submission must
+              // NEVER fail the remediation itself. The remediation's
+              // value is the merged fix; the EAP receipt is a downstream
+              // audit artifact that can be retried later if needed.
+              submitReceiptForRemediation(sessionId)
+                .then((outcome) => {
+                  if ("ok" in outcome && outcome.ok) {
+                    emit("eap_receipt", { receiptId: outcome.receiptId, signed: outcome.signed });
+                  }
+                })
+                .catch((err) => {
+                  log.warn("eap_attestation_failed", {
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                });
 
               // Start post-merge monitoring if enabled
               if (autoMergeConfig.postMergeMonitor) {
