@@ -29,6 +29,7 @@ import { BehavioralDriftCard } from "./behavioral-drift-card";
 import { MultiEnvCoverageCard } from "./multi-env-coverage-card";
 import { CostImpactCard } from "./cost-impact-card";
 import { PreviewPanel } from "./preview-panel";
+import { PreviewPanelBoundary } from "./preview-panel-boundary";
 import { isPreviewFixEnabled } from "@/lib/feature-flags";
 import { RolloutCard } from "./rollout-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
@@ -467,12 +468,14 @@ export default async function AlertDetailPage({
           organizationId: project.organizationId,
           userId: project.userId,
         }) && (
-          <PreviewPanel
-            alertId={alert.id}
-            remediationSessionId={latestRemediation.id}
-            eapReceiptId={latestRemediation.eapReceiptId}
-            projectName={project.name}
-          />
+          <PreviewPanelBoundary>
+            <PreviewPanel
+              alertId={alert.id}
+              remediationSessionId={latestRemediation.id}
+              eapReceiptId={latestRemediation.eapReceiptId}
+              projectName={project.name}
+            />
+          </PreviewPanelBoundary>
         )}
 
       {/* ── AI Remediation (not for agent/kernel alerts — those need operational response, not code fixes) */}
