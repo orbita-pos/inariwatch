@@ -1886,20 +1886,38 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
 
             <SubHeading id="preview-fix-enable">Enable it for your workspace</SubHeading>
             <P>
-              Preview Fix is behind a feature flag while we onboard early users. Set the allowlist on
-              the Vercel deployment or your local <InlineCode>.env.local</InlineCode>:
+              Preview Fix is behind a feature flag so you control the rollout — curate a private alpha,
+              enable for one org, or flip it on globally when you&apos;re ready. Two env vars, either is
+              enough; both are checked.
             </P>
-            <CodeBlock label=".env">{`PREVIEW_FIX_ORGS=<your-org-uuid>
-PREVIEW_FIX_USERS=<your-user-uuid>
-# Either flag is enough — set both if the project lives in a personal workspace
-# and also appears under an org.
+            <Table
+              head={["Value", "Who can use Preview Fix"]}
+              rows={[
+                ["*", "Everyone (global rollout)"],
+                ["<uuid>,<uuid>,<uuid>", "Comma-separated allowlist of org or user UUIDs"],
+                ["(unset or empty)", "Nobody — the panel is hidden and the create API returns 403"],
+              ]}
+            />
+            <CodeBlock label=".env.local (development) or Vercel Environment (production)">{`# Option 1 — global on. Panel renders for every user with a merged remediation.
+PREVIEW_FIX_ORGS=*
 
-# Kill switch — returns 503 on /api/alerts/:id/preview if set to "1".
-# Existing previews still render from DB; no new ones get kicked off.
+# Option 2 — curated alpha. Only the listed orgs / users see the panel.
+PREVIEW_FIX_ORGS=f4b0ed46-aab2-4d2b-aa0d-e8c0ae37f5f7,abc...
+PREVIEW_FIX_USERS=c70684ce-871b-497e-90de-6135249fb495
+
+# Option 3 — leave both unset to keep the feature hidden.
+
+# Kill switch — independent of the flags above. When "1", /api/alerts/:id/preview
+# returns 503; existing previews still render from DB, no new ones kick off.
 PREVIEW_FIX_KILL=`}</CodeBlock>
+            <Callout type="tip">
+              Finding your UUIDs: your user id is the <InlineCode>id</InlineCode> column in the <InlineCode>users</InlineCode> table for
+              your email; your org id is <InlineCode>organizations.id</InlineCode> for your workspace. A quick SQL:
+              <InlineCode>{"SELECT u.id AS user_id, u.active_org_id AS org_id FROM users u WHERE email = 'you@example.com'"}</InlineCode>.
+            </Callout>
             <P>
-              Once the flag includes your org or user id, every alert detail page with a completed +
-              merged remediation renders the Preview Fix panel automatically. No per-project toggle.
+              Once the flag matches, every alert detail page with a completed + merged remediation
+              renders the Preview Fix panel automatically — no per-project toggle.
             </P>
 
             <SubHeading id="preview-fix-how">How it works</SubHeading>
