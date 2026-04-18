@@ -291,7 +291,9 @@ async function notifySubscribers(statusPageId: string, subject: string, body: st
 
   if (subscribers.length === 0) return;
 
-  const APP_URL = process.env.APP_URL ?? process.env.VERCEL_URL ?? "https://app.inariwatch.com";
+  const APP_URL =
+    process.env.APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://app.inariwatch.com");
 
   for (const sub of subscribers) {
     try {

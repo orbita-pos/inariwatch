@@ -7,9 +7,6 @@ import { cronLog } from "@/lib/cron-utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-// Single Postgres DELETE; finishes in <2s even for large batches. But
-// we give headroom for cold starts + neon cold connect.
-export const maxDuration = 60;
 
 const CRON_SECRET = process.env.CRON_SECRET;
 

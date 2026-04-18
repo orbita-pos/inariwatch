@@ -3,8 +3,6 @@ import { cleanupAIUsageLogs, cronLog } from "@/lib/cron-utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-// Mass delete of expired rows can take up to a minute on aged tables.
-export const maxDuration = 120;
 
 const CRON_SECRET = process.env.CRON_SECRET;
 

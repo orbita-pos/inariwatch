@@ -318,7 +318,7 @@ function StepList({ steps }: { steps: { title: string; body: React.ReactNode }[]
   );
 }
 
-function Table({ head, rows }: { head: string[]; rows: string[][] }) {
+function Table({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
   return (
     <div className="my-4 overflow-x-auto rounded-lg border border-line">
       <table className="w-full text-sm">

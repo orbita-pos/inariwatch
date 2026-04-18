@@ -4,8 +4,6 @@ import { analyzeReplay } from "@/lib/jobs/replay-analyze";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-/** Haiku + fetch-from-R2 + DB update fits comfortably in 60s. */
-export const maxDuration = 120;
 
 const CRON_SECRET = process.env.CRON_SECRET;
 

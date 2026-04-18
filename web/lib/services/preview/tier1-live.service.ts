@@ -332,7 +332,6 @@ export async function pollAndStreamTier1Progress(
           void captureAndStoreScreenshot({
             previewSessionId,
             previewUrl: status.url,
-            publicSlug: row.publicSlug,
           });
         } else if (normalized === "failed") {
           payload.error = status.error ?? "build failed";

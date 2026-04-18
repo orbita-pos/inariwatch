@@ -4,9 +4,6 @@ import { cronLog } from "@/lib/cron-utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-// Sweeping 200 sessions × per-row R2 list+delete may take 30-90s on a
-// well-aged workspace. Bump beyond Vercel's default 10s.
-export const maxDuration = 300;
 
 const CRON_SECRET = process.env.CRON_SECRET;
 

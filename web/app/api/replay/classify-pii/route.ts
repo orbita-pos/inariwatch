@@ -12,7 +12,6 @@ import { buildCorsHeaders, corsPreflightResponse } from "@/lib/replay-cors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 30;
 
 export async function OPTIONS(req: NextRequest) {
   return corsPreflightResponse(req.headers.get("origin"), null);

@@ -26,6 +26,12 @@ const securityHeaders = [
 ];
 
 const config: NextConfig = {
+  // Standalone output keeps the production image tiny (~80MB vs ~400MB) by
+  // tracing only the dependencies the built bundle actually imports. Required
+  // for the Hetzner Docker build. No effect on Vercel — Vercel uses its own
+  // tracer — so it's safe to enable now and have both surfaces work.
+  output: "standalone",
+
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
