@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { extractClientIp } from "@/lib/webhooks/rate-limit";
 import { isDisposableEmail } from "@/lib/auth/disposable-emails";
+import { sendVerificationEmail } from "@/lib/auth/send-verification";
 
 export async function registerUser(
   formData: FormData
@@ -66,11 +67,20 @@ export async function registerUser(
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  await db.insert(users).values({
-    email,
-    name: name || null,
-    passwordHash,
-  });
+  const [newUser] = await db
+    .insert(users)
+    .values({
+      email,
+      name: name || null,
+      passwordHash,
+    })
+    .returning({ id: users.id });
+
+  try {
+    await sendVerificationEmail(newUser.id, email);
+  } catch (err) {
+    console.error("[register] sendVerificationEmail failed:", err instanceof Error ? err.message : err);
+  }
 
   return { success: true };
 }

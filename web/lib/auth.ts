@@ -103,11 +103,17 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     // Called on every sign-in (OAuth or credentials).
     // For OAuth: upsert the user in our DB so we have a real UUID.
-    async jwt({ token, account, profile }) {
+    async jwt({ token, account, profile: _profile }) {
       if (account) {
         // First sign-in — look up or create the user in our DB
         const email = token.email;
         if (!email) return token;
+
+        // OAuth providers (GitHub/Google/GitLab) verify emails before returning
+        // them, so the verification claim is authoritative. Credentials provider
+        // doesn't reach this branch (`account` is only set on OAuth sign-ins).
+        // NextAuth v4 labels Google (OIDC) as `oauth`, so one check covers all.
+        const isOAuth = account.type === "oauth";
 
         const result = await db
           .select()
@@ -123,10 +129,18 @@ export const authOptions: NextAuthOptions = {
             .values({
               email,
               name: token.name ?? null,
+              emailVerifiedAt: isOAuth ? new Date() : null,
             })
             .returning();
 
           dbUser = (insertedResult as typeof users.$inferSelect[])[0];
+        } else if (isOAuth && !dbUser.emailVerifiedAt) {
+          // Backfill existing OAuth users whose emailVerifiedAt was never set
+          // (pre-fix accounts). Next login flips them to verified.
+          await db
+            .update(users)
+            .set({ emailVerifiedAt: new Date() })
+            .where(eq(users.id, dbUser.id));
         }
 
         token.id = dbUser.id;

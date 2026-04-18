@@ -32,7 +32,7 @@ export async function sendVerificationEmail(
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 24px;">
         <div style="text-align: center; margin-bottom: 32px;">
           <span style="font-family: monospace; font-size: 20px; font-weight: bold; color: #7C3AED;">&#9673;</span>
-          <span style="font-family: monospace; font-size: 14px; font-weight: bold; color: #fff; letter-spacing: 4px; margin-left: 8px; text-transform: uppercase;">KAIRO</span>
+          <span style="font-family: monospace; font-size: 14px; font-weight: bold; color: #fff; letter-spacing: 4px; margin-left: 8px; text-transform: uppercase;">InariWatch</span>
         </div>
         <h2 style="color: #fff; font-size: 18px; margin-bottom: 16px; text-align: center;">Verify your email address</h2>
         <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; text-align: center;">
