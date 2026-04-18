@@ -1898,31 +1898,6 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               with your workspace slug and we&apos;ll add you.
             </P>
 
-            <SubHeading id="preview-fix-self-host">Self-hosted rollout flag</SubHeading>
-            <P>
-              Only relevant if you&apos;re running your own InariWatch instance (the hosted service at
-              <InlineCode>app.inariwatch.com</InlineCode> is managed for you). Two env vars gate access,
-              checked at the request level — either match is enough.
-            </P>
-            <Table
-              head={["Value", "Who can use Preview Fix"]}
-              rows={[
-                ["*", "Everyone (global rollout)"],
-                ["<uuid>,<uuid>", "Comma-separated allowlist of org or user UUIDs"],
-                ["(unset or empty)", "Nobody — the panel is hidden and the create API returns 403"],
-              ]}
-            />
-            <CodeBlock label=".env.local / Vercel Environment">{`# Global on: panel renders for every user with a merged remediation.
-PREVIEW_FIX_ORGS=*
-
-# Curated alpha: only the listed orgs / users see the panel.
-PREVIEW_FIX_ORGS=<org-uuid>,<org-uuid>
-PREVIEW_FIX_USERS=<user-uuid>
-
-# Kill switch, independent of the flags above. When "1",
-# /api/alerts/:id/preview returns 503; existing previews still render.
-PREVIEW_FIX_KILL=`}</CodeBlock>
-
             <SubHeading id="preview-fix-how">How it works</SubHeading>
             <StepList steps={[
               { title: "Alert page renders", body: <>The <InlineCode>{`<PreviewPanel>`}</InlineCode> component POSTs to <InlineCode>/api/alerts/:id/preview</InlineCode>. Idempotent — the same remediation always returns the same preview row, even across refreshes.</> },
@@ -1960,45 +1935,19 @@ PREVIEW_FIX_KILL=`}</CodeBlock>
               notice, but the image itself may persist in third-party caches for days.
             </Callout>
 
-            <SubHeading id="preview-fix-infra">Infrastructure prerequisites</SubHeading>
-            <P>
-              Preview Fix depends on three self-hosted pieces already used by Gate 14 (Staging E2E) and
-              Replay v2. If you're running your own InariWatch instance, verify these are configured:
-            </P>
-            <Table
-              head={["Component", "Env vars", "Purpose"]}
-              rows={[
-                ["Hetzner Go staging server", "STAGING_SERVER_URL, STAGING_API_SECRET", "Builds + runs the fix branch in a Docker container with dynamic Caddy routing"],
-                ["Hetzner Node worker (Playwright)", "WORKER_URL (same host as STAGING_SERVER_URL, Caddy routes /worker/* to port 9401)", "Captures the hero screenshot via Chromium"],
-                ["Cloudflare R2", "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET", "Permanent CDN-served storage for screenshots"],
-                ["Neon Postgres", "DATABASE_URL", "Preview sessions, predictions cache, screenshot metadata"],
-              ]}
-            />
-
             <SubHeading id="preview-fix-trouble">Troubleshooting</SubHeading>
             <Table
-              head={["Symptom", "Likely cause", "Fix"]}
+              head={["Symptom", "Cause", "What to do"]}
               rows={[
-                ["Panel never appears on the alert page", "Feature flag doesn't include your org or user, OR the alert has no completed+merged remediation", "Set PREVIEW_FIX_ORGS / PREVIEW_FIX_USERS; verify the remediation has mergedCommitSha"],
-                ["Live build failed — “Staging server not configured”", "STAGING_SERVER_URL or STAGING_API_SECRET missing", "Add both to the environment and restart the web app"],
-                ["Live build failed — “No GitHub integration for project”", "The project has no active github integration row (disconnected or never connected)", "Connect GitHub from /integrations on the project"],
-                ["Live build failed — “GitHub token was rejected”", "The PAT expired or was revoked", "Rotate the PAT on GitHub, reconnect from /integrations. The health banner flags this automatically."],
-                ["Stuck on “Capturing screenshot…”", "WORKER_URL missing OR worker can't reach Playwright OR Caddy doesn't route /worker/*", <>Verify WORKER_URL matches your STAGING_SERVER_URL host. Confirm Caddy has a <InlineCode>handle /worker/*</InlineCode> rule forwarding to port 9401. Hit <InlineCode>GET /worker/health</InlineCode> (no auth needed) to verify.</>],
-                ["Screenshot unavailable — “worker returned 500: page.goto: net::ERR_SSL_PROTOCOL_ERROR”", "Transient — the ACME cert for the new preview subdomain hasn't issued yet", "The worker retries automatically up to 4 times with 3s × attempt backoff. If it persists past ~30s, check that Caddy is issuing certs via your DNS-01 provider."],
-                ["Container stuck on “starting”, never transitions to “running”", "The app inside the container is crashing at boot", <>SSH to Hetzner, find the container name via <InlineCode>docker ps --filter label=inari.staging.id</InlineCode>, then <InlineCode>docker logs &lt;name&gt;</InlineCode>. Most common: missing env var the app needs for SSR — add it to Project Settings → Staging environment variables.</>],
-                ["Tier 3 shows “n/a”", "The alert has no Substrate recording, so there's no DOM snapshot to predict from", "Server errors / background jobs don't record UI events — Tier 3 only works on alerts with rrweb data. Tier 1 still runs."],
-                ["Public /preview/<slug> page 404", "Revoked preview, or invalid slug (wrong length / characters)", "410 means revoked; 404 means slug mismatch. Verify you copied the full 12-char base32 slug from the panel."],
-                ["OG unfurl on Twitter/Slack shows the gradient card, not the screenshot", "The screenshot capture hadn't completed when the social crawler first hit the page", "Force a re-scrape (Twitter: /i/cards; Slack: post the URL again after the screenshot arrives). Crawlers cache OG aggressively."],
+                ["Panel never appears on a merged fix", "Your workspace is not yet on the alpha allowlist", <>Email{" "}<a href="mailto:hello@inariwatch.com?subject=Preview Fix early access" className="underline">hello@inariwatch.com</a>{" "}with your workspace slug.</>],
+                ["Live build failed — “No GitHub integration for project”", "The project has no active GitHub integration (disconnected or never connected)", "Connect GitHub from /integrations on the project."],
+                ["Live build failed — “GitHub token was rejected”", "The PAT expired or was revoked on GitHub", "Rotate the PAT on GitHub, then reconnect from /integrations. The health banner on /integrations flags this automatically."],
+                ["Live build failed — app crashes at boot", "Your app needs env vars for SSR that aren't in Project Settings → Staging environment variables", "Add the missing env vars. Use a preview DATABASE_URL (throwaway Neon branch) and test-mode keys for Stripe / auth / etc."],
+                ["Tier 3 (AI prediction) shows “n/a”", "The alert has no Substrate recording, so there's no DOM snapshot to predict from", "Server errors, background jobs, and alerts ingested from external sources without UI events don't have rrweb data. Tier 1 (live sandbox) still runs."],
+                ["Public /preview/<slug> returns 410 Gone", "The preview was revoked by the workspace owner", "The live preview is no longer public. The fix itself is still merged in production."],
+                ["OG unfurl on Twitter/Slack shows the gradient card, not the screenshot", "The screenshot capture hadn't completed when the social crawler first hit the page", "Force a re-scrape (Twitter Card Validator / Slack: repost the URL after the screenshot arrives). Crawlers cache OG aggressively."],
               ]}
             />
-
-            <SubHeading id="preview-fix-cost">Cost envelope</SubHeading>
-            <P>
-              At 1,000 previews / month a Pro-tier workload currently runs ~$40 in Claude / GPT costs
-              (70% cache miss assumed) plus ~$60 in Hetzner container lifetime (CX22 already fixed cost,
-              so this is overlap, not marginal). R2 egress is effectively free. Total marginal cost per
-              preview: ~$0.10.
-            </P>
 
             <SectionHeading id="community-fixes">Autonomous Mode — Community Fixes</SectionHeading>
             <P>
