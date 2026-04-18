@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import {
   alerts,
   remediationSessions,
+  rolloutRuns,
   projects,
   organizations,
   organizationMembers,
@@ -16,9 +17,14 @@ import {
   advanceStage,
   rollback,
 } from "@/lib/services/rollout.service";
+import { isSafeUrl } from "@/lib/services/url-validation";
+import { UUID_REGEX } from "@/lib/validation";
+import { serverError } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const MAX_REASON_LENGTH = 500;
 
 /**
  * VAR Progressive Rollout — Q2 Week 12.
@@ -30,6 +36,10 @@ export const runtime = "nodejs";
  *
  * Auth: NextAuth + (project owner OR org member), same shape as
  * Gate 12/13/14/16/17.
+ *
+ * Security: advance / rollback actions bind `body.runId` to the
+ * authorized `alertId` before calling the service — prevents cross-
+ * tenant mutation of another org's rollout state machine.
  */
 
 export async function GET(
@@ -41,7 +51,7 @@ export async function GET(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -62,7 +72,7 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -88,24 +98,44 @@ export async function POST(
   try {
     if (action === "advance") {
       const runId = typeof body.runId === "string" ? body.runId : null;
-      if (!runId || !/^[0-9a-f-]{36}$/i.test(runId)) {
+      if (!runId || !UUID_REGEX.test(runId)) {
         return NextResponse.json({ error: "runId required (uuid)" }, { status: 400 });
       }
+      // H1: the caller is authorized against alertId but supplies runId
+      // freely — bind them together before mutating state.
+      const ownership = await assertRunBelongsToAlert(runId, alertId);
+      if (ownership !== null) return ownership;
+
       const status = await advanceStage({ runId, triggeredBy: `user:${userId}` });
       return NextResponse.json({ run: status });
     }
 
     if (action === "rollback") {
       const runId = typeof body.runId === "string" ? body.runId : null;
-      const reason = typeof body.reason === "string" ? body.reason : null;
-      const rollbackPrUrl =
+      const reason =
+        typeof body.reason === "string"
+          ? body.reason.slice(0, MAX_REASON_LENGTH)
+          : null;
+      const rawRollbackPrUrl =
         typeof body.rollbackPrUrl === "string" ? body.rollbackPrUrl : undefined;
-      if (!runId || !/^[0-9a-f-]{36}$/i.test(runId)) {
+      if (!runId || !UUID_REGEX.test(runId)) {
         return NextResponse.json({ error: "runId required (uuid)" }, { status: 400 });
       }
       if (!reason || reason.length < 3) {
-        return NextResponse.json({ error: "reason required" }, { status: 400 });
+        return NextResponse.json(
+          { error: `reason required (3-${MAX_REASON_LENGTH} chars)` },
+          { status: 400 },
+        );
       }
+      // M1: reject non-http(s) / SSRF-y / data: schemes so a hostile
+      // URL cannot land in rollback_reason and later render as <a href>.
+      const rollbackPrUrl =
+        rawRollbackPrUrl && isSafeUrl(rawRollbackPrUrl) ? rawRollbackPrUrl : undefined;
+
+      // H1: same binding as advance.
+      const ownership = await assertRunBelongsToAlert(runId, alertId);
+      if (ownership !== null) return ownership;
+
       const status = await rollback({
         runId,
         triggeredBy: `user:${userId}`,
@@ -119,7 +149,7 @@ export async function POST(
     const remediationId = typeof body.remediationId === "string" ? body.remediationId : null;
     const autoRollbackEnabled =
       typeof body.autoRollbackEnabled === "boolean" ? body.autoRollbackEnabled : undefined;
-    if (!remediationId || !/^[0-9a-f-]{36}$/i.test(remediationId)) {
+    if (!remediationId || !UUID_REGEX.test(remediationId)) {
       return NextResponse.json({ error: "remediationId required (uuid)" }, { status: 400 });
     }
 
@@ -151,11 +181,39 @@ export async function POST(
     });
     return NextResponse.json({ runId, run: status }, { status: created ? 202 : 200 });
   } catch (err) {
+    return NextResponse.json(serverError(err, "rollout-post"), { status: 500 });
+  }
+}
+
+/**
+ * Confirm the rollout run exists AND belongs to the authorized alert.
+ * Returns null when the binding is valid; otherwise returns the
+ * NextResponse the route should short-circuit with (404 / 400).
+ *
+ * This guard closes the cross-tenant IDOR where an authenticated user
+ * with access to alert A could pass runId from alert B in the body
+ * and mutate B's state machine — the authorize() helper only scopes
+ * to alertId (URL param), not to arbitrary body fields.
+ */
+async function assertRunBelongsToAlert(
+  runId: string,
+  alertId: string,
+): Promise<NextResponse | null> {
+  const [runRow] = await db
+    .select({ alertId: rolloutRuns.alertId })
+    .from(rolloutRuns)
+    .where(eq(rolloutRuns.id, runId))
+    .limit(1);
+  if (!runRow) {
+    return NextResponse.json({ error: "Rollout run not found" }, { status: 404 });
+  }
+  if (runRow.alertId !== alertId) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
+      { error: "Rollout run does not belong to this alert" },
+      { status: 400 },
     );
   }
+  return null;
 }
 
 async function authorize(alertId: string, userId: string): Promise<boolean> {

@@ -14,6 +14,11 @@ import {
   startOrGetDriftRun,
   getDriftRunForAlert,
 } from "@/lib/services/behavioral-drift.service";
+import { UUID_REGEX } from "@/lib/validation";
+import { serverError } from "@/lib/api-error";
+
+const MAX_WINDOW_DAYS = 90;
+const MIN_WINDOW_DAYS = 1;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,7 +44,7 @@ export async function GET(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -60,7 +65,7 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -76,13 +81,18 @@ export async function POST(
   }
   const remediationId =
     typeof body.remediationId === "string" ? body.remediationId : null;
+  // M2: clamp windowDays to [1, 90] — default retention horizon; blocks DoS
+  // via `now() - ('999999 days')::interval` forcing a full-index scan.
   const windowDays =
-    typeof body.windowDays === "number" ? body.windowDays : undefined;
+    typeof body.windowDays === "number"
+      ? Math.max(MIN_WINDOW_DAYS, Math.min(Math.floor(body.windowDays), MAX_WINDOW_DAYS))
+      : undefined;
+  // M2: thresholdDriftedPercent is a percent, clamp to [0, 100].
   const thresholdDriftedPercent =
     typeof body.thresholdDriftedPercent === "number"
-      ? body.thresholdDriftedPercent
+      ? Math.max(0, Math.min(body.thresholdDriftedPercent, 100))
       : undefined;
-  if (!remediationId || !/^[0-9a-f-]{36}$/i.test(remediationId)) {
+  if (!remediationId || !UUID_REGEX.test(remediationId)) {
     return NextResponse.json(
       { error: "remediationId required (uuid)" },
       { status: 400 },
@@ -129,10 +139,7 @@ export async function POST(
       { status: created ? 202 : 200 },
     );
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json(serverError(err, "drift-analysis-post"), { status: 500 });
   }
 }
 

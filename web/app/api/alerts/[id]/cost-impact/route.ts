@@ -14,6 +14,10 @@ import {
   startOrGetCostImpact,
   getCostImpactForAlert,
 } from "@/lib/services/cost-impact.service";
+import { UUID_REGEX } from "@/lib/validation";
+import { serverError } from "@/lib/api-error";
+
+const MAX_THRESHOLD_USD = 10_000;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,7 +45,7 @@ export async function GET(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -62,7 +66,7 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -73,8 +77,14 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const remediationId = typeof body.remediationId === "string" ? body.remediationId : null;
-  const thresholdUsd = typeof body.thresholdUsd === "number" ? body.thresholdUsd : undefined;
-  if (!remediationId || !/^[0-9a-f-]{36}$/i.test(remediationId)) {
+  // M2: thresholdUsd must be non-negative and within a sane ceiling — a
+  // $10M threshold serves no purpose and prevents numeric-edge cases
+  // (Infinity, huge floats) from flowing into drizzle numeric columns.
+  const thresholdUsd =
+    typeof body.thresholdUsd === "number" && Number.isFinite(body.thresholdUsd)
+      ? Math.max(0, Math.min(body.thresholdUsd, MAX_THRESHOLD_USD))
+      : undefined;
+  if (!remediationId || !UUID_REGEX.test(remediationId)) {
     return NextResponse.json({ error: "remediationId required (uuid)" }, { status: 400 });
   }
 
@@ -113,10 +123,7 @@ export async function POST(
     });
     return NextResponse.json({ runId, run: status }, { status: created ? 202 : 200 });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json(serverError(err, "cost-impact-post"), { status: 500 });
   }
 }
 

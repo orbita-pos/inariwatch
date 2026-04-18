@@ -14,6 +14,11 @@ import {
   startOrGetMultiEnvRun,
   getMultiEnvRunForAlert,
 } from "@/lib/services/multi-env-coverage.service";
+import { UUID_REGEX } from "@/lib/validation";
+import { serverError } from "@/lib/api-error";
+
+const MAX_WINDOW_DAYS = 90;
+const MIN_WINDOW_DAYS = 1;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,7 +49,7 @@ export async function GET(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -65,7 +70,7 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id: alertId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(alertId)) {
+  if (!UUID_REGEX.test(alertId)) {
     return NextResponse.json({ error: "Invalid alertId" }, { status: 400 });
   }
 
@@ -81,12 +86,21 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const remediationId = typeof body.remediationId === "string" ? body.remediationId : null;
-  const windowDays = typeof body.windowDays === "number" ? body.windowDays : undefined;
+  // M2: clamp windowDays to [1, 90] — matches drift-analysis contract.
+  const windowDays =
+    typeof body.windowDays === "number"
+      ? Math.max(MIN_WINDOW_DAYS, Math.min(Math.floor(body.windowDays), MAX_WINDOW_DAYS))
+      : undefined;
+  // M2: both thresholds are percents, clamp to [0, 100].
   const thresholdHighPercent =
-    typeof body.thresholdHighPercent === "number" ? body.thresholdHighPercent : undefined;
+    typeof body.thresholdHighPercent === "number"
+      ? Math.max(0, Math.min(body.thresholdHighPercent, 100))
+      : undefined;
   const thresholdMediumPercent =
-    typeof body.thresholdMediumPercent === "number" ? body.thresholdMediumPercent : undefined;
-  if (!remediationId || !/^[0-9a-f-]{36}$/i.test(remediationId)) {
+    typeof body.thresholdMediumPercent === "number"
+      ? Math.max(0, Math.min(body.thresholdMediumPercent, 100))
+      : undefined;
+  if (!remediationId || !UUID_REGEX.test(remediationId)) {
     return NextResponse.json(
       { error: "remediationId required (uuid)" },
       { status: 400 },
@@ -130,10 +144,7 @@ export async function POST(
     });
     return NextResponse.json({ runId, run: status }, { status: created ? 202 : 200 });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json(serverError(err, "multi-env-post"), { status: 500 });
   }
 }
 

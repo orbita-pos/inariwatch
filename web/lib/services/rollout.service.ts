@@ -204,7 +204,13 @@ export async function advanceStage(input: AdvanceInput): Promise<RolloutStatus> 
   });
 
   const isTerminal = next === "complete";
-  await db
+  // M3: optimistic CAS — stage must still match what we read above.
+  // Two concurrent advance calls would otherwise both see `pending`,
+  // both compute `canary_1`, and the second UPDATE would clobber the
+  // first's stage_history mutation (last-write-wins). The CAS returns
+  // zero rows when the race happens; we surface that as a retryable
+  // error instead of silently double-advancing.
+  const updated = await db
     .update(rolloutRuns)
     .set({
       currentStage: next,
@@ -213,7 +219,18 @@ export async function advanceStage(input: AdvanceInput): Promise<RolloutStatus> 
       status: isTerminal ? "complete" : "active",
       completedAt: isTerminal ? now : null,
     })
-    .where(eq(rolloutRuns.id, input.runId));
+    .where(
+      and(
+        eq(rolloutRuns.id, input.runId),
+        eq(rolloutRuns.currentStage, run.currentStage),
+      ),
+    )
+    .returning({ id: rolloutRuns.id });
+  if (updated.length === 0) {
+    throw new Error(
+      `rollout ${input.runId} stage changed concurrently — retry`,
+    );
+  }
 
   const [after] = await db.select().from(rolloutRuns).where(eq(rolloutRuns.id, input.runId)).limit(1);
   return shape(after!);
@@ -250,7 +267,9 @@ export async function rollback(input: RollbackInput): Promise<RolloutStatus> {
     triggeredBy: input.triggeredBy,
   });
 
-  await db
+  // M3: same CAS guard as advanceStage — refuse to rollback if the
+  // current_stage column moved under us (e.g. concurrent advance).
+  const updated = await db
     .update(rolloutRuns)
     .set({
       currentStage: "reverted",
@@ -261,7 +280,18 @@ export async function rollback(input: RollbackInput): Promise<RolloutStatus> {
       rollbackPrUrl: input.rollbackPrUrl ?? null,
       completedAt: now,
     })
-    .where(eq(rolloutRuns.id, input.runId));
+    .where(
+      and(
+        eq(rolloutRuns.id, input.runId),
+        eq(rolloutRuns.currentStage, run.currentStage),
+      ),
+    )
+    .returning({ id: rolloutRuns.id });
+  if (updated.length === 0) {
+    throw new Error(
+      `rollout ${input.runId} stage changed concurrently — retry`,
+    );
+  }
 
   const [after] = await db.select().from(rolloutRuns).where(eq(rolloutRuns.id, input.runId)).limit(1);
   return shape(after!);

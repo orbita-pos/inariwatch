@@ -419,7 +419,7 @@ function ActiveState({
             Reason for rollback
           </div>
           <div className="text-fg-base/70 mt-0.5">{run.rollbackReason}</div>
-          {run.rollbackPrUrl && (
+          {run.rollbackPrUrl && isClientSafeUrl(run.rollbackPrUrl) && (
             <a
               href={run.rollbackPrUrl}
               target="_blank"
@@ -520,6 +520,9 @@ function ActiveState({
                 <span className="font-mono text-fg-strong">
                   {STAGE_LABEL[h.stage]}
                 </span>
+                {/* Rendering `user:<uuid>` to org peers is intentional audit —
+                    team members already see each other's identity elsewhere
+                    in the dashboard, so this adds no new disclosure surface. */}
                 <span className="text-fg-base/60 text-[10px] truncate">
                   {h.outcome}
                   {h.triggeredBy ? ` · ${h.triggeredBy}` : ""}
@@ -545,4 +548,20 @@ function formatDuration(startIso: string, endIso: string | null): string {
   if (mins < 60) return `${mins}m ${secs % 60}s`;
   const hrs = Math.floor(mins / 60);
   return `${hrs}h ${mins % 60}m`;
+}
+
+/**
+ * Defense-in-depth: the server route already rejects non-http(s) via
+ * isSafeUrl, but we also gate the client render so a legacy row with a
+ * stale data: or javascript: URL (pre-M1-hotfix) never becomes an
+ * <a href>. Kept inline because the server helper imports node-only
+ * code paths we cannot ship to the client.
+ */
+function isClientSafeUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
