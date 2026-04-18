@@ -21,3 +21,15 @@ function flagAllowsOrg(envValue: string | undefined, organizationId: string | nu
 export function isReplayV2Enabled(organizationId: string | null | undefined): boolean {
   return flagAllowsOrg(process.env.REPLAY_V2_ORGS, organizationId);
 }
+
+/**
+ * Preview Fix — two-tier visual preview of autonomous remediations.
+ * Unlocks the PreviewPanel card on the alert detail page + the public
+ * /preview/<slug> route. Kill switch: `PREVIEW_FIX_KILL=1` short-circuits
+ * preview creation regardless of this flag (existing previews still render
+ * via DB reads).
+ */
+export function isPreviewFixEnabled(organizationId: string | null | undefined): boolean {
+  if (process.env.PREVIEW_FIX_KILL === "1") return false;
+  return flagAllowsOrg(process.env.PREVIEW_FIX_ORGS, organizationId);
+}

@@ -620,9 +620,106 @@ export const remediationSessions = pgTable("remediation_sessions", {
    *  recording or that predate Phase 2. Drives the "View attestation"
    *  link on the alert detail page. */
   eapReceiptId: text("eap_receipt_id"),
+  /** Preview Fix — backpointer to the preview_sessions row created for this
+   *  remediation. Nullable: populated on first `POST /api/alerts/:id/preview`.
+   *  The alert detail page reads this alongside the rest of the remediation
+   *  so it can render the PreviewPanel without a second query. */
+  previewSessionId: uuid("preview_session_id"),
+  /** Timestamp of the first preview creation. Drives "preview shipped X days ago" UI. */
+  previewEnabledAt: timestamp("preview_enabled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ── Preview Fix (two-tier visual preview of autonomous remediations) ─────────
+//
+// See migrations/0065_preview_fix.sql for the feature description. Two tables:
+//   preview_sessions     — orchestration row per (alert, remediation)
+//   preview_predictions  — AI render cache per (alert_id, merged_commit_sha)
+
+export const previewPredictions = pgTable("preview_predictions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id")
+    .references(() => alerts.id, { onDelete: "cascade" })
+    .notNull(),
+  mergedCommitSha: text("merged_commit_sha").notNull(),
+  /** Claude-predicted + DOMPurify-sanitized HTML. Set as <iframe srcDoc>. */
+  predictedHtml: text("predicted_html").notNull(),
+  /** Last rrweb FullSnapshot serialized to HTML. Rendered side-by-side as "before". */
+  originalHtml: text("original_html").notNull(),
+  /** ≤200-char human summary of what the fix visibly changes. */
+  diffSummary: text("diff_summary").notNull().default(""),
+  /** CSS selectors of modified elements — used by the diff overlay. */
+  targetSelectors: jsonb("target_selectors").notNull().default([]),
+  /** 0-100 self-reported confidence from the model. */
+  confidence: integer("confidence").notNull().default(0),
+  tokensIn: integer("tokens_in").notNull().default(0),
+  tokensOut: integer("tokens_out").notNull().default(0),
+  costCents: integer("cost_cents").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const previewSessions = pgTable("preview_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** 12-char base32 capability slug. Served at /preview/<slug>. Unguessable. */
+  publicSlug: text("public_slug").notNull().unique(),
+  alertId: uuid("alert_id")
+    .references(() => alerts.id, { onDelete: "cascade" })
+    .notNull(),
+  projectId: uuid("project_id")
+    .references(() => projects.id, { onDelete: "cascade" })
+    .notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id, {
+    onDelete: "set null",
+  }),
+  remediationSessionId: uuid("remediation_session_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  /** Denormalized from remediationSessions so the public page skips the join. */
+  eapReceiptId: text("eap_receipt_id"),
+
+  // ── Tier 1 (live ephemeral deploy on Hetzner) ─────────────────────────────
+  /** pending | provisioning | building | running | failed | expired */
+  liveStatus: text("live_status").notNull().default("pending"),
+  liveDeployId: text("live_deploy_id"),
+  liveUrl: text("live_url"),
+  liveHostname: text("live_hostname"),
+  livePort: integer("live_port"),
+  /** Rolled last 32KB of build logs. Secret-scrubbed before write. */
+  liveBuildLogs: text("live_build_logs"),
+  liveError: text("live_error"),
+  liveStartedAt: timestamp("live_started_at", { withTimezone: true }),
+  liveReadyAt: timestamp("live_ready_at", { withTimezone: true }),
+  liveExpiresAt: timestamp("live_expires_at", { withTimezone: true }),
+
+  // ── Tier 3 (AI-predicted HTML) ────────────────────────────────────────────
+  /** pending | rendering | ready | failed | skipped */
+  predictionStatus: text("prediction_status").notNull().default("pending"),
+  predictionId: uuid("prediction_id").references(() => previewPredictions.id, {
+    onDelete: "set null",
+  }),
+  predictionError: text("prediction_error"),
+
+  // ── Observability / engagement ────────────────────────────────────────────
+  buildDurationMs: integer("build_duration_ms"),
+  predictionDurationMs: integer("prediction_duration_ms"),
+  predictionTokensIn: integer("prediction_tokens_in"),
+  predictionTokensOut: integer("prediction_tokens_out"),
+  predictionCents: integer("prediction_cents"),
+  viewCount: integer("view_count").notNull().default(0),
+  tier1ClickCount: integer("tier1_click_count").notNull().default(0),
+  tier3ClickCount: integer("tier3_click_count").notNull().default(0),
+
+  /** Set by the org owner's "revoke share" action. When non-null the public
+   *  slug endpoint returns 410 Gone. Internal lookups by id still resolve. */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type PreviewSession = typeof previewSessions.$inferSelect;
+export type PreviewPrediction = typeof previewPredictions.$inferSelect;
 
 export type RemediationStep = {
   id: string;

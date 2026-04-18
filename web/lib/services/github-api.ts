@@ -510,3 +510,45 @@ export async function getRecentCommitFiles(
     return null;
   }
 }
+
+/**
+ * Fetch the unified diff for a specific commit. Used by the Preview Fix
+ * feature's Tier 3 pipeline to give Claude enough context to predict the
+ * post-fix UI. Returns `null` on any error — Tier 3 degrades gracefully
+ * when the diff is unavailable.
+ *
+ * Diffs are capped at `maxBytes` (default 200 KB) — past that the signal
+ * for a single-commit fix is noise and we'd rather truncate than feed the
+ * model a giant binary-dump diff.
+ */
+export async function getCommitDiff(
+  token: string,
+  owner: string,
+  repo: string,
+  sha: string,
+  maxBytes = 200 * 1024,
+): Promise<string | null> {
+  try {
+    const res = await ghFetch(`${repoPath(owner, repo)}/commits/${encodeURIComponent(sha)}`, {
+      headers: {
+        ...headers(token),
+        Accept: "application/vnd.github.v3.diff",
+      },
+    });
+    if (!res.ok) return null;
+    const declared = Number(res.headers.get("content-length") ?? 0);
+    if (declared > 0 && declared > maxBytes) {
+      // Truncate reads to the budget; better to feed a partial diff than
+      // to skip predictive context entirely.
+      const text = await res.text();
+      return text.slice(0, maxBytes) + `\n\n... (truncated at ${maxBytes} bytes)`;
+    }
+    const text = await res.text();
+    if (text.length > maxBytes) {
+      return text.slice(0, maxBytes) + `\n\n... (truncated at ${maxBytes} bytes)`;
+    }
+    return text;
+  } catch {
+    return null;
+  }
+}

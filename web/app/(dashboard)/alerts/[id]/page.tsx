@@ -28,6 +28,8 @@ import { PerformanceBenchmarkCard } from "./performance-benchmark-card";
 import { BehavioralDriftCard } from "./behavioral-drift-card";
 import { MultiEnvCoverageCard } from "./multi-env-coverage-card";
 import { CostImpactCard } from "./cost-impact-card";
+import { PreviewPanel } from "./preview-panel";
+import { isPreviewFixEnabled } from "@/lib/feature-flags";
 import { RolloutCard } from "./rollout-card";
 import { SnippetInstaller } from "@/components/snippet-installer";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
@@ -457,6 +459,18 @@ export default async function AlertDetailPage({
           </span>
         </Link>
       )}
+
+      {/* ── Preview Fix — two-tier visual preview of the autonomous fix ────── */}
+      {latestRemediation?.status === "completed" &&
+        latestRemediation.mergedCommitSha &&
+        isPreviewFixEnabled(project.organizationId) && (
+          <PreviewPanel
+            alertId={alert.id}
+            remediationSessionId={latestRemediation.id}
+            eapReceiptId={latestRemediation.eapReceiptId}
+            projectName={project.name}
+          />
+        )}
 
       {/* ── AI Remediation (not for agent/kernel alerts — those need operational response, not code fixes) */}
       {!alert.sourceIntegrations.includes("agent") && <ProGate isPro={isPro} feature="AI Remediation">
