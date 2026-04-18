@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { PollingStatus } from "./polling-status";
 import { DashboardHeader } from "./dashboard-header";
+import { VerifyEmailBanner } from "./settings/verify-email-banner";
 import { db, alerts, users, projectIntegrations, getUserOrganizations, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
@@ -28,11 +29,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const userName = session.user?.name ?? session.user?.email ?? "User";
   const userEmail = session.user?.email ?? "";
 
-  // Fetch user plan (kept for display purposes in workspace-switcher)
+  // Fetch user plan + verification status for the nag banner
   let userPlan: "free" | "pro" = "free";
+  let hasPassword = false;
+  let emailVerifiedAt: Date | null = null;
   if (userId) {
-    const [row] = await db.select({ plan: users.plan }).from(users).where(eq(users.id, userId));
+    const [row] = await db
+      .select({
+        plan: users.plan,
+        passwordHash: users.passwordHash,
+        emailVerifiedAt: users.emailVerifiedAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
     userPlan = (row?.plan as "free" | "pro") ?? "free";
+    hasPassword = !!row?.passwordHash;
+    emailVerifiedAt = row?.emailVerifiedAt ?? null;
   }
 
   // Shared project IDs + organizations for sidebar
@@ -136,7 +148,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Content */}
       <div className="flex flex-1 flex-col overflow-hidden pt-14 pl-0 md:pt-0 md:pl-[220px]">
         <DashboardHeader unreadAlerts={unreadCount} />
-        <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
+          {hasPassword && !emailVerifiedAt && (
+            <div className="mb-6">
+              <VerifyEmailBanner hasPassword={hasPassword} emailVerifiedAt={emailVerifiedAt} />
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </div>
   );
