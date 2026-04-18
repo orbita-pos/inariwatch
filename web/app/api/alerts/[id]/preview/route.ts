@@ -113,16 +113,36 @@ export async function POST(
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://app.inariwatch.com");
   const shareUrl = `${origin}/preview/${result.session.publicSlug}`;
 
+  // Response shape MUST match GET /api/preview/:id so the client can treat
+  // the two responses interchangeably (POST for create, GET for resume /
+  // poll). Flat `liveStatus`/`predictionStatus` fields were a mistake in
+  // the first draft — the client accesses `data.live.status` and crashed
+  // with "Cannot read properties of undefined (reading 'status')" on mount.
   return NextResponse.json(
     {
       id: result.session.id,
       publicSlug: result.session.publicSlug,
       shareUrl,
-      liveStatus: result.session.liveStatus,
-      liveUrl: result.session.liveUrl,
-      predictionStatus: result.session.predictionStatus,
-      eapReceiptId: result.session.eapReceiptId,
       streamUrl: `/api/preview/${result.session.id}/stream`,
+      live: {
+        status: result.session.liveStatus,
+        url: result.session.liveUrl,
+        error: result.session.liveError,
+        buildLogs: result.session.liveBuildLogs,
+        expiresAt: result.session.liveExpiresAt,
+        readyAt: result.session.liveReadyAt,
+      },
+      prediction: {
+        status: result.session.predictionStatus,
+        error: result.session.predictionError,
+        html: null,
+        originalHtml: null,
+        summary: null,
+        confidence: null,
+      },
+      eapReceiptId: result.session.eapReceiptId,
+      createdAt: result.session.createdAt,
+      revokedAt: result.session.revokedAt,
     },
     { status: result.created ? 201 : 200 },
   );
