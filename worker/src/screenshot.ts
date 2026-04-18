@@ -83,37 +83,59 @@ export async function takeScreenshot(opts: ScreenshotOpts): Promise<ScreenshotRe
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const fullPage = opts.fullPage ?? false;
 
-  const b = await getBrowser();
-  let ctx: BrowserContext | null = null;
-  try {
-    ctx = await b.newContext({
-      viewport: { width, height },
-      deviceScaleFactor: 2,
-      userAgent:
-        "Mozilla/5.0 (InariWatch-Preview-Screenshot/1.0)",
-      ignoreHTTPSErrors: true,
-    });
-    const page = await ctx.newPage();
+  // Retry wrapper for transient navigation failures. Preview Fix fires a
+  // capture the instant Tier 1 transitions to `running`, which is often a
+  // few seconds BEFORE Caddy's ACME issuer has finished provisioning the
+  // TLS cert for the new preview-<id>.staging.inariwatch.com subdomain.
+  // First hit then returns ERR_SSL_PROTOCOL_ERROR; a 3s backoff is plenty
+  // for the cert to settle.
+  const MAX_ATTEMPTS = 4;
+  const TRANSIENT_NET_REGEX =
+    /net::ERR_(SSL_PROTOCOL_ERROR|CONNECTION_REFUSED|CONNECTION_RESET|TIMED_OUT|EMPTY_RESPONSE|NAME_NOT_RESOLVED)/i;
 
-    await page.goto(opts.url, {
-      waitUntil: "domcontentloaded",
-      timeout: timeoutMs,
-    });
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const b = await getBrowser();
+    let ctx: BrowserContext | null = null;
+    try {
+      ctx = await b.newContext({
+        viewport: { width, height },
+        deviceScaleFactor: 2,
+        userAgent: "Mozilla/5.0 (InariWatch-Preview-Screenshot/1.0)",
+        ignoreHTTPSErrors: true,
+      });
+      const page = await ctx.newPage();
 
-    // Let React hydrate + any above-the-fold images decode. 1s is enough
-    // for static/SSR apps; SPAs with heavy client-side fetching will look
-    // slightly incomplete, which is acceptable for a hero shot.
-    await page.waitForTimeout(1000);
+      await page.goto(opts.url, {
+        waitUntil: "domcontentloaded",
+        timeout: timeoutMs,
+      });
 
-    const png = await page.screenshot({
-      type: "png",
-      fullPage,
-      timeout: timeoutMs,
-    });
+      // Let React hydrate + any above-the-fold images decode. 1s is enough
+      // for static/SSR apps; SPAs with heavy client-side fetching will
+      // look slightly incomplete, which is acceptable for a hero shot.
+      await page.waitForTimeout(1000);
 
-    return { png, width, height };
-  } finally {
-    if (ctx) await ctx.close().catch(() => {});
-    scheduleIdleClose();
+      const png = await page.screenshot({
+        type: "png",
+        fullPage,
+        timeout: timeoutMs,
+      });
+
+      return { png, width, height };
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const transient = TRANSIENT_NET_REGEX.test(msg);
+      if (!transient || attempt === MAX_ATTEMPTS) break;
+      // Backoff: 3s, 6s, 9s — up to ~18s total, well under the 30s
+      // budget most callers give us via WORKER_TIMEOUT_MS.
+      await new Promise((r) => setTimeout(r, 3_000 * attempt));
+    } finally {
+      if (ctx) await ctx.close().catch(() => {});
+    }
   }
+
+  scheduleIdleClose();
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
