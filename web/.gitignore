@@ -21,3 +21,13 @@ Thumbs.db
 lib/db/migrations/meta/
 
 .vercel
+
+# Kamal — decrypted secrets (the .template is committed, `secrets` is not)
+.kamal/secrets
+.kamal/hooks/*
+!.kamal/hooks/.keep
+
+# Decrypted .env (produced ad-hoc from .env.sops.yaml for local docker build).
+# The encrypted .env.sops.yaml IS committed.
+.env.decrypted
+.env.production.local

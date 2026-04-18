@@ -1,0 +1,143 @@
+# Kamal 2 deploy configuration for InariWatch web.
+#
+# Commands:
+#   kamal setup          — first-time bootstrap (installs kamal-proxy, pulls image, starts containers)
+#   kamal deploy         — normal deploy (build, push, swap, gapless)
+#   kamal app logs -f    — tail the running container
+#   kamal app rollback   — revert to the previous healthy version
+#   kamal app exec -i bash  — shell into the container
+#
+# Secrets are loaded from .kamal/secrets which in turn pulls decrypted
+# values from .env.sops.yaml via the sops CLI. See .sops.yaml for the age
+# encryption rule.
+
+service: inari-web
+
+# GitHub Container Registry
+image: orbita-pos/inari-web
+
+# Physical hosts. Add a second server here when we're ready for HA.
+servers:
+  web:
+    hosts:
+      - <WEB_SERVER_IP>  # CX32 running the Next.js container
+    labels:
+      app.role: web
+
+# Kamal 2 ships a built-in proxy (kamal-proxy) that handles TLS termination,
+# zero-downtime swaps, and Let's Encrypt on its own. Replaces the separate
+# Traefik/Caddy stanza that Kamal 1 required.
+proxy:
+  ssl: true
+  host: app.inariwatch.com
+  app_port: 3000
+  healthcheck:
+    path: /api/health
+    interval: 5
+    timeout: 3
+  # Gapless deploy: kamal-proxy holds new requests while the new container
+  # warms up, then cuts traffic over in a single atomic swap.
+  deploy_timeout: 30
+  drain_timeout: 30
+  # Streaming support (SSE / chunked response). Without this, Caddy/kamal-proxy
+  # buffers the response body until close, which breaks
+  # /api/remediation/stream and friends. See the gotcha notes in
+  # web/docs/migration-vercel-to-hetzner.md § Sev 1 #1.
+  buffering:
+    requests: false
+    responses: false
+
+# Registry auth (GHCR). KAMAL_REGISTRY_PASSWORD comes from .kamal/secrets,
+# which decrypts from .env.sops.yaml at deploy time.
+registry:
+  server: ghcr.io
+  username:
+    - KAMAL_REGISTRY_USERNAME
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Docker buildx — registry cache keeps subsequent builds at ~90s even after
+# a full Dockerfile change. mode=max caches intermediate stages too
+# (critical for the deps + build split).
+builder:
+  arch: amd64
+  cache:
+    type: registry
+    image: orbita-pos/inari-web-build-cache
+    options: mode=max,compression=zstd
+  # Pass the build arg through so /api/health can expose the git sha.
+  args:
+    APP_VERSION: ""  # set by CI to $GITHUB_SHA
+
+# Runtime environment variables. `clear` values are plaintext (non-secret),
+# `secret` values reference keys in .kamal/secrets.
+env:
+  clear:
+    NODE_ENV: production
+    PORT: "3000"
+    NEXT_TELEMETRY_DISABLED: "1"
+    APP_URL: "https://app.inariwatch.com"
+    NEXTAUTH_URL: "https://app.inariwatch.com"
+  secret:
+    # Core
+    - DATABASE_URL
+    - NEXTAUTH_SECRET
+    - ENCRYPTION_KEY
+    - CRON_SECRET
+    # Integrations
+    - GOOGLE_CLIENT_ID
+    - GOOGLE_CLIENT_SECRET
+    - GITHUB_CLIENT_ID
+    - GITHUB_CLIENT_SECRET
+    - SLACK_CLIENT_ID
+    - SLACK_CLIENT_SECRET
+    - SLACK_SIGNING_SECRET
+    - TELEGRAM_WEBHOOK_SECRET
+    # AI
+    - PLATFORM_AI_KEY
+    - PLATFORM_ANTHROPIC_KEY
+    # Infra
+    - REDIS_HOST
+    - REDIS_PORT
+    - REDIS_PASSWORD
+    - UPSTASH_REDIS_REST_URL
+    - UPSTASH_REDIS_REST_TOKEN
+    - R2_ACCOUNT_ID
+    - R2_ACCESS_KEY_ID
+    - R2_SECRET_ACCESS_KEY
+    - R2_BUCKET
+    # Hetzner-side services
+    - STAGING_SERVER_URL
+    - STAGING_API_SECRET
+    - WORKER_URL
+    - EAP_SERVER_URL
+    - EAP_API_KEY
+    # Email + push
+    - RESEND_API_KEY
+    - VAPID_PRIVATE_KEY
+    - VAPID_EMAIL
+    # Feature flags
+    - PREVIEW_FIX_ORGS
+    - PREVIEW_FIX_USERS
+    - REPLAY_V2_ORGS
+    # Web Push (public key is baked in at build time above)
+
+# SSH access to the Hetzner host. Kamal uses the user's SSH agent — add your
+# private key with `ssh-add` before running `kamal deploy`, or rely on the
+# GitHub Actions workflow which loads HETZNER_DEPLOY_KEY into ssh-agent.
+ssh:
+  user: root
+  keys_only: true
+
+# No accessories — Redis is either on Hetzner localhost (separate systemd unit
+# on the ops box) or on Upstash. DB is Neon. R2 is Cloudflare. Nothing for
+# Kamal to bring up alongside the web container.
+# accessories: {}
+
+# Logging — kamal logs tails Docker's json-file driver. For long-term logs,
+# pipe to Grafana Loki or similar post-cutover.
+logging:
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
