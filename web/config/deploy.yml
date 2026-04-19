@@ -112,6 +112,7 @@ env:
     - NEXTAUTH_SECRET
     - ENCRYPTION_KEY
     - CRON_SECRET
+    - ADMIN_EMAIL
     # Integrations
     - GOOGLE_CLIENT_ID
     - GOOGLE_CLIENT_SECRET
