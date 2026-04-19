@@ -218,7 +218,10 @@ accessories:
       secret:
         - REDIS_PASSWORD
     options:
-      restart: always
+      # `restart` is intentionally omitted — Kamal manages it itself
+      # (defaults to `unless-stopped` for accessories) and rejects an
+      # override here at config-validation time.
+      #
       # uid 999 = baked-in `redis` user in redis:7-alpine. Required because
       # cap-drop ALL removes CAP_DAC_OVERRIDE, so even container-root cannot
       # write to /data unless it owns the dir. /var/lib/inari-web-redis on
