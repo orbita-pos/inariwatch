@@ -138,10 +138,18 @@ env:
     - EAP_SERVER_URL
     - EAP_API_KEY
     # Email + push
-    # TODO: re-enable once the value is added via `scripts/update-sops-key.ts
-    # RESEND_API_KEY`. Until then, transactional email (signup verify,
-    # password reset, digests) silently no-ops — signup flow still completes
-    # but users don't receive the verification email.
+    # Transactional email (signup verify, password reset, digests) uses
+    # nodemailer against Resend's SMTP relay — see lib/notifications/email.ts.
+    # All 6 SMTP_* vars are already in sops.
+    - SMTP_HOST
+    - SMTP_PORT
+    - SMTP_SECURE
+    - SMTP_USER
+    - SMTP_PASS
+    - SMTP_FROM
+    # RESEND_API_KEY is only used by the public status-page subscriber
+    # pipeline (lib/ai/status-page-automation.ts). Not set historically;
+    # the status-page subscribe flow silently skips when absent.
     # - RESEND_API_KEY
     - VAPID_PRIVATE_KEY
     - VAPID_EMAIL
