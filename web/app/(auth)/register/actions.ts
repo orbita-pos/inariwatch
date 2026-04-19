@@ -28,10 +28,18 @@ export async function registerUser(
   // x-real-ip (set by Vercel, can't be spoofed) with x-forwarded-for fallback.
   const h = await headers();
   const ip = extractClientIp({ headers: h } as unknown as Request);
+  // TEMPORARY DIAG — remove once kamal-proxy IP forwarding is confirmed end-to-end
+  console.log("[register][diag]", {
+    ip,
+    xRealIp: h.get("x-real-ip"),
+    xff: h.get("x-forwarded-for"),
+    host: h.get("host"),
+  });
   const ipRl = await rateLimit("register-ip", ip, {
     windowMs: 24 * 60 * 60_000,
     max: 3,
   });
+  console.log("[register][diag] rl result:", ipRl);
   if (!ipRl.allowed) {
     return { success: false, error: "Too many attempts. Try again tomorrow." };
   }
