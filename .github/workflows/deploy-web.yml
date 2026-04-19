@@ -10,7 +10,6 @@ on:
     paths:
       - 'web/**'
       - '.github/workflows/deploy-web.yml'
-      - '.kamal/hooks/**'
   workflow_dispatch:
     inputs:
       confirm:
