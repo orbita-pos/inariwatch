@@ -96,10 +96,23 @@ jobs:
       - name: Prepare Kamal secrets file
         working-directory: web
         env:
-          KAMAL_REGISTRY_USERNAME: ${{ github.actor }}
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          cp .kamal/secrets.template .kamal/secrets
+          # Write the live values directly into .kamal/secrets so Kamal doesn't
+          # rely on env inheritance through its subshell (which was falling
+          # through to the `$(gh auth token)` fallback in the template and
+          # grabbing the default GITHUB_TOKEN — the one that can't push to
+          # org-owned GHCR packages on first creation).
+          set -euo pipefail
+          mkdir -p .kamal
+          {
+            echo "export KAMAL_REGISTRY_USERNAME='${GH_ACTOR}'"
+            echo "export KAMAL_REGISTRY_PASSWORD='${GHCR_PAT}'"
+            # App secrets — decrypt the sops file into KEY=VALUE pairs and
+            # prefix each line with `export `. Requires sops + age key.
+            echo "eval \"\$(sops -d --output-type dotenv .env.sops.yaml | sed 's/^/export /')\""
+          } > .kamal/secrets
           chmod 600 .kamal/secrets
 
       - name: Deploy
