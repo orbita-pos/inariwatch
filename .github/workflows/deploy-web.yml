@@ -102,20 +102,20 @@ jobs:
         env:
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
           GH_ACTOR: ${{ github.actor }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
-          # Write the live values directly into .kamal/secrets so Kamal doesn't
-          # rely on env inheritance through its subshell (which was falling
-          # through to the `$(gh auth token)` fallback in the template and
-          # grabbing the default GITHUB_TOKEN — the one that can't push to
-          # org-owned GHCR packages on first creation).
+          # Kamal 2 parses .kamal/secrets as KEY=VALUE lines — it does NOT
+          # shell-exec the file. An earlier `eval "$(sops -d ...)"` line
+          # was being read literally by Kamal's Secrets loader, which then
+          # complained `Secret 'DATABASE_URL' not found`. Decrypt the sops
+          # YAML inline into dotenv format and concatenate with the two
+          # literal registry credentials.
           set -euo pipefail
           mkdir -p .kamal
           {
-            echo "export KAMAL_REGISTRY_USERNAME='${GH_ACTOR}'"
-            echo "export KAMAL_REGISTRY_PASSWORD='${GHCR_PAT}'"
-            # App secrets — decrypt the sops file into KEY=VALUE pairs and
-            # prefix each line with `export `. Requires sops + age key.
-            echo "eval \"\$(sops -d --output-type dotenv .env.sops.yaml | sed 's/^/export /')\""
+            echo "KAMAL_REGISTRY_USERNAME=${GH_ACTOR}"
+            echo "KAMAL_REGISTRY_PASSWORD=${GHCR_PAT}"
+            sops -d --output-type dotenv .env.sops.yaml
           } > .kamal/secrets
           chmod 600 .kamal/secrets
 
