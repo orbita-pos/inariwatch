@@ -89,14 +89,18 @@ env:
     - SLACK_CLIENT_ID
     - SLACK_CLIENT_SECRET
     - SLACK_SIGNING_SECRET
-    - TELEGRAM_WEBHOOK_SECRET
+    # TODO: re-enable once the value is added via `scripts/update-sops-key.ts
+    # TELEGRAM_WEBHOOK_SECRET`. Until then, Telegram inbound webhook is
+    # unverified — the /api/telegram/webhook route rejects all requests.
+    # - TELEGRAM_WEBHOOK_SECRET
     # AI
     - PLATFORM_AI_KEY
     - PLATFORM_ANTHROPIC_KEY
     # Infra
-    - REDIS_HOST
-    - REDIS_PORT
-    - REDIS_PASSWORD
+    # REDIS_HOST/PORT/PASSWORD removed — those are for the Hetzner-local
+    # Redis the worker uses for BullMQ. The web container uses Upstash
+    # via UPSTASH_REDIS_REST_URL/TOKEN for rate limiting, AI cache, and
+    # dedup. Adding the local Redis would be wasted wiring.
     - UPSTASH_REDIS_REST_URL
     - UPSTASH_REDIS_REST_TOKEN
     - R2_ACCOUNT_ID
@@ -110,7 +114,11 @@ env:
     - EAP_SERVER_URL
     - EAP_API_KEY
     # Email + push
-    - RESEND_API_KEY
+    # TODO: re-enable once the value is added via `scripts/update-sops-key.ts
+    # RESEND_API_KEY`. Until then, transactional email (signup verify,
+    # password reset, digests) silently no-ops — signup flow still completes
+    # but users don't receive the verification email.
+    # - RESEND_API_KEY
     - VAPID_PRIVATE_KEY
     - VAPID_EMAIL
     # Feature flags
