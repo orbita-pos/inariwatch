@@ -1,5 +1,11 @@
 import type { NextConfig } from "next";
-import { withInariWatch } from "@inariwatch/capture/next";
+// withInariWatch wrapper intentionally NOT imported here — the published
+// @inariwatch/capture@0.9.0's `./next` subpath exports only `import`/`default`
+// conditions, no `require`. Next.js's config transpiler compiles this file
+// to CJS and `require`s the plugin, which fails on ESM-only subpaths under
+// Node 20. Dogfood capture continues to work via `instrumentation.ts` at
+// runtime, which uses native ESM import. Re-add the wrapper once the
+// capture package publishes with a `require` condition (next patch release).
 
 const securityHeaders = [
   { key: "X-Content-Type-Options",  value: "nosniff" },
@@ -49,4 +55,4 @@ const config: NextConfig = {
   },
 };
 
-export default withInariWatch(config as Record<string, unknown>) as NextConfig;
+export default config;
