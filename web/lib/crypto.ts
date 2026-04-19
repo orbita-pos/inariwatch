@@ -10,8 +10,14 @@ function hasKey(): boolean {
   return KEY_HEX.length === 64;
 }
 
-// Fail loudly in production if encryption key is missing
-if (process.env.NODE_ENV === "production" && !hasKey()) {
+// Fail loudly in production if encryption key is missing. Skipped during
+// `next build` (NEXT_PHASE=phase-production-build) because the Dockerfile
+// runs the build with NODE_ENV=production but without runtime secrets —
+// ENCRYPTION_KEY lands via Kamal's env.secret at container start. The
+// guard still fires for real `next start` in production, which is the
+// scenario we care about.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+if (process.env.NODE_ENV === "production" && !isBuildPhase && !hasKey()) {
   throw new Error(
     "ENCRYPTION_KEY is not set. All integration tokens would be stored in plaintext. " +
     "Generate one with: openssl rand -hex 32"
