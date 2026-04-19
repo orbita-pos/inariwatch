@@ -73,8 +73,12 @@ env:
     NODE_ENV: production
     PORT: "3000"
     NEXT_TELEMETRY_DISABLED: "1"
-    APP_URL: "https://app.inariwatch.com"
-    NEXTAUTH_URL: "https://app.inariwatch.com"
+    # During parallel run, APP_URL + NEXTAUTH_URL point at the preview
+    # hostname so post-login redirects land back on Hetzner instead of
+    # being dumped onto the still-live Vercel deploy at app.*. At DNS
+    # cutover, flip both to "https://app.inariwatch.com" and redeploy.
+    APP_URL: "https://app-new.inariwatch.com"
+    NEXTAUTH_URL: "https://app-new.inariwatch.com"
   secret:
     # Core
     - DATABASE_URL
