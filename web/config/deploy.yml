@@ -122,9 +122,14 @@ env:
 # SSH access to the Hetzner host. Kamal uses the user's SSH agent — add your
 # private key with `ssh-add` before running `kamal deploy`, or rely on the
 # GitHub Actions workflow which loads HETZNER_DEPLOY_KEY into ssh-agent.
+#
+# Do NOT set `keys_only: true` — Net::SSH interprets that as "only use keys
+# from the explicit `keys:` list" and then ignores the ssh-agent entirely.
+# Without an explicit key path (we rely on ssh-agent in CI), it falls
+# through to password auth, which tries to prompt on stdin via `noecho`
+# and dies with ENOTTY in a CI environment with no TTY.
 ssh:
   user: root
-  keys_only: true
 
 # No accessories — Redis is either on Hetzner localhost (separate systemd unit
 # on the ops box) or on Upstash. DB is Neon. R2 is Cloudflare. Nothing for
