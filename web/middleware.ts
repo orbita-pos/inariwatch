@@ -94,6 +94,7 @@ export function middleware(req: NextRequest) {
     if (hasSession(req) && (pathname === "/" || pathname === "/login" || pathname === "/register")) {
       const url = req.nextUrl.clone();
       url.host = APP_SUBDOMAIN;
+      url.port = "";
       url.pathname = "/dashboard";
       url.protocol = "https:";
       return NextResponse.redirect(url, { status: 302 });
@@ -117,6 +118,7 @@ export function middleware(req: NextRequest) {
     }
     const url = req.nextUrl.clone();
     url.host = APP_SUBDOMAIN;
+    url.port = "";
     url.protocol = "https:";
     return NextResponse.redirect(url, { status: 301 });
   }
@@ -127,6 +129,7 @@ export function middleware(req: NextRequest) {
     if (pathname === "/") {
       const url = req.nextUrl.clone();
       url.host = ROOT_DOMAIN;
+      url.port = "";
       url.protocol = "https:";
       return NextResponse.redirect(url, { status: 302 });
     }

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Re-apply Cloudflare Origin Cert after any `kamal deploy`.
+#
+# Why: Kamal re-registers kamal-proxy with `ssl: true` on every deploy, which
+# resets TLS to Let's Encrypt auto-provisioning. Once the web app is behind
+# Cloudflare (Full strict), LE renewals fail silently because the HTTP-01
+# challenge hits CF instead of kamal-proxy. The fix: after each deploy, swap
+# back to the CF Origin Cert (15-year validity, no renewal needed).
+#
+# The swap is performed by /root/bin/swap-to-origin-cert.sh on each web host
+# (created during the 2026-04-19 Hetzner hardening session). That script is
+# idempotent — running it after a deploy that already ended up on LE simply
+# re-registers with the Origin Cert paths.
+#
+# Kamal exposes the deployed-to hosts as $KAMAL_HOSTS (comma-separated).
+
+set -euo pipefail
+
+if [ -z "${KAMAL_HOSTS:-}" ]; then
+  echo "[post-deploy] KAMAL_HOSTS unset — skipping origin-cert swap"
+  exit 0
+fi
+
+for host in $(echo "$KAMAL_HOSTS" | tr "," " "); do
+  echo "[post-deploy] re-applying CF Origin Cert on $host"
+  if ! ssh -o StrictHostKeyChecking=accept-new "root@$host" '/root/bin/swap-to-origin-cert.sh' 2>&1; then
+    echo "[post-deploy] WARN: swap-to-origin-cert.sh failed on $host (proxy may be on LE until re-run)"
+    # Do not fail the deploy — the site is still up, just on the wrong cert.
+  fi
+done

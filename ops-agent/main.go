@@ -18,7 +18,14 @@ import (
 	"time"
 )
 
-const listenAddr = "127.0.0.1:9500"
+// Listen address comes from OPS_LISTEN_ADDR env var. Default is
+// 127.0.0.1:9500 (secure default — defense-in-depth against UFW failure).
+// On inari-web we override to 0.0.0.0:9500 because the Next.js container
+// reaches us across the Docker bridge (host-gateway IP, not 127.0.0.1).
+// On inari-staging we keep the default — Caddy reverse-proxies locally.
+// Perimeter security: UFW default-deny + Bearer auth (64 hex,
+// constant-time compare) are the outer layers regardless of bind addr.
+const defaultListenAddr = "127.0.0.1:9500"
 
 // Where to look for TLS certificates. We walk each root that exists and parse
 // every .crt/.pem we find as PEM — Caddy stores under the first path,
@@ -67,6 +74,10 @@ func main() {
 	secret := strings.TrimSpace(os.Getenv("OPS_AGENT_SECRET"))
 	if len(secret) < 32 {
 		log.Fatalf("OPS_AGENT_SECRET missing or < 32 chars (got %d)", len(secret))
+	}
+	listenAddr := strings.TrimSpace(os.Getenv("OPS_LISTEN_ADDR"))
+	if listenAddr == "" {
+		listenAddr = defaultListenAddr
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/host", auth(secret, handleHost))

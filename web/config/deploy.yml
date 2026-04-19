@@ -28,8 +28,18 @@ servers:
     # Docker default bridge is used; `host.docker.internal:host-gateway`
     # is the standard --add-host recipe for Linux parity with Mac/Windows
     # Docker Desktop.
+    #
+    # Hardening (2026-04-19):
+    #   - security-opt no-new-privileges: blocks setuid-like privilege
+    #     escalation inside the container (e.g., sudo, suid binaries).
+    #   - cap-drop ALL + minimal cap-add: start from zero capabilities and
+    #     add only what Node.js/Next.js genuinely needs. This closes most
+    #     container-escape primitives (MKNOD, NET_RAW, AUDIT_WRITE, etc.).
     options:
       add-host: host.docker.internal:host-gateway
+      security-opt: [ "no-new-privileges:true" ]
+      cap-drop: [ "ALL" ]
+      cap-add: [ "CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "NET_BIND_SERVICE" ]
 
 # Kamal 2 ships a built-in proxy (kamal-proxy) that handles TLS termination,
 # zero-downtime swaps, and Let's Encrypt on its own. Replaces the separate
@@ -44,10 +54,6 @@ servers:
 #   - status.inariwatch.com    (public status page)
 #   - get.inariwatch.com       (downloads / landing alias)
 #
-# `app-new.inariwatch.com` is kept during the transition window so the old
-# parallel-run hostname still resolves for rollback drills. After the
-# cutover settles (7 days observation), drop app-new.* from this list and
-# let its cert retire.
 proxy:
   ssl: true
   hosts:
@@ -58,7 +64,6 @@ proxy:
     - install.inariwatch.com
     - status.inariwatch.com
     - get.inariwatch.com
-    - app-new.inariwatch.com
   app_port: 3000
   healthcheck:
     path: /api/health
