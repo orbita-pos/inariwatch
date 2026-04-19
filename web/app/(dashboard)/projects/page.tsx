@@ -34,10 +34,26 @@ export default async function ProjectsPage() {
 
   const projectIds = userProjects.map((p) => p.id);
 
+  // The alert list is only used for counts + the most-recent title/timestamp
+  // (see projectData.map below). Selecting * pulled message/stackTrace/
+  // contextJson for every alert, and at real-world volume that exceeded
+  // Neon's 64 MB HTTP response cap (HTTP 507). Narrow projection keeps the
+  // payload in the KB range regardless of history size.
   const [allIntegrations, allAlerts] = projectIds.length > 0
     ? await Promise.all([
         db.select().from(projectIntegrations).where(inArray(projectIntegrations.projectId, projectIds)),
-        db.select().from(alerts).where(inArray(alerts.projectId, projectIds)).orderBy(desc(alerts.createdAt)),
+        db
+          .select({
+            id: alerts.id,
+            projectId: alerts.projectId,
+            title: alerts.title,
+            severity: alerts.severity,
+            isRead: alerts.isRead,
+            createdAt: alerts.createdAt,
+          })
+          .from(alerts)
+          .where(inArray(alerts.projectId, projectIds))
+          .orderBy(desc(alerts.createdAt)),
       ])
     : [[], []];
 
