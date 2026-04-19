@@ -25,21 +25,15 @@ export async function registerUser(
 
   // IP rate limit BEFORE the email rate limit — stops distributed signup
   // spam where each request uses a fresh email. extractClientIp uses
-  // x-real-ip (set by Vercel, can't be spoofed) with x-forwarded-for fallback.
+  // x-real-ip first; falls back to rightmost x-forwarded-for, which is
+  // what kamal-proxy sets on Hetzner (confirmed 2026-04-19 via temporary
+  // diag logs that are no longer present).
   const h = await headers();
   const ip = extractClientIp({ headers: h } as unknown as Request);
-  // TEMPORARY DIAG — remove once kamal-proxy IP forwarding is confirmed end-to-end
-  console.log("[register][diag]", {
-    ip,
-    xRealIp: h.get("x-real-ip"),
-    xff: h.get("x-forwarded-for"),
-    host: h.get("host"),
-  });
   const ipRl = await rateLimit("register-ip", ip, {
     windowMs: 24 * 60 * 60_000,
     max: 3,
   });
-  console.log("[register][diag] rl result:", ipRl);
   if (!ipRl.allowed) {
     return { success: false, error: "Too many attempts. Try again tomorrow." };
   }
