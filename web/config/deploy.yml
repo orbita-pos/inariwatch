@@ -164,10 +164,11 @@ env:
     - PREVIEW_FIX_ORGS
     - PREVIEW_FIX_USERS
     - REPLAY_V2_ORGS
-    # /admin/ops dashboard → ops-agent on each box
+    # /admin/ops dashboard → ops-agent on each box + GH Actions API for deploys widget
     - OPS_AGENT_SECRET
     - OPS_URL_STAGING
     - OPS_URL_WEB
+    - OPS_GITHUB_TOKEN
     # Web Push (public key is baked in at build time above)
 
 # SSH access to the Hetzner host. Kamal uses the user's SSH agent — add your
