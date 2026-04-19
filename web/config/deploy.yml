@@ -28,12 +28,30 @@ servers:
 # zero-downtime swaps, and Let's Encrypt on its own. Replaces the separate
 # Traefik/Caddy stanza that Kamal 1 required.
 #
-# During parallel run, the proxy serves app-new.inariwatch.com. When we cut
-# over DNS, change this to app.inariwatch.com and redeploy — a fresh cert
-# issues in under 60s and the old app-new cert retires.
+# All 7 production hostnames for the web app live on this box now:
+#   - inariwatch.com           (apex, marketing landing)
+#   - www.inariwatch.com       (marketing)
+#   - app.inariwatch.com       (dashboard)
+#   - mcp.inariwatch.com       (MCP server, same Next.js via middleware rewrite)
+#   - install.inariwatch.com   (agent installer page)
+#   - status.inariwatch.com    (public status page)
+#   - get.inariwatch.com       (downloads / landing alias)
+#
+# `app-new.inariwatch.com` is kept during the transition window so the old
+# parallel-run hostname still resolves for rollback drills. After the
+# cutover settles (7 days observation), drop app-new.* from this list and
+# let its cert retire.
 proxy:
   ssl: true
-  host: app-new.inariwatch.com
+  hosts:
+    - inariwatch.com
+    - www.inariwatch.com
+    - app.inariwatch.com
+    - mcp.inariwatch.com
+    - install.inariwatch.com
+    - status.inariwatch.com
+    - get.inariwatch.com
+    - app-new.inariwatch.com
   app_port: 3000
   healthcheck:
     path: /api/health
@@ -73,12 +91,14 @@ env:
     NODE_ENV: production
     PORT: "3000"
     NEXT_TELEMETRY_DISABLED: "1"
-    # During parallel run, APP_URL + NEXTAUTH_URL point at the preview
-    # hostname so post-login redirects land back on Hetzner instead of
-    # being dumped onto the still-live Vercel deploy at app.*. At DNS
-    # cutover, flip both to "https://app.inariwatch.com" and redeploy.
-    APP_URL: "https://app-new.inariwatch.com"
-    NEXTAUTH_URL: "https://app-new.inariwatch.com"
+    # Canonical app URL. NEXTAUTH_URL drives OAuth callback composition +
+    # post-login redirects, APP_URL drives all server-generated absolute
+    # links (emails, OG images, share URLs). Both point at app.* now that
+    # we're about to flip DNS to Hetzner — before the flip kamal-proxy
+    # still serves requests that arrive via --resolve, after the flip
+    # real traffic lands here.
+    APP_URL: "https://app.inariwatch.com"
+    NEXTAUTH_URL: "https://app.inariwatch.com"
   secret:
     # Core
     - DATABASE_URL
