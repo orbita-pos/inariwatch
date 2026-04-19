@@ -39,17 +39,10 @@ proxy:
     path: /api/health
     interval: 5
     timeout: 3
-  # Gapless deploy: kamal-proxy holds new requests while the new container
-  # warms up, then cuts traffic over in a single atomic swap.
-  deploy_timeout: 30
-  drain_timeout: 30
-  # Streaming support (SSE / chunked response). Without this, Caddy/kamal-proxy
-  # buffers the response body until close, which breaks
-  # /api/remediation/stream and friends. See the gotcha notes in
-  # web/docs/migration-vercel-to-hetzner.md § Sev 1 #1.
-  buffering:
-    requests: false
-    responses: false
+  # NOTE: SSE streaming — kamal-proxy in 2.x doesn't buffer responses by
+  # default for `Content-Type: text/event-stream`, so /api/remediation/stream
+  # and friends work out of the box. If we hit buffering issues during
+  # parallel run, we tune via kamal-proxy env vars rather than deploy.yml.
 
 # Registry auth (GHCR). KAMAL_REGISTRY_PASSWORD comes from .kamal/secrets,
 # which decrypts from .env.sops.yaml at deploy time.
