@@ -59,7 +59,11 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Use a classic PAT with write:packages instead of GITHUB_TOKEN
+          # because org-owned packages can't be created by the default
+          # GITHUB_TOKEN — chicken-and-egg on the first push. Once the
+          # package exists + has repo access granted, we can switch back.
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Set up SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -93,7 +97,7 @@ jobs:
         working-directory: web
         env:
           KAMAL_REGISTRY_USERNAME: ${{ github.actor }}
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT }}
         run: |
           cp .kamal/secrets.template .kamal/secrets
           chmod 600 .kamal/secrets
@@ -106,7 +110,7 @@ jobs:
           DOCKER_BUILDKIT: '1'
           APP_VERSION: ${{ github.sha }}
           KAMAL_REGISTRY_USERNAME: ${{ github.actor }}
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT }}
           SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           kamal deploy --version "${GITHUB_SHA}" --verbose
