@@ -34,6 +34,8 @@
     "@tailwindcss/typography": "^0.5.19",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
+    "ioredis": "^5.4.1",
+    "rate-limiter-flexible": "^5.0.4",
     "@vercel/functions": "^3.4.3",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
