@@ -23,6 +23,13 @@ servers:
       - 87.99.153.227  # inari-web CPX21, Ashburn
     labels:
       app.role: web
+    # Allow the Next.js container to reach services running on the host
+    # (ops-agent at :9500, any future host-local sidecars). With Kamal the
+    # Docker default bridge is used; `host.docker.internal:host-gateway`
+    # is the standard --add-host recipe for Linux parity with Mac/Windows
+    # Docker Desktop.
+    options:
+      add-host: host.docker.internal:host-gateway
 
 # Kamal 2 ships a built-in proxy (kamal-proxy) that handles TLS termination,
 # zero-downtime swaps, and Let's Encrypt on its own. Replaces the separate
@@ -157,6 +164,10 @@ env:
     - PREVIEW_FIX_ORGS
     - PREVIEW_FIX_USERS
     - REPLAY_V2_ORGS
+    # /admin/ops dashboard → ops-agent on each box
+    - OPS_AGENT_SECRET
+    - OPS_URL_STAGING
+    - OPS_URL_WEB
     # Web Push (public key is baked in at build time above)
 
 # SSH access to the Hetzner host. Kamal uses the user's SSH agent — add your
