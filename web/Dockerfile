@@ -48,6 +48,12 @@ ENV NODE_ENV=production
 # Kamal's `env.clear` so the build args come from the registry-signing CI.
 ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
 ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=${NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+# Dummy DATABASE_URL just to satisfy the eager `neon()` init at module load
+# in `lib/db/index.ts`. `neon()` only parses the URL at construction — it
+# does not connect. The real value comes from Kamal's `env.secret` at
+# runtime and overrides this. Without this ENV, `next build`'s
+# "Collecting page data" step throws "No database connection string".
+ENV DATABASE_URL="postgres://buildtime:buildtime@localhost:5432/buildtime"
 RUN npm run build
 
 # ─── runtime ────────────────────────────────────────────────────────────────
