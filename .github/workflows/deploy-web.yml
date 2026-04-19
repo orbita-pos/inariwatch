@@ -75,7 +75,11 @@ jobs:
           HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "$HETZNER_HOST" >> ~/.ssh/known_hosts
+          # No -H (hashed hostnames) — Kamal's net-ssh 7.3 compares against
+          # one of the three host keys Hetzner presents and hashed entries
+          # trip a HostKeyMismatch on fingerprint comparison. Plain entries
+          # match against all three algorithms the server offers.
+          ssh-keyscan -t rsa,ecdsa,ed25519 "$HETZNER_HOST" >> ~/.ssh/known_hosts
 
       - name: Write age private key
         env:
