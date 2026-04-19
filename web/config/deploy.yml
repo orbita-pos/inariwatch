@@ -20,16 +20,20 @@ image: orbita-pos/inari-web
 servers:
   web:
     hosts:
-      - <WEB_SERVER_IP>  # CX32 running the Next.js container
+      - 87.99.153.227  # inari-web CPX21, Ashburn
     labels:
       app.role: web
 
 # Kamal 2 ships a built-in proxy (kamal-proxy) that handles TLS termination,
 # zero-downtime swaps, and Let's Encrypt on its own. Replaces the separate
 # Traefik/Caddy stanza that Kamal 1 required.
+#
+# During parallel run, the proxy serves app-new.inariwatch.com. When we cut
+# over DNS, change this to app.inariwatch.com and redeploy — a fresh cert
+# issues in under 60s and the old app-new cert retires.
 proxy:
   ssl: true
-  host: app.inariwatch.com
+  host: app-new.inariwatch.com
   app_port: 3000
   healthcheck:
     path: /api/health
