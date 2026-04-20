@@ -70,11 +70,36 @@ function shellEscape(s: string): string {
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 
+const APPLY_PATCH_DESC = `Apply a patch to one or more files using the envelope format GPT-5.x was trained on. PREFER this over write_file — it is much smaller, faster, and less error-prone for targeted edits.
+
+Envelope format:
+
+*** Begin Patch
+*** Update File: path/to/file.ts
+@@ optional context (function name, section header) to disambiguate duplicate hunks
+ unchanged context line (prefix with SINGLE SPACE)
+-line to remove
++line to add
+ more context
+*** Add File: path/to/new-file.ts
++first line of new file
++second line
+*** Delete File: path/to/remove.ts
+*** End Patch
+
+Rules:
+- Context lines MUST start with a single space. Every context line MUST match the file EXACTLY (whitespace included) except for trailing whitespace on blank lines, which we normalize.
+- Include 1-3 context lines above and below each change for unique matching. If the same -/+ block appears multiple times in the file, add text after @@ like "@@ function processOrder" to disambiguate.
+- Multiple hunks per file are allowed; separate each with a "@@" header.
+- Multiple files per patch are allowed.
+- "Add File" is only for NEW files — it errors if the path exists. "Update File" requires the path to exist.`;
+
 const CONTAINER_TOOLS: ToolDefinition[] = [
   { name: "read_file", description: "Read a file from the repository (up to 15K chars).", input_schema: { type: "object", properties: { path: { type: "string", description: "File path relative to repo root" } }, required: ["path"] } },
   { name: "search_code", description: "Search the codebase for patterns using grep.", input_schema: { type: "object", properties: { query: { type: "string", description: "Search string or regex" } }, required: ["query"] } },
   { name: "list_directory", description: "List directory contents. Excludes node_modules and .git.", input_schema: { type: "object", properties: { prefix: { type: "string", description: "Directory path (e.g. 'src/')" } } } },
-  { name: "write_file", description: "Write complete file contents. Always provide COMPLETE content.", input_schema: { type: "object", properties: { path: { type: "string", description: "File path" }, content: { type: "string", description: "Complete file content" } }, required: ["path", "content"] } },
+  { name: "apply_patch", description: APPLY_PATCH_DESC, input_schema: { type: "object", properties: { patch: { type: "string", description: "Full patch envelope starting with '*** Begin Patch' and ending with '*** End Patch'" } }, required: ["patch"] } },
+  { name: "write_file", description: "Fallback: write COMPLETE file contents. PREFER apply_patch for surgical edits.", input_schema: { type: "object", properties: { path: { type: "string", description: "File path" }, content: { type: "string", description: "Complete file content" } }, required: ["path", "content"] } },
   { name: "run_command", description: "Run a shell command for verification: 'npx tsc --noEmit', 'npm run build', 'npm test'.", input_schema: { type: "object", properties: { command: { type: "string", description: "Shell command" } }, required: ["command"] } },
   { name: "submit_fix", description: "Signal fix is complete. ONLY call after tsc and build pass.", input_schema: { type: "object", properties: { explanation: { type: "string" }, files_changed: { type: "array", items: { type: "string" } } }, required: ["explanation", "files_changed"] } },
 ];
@@ -142,6 +167,56 @@ async function executeContainerTool(
       const prefix = input.prefix ?? ".";
       const result = await containerExec(containerId, `find ${shellEscape(prefix)} -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -path '*/.next/*' 2>/dev/null | head -200`);
       return result.stdout || "Empty directory or not found.";
+    }
+    case "apply_patch": {
+      const patchText = input.patch;
+      if (!patchText) return "Error: patch is required";
+
+      const { parsePatch, applyPatch: runApply, ApplyPatchError } = await import("./apply-patch.js");
+      let parsed;
+      try {
+        parsed = parsePatch(patchText);
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        return `Error parsing patch: ${msg}\n\nCheck the envelope format — see the tool description for the exact syntax.`;
+      }
+
+      for (const op of parsed.ops) {
+        if (op.path.includes("..") || op.path.startsWith("/")) {
+          return `Error: path "${op.path}" must be relative to repo root, no '..' or absolute paths.`;
+        }
+        if (isBlockedWrite(op.path)) {
+          return `Error: cannot modify protected file "${op.path}".`;
+        }
+      }
+
+      const readFromContainer = async (p: string): Promise<string | null> => {
+        const r = await containerExec(containerId, `cat ${shellEscape(p)}`, READ_TIMEOUT);
+        return r.exitCode === 0 ? r.stdout : null;
+      };
+
+      let applied;
+      try {
+        applied = await runApply(parsed, readFromContainer);
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        const ctx = (e as { context?: { path?: string } }).context;
+        const pathHint = ctx?.path ? ` (file: ${ctx.path})` : "";
+        return `apply_patch failed${pathHint}:\n${msg}\n\nRe-read the file with read_file and emit a new patch. Context lines must match the file byte-for-byte.`;
+      }
+
+      const results: string[] = [];
+      for (const c of applied.changed) {
+        if (c.op === "delete") {
+          const d = await containerExec(containerId, `rm -f ${shellEscape(c.path)}`, READ_TIMEOUT);
+          if (d.exitCode !== 0) return `Failed to delete ${c.path}: ${d.stderr}`;
+          results.push(`deleted ${c.path}`);
+          continue;
+        }
+        await containerWrite(containerId, c.path, c.content);
+        results.push(`${c.op === "add" ? "added" : "updated"} ${c.path} (${c.content.length} chars)`);
+      }
+      return `apply_patch succeeded:\n${results.join("\n")}`;
     }
     case "write_file": {
       if (isBlockedWrite(input.path)) return "Error: Writing to this file is blocked for security.";
@@ -225,7 +300,8 @@ You have tools to explore, modify, and VERIFY code:
 - read_file: Read files from the repo
 - search_code: Search for patterns using grep
 - list_directory: List directory contents
-- write_file: Write/modify files (apply your fix)
+- apply_patch: Apply targeted edits via envelope format (PREFERRED for fixes)
+- write_file: Fallback — rewrite entire file (use only when apply_patch doesn't fit)
 - run_command: Run shell commands (tsc, build, test)
 - submit_fix: Signal completion (ONLY after verification)
 
@@ -233,7 +309,7 @@ WORKFLOW:
 1. Read the file(s) mentioned in the error/stack trace
 2. Check imports to understand what libraries the project uses
 3. Read package.json if you need to know the tech stack
-4. Apply your fix using write_file with COMPLETE file contents
+4. Apply your fix. PREFER apply_patch with 1-3 lines of context — much smaller and more accurate than rewriting whole files. Use write_file only for new files or full rewrites
 5. VERIFY: run_command "npx tsc --noEmit" — MUST pass
 6. VERIFY: run_command "npm run build" — MUST pass (if applicable)
 7. OPTIONAL: run_command "npm test" — non-blocking

@@ -167,8 +167,58 @@ const CONTAINER_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "apply_patch",
+    description: `Apply a patch to one or more files using the envelope format GPT-5.x was trained on. PREFER this over write_file — it is much smaller, faster, and less error-prone for targeted edits.
+
+Envelope format:
+
+*** Begin Patch
+*** Update File: path/to/file.ts
+@@ optional context (function name, section header) to disambiguate duplicate hunks
+ unchanged context line (prefix with SINGLE SPACE)
+-line to remove
++line to add
+ more context
+*** Add File: path/to/new-file.ts
++first line of new file
++second line
+*** Delete File: path/to/remove.ts
+*** End Patch
+
+Rules:
+- Context lines MUST start with a single space. Every context line MUST match the file EXACTLY (whitespace included) except for trailing whitespace on blank lines, which we normalize.
+- Include 1-3 context lines above and below each change for unique matching. If the same -/+ block appears multiple times in the file, add text after @@ like "@@ function processOrder" to disambiguate.
+- Multiple hunks per file are allowed; separate each with a "@@" header.
+- Multiple files per patch are allowed.
+- "Add File" is only for NEW files — it errors if the path exists. "Update File" requires the path to exist.
+
+Example (real fix):
+
+*** Begin Patch
+*** Update File: app/api/checkout/route.ts
+@@ export async function POST
+   const { cartItems, shippingAddress } = await req.json()
+
++  if (!shippingAddress?.city || !shippingAddress?.zip) {
++    return NextResponse.json({ error: "Shipping address required" }, { status: 400 })
++  }
++
+   const city = shippingAddress.city.toUpperCase()
+*** End Patch`,
+    input_schema: {
+      type: "object",
+      properties: {
+        patch: {
+          type: "string",
+          description: "Full patch envelope starting with '*** Begin Patch' and ending with '*** End Patch'",
+        },
+      },
+      required: ["patch"],
+    },
+  },
+  {
     name: "write_file",
-    description: "Write complete file contents to the repository. Use this to apply your fix. Always provide the COMPLETE file content, not a partial snippet.",
+    description: "Fallback: write COMPLETE file contents. PREFER apply_patch for surgical edits — it is much smaller and less error-prone. Use write_file only when creating a large new file or when apply_patch hunks fail to match repeatedly.",
     input_schema: {
       type: "object",
       properties: {
@@ -406,6 +456,84 @@ async function executeContainerTool(
       return result.stdout || "Empty directory.";
     }
 
+    case "apply_patch": {
+      const patchText = input.patch as string;
+      if (!patchText) return "Error: patch is required";
+
+      const { parsePatch, applyPatch: runApply, ApplyPatchError } = await import("./apply-patch");
+      let parsed;
+      try {
+        parsed = parsePatch(patchText);
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        return `Error parsing patch: ${msg}\n\nCheck the envelope format — see the tool description for the exact syntax. Common mistakes: missing space before context lines, no @@ between hunks, missing *** Begin Patch / *** End Patch markers.`;
+      }
+
+      // Pre-validate every op against our blocklist BEFORE any writes so a
+      // multi-file patch can't half-apply.
+      for (const op of parsed.ops) {
+        if (op.path.includes("..") || op.path.startsWith("/")) {
+          return `Error: path "${op.path}" must be relative to repo root, no '..' or absolute paths.`;
+        }
+        if (isBlockedWrite(op.path)) {
+          return `Error: cannot modify protected file "${op.path}".`;
+        }
+      }
+
+      // Resolve reads against the container filesystem. We reuse the
+      // filesRead cache when possible — the model may patch a file it
+      // just read, and we want to avoid a redundant cat.
+      const cachedRead = async (path: string): Promise<string | null> => {
+        const cached = filesRead.get(path);
+        if (cached !== undefined) return cached;
+        const result = await containerExec(
+          containerUrl, containerId,
+          `cat ${shellEscape(path)}`,
+          stagingSecret, READ_TIMEOUT,
+        );
+        if (result.exitCode !== 0) return null;
+        const content = result.stdout;
+        // Don't cache on the apply path — we're about to invalidate anyway.
+        return content;
+      };
+
+      let applied;
+      try {
+        applied = await runApply(parsed, cachedRead);
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        const ctx = (e as { context?: { path?: string; hunkIndex?: number } }).context;
+        const pathHint = ctx?.path ? ` (file: ${ctx.path})` : "";
+        return `apply_patch failed${pathHint}:\n${msg}\n\nRe-read the file with read_file, check the exact lines you need to change, and emit a new patch. Context lines must match the file byte-for-byte (trailing whitespace on blank lines is tolerated).`;
+      }
+
+      // Write each changed file back to the container and invalidate caches.
+      const results: string[] = [];
+      for (const c of applied.changed) {
+        if (c.op === "delete") {
+          const delRes = await containerExec(
+            containerUrl, containerId,
+            `rm -f ${shellEscape(c.path)}`,
+            stagingSecret, READ_TIMEOUT,
+          );
+          if (delRes.exitCode !== 0) {
+            return `Failed to delete ${c.path}: ${delRes.stderr}`;
+          }
+          filesRead.delete(c.path);
+          results.push(`deleted ${c.path}`);
+          continue;
+        }
+        const writeRes = await containerWrite(containerUrl, containerId, c.path, c.content, stagingSecret);
+        if (!writeRes.written) {
+          return `Failed to write ${c.path}`;
+        }
+        filesRead.delete(c.path);
+        results.push(`${c.op === "add" ? "added" : "updated"} ${c.path} (${writeRes.size} bytes)`);
+      }
+
+      return `apply_patch succeeded:\n${results.join("\n")}`;
+    }
+
     case "write_file": {
       const path = input.path as string;
       const content = input.content as string;
@@ -472,7 +600,8 @@ You have tools to explore, modify, and VERIFY code:
 - read_file: Read files from the repo
 - search_code: Search for patterns using grep
 - list_directory: List directory contents
-- write_file: Write/modify files (apply your fix)
+- apply_patch: Apply targeted edits via envelope format (PREFERRED for fixes)
+- write_file: Fallback — rewrite entire file (use only when apply_patch doesn't fit)
 - run_command: Run shell commands (compile, build, test)
 - submit_fix: Signal completion (ONLY after verification)
 
@@ -480,7 +609,7 @@ WORKFLOW:
 1. Identify the project's language/stack — check for package.json (Node), requirements.txt/pyproject.toml (Python), go.mod (Go), Cargo.toml (Rust), pom.xml/build.gradle (Java). Use list_directory or read_file at the repo root.
 2. Read the file(s) mentioned in the error/stack trace.
 3. Check imports to understand what libraries the project uses.
-4. Apply your fix using write_file with COMPLETE file contents.
+4. Apply your fix. PREFER apply_patch with 1-3 lines of context — it is much smaller, more accurate, and is the exact format GPT-5.x was trained on. Fall back to write_file only when replacing an entire file makes sense (new file from scratch, or a complete rewrite).
 5. VERIFY with the right command for the project's language:
    - TypeScript: "npx tsc --noEmit" MUST pass
    - JavaScript: "npm run build --if-present"
