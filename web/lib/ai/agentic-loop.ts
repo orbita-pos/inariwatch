@@ -337,6 +337,39 @@ async function executeTool(
   }
 }
 
+/**
+ * Run all sibling (non-terminal) tool_uses that shared an assistant turn
+ * with a terminal tool (apply_patch / submit_fix), and return their
+ * tool_result blocks so the caller can bundle them into the next user
+ * message. Every tool_use id MUST get a matching tool_result, otherwise
+ * downstream APIs (Chat Completions + Responses) reject the conversation.
+ */
+async function executeSiblingTools(
+  siblings: ToolUseBlock[],
+  params: AgenticLoopParams,
+  filesRead: Map<string, string>,
+  turn: number,
+  emit: AgenticLoopParams["emit"],
+): Promise<ToolResultBlock[]> {
+  if (siblings.length === 0) return [];
+  const results: ToolResultBlock[] = [];
+  for (const s of siblings) {
+    try {
+      emit("agentic_tool", { turn, tool: s.name, input: s.input });
+      const out = await executeTool(s, params, filesRead);
+      results.push({ type: "tool_result", tool_use_id: s.id, content: out });
+    } catch (err) {
+      results.push({
+        type: "tool_result",
+        tool_use_id: s.id,
+        content: `Error running ${s.name}: ${err instanceof Error ? err.message : String(err)}`,
+        is_error: true,
+      });
+    }
+  }
+  return results;
+}
+
 // ── Build System Prompt ─────────────────────────────────────────────────────
 
 function buildAgenticBasePrompt(): string {
@@ -499,16 +532,33 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
 
       // If parse/apply failed, surface the error back to the model as a
       // tool_result and continue the loop — don't terminate on a bad patch.
+      //
+      // The assistant may have emitted OTHER tool_use blocks in the same
+      // turn (e.g. think + apply_patch). Every tool_use id MUST have a
+      // matching tool_result in the next user message, or Chat Completions
+      // (gpt-4o-mini path) 400s with "tool_call_ids without response".
+      // Execute the sibling non-terminal tools now and bundle all results
+      // into a single user message.
       if ("error" in parsed) {
         emit("agentic_error", { turn, tool: "apply_patch", error: parsed.error });
+        const siblingResults = await executeSiblingTools(
+          toolUses.filter((t) => t.id !== applyPatchCall.id),
+          params,
+          filesRead,
+          turn,
+          emit,
+        );
         messages.push({
           role: "user",
-          content: [{
-            type: "tool_result",
-            tool_use_id: applyPatchCall.id,
-            content: `apply_patch error: ${parsed.error}${parsed.hint ? `\nHint: ${parsed.hint}` : ""}`,
-            is_error: true,
-          } as ToolResultBlock] as ContentBlock[],
+          content: [
+            ...siblingResults,
+            {
+              type: "tool_result",
+              tool_use_id: applyPatchCall.id,
+              content: `apply_patch error: ${parsed.error}${parsed.hint ? `\nHint: ${parsed.hint}` : ""}`,
+              is_error: true,
+            } as ToolResultBlock,
+          ] as ContentBlock[],
         });
         continue;
       }
