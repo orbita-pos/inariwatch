@@ -161,6 +161,10 @@ export interface AgenticLoopParams {
   fixModel: string;
   systemPrompt: string;
   errorContext: string;
+  /** Cheap model used by the post-apply verifier (PR #6). */
+  verifyModel?: string;
+  /** Root-cause diagnosis text — fed into the verifier sanity gate. */
+  diagnosisText?: string;
   token: string;
   owner: string;
   repo: string;
@@ -444,6 +448,12 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   const { RetryMemory } = await import("./retry-memory");
   const retryMemory = new RetryMemory();
 
+  // Verifier-gate retry budget (PR #6). Post-apply sanity checks can
+  // bounce a patch back for correction, but we cap the back-and-forth
+  // so a stubborn verifier failure doesn't eat the whole turn budget.
+  const MAX_VERIFIER_RETRIES = 2;
+  let verifierRetries = 0;
+
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("agentic_turn", { turn, maxTurns: MAX_TURNS });
 
@@ -580,6 +590,80 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
           ] as ContentBlock[],
         });
         continue;
+      }
+
+      // ── Verifier gate (PR #6) ─────────────────────────────────────
+      // Pre-push sanity: make sure the patched files parse + the fix
+      // plausibly addresses the error. Uses the CURRENT file cache
+      // (the originals we've been operating against) as the "before".
+      // We allow up to 2 verifier-driven retries inside this loop; if
+      // the agent still can't land a passing patch we let it through
+      // and let downstream self_review decide.
+      if (verifierRetries < MAX_VERIFIER_RETRIES) {
+        try {
+          const { verifyFix } = await import("./verifier");
+          const verifyModel = params.verifyModel ?? params.exploreModel;
+          const result = await verifyFix({
+            files: parsed.files,
+            originalFiles: filesRead,
+            errorContext: params.errorContext,
+            diagnosis: params.diagnosisText ?? "(diagnosis unavailable)",
+            apiKey,
+            model: verifyModel,
+            log: params.log
+              ? {
+                  userId: params.log.userId,
+                  projectId: params.projectId,
+                  alertId: params.log.alertId,
+                  remediationSessionId: params.log.remediationSessionId,
+                  isPlatformKey: params.log.isPlatformKey,
+                }
+              : undefined,
+          });
+          emit("agentic_verify", {
+            turn,
+            ok: result.ok,
+            severity: result.severity,
+            issue: result.issue,
+          });
+          if (!result.ok) {
+            verifierRetries++;
+            const verifierHint = [
+              `apply_patch succeeded, but the verifier rejected the result (severity=${result.severity}):`,
+              `  ${result.issue}`,
+              "",
+              "Re-read the relevant file, emit a corrected apply_patch that fixes ONLY the issue above. Do not revert the successful parts of the prior patch unless they are the problem.",
+            ].join("\n");
+            const siblingResults = await executeSiblingTools(
+              toolUses.filter((t) => t.id !== applyPatchCall.id),
+              params,
+              filesRead,
+              turn,
+              emit,
+            );
+            messages.push({
+              role: "user",
+              content: [
+                ...siblingResults,
+                {
+                  type: "tool_result",
+                  tool_use_id: applyPatchCall.id,
+                  content: verifierHint,
+                  is_error: true,
+                } as ToolResultBlock,
+              ] as ContentBlock[],
+            });
+            continue;
+          }
+        } catch (verr) {
+          // Verifier runtime failure — advisory, never blocks.
+          emit("agentic_verify", {
+            turn,
+            ok: true,
+            severity: "warning",
+            issue: `verifier runtime error: ${verr instanceof Error ? verr.message.slice(0, 100) : "unknown"}`,
+          });
+        }
       }
 
       emit("agentic_done", { turns: turn, files: parsed.files.map((f) => f.path), via: "apply_patch" });

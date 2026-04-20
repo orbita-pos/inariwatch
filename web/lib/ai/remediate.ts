@@ -1078,6 +1078,11 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             provider: agenticProvider,
             exploreModel: agenticExplore,
             fixModel: agenticFix,
+            // PR #6: verifier uses the analysis-tier model (mini/haiku).
+            // Cheap, deterministic-ish, and doesn't compete with the fix
+            // model's reasoning budget.
+            verifyModel: agenticExplore,
+            diagnosisText: diagnosis.diagnosis,
             systemPrompt: "",
             errorContext,
             token,
