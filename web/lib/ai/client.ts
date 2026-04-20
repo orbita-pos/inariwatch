@@ -899,7 +899,7 @@ async function callOpenAIResponsesWithTools(
  * items with `encrypted_content` must also stay paired with their response —
  * you can't synthesize them from Claude-shaped content blocks.
  */
-function buildResponsesInput(
+export function buildResponsesInput(
   messages: AIMessage[],
   priorOutput?: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
