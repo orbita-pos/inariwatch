@@ -211,7 +211,7 @@ async function executeTool(
 
 // ── Build System Prompt ─────────────────────────────────────────────────────
 
-function buildAgenticSystemPrompt(): string {
+function buildAgenticBasePrompt(): string {
   return `You are an expert software engineer fixing a production bug.
 
 You have tools to explore the repository: read files, search code, list directories.
@@ -246,7 +246,10 @@ Respond ONLY with tool calls. Do not output free text.`;
 export async function runAgenticLoop(params: AgenticLoopParams): Promise<AgenticLoopResult> {
   const { apiKey, provider, exploreModel, fixModel, errorContext, emit } = params;
 
-  const systemPrompt = buildAgenticSystemPrompt();
+  // Base prompt (workflow + rules). The model-aware wrapper runs per turn
+  // below — applies GPT overlays + IMMUTABLE_RULES dual-point pattern.
+  const { buildGPTRemediationSystemPrompt } = await import("./prompts");
+  const basePrompt = buildAgenticBasePrompt();
 
   // Track files read across turns — serves cached content on re-reads,
   // saving GitHub API calls and preventing wasted turns.
@@ -288,6 +291,9 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
     // This allows the AI to explore cheaply and generate quality fixes
     const isNearEnd = turn > MAX_TURNS - 3;
     const currentModel = isNearEnd ? fixModel : exploreModel;
+
+    // Compose model-aware system prompt per turn.
+    const systemPrompt = buildGPTRemediationSystemPrompt(basePrompt, currentModel);
 
     const response = await callAIWithTools(apiKey, systemPrompt, messages, TOOLS, {
       maxTokens: 4096,

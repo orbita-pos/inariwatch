@@ -915,13 +915,19 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           const containerExplore = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
           const containerFix = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
 
+          // Wrap untrusted fields (alert body, external integration payloads)
+          // in <untrusted> tags — combined with IMMUTABLE_RULES rule #5 this
+          // is our spotlighting defense against prompt injection via error
+          // messages, stack traces, CI logs, etc. codebaseContext comes from
+          // our own Code Intelligence service so we trust it as-is.
+          const { wrapUntrusted } = await import("./prompts");
           const errorContext = [
             `ERROR: ${alert.title}`,
             `SEVERITY: ${alert.severity}`,
-            `STACK TRACE:\n${alert.body.slice(0, 3000)}`,
-            remediationContext?.sentryStackTrace ? `\nSENTRY:\n${remediationContext.sentryStackTrace.slice(0, 2000)}` : "",
-            remediationContext?.vercelBuildLogs ? `\nBUILD LOGS:\n${remediationContext.vercelBuildLogs.slice(0, 2000)}` : "",
-            remediationContext?.githubCILogs ? `\nCI LOGS:\n${remediationContext.githubCILogs.slice(0, 2000)}` : "",
+            `STACK TRACE:\n${wrapUntrusted(alert.body.slice(0, 3000), "alert_body")}`,
+            remediationContext?.sentryStackTrace ? `\nSENTRY:\n${wrapUntrusted(remediationContext.sentryStackTrace.slice(0, 2000), "sentry_stack")}` : "",
+            remediationContext?.vercelBuildLogs ? `\nBUILD LOGS:\n${wrapUntrusted(remediationContext.vercelBuildLogs.slice(0, 2000), "vercel_build")}` : "",
+            remediationContext?.githubCILogs ? `\nCI LOGS:\n${wrapUntrusted(remediationContext.githubCILogs.slice(0, 2000), "github_ci")}` : "",
             remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
           ].filter(Boolean).join("\n\n");
 
@@ -1047,13 +1053,16 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         try {
           const { runAgenticLoop } = await import("./agentic-loop");
 
+          // Same spotlighting wrap as the container-agent path — alert body
+          // and external integration payloads go inside <untrusted> tags.
+          const { wrapUntrusted } = await import("./prompts");
           const errorContext = [
             `ERROR: ${alert.title}`,
             `SEVERITY: ${alert.severity}`,
-            `STACK TRACE:\n${alert.body.slice(0, 3000)}`,
-            remediationContext?.sentryStackTrace ? `\nSENTRY:\n${remediationContext.sentryStackTrace.slice(0, 2000)}` : "",
-            remediationContext?.vercelBuildLogs ? `\nBUILD LOGS:\n${remediationContext.vercelBuildLogs.slice(0, 2000)}` : "",
-            remediationContext?.githubCILogs ? `\nCI LOGS:\n${remediationContext.githubCILogs.slice(0, 2000)}` : "",
+            `STACK TRACE:\n${wrapUntrusted(alert.body.slice(0, 3000), "alert_body")}`,
+            remediationContext?.sentryStackTrace ? `\nSENTRY:\n${wrapUntrusted(remediationContext.sentryStackTrace.slice(0, 2000), "sentry_stack")}` : "",
+            remediationContext?.vercelBuildLogs ? `\nBUILD LOGS:\n${wrapUntrusted(remediationContext.vercelBuildLogs.slice(0, 2000), "vercel_build")}` : "",
+            remediationContext?.githubCILogs ? `\nCI LOGS:\n${wrapUntrusted(remediationContext.githubCILogs.slice(0, 2000), "github_ci")}` : "",
             remediationContext?.codebaseContext ? `\nCODEBASE PATTERNS:\n${remediationContext.codebaseContext.slice(0, 4000)}` : "",
           ].filter(Boolean).join("\n\n");
 

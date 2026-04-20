@@ -464,7 +464,7 @@ async function executeContainerTool(
 
 // ── System Prompt ───────────────────────────────────────────────────────────
 
-function buildContainerSystemPrompt(): string {
+function buildContainerBasePrompt(): string {
   return `You are an expert software engineer fixing a production bug.
 You are working inside a container with the repository at /workspace/repo.
 
@@ -516,7 +516,13 @@ Respond ONLY with tool calls. Do not output free text.`;
 export async function runContainerAgent(params: ContainerAgentParams): Promise<ContainerAgentResult> {
   const { apiKey, provider, exploreModel, fixModel, errorContext, containerUrl, containerId, stagingSecret, emit } = params;
 
-  const systemPrompt = buildContainerSystemPrompt();
+  // System prompt depends on the ACTIVE model per turn (mini for exploration
+  // turns vs full for the fix turns). We compose per-call below inside the
+  // loop. Base prompt carries the workflow + tools; buildGPTRemediationSystemPrompt
+  // wraps it with IMMUTABLE_RULES at start + end and applies GPT_OVERLAY /
+  // GPT_5_4_OVERLAY when the current model is GPT-like.
+  const { buildGPTRemediationSystemPrompt } = await import("./prompts");
+  const basePrompt = buildContainerBasePrompt();
 
   // Track files read across turns — serves cached content on re-reads.
   const filesRead = new Map<string, string>();
@@ -549,6 +555,11 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
     // Haiku for exploration (cheap), Sonnet for final fix (quality)
     const isNearEnd = turn > MAX_TURNS - 3;
     const currentModel = isNearEnd ? fixModel : exploreModel;
+
+    // Model-aware system prompt — GPT gets the narration/stop-early overlay,
+    // gpt-5.4 also gets the verbosity clamp, every model gets IMMUTABLE_RULES
+    // top + bottom.
+    const systemPrompt = buildGPTRemediationSystemPrompt(basePrompt, currentModel);
 
     const response = await callAIWithTools(apiKey, systemPrompt, messages, CONTAINER_TOOLS, {
       maxTokens: 4096,
