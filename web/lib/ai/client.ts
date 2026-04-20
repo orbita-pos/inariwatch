@@ -25,8 +25,8 @@ export type TextBlock = { type: "text"; text: string };
 export type ContentBlock = ToolUseBlock | ToolResultBlock | TextBlock;
 
 export type ToolUseResponse =
-  | { stopReason: "tool_use"; content: ContentBlock[] }
-  | { stopReason: "end_turn"; text: string };
+  | { stopReason: "tool_use"; content: ContentBlock[]; responseId?: string }
+  | { stopReason: "end_turn"; text: string; responseId?: string };
 
 /**
  * Detect the AI provider from the key prefix.
@@ -346,6 +346,38 @@ export interface CallAIWithToolsOpts {
   provider?: AIProvider;
   /** When set, auto-logs usage + cost + prompt/response per turn to InariLens. */
   log?: AILogContext;
+
+  // ── Responses API fields (GPT-5.x family only) ───────────────────────────
+  /**
+   * From the previous turn's response. When set, the Responses API reuses
+   * server-side state instead of replaying the full history — ~50% input
+   * token reduction and +40-80% cache utilization per OpenAI's own data.
+   * Ignored on Chat Completions / non-OpenAI paths.
+   */
+  previousResponseId?: string;
+  /**
+   * Reasoning budget for this specific turn. See effortForPhase() in
+   * openai-config.ts for the standard mapping. Ignored on non-reasoning
+   * models.
+   */
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  /**
+   * Enables strict JSON schema compliance on tool calls. Use for terminal
+   * tools like `submit_fix` where malformed output is fatal. Mutually
+   * exclusive with `parallelToolCalls: true`.
+   */
+  strict?: boolean;
+  /**
+   * Forces a specific tool on the next turn. Useful for the final commit
+   * turn of a remediation ("you MUST call submit_fix now").
+   */
+  toolChoice?: "auto" | "required" | { type: "function"; name: string };
+  /**
+   * Allow the model to call multiple tools in one turn. Default true for
+   * exploration (batch read/grep); switch to false during write phase to
+   * avoid races.
+   */
+  parallelToolCalls?: boolean;
 }
 
 /**
@@ -377,9 +409,20 @@ export async function callAIWithTools(
       case "claude":
         internal = await callClaudeWithTools(apiKey, systemPrompt, messages, tools, opts);
         break;
-      case "openai":
-        internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.openai.com/v1");
+      case "openai": {
+        // GPT-5.x reasoning models MUST use Responses API — Chat Completions
+        // silently drops reasoning context between tool calls, which
+        // degrades performance ~30% (Cursor's measurement) and loses
+        // prompt cache wins.
+        const { isGPT5Family } = await import("./openai-config");
+        const model = opts.model ?? "gpt-4o-mini";
+        if (isGPT5Family(model)) {
+          internal = await callOpenAIResponsesWithTools(apiKey, systemPrompt, messages, tools, opts);
+        } else {
+          internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.openai.com/v1");
+        }
         break;
+      }
       case "grok":
         internal = await callOpenAICompatWithTools(apiKey, systemPrompt, messages, tools, opts, "https://api.x.ai/v1");
         break;
@@ -434,11 +477,12 @@ export async function callAIWithTools(
       }).catch(() => {});
     }
 
-    // Strip internal usage fields before returning to caller
+    // Strip internal usage fields before returning to caller. Preserve
+    // responseId so callers can chain to the next turn via previousResponseId.
     if (internal.stopReason === "end_turn") {
-      return { stopReason: "end_turn", text: internal.text };
+      return { stopReason: "end_turn", text: internal.text, responseId: internal.responseId };
     }
-    return { stopReason: "tool_use", content: internal.content };
+    return { stopReason: "tool_use", content: internal.content, responseId: internal.responseId };
   } catch (err) {
     if (opts.log) {
       import("./lens").then(({ logAICall, serializePrompt }) => {
@@ -663,6 +707,236 @@ async function callOpenAICompatWithTools(
 
   // No tool calls — text response
   return { stopReason: "end_turn", text: choice.message.content ?? "", usage, model };
+}
+
+// ── OpenAI Responses API (GPT-5.x) ─────────────────────────────────────────
+
+/**
+ * Adapter for OpenAI's Responses API. Used automatically for any gpt-5.x
+ * model via the router in callAIWithTools.
+ *
+ * Key differences vs Chat Completions:
+ *   - Input is a flat array of ITEMS (messages, function_call, function_call_output).
+ *   - Tools are flat: { type:"function", name, description, parameters, strict? }
+ *     (no nested `function` wrapper).
+ *   - Reasoning state survives across turns via `previous_response_id` OR
+ *     via `include: ["reasoning.encrypted_content"]` with store:false.
+ *   - max_tokens → max_output_tokens. Reasoning tokens count against this budget.
+ *   - Tool results come back as items with type "function_call" containing
+ *     { call_id, name, arguments }.
+ */
+async function callOpenAIResponsesWithTools(
+  apiKey: string,
+  systemPrompt: string,
+  messages: AIMessage[],
+  tools: ToolDefinition[],
+  opts: CallAIWithToolsOpts
+): Promise<ToolUseResponse & { usage: AIUsage; model: string; responseId: string }> {
+  const model = opts.model ?? "gpt-5.4-mini";
+
+  // Lazy-load provider options so non-OpenAI paths don't pay for the import.
+  const { getOpenAIProviderOptions } = await import("./openai-config");
+  const providerOpts = getOpenAIProviderOptions(model);
+
+  // Build tools in Responses-API shape (flat, not nested under `function`).
+  // Strict mode enforces JSON schema compliance; enable only when the caller
+  // requests it (terminal tools like submit_fix).
+  const responsesTools = tools.map((t) => ({
+    type: "function" as const,
+    name: t.name,
+    description: t.description,
+    parameters: t.input_schema,
+    strict: opts.strict ?? false,
+  }));
+
+  // Translate message history into Responses API input items. When we have
+  // a previousResponseId, the server already knows everything before the
+  // last response — we only send the NEW items (typically the function_call
+  // results from the last turn).
+  const input = opts.previousResponseId
+    ? buildIncrementalResponsesInput(messages)
+    : buildFullResponsesInput(messages);
+
+  const body: Record<string, unknown> = {
+    model,
+    input,
+    tools: responsesTools,
+    tool_choice: opts.toolChoice ?? "auto",
+    parallel_tool_calls: opts.parallelToolCalls ?? (opts.strict ? false : true),
+    max_output_tokens: opts.maxTokens ?? 4096,
+    store: providerOpts.store,
+    include: providerOpts.include,
+  };
+
+  // gpt-5.4 verbosity clamp — `text.verbosity` in Responses API (not `textVerbosity`).
+  if (providerOpts.textVerbosity) {
+    body.text = { verbosity: providerOpts.textVerbosity };
+  }
+
+  // Instructions: only on the FIRST turn. With previousResponseId the server
+  // already has the prior instructions baked into its state.
+  if (!opts.previousResponseId) {
+    body.instructions = systemPrompt;
+  }
+
+  // Threading: hand the server the previous turn's id to skip re-sending history.
+  if (opts.previousResponseId) {
+    body.previous_response_id = opts.previousResponseId;
+  }
+
+  // Reasoning budget. `reasoning_summary: "auto"` gives us a short human-readable
+  // summary of what the model thought about, streamable via the reasoning event.
+  if (opts.reasoningEffort) {
+    body.reasoning = { effort: opts.reasoningEffort, summary: "auto" };
+  }
+
+  const res = await fetch(`https://api.openai.com/v1/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    // Reasoning models can run longer — give them headroom. Callers can
+    // still override via opts.timeout.
+    signal: AbortSignal.timeout(opts.timeout ?? 120_000),
+  });
+
+  if (!res.ok) {
+    const errText = (await res.text()).slice(0, 300);
+    throw new Error(`OpenAI Responses API error (${res.status}): ${errText}`);
+  }
+
+  const data = await safeJson(res);
+  const responseId = data.id as string;
+
+  // Usage: `input_tokens_details.cached_tokens` is where automatic prompt
+  // caching shows up. Output tokens include reasoning tokens (billable).
+  const rawUsage = data.usage as
+    | {
+        input_tokens?: number;
+        output_tokens?: number;
+        input_tokens_details?: { cached_tokens?: number };
+        output_tokens_details?: { reasoning_tokens?: number };
+      }
+    | undefined;
+  const usage: AIUsage = {
+    inputTokens: rawUsage?.input_tokens ?? 0,
+    outputTokens: rawUsage?.output_tokens ?? 0,
+    cachedInputTokens: rawUsage?.input_tokens_details?.cached_tokens ?? 0,
+  };
+
+  // Output parsing. The Responses API returns an array of `output` items.
+  // We care about two types: `function_call` (tool invocation) and `message`
+  // (final assistant text). Other types (e.g., `reasoning`) are for the
+  // server — we don't surface them.
+  const output = (data.output as Array<Record<string, unknown>>) ?? [];
+
+  const functionCalls = output.filter((o) => o.type === "function_call") as Array<{
+    type: "function_call";
+    call_id: string;
+    name: string;
+    arguments: string;
+  }>;
+
+  if (functionCalls.length > 0) {
+    const content: ContentBlock[] = functionCalls.map((fc) => {
+      let parsedInput: Record<string, unknown>;
+      try {
+        parsedInput = JSON.parse(fc.arguments);
+      } catch {
+        parsedInput = { raw: fc.arguments };
+      }
+      return {
+        type: "tool_use" as const,
+        // call_id is the Responses API equivalent of Claude's tool_use id.
+        // Callers (agentic-loop, container-agent) already reference this
+        // field generically as `id`, so we preserve the alias.
+        id: fc.call_id,
+        name: fc.name,
+        input: parsedInput,
+      };
+    });
+    return { stopReason: "tool_use", content, usage, model, responseId };
+  }
+
+  // No tool calls — extract the final assistant text. Message items contain
+  // a content array of { type: "output_text", text: "..." } parts.
+  const messageItem = output.find((o) => o.type === "message") as
+    | { content?: Array<{ type: string; text?: string }> }
+    | undefined;
+  const text =
+    messageItem?.content?.find((p) => p.type === "output_text")?.text ?? "";
+
+  return { stopReason: "end_turn", text, usage, model, responseId };
+}
+
+/**
+ * Build the full input payload for the first turn of a Responses API
+ * conversation. Takes the Claude-shaped message history we already carry
+ * around internally and shapes each message into a Responses `message` item.
+ */
+function buildFullResponsesInput(messages: AIMessage[]): Array<Record<string, unknown>> {
+  return messages.map((m) => toResponsesItem(m));
+}
+
+/**
+ * Build the incremental input for a follow-up turn (previousResponseId is set).
+ * The server already has everything up to the last response, so we only need
+ * to forward the NEW items — typically function_call_output rows plus any
+ * fresh user message. We walk the tail of the history and stop when we hit
+ * the last assistant message (which is server-side already).
+ */
+function buildIncrementalResponsesInput(messages: AIMessage[]): Array<Record<string, unknown>> {
+  // Find the last assistant message — everything after it is new.
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+  const newMessages = messages.slice(lastAssistantIdx + 1);
+  return newMessages.flatMap((m) => {
+    // Expand a user message whose content is content blocks (tool_result turns)
+    // into multiple function_call_output items — one per tool_result block.
+    if (m.role === "user" && Array.isArray(m.content)) {
+      const blocks = m.content as ContentBlock[];
+      const toolResults = blocks.filter((b) => b.type === "tool_result") as ToolResultBlock[];
+      if (toolResults.length > 0) {
+        return toolResults.map((tr) => ({
+          type: "function_call_output",
+          call_id: tr.tool_use_id,
+          output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
+        }));
+      }
+    }
+    return [toResponsesItem(m)];
+  });
+}
+
+/**
+ * Convert a single Claude-shaped message to a Responses API input item.
+ * For string content it's a plain message; for content blocks we emit the
+ * appropriate item type per block.
+ */
+function toResponsesItem(m: AIMessage): Record<string, unknown> {
+  if (typeof m.content === "string") {
+    return { type: "message", role: m.role, content: m.content };
+  }
+  // Content-block form: for user messages with tool_result blocks, the
+  // caller should use buildIncrementalResponsesInput which splits them into
+  // function_call_output items. For the FIRST turn (where this path runs),
+  // content blocks are rare but we fall back to flattened text.
+  const flat = (m.content as ContentBlock[])
+    .map((b) => {
+      if (b.type === "text") return (b as TextBlock).text;
+      if (b.type === "tool_use") return `[tool_use ${(b as ToolUseBlock).name}]`;
+      if (b.type === "tool_result") return typeof b.content === "string" ? b.content : JSON.stringify(b.content);
+      return "";
+    })
+    .join("\n");
+  return { type: "message", role: m.role, content: flat };
 }
 
 // ── Message Utilities ───────────────────────────────────────────────────────

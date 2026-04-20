@@ -290,6 +290,9 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
     const messages: AIMessage[] = [{ role: "user", content: errorContext }];
     let tscPassed = false, buildPassed = false, testsPassed = false;
 
+    // Responses API threading for GPT-5.x. Pass-through on other providers.
+    let previousResponseId: string | undefined;
+
     for (let turn = 1; turn <= maxTurns; turn++) {
       await updateProgress(sessionId, {
         name: "container_turn",
@@ -300,9 +303,23 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
       const isNearEnd = turn > maxTurns - 3;
       const currentModel = isNearEnd ? fixModel : exploreModel;
 
+      // Reasoning effort dial — low during exploration (60% of turns),
+      // medium during the fix phase, high in the final 3 turns.
+      const frac = turn / maxTurns;
+      const reasoningEffort =
+        frac <= 0.6 ? "low" : turn <= maxTurns - 3 ? "medium" : "high";
+
       const response = await callAIWithTools(aiKey, systemPrompt, messages, CONTAINER_TOOLS, {
-        maxTokens: 4096, model: currentModel, timeout: 90_000, provider: aiProvider,
+        maxTokens: 4096,
+        model: currentModel,
+        timeout: 120_000, // Responses API reasoning can run longer
+        provider: aiProvider,
+        previousResponseId,
+        reasoningEffort,
       });
+
+      // Forward responseId to next turn (GPT-5.x only; no-op elsewhere).
+      previousResponseId = response.responseId;
 
       if (response.stopReason === "end_turn") {
         messages.push({ role: "assistant", content: response.text });

@@ -525,6 +525,12 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
     { role: "user", content: errorContext },
   ];
 
+  // Responses API threading for GPT-5.x. Set after each turn, forwarded on
+  // the next call as previousResponseId — skips replaying the full message
+  // history server-side and keeps reasoning context alive between turns.
+  let previousResponseId: string | undefined;
+  const { effortForTurn } = await import("./openai-config");
+
   // Verification flags — compile-check, build, and tests. Each is set when a
   // run_command matching the respective pattern succeeds (exit code 0).
   // Patterns cover TypeScript/JavaScript, Python, Go, Rust, Java.
@@ -548,6 +554,8 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
       model: currentModel,
       timeout: 90_000, // Longer timeout — container commands can take time
       provider,
+      previousResponseId,
+      reasoningEffort: effortForTurn(turn, MAX_TURNS),
       log: params.log
         ? {
             userId: params.log.userId,
@@ -559,6 +567,9 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
           }
         : undefined,
     });
+
+    // Forward responseId to the next turn (GPT-5.x only; no-op elsewhere).
+    previousResponseId = response.responseId;
 
     if (response.stopReason === "end_turn") {
       emit("container_text", { turn, text: response.text.slice(0, 200) });
