@@ -38,6 +38,30 @@ const config: NextConfig = {
   // tracer — so it's safe to enable now and have both surfaces work.
   output: "standalone",
 
+  // Image optimizer — tuned for self-hosted on a single CX21.
+  //
+  // Vercel's edge implicitly cached `/_next/image?...` for ~1 year per PoP and
+  // the origin sharp step was never the user-visible bottleneck. On the
+  // Hetzner cutover, CF's default Cache Rules skip `/_next/image*` (query
+  // string → marked DYNAMIC), so every user hits this origin. The 60s default
+  // TTL then causes sharp to re-process large inputs on every cold miss,
+  // producing 5+ second TTFB on auth-page backgrounds.
+  //
+  // A long minimumCacheTTL combined with a CF Cache Rule for `/_next/image*`
+  // (Edge TTL 30 days, configured in the CF dashboard) restores Vercel-like
+  // behavior: first user per variant per region warms both caches, the rest
+  // stream from CF edge.
+  //
+  // formats: AVIF first (40-50% smaller than WebP) with WebP fallback.
+  // deviceSizes: trimmed from the default 8-entry list to 4. A login
+  // background does not need 2560/3840 variants — the source assets are
+  // already capped at 1920.
+  images: {
+    minimumCacheTTL: 2_592_000,             // 30 days
+    formats: ["image/avif", "image/webp"],
+    deviceSizes: [640, 828, 1200, 1920],
+  },
+
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

@@ -4,8 +4,8 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
-import loginSideSrc from "@/public/login-new-3.png";
-import loginSideMobileSrc from "@/public/login-side-mobile.png";
+import loginSideSrc from "@/public/login-new-3.webp";
+import loginSideMobileSrc from "@/public/login-side-mobile.webp";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -62,17 +62,16 @@ export default function LoginPage() {
           priority
           placeholder="blur"
           quality={85}
-          sizes="100vw"
+          sizes="(min-width: 640px) 100vw, 0px"
         />
         <Image
           src={loginSideMobileSrc}
           alt=""
           fill
           className="block object-cover object-top sm:hidden"
-          priority
           placeholder="blur"
           quality={85}
-          sizes="100vw"
+          sizes="(max-width: 639px) 100vw, 0px"
         />
         <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-radial-fade" />

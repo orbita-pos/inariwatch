@@ -8,8 +8,8 @@ import { signIn } from "next-auth/react";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { registerUser } from "./actions";
-import bgDesktopSrc from "@/public/login-new-3.png";
-import bgMobileSrc from "@/public/login-side-mobile.png";
+import bgDesktopSrc from "@/public/login-new-3.webp";
+import bgMobileSrc from "@/public/login-side-mobile.webp";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -64,17 +64,16 @@ export default function RegisterPage() {
           priority
           placeholder="blur"
           quality={85}
-          sizes="100vw"
+          sizes="(min-width: 640px) 100vw, 0px"
         />
         <Image
           src={bgMobileSrc}
           alt=""
           fill
           className="block object-cover object-top sm:hidden"
-          priority
           placeholder="blur"
           quality={85}
-          sizes="100vw"
+          sizes="(max-width: 639px) 100vw, 0px"
         />
         <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-radial-fade" />
