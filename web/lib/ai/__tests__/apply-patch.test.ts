@@ -131,6 +131,46 @@ describe("parsePatch", () => {
     expect(p.ops[1].path).toBe("b.ts");
   });
 
+  it("pure-insert hunk anchors on last context line (E2E v12 repro)", async () => {
+    // The file has 2 doc-comment lines between `export function …{` and
+    // the `const validation` line that the model wants to insert after.
+    // The model's patch skips those comments. A strict exact/loose
+    // match would fail; pass 4 finds `const validation = …` uniquely
+    // and inserts after it.
+    const files = {
+      "discount.ts": [
+        `import { validateCoupon } from "./validators";`,
+        ``,
+        `export async function applyDiscount(code: string) {`,
+        `  // Dev asserted non-null here during initial build but never came back`,
+        `  // to wire up the unknown-code branch. See route.ts for the contract.`,
+        `  const validation = (await validateCoupon(code))!;`,
+        ``,
+        `  return validation.discount;`,
+        `}`,
+      ].join("\n"),
+    };
+    const patch = `*** Begin Patch
+*** Update File: discount.ts
+@@ -3,5 +3,9 @@
+ export async function applyDiscount(code: string) {
+   const validation = (await validateCoupon(code))!;
+
++  if (!validation) {
++    throw new Error("Invalid");
++  }
++
+   return validation.discount;
+ }
+*** End Patch`;
+    const mockRead = async (p: string) => files[p as keyof typeof files] ?? null;
+    const result = await parseAndApply(patch, mockRead);
+    expect(result.changed[0].content).toContain("if (!validation)");
+    expect(result.changed[0].content).toContain(`throw new Error("Invalid")`);
+    // Doc comments preserved
+    expect(result.changed[0].content).toContain("// Dev asserted non-null");
+  });
+
   it("does NOT enter space-prefix mode when traditional markers are present", () => {
     // Hunk mixes traditional and space-prefixed — stick with traditional.
     // Line " -old" should be parsed as context "- old" (rare edge case —

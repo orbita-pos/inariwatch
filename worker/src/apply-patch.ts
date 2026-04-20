@@ -493,6 +493,29 @@ function applyHunk(content: string, hunk: Hunk, path: string, hunkIndex: number)
     }
   }
 
+  // Pass 4: pure-insert anchor match — handles the common case where
+  // the hunk has NO remove lines and the model's context lines skipped
+  // over doc comments or blank lines that actually sit between the
+  // anchor and the insertion point. We find the LAST context line
+  // BEFORE the first add line ("insertion anchor") uniquely in the
+  // file; the add lines are inserted immediately after that anchor.
+  //
+  // Only kicks in when the hunk is pure-insert (zero remove lines) —
+  // remove-containing hunks already use the richer Pass 3 logic.
+  if (matchIndex < 0 && removeLines.length === 0 && hunk.lines.length > 0) {
+    const anchor = findInsertAnchor(hunk);
+    if (anchor !== null) {
+      const anchorMatches = findAllBlockLoose(fileLines, [anchor.text]);
+      if (anchorMatches.length === 1) {
+        const insertAt = anchorMatches[0] + 1;
+        const addLines = hunk.lines.filter((l) => l.kind === "add").map((l) => l.text);
+        const before = fileLines.slice(0, insertAt);
+        const after = fileLines.slice(insertAt);
+        return [...before, ...addLines, ...after].join("\n");
+      }
+    }
+  }
+
   if (matchIndex < 0) {
     const preview = searchLines.slice(0, 5).map((l) => `  | ${l}`).join("\n");
     const removePreview =
@@ -514,6 +537,33 @@ function applyHunk(content: string, hunk: Hunk, path: string, hunkIndex: number)
   const before = fileLines.slice(0, matchIndex);
   const after = fileLines.slice(matchIndex + matchLength);
   return [...before, ...replaceLines, ...after].join("\n");
+}
+
+/**
+ * For a pure-insert hunk, find the context line that should serve as
+ * the insertion anchor — the LAST context line immediately before the
+ * first add line. If the hunk starts with a non-empty context line
+ * that's followed by only adds and more adjacent context, that anchor
+ * is what the model intended as "insert here".
+ *
+ * Returns null when no suitable anchor exists (e.g. hunk starts with
+ * a blank context line or has no context at all).
+ */
+function findInsertAnchor(hunk: Hunk): { text: string; indexInHunk: number } | null {
+  // Walk until the first ADD line, then step backward to the most
+  // recent non-blank context line.
+  let firstAddIdx = -1;
+  for (let i = 0; i < hunk.lines.length; i++) {
+    if (hunk.lines[i].kind === "add") { firstAddIdx = i; break; }
+  }
+  if (firstAddIdx <= 0) return null; // no lead context → nothing to anchor on
+  for (let j = firstAddIdx - 1; j >= 0; j--) {
+    const line = hunk.lines[j];
+    if (line.kind === "context" && line.text.trim().length > 0) {
+      return { text: line.text, indexInHunk: j };
+    }
+  }
+  return null;
 }
 
 /** Extract the context lines that precede the first remove/add line. */
