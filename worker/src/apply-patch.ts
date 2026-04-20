@@ -335,29 +335,42 @@ export async function applyPatch(
 }
 
 /**
- * Apply one hunk to a file. Strategy:
- *   1. Build the "search" block: context lines + remove lines, in order.
- *   2. Find the search block in the file content using exact match.
- *   3. If not found, try whitespace-tolerant match (collapses trailing
- *      whitespace + treats tab/space runs as equivalent) — catches the
- *      common case where the model drops a trailing space from a blank
- *      context line.
- *   4. Replace with context + add lines.
+ * Apply one hunk to a file.
  *
- * Throws a precise error (with surrounding file context) when the hunk
- * can't be resolved, so the calling agent gets actionable feedback.
+ * We try to locate the hunk in three increasingly tolerant passes:
+ *
+ *   1. Full-block exact match  — search block = context + remove lines,
+ *      byte-for-byte match in the file. Strictest but cheapest.
+ *   2. Full-block loose match  — same search block, whitespace-tolerant
+ *      (trailing whitespace on blank lines + tab→4-space). Catches the
+ *      common "model drops a trailing space" case.
+ *   3. Remove-only loose match — search for just the `-` lines as a
+ *      consecutive run (ignoring leading whitespace entirely). Real-world
+ *      unified-diff patches from reasoning models drift on indentation
+ *      and context line count. As long as the lines to REMOVE appear
+ *      consecutively somewhere, we can still apply the hunk. Context
+ *      lines are then used ONLY to disambiguate when the same remove
+ *      block appears more than once.
+ *
+ * When the hunk has only add lines (pure insertion), we require at least
+ * one context line as an anchor — otherwise there's no way to know where
+ * the insertion belongs.
  */
 function applyHunk(content: string, hunk: Hunk, path: string, hunkIndex: number): string {
   const fileLines = content.split("\n");
 
-  const searchLines: string[] = [];
-  const replaceLines: string[] = [];
+  const searchLines: string[] = []; // context + remove in order (block to find)
+  const replaceLines: string[] = []; // context + add in order (block to insert)
+  const removeLines: string[] = []; // just remove lines (for fallback match)
+  const contextLines: string[] = []; // just context lines (for disambiguation)
   for (const line of hunk.lines) {
     if (line.kind === "context") {
       searchLines.push(line.text);
       replaceLines.push(line.text);
+      contextLines.push(line.text);
     } else if (line.kind === "remove") {
       searchLines.push(line.text);
+      removeLines.push(line.text);
     } else {
       replaceLines.push(line.text);
     }
@@ -368,16 +381,55 @@ function applyHunk(content: string, hunk: Hunk, path: string, hunkIndex: number)
     return content + (content.endsWith("\n") ? "" : "\n") + replaceLines.join("\n");
   }
 
-  // Exact-match attempt.
+  // Pass 1: exact full-block match.
   let matchIndex = findBlock(fileLines, searchLines);
+  let matchLength = searchLines.length;
 
-  // Whitespace-tolerant fallback for the trailing-space-on-blank-line case.
+  // Pass 2: loose full-block match (whitespace-tolerant).
   if (matchIndex < 0) {
     matchIndex = findBlockLoose(fileLines, searchLines);
+    matchLength = searchLines.length;
+  }
+
+  // Pass 3: remove-only match — find just the "-" lines as a consecutive
+  // sequence. This handles unified-diff patches where context drifts
+  // (model got indentation or a nearby line slightly wrong).
+  if (matchIndex < 0 && removeLines.length > 0) {
+    const removeIdx = findBlockLoose(fileLines, removeLines);
+    if (removeIdx >= 0) {
+      // If context lines surround the remove block in the hunk, verify at
+      // least one of the adjacent file lines matches a context line to
+      // avoid applying the patch at the wrong location when the same
+      // remove block exists twice.
+      const leadingCtx = contextLinesBeforeRemoveBlock(hunk);
+      const trailingCtx = contextLinesAfterRemoveBlock(hunk);
+      const fileAbove = removeIdx > 0 ? fileLines[removeIdx - 1] : "";
+      const fileBelow =
+        removeIdx + removeLines.length < fileLines.length
+          ? fileLines[removeIdx + removeLines.length]
+          : "";
+      const leadingOk =
+        leadingCtx.length === 0 || leadingCtx.some((c) => normalizeLoose(c) === normalizeLoose(fileAbove));
+      const trailingOk =
+        trailingCtx.length === 0 || trailingCtx.some((c) => normalizeLoose(c) === normalizeLoose(fileBelow));
+
+      if (leadingOk && trailingOk) {
+        // Replace ONLY the remove block with the add lines — preserve
+        // whatever surrounding context the file actually has.
+        const addLines = hunk.lines.filter((l) => l.kind === "add").map((l) => l.text);
+        const before = fileLines.slice(0, removeIdx);
+        const after = fileLines.slice(removeIdx + removeLines.length);
+        return [...before, ...addLines, ...after].join("\n");
+      }
+    }
   }
 
   if (matchIndex < 0) {
     const preview = searchLines.slice(0, 5).map((l) => `  | ${l}`).join("\n");
+    const removePreview =
+      removeLines.length > 0
+        ? `\n\nOr the lines to remove:\n${removeLines.slice(0, 3).map((l) => `  - ${l}`).join("\n")}`
+        : "";
     const hint =
       hunk.header.length > 0
         ? `\nHeader context: ${hunk.header}`
@@ -385,14 +437,35 @@ function applyHunk(content: string, hunk: Hunk, path: string, hunkIndex: number)
     throw new ApplyPatchError(
       `Hunk ${hunkIndex + 1} in ${path} did not match file contents.${hint}\nExpected to find:\n${preview}${
         searchLines.length > 5 ? `\n  | ... (${searchLines.length - 5} more lines)` : ""
-      }`,
+      }${removePreview}\n\nTry re-reading the file and emitting a fresh patch with the exact current content as context. If the edit is a pure insertion, keep 1-2 surrounding context lines above and below the + lines.`,
       { op: "update", path, hunkIndex },
     );
   }
 
   const before = fileLines.slice(0, matchIndex);
-  const after = fileLines.slice(matchIndex + searchLines.length);
+  const after = fileLines.slice(matchIndex + matchLength);
   return [...before, ...replaceLines, ...after].join("\n");
+}
+
+/** Extract the context lines that precede the first remove/add line. */
+function contextLinesBeforeRemoveBlock(hunk: Hunk): string[] {
+  const out: string[] = [];
+  for (const line of hunk.lines) {
+    if (line.kind === "context") out.push(line.text);
+    else break;
+  }
+  return out;
+}
+
+/** Extract the context lines that follow the last remove/add line. */
+function contextLinesAfterRemoveBlock(hunk: Hunk): string[] {
+  const out: string[] = [];
+  for (let i = hunk.lines.length - 1; i >= 0; i--) {
+    const line = hunk.lines[i];
+    if (line.kind === "context") out.unshift(line.text);
+    else break;
+  }
+  return out;
 }
 
 function findBlock(lines: string[], block: string[]): number {
@@ -406,12 +479,20 @@ function findBlock(lines: string[], block: string[]): number {
   return -1;
 }
 
+/**
+ * Loose match — normalizes trailing whitespace, tabs-to-spaces, and
+ * collapses leading whitespace runs (so "  const x" matches "    const x"
+ * when the model got indentation wrong).
+ */
+function normalizeLoose(s: string): string {
+  return s.replace(/\s+$/, "").replace(/\t/g, "    ").replace(/^\s+/, "");
+}
+
 function findBlockLoose(lines: string[], block: string[]): number {
-  const normalize = (s: string): string => s.replace(/\s+$/, "").replace(/\t/g, "    ");
-  const normalizedBlock = block.map(normalize);
+  const normalizedBlock = block.map(normalizeLoose);
   outer: for (let i = 0; i <= lines.length - block.length; i++) {
     for (let j = 0; j < block.length; j++) {
-      if (normalize(lines[i + j]) !== normalizedBlock[j]) continue outer;
+      if (normalizeLoose(lines[i + j]) !== normalizedBlock[j]) continue outer;
     }
     return i;
   }
