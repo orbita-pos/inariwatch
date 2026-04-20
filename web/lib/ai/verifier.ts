@@ -356,10 +356,18 @@ export function verifyMechanical(
     }
 
     // ── Detector 3: dead code after return / throw ─────────────────
-    // Looks for a `return …;` or `throw …;` followed immediately by
-    // another statement at the SAME indentation level (not a closing
-    // brace, not a blank line, not a comment) — that's almost always
-    // unreachable. Walks lines and tracks indent; keeps it simple.
+    // Flags a `return …;` or `throw …;` that is IMMEDIATELY followed
+    // by another statement at the SAME indentation — the classic
+    // "model forgot to delete the previous body" pattern from E2E v6.
+    //
+    // The check only triggers when the return/throw line is CLEARLY
+    // complete (ends with `;`, a closing paren, bracket, or brace, or
+    // is a bare `return` / `throw`). Multi-line expressions like
+    //   return {
+    //     subtotal: …
+    //   };
+    // would otherwise produce false positives — `subtotal:` is NOT
+    // unreachable, it's the object literal inside the return.
     for (let i = 0; i < lines.length - 1; i++) {
       const here = lines[i];
       const next = lines[i + 1];
@@ -367,6 +375,15 @@ export function verifyMechanical(
       if (!hereMatch) continue;
       const hereIndent = hereMatch[1];
       const hereStmt = hereMatch[2];
+
+      // Strip trailing comment before deciding completeness.
+      const hereNoTrailingComment = here.replace(/\s*\/\/.*$/, "").replace(/\s+$/, "");
+      const endsComplete =
+        /;\s*$/.test(hereNoTrailingComment) ||
+        /[)\]}]\s*$/.test(hereNoTrailingComment) ||
+        /^\s*(return|throw)\s*$/.test(hereNoTrailingComment);
+      if (!endsComplete) continue;
+
       const nextTrimmed = next.trimStart();
       if (nextTrimmed === "") continue;
       if (nextTrimmed.startsWith("//") || nextTrimmed.startsWith("/*")) continue;

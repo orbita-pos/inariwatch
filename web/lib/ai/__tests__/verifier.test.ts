@@ -208,6 +208,60 @@ describe("verifyMechanical", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("does NOT flag multi-line `return { ... }` object literals", () => {
+    // E2E v12/v13 false positive — object body lines were treated as
+    // statements after `return {`.
+    const content = [
+      `function f() {`,
+      `  return {`,
+      `    subtotal: 1,`,
+      `    total: 2,`,
+      `    couponCode: null,`,
+      `  };`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("does NOT flag multi-line `return (...)` parenthesized expressions", () => {
+    const content = [
+      `function f() {`,
+      `  return (`,
+      `    1 + 2 +`,
+      `    3`,
+      `  );`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("does NOT flag multi-line `return [...]` arrays", () => {
+    const content = [
+      `function f() {`,
+      `  return [`,
+      `    1,`,
+      `    2,`,
+      `  ];`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("still catches dead code after a single-line terminated return", () => {
+    const content = [
+      `function f() {`,
+      `  return 1;`,
+      `  console.log("dead");`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("unreachable");
+  });
+
   it("skips non-JS/TS files", () => {
     const r = verifyMechanical(
       [{ path: "README.md", content: "import x from 'y'\nimport x from 'y'\n" }],
