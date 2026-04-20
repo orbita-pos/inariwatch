@@ -24,26 +24,26 @@ async function main() {
 
   const readFile = async (p: string) => (p === file ? content : null);
 
-  // Patch from call 7 (most complete) — context line includes the non-null assertion.
+  // Patch from session 88389322 call 3 — space-prefixed marker mode
+  // (gpt-4o-mini mistake: every body line starts with a space, even
+  // the "-" and "+" marker lines).
   const patch = `*** Begin Patch
 *** Update File: lib/pricing/discount.ts
-@@ -15,12 +15,22 @@
+ @@ -15,6 +15,12 @@
  export async function applyDiscount(cart: Cart, couponCode: string): Promise<DiscountResult> {
--  const validation = (await validateCoupon(couponCode))!
-+  const validation = await validateCoupon(couponCode);
-+  if (!validation) {
-+    return { subtotal: cart.subtotal, discountApplied: 0, total: cart.subtotal, couponCode: null };
-+  }
-
+ -  const validation = (await validateCoupon(couponCode))!
+ +  const validation = await validateCoupon(couponCode);
+ +  if (!validation) {
+ +    throw new Error('Invalid coupon code');
+ +  }
+ +
    const discountAmount = cart.subtotal * validation.discount
-
    return {
      subtotal: cart.subtotal,
      discountApplied: discountAmount,
      total: cart.subtotal - discountAmount,
      couponCode: validation.code,
    }
- }
 *** End Patch
 `;
 

@@ -94,6 +94,41 @@ describe("parsePatch", () => {
     const hunk = (p.ops[0] as { hunks: { lines: { kind: string; text: string }[] }[] }).hunks[0];
     expect(hunk.lines[0]).toEqual({ kind: "context", text: "    const indented = 1" });
   });
+
+  it("tolerates space-prefixed marker mode (gpt-4o-mini mistake)", () => {
+    // Every "-" and "+" line has an EXTRA leading space before the
+    // marker. Context lines keep their standard single-space marker.
+    const patch = `*** Begin Patch
+*** Update File: a.ts
+ @@ -1,2 +1,2 @@
+ context line
+ -const x = 1
+ +const x = 2
+*** End Patch`;
+    const p = parsePatch(patch);
+    const hunk = (p.ops[0] as { hunks: { lines: { kind: string; text: string }[] }[] }).hunks[0];
+    expect(hunk.lines.map((l) => l.kind)).toEqual(["context", "remove", "add"]);
+    expect(hunk.lines[1].text).toBe("const x = 1");
+    expect(hunk.lines[2].text).toBe("const x = 2");
+  });
+
+  it("does NOT enter space-prefix mode when traditional markers are present", () => {
+    // Hunk mixes traditional and space-prefixed — stick with traditional.
+    // Line " -old" should be parsed as context "- old" (rare edge case —
+    // content legitimately starting with a dash).
+    const patch = `*** Begin Patch
+*** Update File: a.ts
+@@
+ normal context
+-old
++new
+*** End Patch`;
+    const p = parsePatch(patch);
+    const hunk = (p.ops[0] as { hunks: { lines: { kind: string; text: string }[] }[] }).hunks[0];
+    expect(hunk.lines.map((l) => l.kind)).toEqual(["context", "remove", "add"]);
+    expect(hunk.lines[1].text).toBe("old");
+    expect(hunk.lines[2].text).toBe("new");
+  });
 });
 
 describe("applyPatch", () => {

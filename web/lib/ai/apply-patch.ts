@@ -209,7 +209,12 @@ function parseHunks(
       i++;
     }
 
-    const hunkLines: HunkLine[] = [];
+    // First, COLLECT all raw body lines so we can detect whether the
+    // model used the traditional markers ("-", "+", " ") OR the common
+    // mistake of space-prefixed markers (" -", " +", "  " for context).
+    // gpt-4o-mini often emits the latter because it thinks every line
+    // in the hunk needs a leading space + the real marker.
+    const rawBodyLines: string[] = [];
     while (i < lines.length) {
       const bodyLine = lines[i];
       if (
@@ -221,7 +226,32 @@ function parseHunks(
       ) {
         break;
       }
+      rawBodyLines.push(bodyLine);
+      i++;
+    }
 
+    const hasTraditionalMarker = rawBodyLines.some(
+      (l) => l.startsWith("-") || l.startsWith("+"),
+    );
+    const hasSpacePrefixedMarker = rawBodyLines.some(
+      (l) => l.startsWith(" -") || l.startsWith(" +"),
+    );
+    // Space-prefixed mode only kicks in when we see NO traditional
+    // markers AND we do see space-prefixed ones. Otherwise legitimate
+    // context lines whose content starts with "-" (markdown bullets,
+    // comments like "-- SQL") would be mis-parsed.
+    const spacePrefixMode = !hasTraditionalMarker && hasSpacePrefixedMarker;
+
+    const hunkLines: HunkLine[] = [];
+    for (const raw of rawBodyLines) {
+      // In space-prefix mode ONLY strip the extra space from lines whose
+      // NEXT char is a "-" or "+" marker. Context lines (" content") already
+      // use the single space as their marker — stripping would drop their
+      // marker entirely.
+      const bodyLine =
+        spacePrefixMode && (raw.startsWith(" -") || raw.startsWith(" +"))
+          ? raw.slice(1)
+          : raw;
       if (bodyLine.startsWith("-")) {
         hunkLines.push({ kind: "remove", text: bodyLine.slice(1) });
       } else if (bodyLine.startsWith("+")) {
@@ -236,7 +266,6 @@ function parseHunks(
           { op: "update", path, hunkIndex: hunks.length },
         );
       }
-      i++;
     }
 
     if (hunkLines.length === 0) {
