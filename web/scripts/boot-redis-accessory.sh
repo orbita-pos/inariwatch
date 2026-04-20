@@ -26,9 +26,13 @@ set -euo pipefail
 
 HOST="${REDIS_ACCESSORY_HOST:-root@87.99.153.227}"
 
-# Read password from stdin (single line, trimmed). Never written or echoed
-# from this script's perspective.
+# Read password from stdin (single line). Strip trailing CR — PowerShell
+# pipes to bash on Windows arrive as CRLF, and `read -r` only stops at LF,
+# leaving an invisible \r at the end. That \r changes the SHA, which is
+# how we shipped a 65-char password to the redis container while the app
+# container had the correct 64-char one (WRONGPASS at runtime).
 read -r PASS
+PASS="${PASS%$'\r'}"
 if [ -z "$PASS" ]; then
   echo "fatal: empty REDIS_PASSWORD on stdin" >&2
   exit 1
@@ -41,8 +45,10 @@ ssh -o BatchMode=yes "$HOST" 'cat > /root/.boot-redis-accessory.sh' <<'REMOTE'
 set -euo pipefail
 NAME="inari-web-redis"
 
-# Read the password the local side is about to pipe in.
+# Read the password the local side is about to pipe in. Strip trailing CR
+# defensively in case the pipeline crosses a Windows boundary again.
 read -r PASS
+PASS="${PASS%$'\r'}"
 
 # Idempotent teardown.
 docker rm -f "$NAME" >/dev/null 2>&1 || true
