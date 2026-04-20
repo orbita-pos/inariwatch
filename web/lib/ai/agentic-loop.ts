@@ -629,10 +629,12 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
           if (!result.ok) {
             verifierRetries++;
             const verifierHint = [
-              `apply_patch succeeded, but the verifier rejected the result (severity=${result.severity}):`,
+              `apply_patch PARSED cleanly but the post-apply verifier REJECTED the result and rolled it back. The files on disk are still the ORIGINALS — nothing was applied.`,
+              "",
+              `Rejection reason (severity=${result.severity}):`,
               `  ${result.issue}`,
               "",
-              "Re-read the relevant file, emit a corrected apply_patch that fixes ONLY the issue above. Do not revert the successful parts of the prior patch unless they are the problem.",
+              `Next step: emit a COMPLETE apply_patch again (every file, every hunk, not just a "correction"), paying close attention to the issue above. The previous patch is discarded. Re-read any file if you need to refresh the byte-exact context lines.`,
             ].join("\n");
             const siblingResults = await executeSiblingTools(
               toolUses.filter((t) => t.id !== applyPatchCall.id),

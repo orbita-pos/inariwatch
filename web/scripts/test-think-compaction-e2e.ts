@@ -132,6 +132,7 @@ async function main() {
   const thinkCalls: { turn: number; thought: string; confidence: string }[] = [];
   const compactionEvents: { turn: number; stage: string; messageCount: number }[] = [];
   const applyPatchAttempts: { turn: number; success: boolean; error?: string }[] = [];
+  const verifyEvents: { turn: number; ok: boolean; severity?: string; issue?: string }[] = [];
 
   const { runRemediation } = await import("../lib/ai/remediate");
   const t0 = Date.now();
@@ -165,6 +166,11 @@ async function main() {
       const d = data as { turn?: number; stage?: string; messageCount?: number };
       compactionEvents.push({ turn: d.turn ?? 0, stage: d.stage ?? "unknown", messageCount: d.messageCount ?? 0 });
       console.log(`  🗜️  [turn ${d.turn}] compaction (${d.stage}) — messages: ${d.messageCount}`);
+    } else if (event === "agentic_verify") {
+      const d = data as { turn?: number; ok?: boolean; severity?: string; issue?: string };
+      verifyEvents.push({ turn: d.turn ?? 0, ok: d.ok ?? false, severity: d.severity, issue: d.issue });
+      const mark = d.ok ? "🛡️  ✅" : "🛡️  ⛔";
+      console.log(`  ${mark} [turn ${d.turn}] verifier (${d.severity ?? "-"}): ${d.ok ? "pass" : d.issue?.slice(0, 120)}`);
     } else if (event === "agentic_done") {
       const d = data as { turns?: number; via?: string; files?: string[] };
       console.log(`  ▶ agent done (turns=${d.turns}, via=${d.via}): ${(d.files ?? []).join(", ")}`);
@@ -237,6 +243,19 @@ async function main() {
     }
   } else {
     console.log(`\nℹ  compaction did not fire (loop stayed short). This is fine for bugs the agent solves quickly.`);
+  }
+
+  console.log(`\n───── PR #6 verdict (verifier) ─────`);
+  if (verifyEvents.length > 0) {
+    const passes = verifyEvents.filter((v) => v.ok).length;
+    const rejects = verifyEvents.filter((v) => !v.ok);
+    console.log(`✅ verifier fired ${verifyEvents.length} time(s): ${passes} pass, ${rejects.length} rejected`);
+    for (const v of verifyEvents) {
+      const mark = v.ok ? "✅" : "⛔";
+      console.log(`   ${mark} turn ${v.turn} [${v.severity ?? "-"}]: ${v.ok ? "pass" : v.issue?.slice(0, 150)}`);
+    }
+  } else {
+    console.log(`⚠  verifier did NOT fire. Either apply_patch never succeeded, or the loop fell back to single-shot.`);
   }
 
   const apCount = toolCalls.get("apply_patch") ?? 0;
