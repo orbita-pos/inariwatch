@@ -21,8 +21,9 @@ async function main() {
     .limit(1);
   console.log(`Status: ${s?.status}  attempts: ${s?.attempt}`);
   console.log(`Error: ${s?.error ?? "(none)"}`);
-  console.log(`Steps (${(s?.steps ?? []).length}):`);
-  for (const step of (s?.steps as Array<{ type?: string; status?: string; message?: string }> ?? [])) {
+  const steps = (s?.steps as Array<{ type?: string; status?: string; message?: string }> | null | undefined) ?? [];
+  console.log(`Steps (${steps.length}):`);
+  for (const step of steps) {
     console.log(`  [${step.status}] ${step.type}: ${(step.message ?? "").slice(0, 200)}`);
   }
 }
