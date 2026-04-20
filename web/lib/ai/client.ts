@@ -25,8 +25,8 @@ export type TextBlock = { type: "text"; text: string };
 export type ContentBlock = ToolUseBlock | ToolResultBlock | TextBlock;
 
 export type ToolUseResponse =
-  | { stopReason: "tool_use"; content: ContentBlock[]; responseId?: string }
-  | { stopReason: "end_turn"; text: string; responseId?: string };
+  | { stopReason: "tool_use"; content: ContentBlock[]; responseId?: string; priorOutput?: Array<Record<string, unknown>> }
+  | { stopReason: "end_turn"; text: string; responseId?: string; priorOutput?: Array<Record<string, unknown>> };
 
 /**
  * Detect the AI provider from the key prefix.
@@ -349,12 +349,15 @@ export interface CallAIWithToolsOpts {
 
   // ── Responses API fields (GPT-5.x family only) ───────────────────────────
   /**
-   * From the previous turn's response. When set, the Responses API reuses
-   * server-side state instead of replaying the full history — ~50% input
-   * token reduction and +40-80% cache utilization per OpenAI's own data.
-   * Ignored on Chat Completions / non-OpenAI paths.
+   * Raw `output` array from the previous turn's response. When we run with
+   * `store: false` (the default, for privacy), OpenAI doesn't persist
+   * server-side state, so `previous_response_id` doesn't work. Instead we
+   * forward the prior turn's output items (reasoning + function_call) back
+   * in the next turn's input so reasoning context survives. OpenAI's
+   * automatic prompt caching still gives us a prefix-match win without
+   * the retention tradeoff of store:true.
    */
-  previousResponseId?: string;
+  priorOutput?: Array<Record<string, unknown>>;
   /**
    * Reasoning budget for this specific turn. See effortForPhase() in
    * openai-config.ts for the standard mapping. Ignored on non-reasoning
@@ -478,11 +481,22 @@ export async function callAIWithTools(
     }
 
     // Strip internal usage fields before returning to caller. Preserve
-    // responseId so callers can chain to the next turn via previousResponseId.
+    // responseId + priorOutput so callers can thread next turn: pass
+    // priorOutput back as opts.priorOutput to keep reasoning continuity.
     if (internal.stopReason === "end_turn") {
-      return { stopReason: "end_turn", text: internal.text, responseId: internal.responseId };
+      return {
+        stopReason: "end_turn",
+        text: internal.text,
+        responseId: internal.responseId,
+        priorOutput: internal.priorOutput,
+      };
     }
-    return { stopReason: "tool_use", content: internal.content, responseId: internal.responseId };
+    return {
+      stopReason: "tool_use",
+      content: internal.content,
+      responseId: internal.responseId,
+      priorOutput: internal.priorOutput,
+    };
   } catch (err) {
     if (opts.log) {
       import("./lens").then(({ logAICall, serializePrompt }) => {
@@ -749,13 +763,10 @@ async function callOpenAIResponsesWithTools(
     strict: opts.strict ?? false,
   }));
 
-  // Translate message history into Responses API input items. When we have
-  // a previousResponseId, the server already knows everything before the
-  // last response — we only send the NEW items (typically the function_call
-  // results from the last turn).
-  const input = opts.previousResponseId
-    ? buildIncrementalResponsesInput(messages)
-    : buildFullResponsesInput(messages);
+  // Build input with prior output spliced in where the last assistant
+  // message sits — that preserves function_call + reasoning pairing across
+  // turns. See buildResponsesInput below for the full strategy.
+  const input = buildResponsesInput(messages, opts.priorOutput);
 
   const body: Record<string, unknown> = {
     model,
@@ -766,22 +777,15 @@ async function callOpenAIResponsesWithTools(
     max_output_tokens: opts.maxTokens ?? 4096,
     store: providerOpts.store,
     include: providerOpts.include,
+    // Always send the system prompt. Automatic prompt caching matches on
+    // the full prefix, so repeating a stable system prompt is effectively
+    // free after the first cache hit.
+    instructions: systemPrompt,
   };
 
   // gpt-5.4 verbosity clamp — `text.verbosity` in Responses API (not `textVerbosity`).
   if (providerOpts.textVerbosity) {
     body.text = { verbosity: providerOpts.textVerbosity };
-  }
-
-  // Instructions: only on the FIRST turn. With previousResponseId the server
-  // already has the prior instructions baked into its state.
-  if (!opts.previousResponseId) {
-    body.instructions = systemPrompt;
-  }
-
-  // Threading: hand the server the previous turn's id to skip re-sending history.
-  if (opts.previousResponseId) {
-    body.previous_response_id = opts.previousResponseId;
   }
 
   // Reasoning budget. `reasoning_summary: "auto"` gives us a short human-readable
@@ -827,10 +831,12 @@ async function callOpenAIResponsesWithTools(
   };
 
   // Output parsing. The Responses API returns an array of `output` items.
-  // We care about two types: `function_call` (tool invocation) and `message`
-  // (final assistant text). Other types (e.g., `reasoning`) are for the
-  // server — we don't surface them.
+  // We care about `function_call` (tool invocation) and `message` (final
+  // assistant text). We ALSO capture the full output array so the caller
+  // can forward reasoning + function_call items back on the next turn —
+  // that's how reasoning continuity works in store:false mode.
   const output = (data.output as Array<Record<string, unknown>>) ?? [];
+  const priorOutput = output;
 
   const functionCalls = output.filter((o) => o.type === "function_call") as Array<{
     type: "function_call";
@@ -857,7 +863,7 @@ async function callOpenAIResponsesWithTools(
         input: parsedInput,
       };
     });
-    return { stopReason: "tool_use", content, usage, model, responseId };
+    return { stopReason: "tool_use", content, usage, model, responseId, priorOutput };
   }
 
   // No tool calls — extract the final assistant text. Message items contain
@@ -868,27 +874,38 @@ async function callOpenAIResponsesWithTools(
   const text =
     messageItem?.content?.find((p) => p.type === "output_text")?.text ?? "";
 
-  return { stopReason: "end_turn", text, usage, model, responseId };
+  return { stopReason: "end_turn", text, usage, model, responseId, priorOutput };
 }
 
 /**
- * Build the full input payload for the first turn of a Responses API
- * conversation. Takes the Claude-shaped message history we already carry
- * around internally and shapes each message into a Responses `message` item.
+ * Build the full Responses API input.
+ *
+ * Strategy (store:false / stateless mode):
+ *   1. Walk messages chronologically.
+ *   2. When we hit the last assistant message that corresponds to priorOutput,
+ *      splice the priorOutput items in place of the assistant content-blocks
+ *      form (reasoning items + function_call items from the actual response).
+ *   3. After the priorOutput, emit function_call_output items for each
+ *      tool_result in the subsequent user message.
+ *   4. Any messages BEFORE the priorOutput splice point stay as simple
+ *      message items — they're context but aren't tied to a specific
+ *      response's reasoning.
+ *
+ * When priorOutput is undefined (first turn), every message becomes a
+ * simple `message` item.
+ *
+ * Why this shape: in store:false mode, `function_call` and `function_call_output`
+ * items must be properly paired by `call_id` OR OpenAI returns 400. Reasoning
+ * items with `encrypted_content` must also stay paired with their response —
+ * you can't synthesize them from Claude-shaped content blocks.
  */
-function buildFullResponsesInput(messages: AIMessage[]): Array<Record<string, unknown>> {
-  return messages.map((m) => toResponsesItem(m));
-}
+function buildResponsesInput(
+  messages: AIMessage[],
+  priorOutput?: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const items: Array<Record<string, unknown>> = [];
 
-/**
- * Build the incremental input for a follow-up turn (previousResponseId is set).
- * The server already has everything up to the last response, so we only need
- * to forward the NEW items — typically function_call_output rows plus any
- * fresh user message. We walk the tail of the history and stop when we hit
- * the last assistant message (which is server-side already).
- */
-function buildIncrementalResponsesInput(messages: AIMessage[]): Array<Record<string, unknown>> {
-  // Find the last assistant message — everything after it is new.
+  // Find the last assistant message — priorOutput replaces its content.
   let lastAssistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "assistant") {
@@ -896,23 +913,39 @@ function buildIncrementalResponsesInput(messages: AIMessage[]): Array<Record<str
       break;
     }
   }
-  const newMessages = messages.slice(lastAssistantIdx + 1);
-  return newMessages.flatMap((m) => {
-    // Expand a user message whose content is content blocks (tool_result turns)
-    // into multiple function_call_output items — one per tool_result block.
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    const isLastAssistant = i === lastAssistantIdx;
+
+    // Replace the last assistant message with priorOutput verbatim so
+    // reasoning.encrypted_content + function_call items stay paired.
+    if (isLastAssistant && priorOutput && priorOutput.length > 0) {
+      items.push(...priorOutput);
+      continue;
+    }
+
+    // User message with content-block form = tool_result turn. Expand each
+    // tool_result into a function_call_output item keyed by call_id.
     if (m.role === "user" && Array.isArray(m.content)) {
       const blocks = m.content as ContentBlock[];
       const toolResults = blocks.filter((b) => b.type === "tool_result") as ToolResultBlock[];
       if (toolResults.length > 0) {
-        return toolResults.map((tr) => ({
-          type: "function_call_output",
-          call_id: tr.tool_use_id,
-          output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
-        }));
+        for (const tr of toolResults) {
+          items.push({
+            type: "function_call_output",
+            call_id: tr.tool_use_id,
+            output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+        continue;
       }
     }
-    return [toResponsesItem(m)];
-  });
+
+    items.push(toResponsesItem(m));
+  }
+
+  return items;
 }
 
 /**

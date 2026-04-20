@@ -290,8 +290,10 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
     const messages: AIMessage[] = [{ role: "user", content: errorContext }];
     let tscPassed = false, buildPassed = false, testsPassed = false;
 
-    // Responses API threading for GPT-5.x. Pass-through on other providers.
-    let previousResponseId: string | undefined;
+    // Responses API threading (GPT-5.x, store:false). Forward prior turn's
+    // output items so reasoning.encrypted_content stays paired with
+    // function_call items. Pass-through on other providers.
+    let priorOutput: Array<Record<string, unknown>> | undefined;
 
     for (let turn = 1; turn <= maxTurns; turn++) {
       await updateProgress(sessionId, {
@@ -314,12 +316,12 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
         model: currentModel,
         timeout: 120_000, // Responses API reasoning can run longer
         provider: aiProvider,
-        previousResponseId,
+        priorOutput,
         reasoningEffort,
       });
 
-      // Forward responseId to next turn (GPT-5.x only; no-op elsewhere).
-      previousResponseId = response.responseId;
+      // Forward prior output to next turn (GPT-5.x only; no-op elsewhere).
+      priorOutput = response.priorOutput;
 
       if (response.stopReason === "end_turn") {
         messages.push({ role: "assistant", content: response.text });

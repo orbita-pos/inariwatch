@@ -263,11 +263,12 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
     { role: "user", content: errorContext },
   ];
 
-  // Responses API threading: when the active model is GPT-5.x, each turn
-  // returns a responseId that we pass as `previousResponseId` on the next
-  // call. This lets OpenAI skip re-reading the full history server-side
-  // and keeps reasoning context alive between tool calls.
-  let previousResponseId: string | undefined;
+  // Responses API threading (GPT-5.x, store:false mode). Each turn returns
+  // the raw `output` items — we forward them in the next turn's input so
+  // reasoning.encrypted_content stays paired with its function_call items.
+  // Without this the model loses reasoning context between tool calls
+  // (Cursor measured ~30% regression when dropped).
+  let priorOutput: Array<Record<string, unknown>> | undefined;
   const { effortForTurn } = await import("./openai-config");
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
@@ -293,7 +294,7 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
       model: currentModel,
       timeout: 60000,
       provider,
-      previousResponseId,
+      priorOutput,
       reasoningEffort: effortForTurn(turn, MAX_TURNS),
       log: params.log
         ? {
@@ -307,9 +308,10 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
         : undefined,
     });
 
-    // Forward the responseId to the next turn. The GPT-5.x path populates
-    // this; other providers leave it undefined (no-op).
-    previousResponseId = response.responseId;
+    // Forward the prior turn's raw output items so reasoning+function_call
+    // pairing survives. GPT-5.x populates this; other providers leave it
+    // undefined (no-op).
+    priorOutput = response.priorOutput;
 
     if (response.stopReason === "end_turn") {
       // LLM stopped without calling a tool — shouldn't happen, nudge it

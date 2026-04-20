@@ -19,16 +19,20 @@ export type TextBlock = { type: "text"; text: string };
 export type ContentBlock = ToolUseBlock | ToolResultBlock | TextBlock;
 
 export type ToolUseResponse =
-  | { stopReason: "tool_use"; content: ContentBlock[]; responseId?: string }
-  | { stopReason: "end_turn"; text: string; responseId?: string };
+  | { stopReason: "tool_use"; content: ContentBlock[]; responseId?: string; priorOutput?: Array<Record<string, unknown>> }
+  | { stopReason: "end_turn"; text: string; responseId?: string; priorOutput?: Array<Record<string, unknown>> };
 
 export interface CallAIWithToolsOpts {
   maxTokens?: number;
   model?: string;
   timeout?: number;
   provider?: AIProvider;
-  /** Previous turn's response id — Responses API threading (GPT-5.x only). */
-  previousResponseId?: string;
+  /**
+   * Raw `output` array from the prior Responses API turn. Forwarded in the
+   * next input so reasoning.encrypted_content + function_call items stay
+   * paired (required in store:false mode — GPT-5.x only).
+   */
+  priorOutput?: Array<Record<string, unknown>>;
   /** Reasoning budget per turn (reasoning models only). */
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
   /** Enables strict JSON schema on tool calls. */
@@ -242,9 +246,7 @@ async function callOpenAIResponsesWithTools(
     strict: opts.strict ?? false,
   }));
 
-  const input = opts.previousResponseId
-    ? buildIncrementalResponsesInput(messages)
-    : buildFullResponsesInput(messages);
+  const input = buildResponsesInput(messages, opts.priorOutput);
 
   const body: Record<string, unknown> = {
     model,
@@ -255,17 +257,12 @@ async function callOpenAIResponsesWithTools(
     max_output_tokens: opts.maxTokens ?? 4096,
     store: false,
     include: ["reasoning.encrypted_content"],
+    instructions: systemPrompt,
   };
 
   // gpt-5.4 verbosity clamp.
   if (model.toLowerCase().startsWith("gpt-5.4")) {
     body.text = { verbosity: "low" };
-  }
-
-  if (!opts.previousResponseId) {
-    body.instructions = systemPrompt;
-  } else {
-    body.previous_response_id = opts.previousResponseId;
   }
 
   if (opts.reasoningEffort) {
@@ -290,6 +287,7 @@ async function callOpenAIResponsesWithTools(
   const responseId = data.id as string;
 
   const output = (data.output as Array<Record<string, unknown>>) ?? [];
+  const priorOutput = output;
   const functionCalls = output.filter((o) => o.type === "function_call") as Array<{
     type: "function_call";
     call_id: string;
@@ -307,21 +305,28 @@ async function callOpenAIResponsesWithTools(
       }
       return { type: "tool_use" as const, id: fc.call_id, name: fc.name, input: parsedInput };
     });
-    return { stopReason: "tool_use", content, responseId };
+    return { stopReason: "tool_use", content, responseId, priorOutput };
   }
 
   const messageItem = output.find((o) => o.type === "message") as
     | { content?: Array<{ type: string; text?: string }> }
     | undefined;
   const text = messageItem?.content?.find((p) => p.type === "output_text")?.text ?? "";
-  return { stopReason: "end_turn", text, responseId };
+  return { stopReason: "end_turn", text, responseId, priorOutput };
 }
 
-function buildFullResponsesInput(messages: AIMessage[]): Array<Record<string, unknown>> {
-  return messages.map((m) => toResponsesItem(m));
-}
+/**
+ * Build Responses API input. When priorOutput is provided, replace the last
+ * assistant message with the raw output items (reasoning + function_call)
+ * from the previous turn, and expand subsequent user tool_result content
+ * into function_call_output items keyed by call_id.
+ */
+function buildResponsesInput(
+  messages: AIMessage[],
+  priorOutput?: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const items: Array<Record<string, unknown>> = [];
 
-function buildIncrementalResponsesInput(messages: AIMessage[]): Array<Record<string, unknown>> {
   let lastAssistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "assistant") {
@@ -329,21 +334,35 @@ function buildIncrementalResponsesInput(messages: AIMessage[]): Array<Record<str
       break;
     }
   }
-  const newMessages = messages.slice(lastAssistantIdx + 1);
-  return newMessages.flatMap((m) => {
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    const isLastAssistant = i === lastAssistantIdx;
+
+    if (isLastAssistant && priorOutput && priorOutput.length > 0) {
+      items.push(...priorOutput);
+      continue;
+    }
+
     if (m.role === "user" && Array.isArray(m.content)) {
       const blocks = m.content as ContentBlock[];
       const toolResults = blocks.filter((b) => b.type === "tool_result") as ToolResultBlock[];
       if (toolResults.length > 0) {
-        return toolResults.map((tr) => ({
-          type: "function_call_output",
-          call_id: tr.tool_use_id,
-          output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
-        }));
+        for (const tr of toolResults) {
+          items.push({
+            type: "function_call_output",
+            call_id: tr.tool_use_id,
+            output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+        continue;
       }
     }
-    return [toResponsesItem(m)];
-  });
+
+    items.push(toResponsesItem(m));
+  }
+
+  return items;
 }
 
 function toResponsesItem(m: AIMessage): Record<string, unknown> {
