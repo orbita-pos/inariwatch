@@ -38,6 +38,102 @@ function hasSession(req: NextRequest): boolean {
   );
 }
 
+// ── CSP (B1 — Vercel-level audit) ─────────────────────────────────────────
+//
+// Strict CSP with per-request nonce + `strict-dynamic`. Fixes the
+// `'unsafe-inline'` in script-src that was blocking Mozilla Observatory
+// A+.
+//
+// Rollout is gated by CSP_ENFORCE:
+//   unset | "false"  → Content-Security-Policy-Report-Only  (default)
+//   "true"           → Content-Security-Policy              (enforcing)
+//
+// Ship Report-Only for ~48 h, watch `/api/csp-report` for violations,
+// then flip CSP_ENFORCE=true in sops. No code change required to enforce.
+
+function buildCsp(nonce: string): string {
+  const isDev = process.env.NODE_ENV === "development";
+  // HMR + React Refresh need unsafe-eval in dev. In prod, strict-dynamic
+  // + nonce covers everything Next emits (hydration scripts carry the
+  // nonce we set on the request).
+  const scriptSrc = [
+    `'nonce-${nonce}'`,
+    `'strict-dynamic'`,
+    // Legacy UAs that don't understand strict-dynamic fall back to the
+    // host list. Plausible is our only 3rd-party JS source.
+    "https://plausible.io",
+    // allow 'self' for same-origin script URLs under strict-dynamic,
+    // which modern browsers ignore when strict-dynamic is present but
+    // legacy UAs use.
+    "'self'",
+    ...(isDev ? ["'unsafe-eval'"] : []),
+  ].join(" ");
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc}`,
+    // Tailwind injects runtime inline style; nonce on style-src would
+    // require a Tailwind build-time change. 'unsafe-inline' is broadly
+    // acceptable for CSS (CVE surface is tiny).
+    "style-src 'self' 'unsafe-inline'",
+    // Avatars: GitHub, Google, Gravatar. `data:` for inline SVG/blur.
+    "img-src 'self' data: https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://secure.gravatar.com https://gitlab.com",
+    "media-src 'self'",
+    "font-src 'self' data:",
+    // Narrow from the previous `connect-src 'self' https:` which allowed
+    // exfiltration to any https origin. Plausible for analytics, GH API
+    // for CLI dev mode + integrations preview.
+    "connect-src 'self' https://plausible.io https://api.github.com",
+    "frame-ancestors 'none'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "upgrade-insecure-requests",
+    // CSP violation reports land at /api/csp-report (next step in this
+    // plan). `report-to` is the modern directive; `report-uri` kept for
+    // Firefox + older Safari that ignore report-to.
+    "report-uri /api/csp-report",
+    "report-to csp-endpoint",
+  ].join("; ");
+}
+
+// Wrap NextResponse.next() / .rewrite() so every page response carries a
+// fresh nonce + the matching CSP. Redirects skip this — they have no body.
+function withCsp(req: NextRequest, kind: "next" | "rewrite", url?: URL): NextResponse {
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const csp = buildCsp(nonce);
+  const reqHeaders = new Headers(req.headers);
+  // Next 15 reads `x-nonce` and applies it to framework-emitted scripts.
+  reqHeaders.set("x-nonce", nonce);
+  reqHeaders.set("Content-Security-Policy", csp);
+
+  const res = kind === "rewrite" && url
+    ? NextResponse.rewrite(url, { request: { headers: reqHeaders } })
+    : NextResponse.next({ request: { headers: reqHeaders } });
+
+  const enforce = process.env.CSP_ENFORCE === "true";
+  const headerName = enforce ? "Content-Security-Policy" : "Content-Security-Policy-Report-Only";
+  res.headers.set(headerName, csp);
+  res.headers.set("x-nonce", nonce);
+  res.headers.set(
+    "Report-To",
+    JSON.stringify({
+      group: "csp-endpoint",
+      max_age: 10_886_400,
+      endpoints: [{ url: "/api/csp-report" }],
+    }),
+  );
+  res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  res.headers.set("Cross-Origin-Resource-Policy", "same-site");
+  // X-XSS-Protection is deprecated; OWASP + Mozilla recommend `0`.
+  res.headers.set("X-XSS-Protection", "0");
+  return res;
+}
+
+const nextWithCsp = (req: NextRequest) => withCsp(req, "next");
+const rewriteWithCsp = (req: NextRequest, url: URL) => withCsp(req, "rewrite", url);
+
 export function middleware(req: NextRequest) {
   const host = req.headers.get("host") ?? "";
   const { pathname } = req.nextUrl;
@@ -46,7 +142,7 @@ export function middleware(req: NextRequest) {
   if (host.startsWith("mcp.")) {
     const url = req.nextUrl.clone();
     url.pathname = "/api/mcp";
-    return NextResponse.rewrite(url);
+    return rewriteWithCsp(req, url);
   }
 
   // Install subdomain rewrite — install.inariwatch.com → /api/install
@@ -55,7 +151,7 @@ export function middleware(req: NextRequest) {
   if (host.startsWith("install.")) {
     const url = req.nextUrl.clone();
     url.pathname = "/api/install";
-    return NextResponse.rewrite(url);
+    return rewriteWithCsp(req, url);
   }
 
   // Status subdomain rewrite — status.inariwatch.com → /status
@@ -66,10 +162,10 @@ export function middleware(req: NextRequest) {
     } else if (!pathname.startsWith("/status")) {
       url.pathname = `/status${pathname}`;
     }
-    return NextResponse.rewrite(url);
+    return rewriteWithCsp(req, url);
   }
 
-  if (isAlwaysAllowed(pathname)) return NextResponse.next();
+  if (isAlwaysAllowed(pathname)) return nextWithCsp(req);
 
   // ── Local development ──────────────────────────────────────────────────────
   const isLocalhost = host.includes("localhost") || host.includes("127.0.0.1");
@@ -85,7 +181,7 @@ export function middleware(req: NextRequest) {
       dashboardUrl.pathname = "/dashboard";
       return NextResponse.redirect(dashboardUrl);
     }
-    return NextResponse.next();
+    return nextWithCsp(req);
   }
 
   // ── Root domain (inariwatch.com / www.inariwatch.com) ─────────────────────
@@ -114,7 +210,7 @@ export function middleware(req: NextRequest) {
       pathname.endsWith(".mp4") ||
       pathname.endsWith(".webm")
     ) {
-      return NextResponse.next();
+      return nextWithCsp(req);
     }
     const url = req.nextUrl.clone();
     url.host = APP_SUBDOMAIN;
@@ -144,10 +240,10 @@ export function middleware(req: NextRequest) {
       dashboardUrl.pathname = "/dashboard";
       return NextResponse.redirect(dashboardUrl);
     }
-    return NextResponse.next();
+    return nextWithCsp(req);
   }
 
-  return NextResponse.next();
+  return nextWithCsp(req);
 }
 
 export const config = {
