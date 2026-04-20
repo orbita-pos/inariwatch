@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync UFW + DOCKER-USER chain to Cloudflare IP ranges
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cf-firewall-sync
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
