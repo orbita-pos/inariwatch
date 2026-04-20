@@ -457,7 +457,7 @@ export async function callAIWithTools(
             ? internal.text
             : `[tool_use] ${internal.content
                 .filter((b): b is ToolUseBlock => b.type === "tool_use")
-                .map((b) => `${b.name}(${JSON.stringify(b.input).slice(0, 200)})`)
+                .map((b) => `${b.name}(${JSON.stringify(b.input).slice(0, 2000)})`)
                 .join("\n")}`;
 
         logAICall({
@@ -923,6 +923,39 @@ function buildResponsesInput(
     if (isLastAssistant && priorOutput && priorOutput.length > 0) {
       items.push(...priorOutput);
       continue;
+    }
+
+    // Assistant message from an earlier turn with tool_use blocks: emit
+    // one `function_call` item per tool_use so downstream
+    // `function_call_output` items still resolve by call_id. Without this
+    // the Responses API 400s with "No tool call found for function call
+    // output with call_id …" after the second turn of a multi-tool loop.
+    if (m.role === "assistant" && Array.isArray(m.content)) {
+      const blocks = m.content as ContentBlock[];
+      const hasToolUse = blocks.some((b) => b.type === "tool_use");
+      if (hasToolUse) {
+        // Emit any plain text blocks as a separate message first (rare,
+        // but preserves reasoning-ish narration if the model produced it).
+        const textParts = blocks
+          .filter((b): b is TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+        if (textParts.length > 0) {
+          items.push({ type: "message", role: "assistant", content: textParts });
+        }
+        for (const b of blocks) {
+          if (b.type === "tool_use") {
+            const tu = b as ToolUseBlock;
+            items.push({
+              type: "function_call",
+              call_id: tu.id,
+              name: tu.name,
+              arguments: JSON.stringify(tu.input ?? {}),
+            });
+          }
+        }
+        continue;
+      }
     }
 
     // User message with content-block form = tool_result turn. Expand each

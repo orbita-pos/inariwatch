@@ -176,20 +176,38 @@ function parseHunks(
       break;
     }
 
-    if (!line.startsWith(HUNK_PREFIX)) {
+    // Tolerate leading whitespace on the hunk header — some models emit
+    // " @@ -6,6 +6,8 @@" (extra space before @@).
+    const trimmedLine = line.trimStart();
+    let header = "";
+    if (!trimmedLine.startsWith(HUNK_PREFIX)) {
       // Blank lines between file header and first hunk are tolerated.
       if (line.trim() === "") {
         i++;
         continue;
       }
-      throw new ApplyPatchError(
-        `Expected hunk header "@@" after Update File, got "${line.slice(0, 120)}"`,
-        { op: "update", path, hunkIndex: hunks.length },
-      );
+      // Implicit hunk — no @@ header. If the line looks like a hunk body
+      // line (context " ", remove "-", add "+", or a plain blank line),
+      // treat the following block as a single hunk with an empty header.
+      // Models (especially gpt-4o-mini) often skip the @@ entirely when
+      // the file is small and there's only one edit region.
+      const looksLikeBody =
+        line.startsWith(" ") ||
+        line.startsWith("-") ||
+        line.startsWith("+") ||
+        line === "";
+      if (!looksLikeBody) {
+        throw new ApplyPatchError(
+          `Expected hunk header "@@" after Update File, got "${line.slice(0, 120)}"`,
+          { op: "update", path, hunkIndex: hunks.length },
+        );
+      }
+      // Leave header empty and DO NOT advance i — the body parser below
+      // will consume from the current line.
+    } else {
+      header = trimmedLine.slice(HUNK_PREFIX.length).trim();
+      i++;
     }
-
-    const header = line.slice(HUNK_PREFIX.length).trim();
-    i++;
 
     const hunkLines: HunkLine[] = [];
     while (i < lines.length) {

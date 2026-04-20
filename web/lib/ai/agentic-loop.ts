@@ -435,8 +435,9 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
     // Check for terminal tools first (apply_patch preferred; submit_fix fallback).
     const applyPatchCall = toolUses.find((t) => t.name === "apply_patch");
     if (applyPatchCall) {
-      const patchPreview = ((applyPatchCall.input as { patch?: string }).patch ?? "").slice(0, 200);
-      emit("agentic_tool", { turn, tool: "apply_patch", input: { patchPreview } });
+      const fullPatch = (applyPatchCall.input as { patch?: string }).patch ?? "";
+      const patchPreview = fullPatch.slice(0, 200);
+      emit("agentic_tool", { turn, tool: "apply_patch", input: { patch: fullPatch, patchPreview } });
       const result = await executeTool(applyPatchCall, params, filesRead);
       const parsed = JSON.parse(result) as
         | { explanation: string; files: { path: string; content: string }[] }
