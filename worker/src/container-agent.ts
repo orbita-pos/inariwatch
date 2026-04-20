@@ -429,6 +429,12 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
     // function_call items. Pass-through on other providers.
     let priorOutput: Array<Record<string, unknown>> | undefined;
 
+    // Per-session memory of failed apply_patch attempts — see PR #5.
+    // Feeds a "do not repeat" hint into the next tool_result so the
+    // model can see its own history of failed attempts.
+    const { RetryMemory } = await import("./retry-memory.js");
+    const retryMemory = new RetryMemory();
+
     for (let turn = 1; turn <= maxTurns; turn++) {
       await updateProgress(sessionId, {
         name: "container_turn",
@@ -475,7 +481,18 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
 
       for (const toolUse of toolUses) {
         try {
-          const result = await executeContainerTool(toolUse, containerId);
+          let result = await executeContainerTool(toolUse, containerId);
+
+          // Augment apply_patch failures with retry-memory hint (PR #5).
+          if (toolUse.name === "apply_patch") {
+            const looksLikeError =
+              result.startsWith("Error parsing patch") || result.startsWith("apply_patch failed");
+            if (looksLikeError) {
+              const retryHint = retryMemory.buildHint();
+              retryMemory.record(turn, (toolUse.input as { patch?: string }).patch ?? "", result);
+              if (retryHint) result = `${result}\n${retryHint}`;
+            }
+          }
 
           // Track verification
           if (toolUse.name === "run_command") {

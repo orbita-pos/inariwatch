@@ -692,6 +692,11 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
   let priorOutput: Array<Record<string, unknown>> | undefined;
   const { effortForTurn } = await import("./openai-config");
 
+  // Per-session memory of failed apply_patch attempts — feeds a
+  // "do not repeat" hint back into the next tool_result.
+  const { RetryMemory } = await import("./retry-memory");
+  const retryMemory = new RetryMemory();
+
   // Verification flags — compile-check, build, and tests. Each is set when a
   // run_command matching the respective pattern succeeds (exit code 0).
   // Patterns cover TypeScript/JavaScript, Python, Go, Rust, Java.
@@ -763,7 +768,21 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
       emit("container_tool", { turn, tool: toolUse.name, input: emitInput });
 
       try {
-        const result = await executeContainerTool(toolUse, params, filesRead);
+        let result = await executeContainerTool(toolUse, params, filesRead);
+
+        // Augment apply_patch failures with retry-memory hint (PR #5).
+        // The executor returns the raw parser/applier error; we layer the
+        // "do not repeat" block on top so the next retry has visibility
+        // into its own history of failed attempts.
+        if (toolUse.name === "apply_patch") {
+          const looksLikeError =
+            result.startsWith("Error parsing patch") || result.startsWith("apply_patch failed");
+          if (looksLikeError) {
+            const retryHint = retryMemory.buildHint();
+            retryMemory.record(turn, (toolUse.input as { patch?: string }).patch ?? "", result);
+            if (retryHint) result = `${result}\n${retryHint}`;
+          }
+        }
 
         // Track verification status from run_command results
         if (toolUse.name === "run_command") {

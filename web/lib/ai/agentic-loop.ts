@@ -437,6 +437,13 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   let priorOutput: Array<Record<string, unknown>> | undefined;
   const { effortForTurn } = await import("./openai-config");
 
+  // Per-session memory of failed apply_patch attempts. When the model
+  // emits a 2nd / 3rd patch that fails for a similar reason to a prior
+  // one, we include a "do not repeat" hint in the tool_result so the
+  // next turn has visibility into its own history.
+  const { RetryMemory } = await import("./retry-memory");
+  const retryMemory = new RetryMemory();
+
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("agentic_turn", { turn, maxTurns: MAX_TURNS });
 
@@ -541,6 +548,11 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
       // into a single user message.
       if ("error" in parsed) {
         emit("agentic_error", { turn, tool: "apply_patch", error: parsed.error });
+        // Build a retry hint from prior failures BEFORE recording this one,
+        // so the hint describes "attempts PRIOR to this one" — less confusing.
+        const retryHint = retryMemory.buildHint();
+        retryMemory.record(turn, fullPatch, parsed.error);
+
         const siblingResults = await executeSiblingTools(
           toolUses.filter((t) => t.id !== applyPatchCall.id),
           params,
@@ -548,6 +560,13 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
           turn,
           emit,
         );
+        const content = [
+          `apply_patch error: ${parsed.error}`,
+          parsed.hint ? `Hint: ${parsed.hint}` : "",
+          retryHint,
+        ]
+          .filter(Boolean)
+          .join("\n");
         messages.push({
           role: "user",
           content: [
@@ -555,7 +574,7 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
             {
               type: "tool_result",
               tool_use_id: applyPatchCall.id,
-              content: `apply_patch error: ${parsed.error}${parsed.hint ? `\nHint: ${parsed.hint}` : ""}`,
+              content,
               is_error: true,
             } as ToolResultBlock,
           ] as ContentBlock[],
