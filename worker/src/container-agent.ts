@@ -98,6 +98,7 @@ const CONTAINER_TOOLS: ToolDefinition[] = [
   { name: "read_file", description: "Read a file from the repository (up to 15K chars).", input_schema: { type: "object", properties: { path: { type: "string", description: "File path relative to repo root" } }, required: ["path"] } },
   { name: "search_code", description: "Search the codebase for patterns using grep.", input_schema: { type: "object", properties: { query: { type: "string", description: "Search string or regex" } }, required: ["query"] } },
   { name: "list_directory", description: "List directory contents. Excludes node_modules and .git.", input_schema: { type: "object", properties: { prefix: { type: "string", description: "Directory path (e.g. 'src/')" } } } },
+  { name: "think", description: "Record a planning thought WITHOUT side effects. Use before non-trivial apply_patch / write_file to sketch the minimal diff and what could regress. ≤ 200 words. Does NOT replace reading files.", input_schema: { type: "object", properties: { thought: { type: "string", description: "Reasoning to record" }, confidence: { type: "string", enum: ["low", "medium", "high"], description: "Self-rated confidence" } }, required: ["thought"] } },
   { name: "apply_patch", description: APPLY_PATCH_DESC, input_schema: { type: "object", properties: { patch: { type: "string", description: "Full patch envelope starting with '*** Begin Patch' and ending with '*** End Patch'" } }, required: ["patch"] } },
   { name: "write_file", description: "Fallback: write COMPLETE file contents. PREFER apply_patch for surgical edits.", input_schema: { type: "object", properties: { path: { type: "string", description: "File path" }, content: { type: "string", description: "Complete file content" } }, required: ["path", "content"] } },
   { name: "run_command", description: "Run a shell command for verification: 'npx tsc --noEmit', 'npm run build', 'npm test'.", input_schema: { type: "object", properties: { command: { type: "string", description: "Shell command" } }, required: ["command"] } },
@@ -167,6 +168,13 @@ async function executeContainerTool(
       const prefix = input.prefix ?? ".";
       const result = await containerExec(containerId, `find ${shellEscape(prefix)} -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -path '*/.next/*' 2>/dev/null | head -200`);
       return result.stdout || "Empty directory or not found.";
+    }
+    case "think": {
+      const thought = ((input.thought as string) ?? "").trim();
+      const confidence = (input.confidence as string) ?? "medium";
+      if (!thought) return "Error: `thought` is required and cannot be empty.";
+      if (thought.length > 4000) return "Error: thought too long (> 4000 chars). Keep it ≤ 200 words.";
+      return `(recorded — confidence=${confidence}. Continue with the next tool call; the loop ends only when you call submit_fix.)`;
     }
     case "apply_patch": {
       const patchText = input.patch;
@@ -309,12 +317,13 @@ WORKFLOW:
 1. Read the file(s) mentioned in the error/stack trace
 2. Check imports to understand what libraries the project uses
 3. Read package.json if you need to know the tech stack
-4. Apply your fix. PREFER apply_patch with 1-3 lines of context — much smaller and more accurate than rewriting whole files. Use write_file only for new files or full rewrites
-5. VERIFY: run_command "npx tsc --noEmit" — MUST pass
-6. VERIFY: run_command "npm run build" — MUST pass (if applicable)
-7. OPTIONAL: run_command "npm test" — non-blocking
-8. If tsc or build FAILS, read the error, fix it with write_file, and re-verify
-9. When ALL checks pass, call submit_fix with the list of files you changed
+4. For non-trivial fixes (multiple files, unusual framework, risk of regression), call the think tool ONCE to sketch the minimal diff and what could regress. Skip for obvious one-line fixes.
+5. Apply your fix. PREFER apply_patch with 1-3 lines of context — much smaller and more accurate than rewriting whole files. Use write_file only for new files or full rewrites
+6. VERIFY: run_command "npx tsc --noEmit" — MUST pass
+7. VERIFY: run_command "npm run build" — MUST pass (if applicable)
+8. OPTIONAL: run_command "npm test" — non-blocking
+9. If tsc or build FAILS, read the error, fix it with write_file, and re-verify
+10. When ALL checks pass, call submit_fix with the list of files you changed
 
 CRITICAL RULES:
 - NEVER call submit_fix before tsc passes

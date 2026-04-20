@@ -78,6 +78,22 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "think",
+    description: `Record a short planning thought WITHOUT side effects. Use this before any risky or non-trivial apply_patch to lay out: (a) the minimum set of lines you will change, (b) why this fix is correct end-to-end, (c) what could regress. The thought is logged to the admin drilldown and then the loop continues — you still need to call apply_patch / submit_fix to act. Keep it tight (≤ 200 words). Do NOT use think in place of actually reading a file or running search_code.`,
+    input_schema: {
+      type: "object",
+      properties: {
+        thought: { type: "string", description: "The reasoning to record (≤ 200 words)." },
+        confidence: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description: "Self-rated confidence that the plan will actually fix the bug without regression.",
+        },
+      },
+      required: ["thought"],
+    },
+  },
+  {
     name: "apply_patch",
     description: `PREFERRED terminal tool. Emit a patch envelope — GPT-5.x was trained on this format, it is much smaller than rewriting whole files, and the hunk-level context protects against accidental over-edit. This ENDS the loop; the parsed patch is applied against the files you read via read_file (the system reads originals through the GitHub API).
 
@@ -231,6 +247,21 @@ async function executeTool(
       return filtered.slice(0, 100).join("\n") + (filtered.length > 100 ? `\n... and ${filtered.length - 100} more` : "");
     }
 
+    case "think": {
+      // Non-terminal scratchpad. The thought is surfaced to admin via emit()
+      // (already called by the caller above). This executor just acks so the
+      // Responses API has a function_call_output to pair with the call_id.
+      const thought = (input.thought ?? "").trim();
+      const confidence = input.confidence ?? "medium";
+      if (!thought) {
+        return "Error: `thought` is required and cannot be empty.";
+      }
+      if (thought.length > 4000) {
+        return "Error: thought too long (> 4000 chars). Keep it ≤ 200 words.";
+      }
+      return `(recorded — confidence=${confidence}. Continue with the next tool call; remember the loop ends only when you call apply_patch or submit_fix.)`;
+    }
+
     case "apply_patch": {
       // Terminal — parse + apply the envelope against file contents read
       // via read_file (cached in filesRead). Build the files[] payload the
@@ -320,7 +351,8 @@ STRATEGY:
 3. Read package.json if you need to know the tech stack
 4. Look for existing correct patterns in the same file or nearby files
 5. If a correct version of the same logic exists (e.g., in another branch of an if/else), copy that pattern
-6. When confident, call apply_patch with a small envelope that surgically fixes the bug. Only use submit_fix as a fallback for full-file rewrites.
+6. For non-trivial edits (more than a single-line fix, multiple files, or unusual framework semantics), call the think tool ONCE to lay out the minimal diff and what could regress. Skip this for obvious one-line null-check / typo fixes.
+7. When confident, call apply_patch with a small envelope that surgically fixes the bug. Only use submit_fix as a fallback for full-file rewrites.
 
 RULES:
 - NEVER re-read a file you already read in this session. Refer to the content from your previous read_file call. Re-reading wastes time and budget.
@@ -375,14 +407,36 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("agentic_turn", { turn, maxTurns: MAX_TURNS });
 
-    // Context compaction: after turn 8, tool_result contents from early turns
-    // are no longer useful (the model has already processed them). Replace
-    // large tool results with summaries to keep the context window lean.
-    // This prevents the last 3 turns (Sonnet, expensive) from paying for
-    // context tokens accumulated during cheap Haiku exploration.
+    // Two-stage context compaction.
+    //
+    // Stage 1 (light, in-place): at turn 9, shrink bulky tool_result
+    // contents from earlier turns — the model has already "read" them
+    // and the raw file bytes are no longer load-bearing. This preserves
+    // tool_use / tool_result pairing AND keeps the priorOutput chain
+    // valid, so we don't lose reasoning continuity.
     if (turn === 9 && messages.length > 6) {
       compactMessages(messages);
-      emit("agentic_compacted", { turn, messageCount: messages.length });
+      emit("agentic_compacted", { turn, messageCount: messages.length, stage: "light" });
+    }
+
+    // Stage 2 (heavy, structural): when the message array grows past
+    // threshold — typically because of multiple apply_patch retries or
+    // a stubborn bug needing deep exploration — rewrite the middle as a
+    // prose digest and drop priorOutput. This loses encrypted reasoning
+    // chain but prevents unbounded context growth.
+    const { shouldCompact: shouldHeavy, compactMessages: compactHeavy } = await import("./context-compaction");
+    if (shouldHeavy(messages, { thresholdMessages: 18 })) {
+      const result = compactHeavy(messages, { thresholdMessages: 18, keepLastTurns: 4 });
+      messages.length = 0;
+      messages.push(...result.messages);
+      priorOutput = undefined;
+      emit("agentic_compacted", {
+        turn,
+        messageCount: messages.length,
+        stage: "heavy",
+        compactedFrom: result.compactedFrom,
+        compactedTo: result.compactedTo,
+      });
     }
 
     // Use explore model (Haiku — cheap) for exploration, fix model (Sonnet — quality) for the last 3 turns

@@ -167,6 +167,22 @@ const CONTAINER_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "think",
+    description: "Record a short planning thought WITHOUT side effects. Use before any non-trivial apply_patch / write_file to sketch the minimal diff and what could regress. The thought is stored for the admin drilldown and the loop continues — you still need to call apply_patch or submit_fix to act. Keep it ≤ 200 words. Do NOT use in place of reading files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        thought: { type: "string", description: "Reasoning to record (≤ 200 words)." },
+        confidence: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description: "Self-rated confidence the plan will fix the bug without regressions.",
+        },
+      },
+      required: ["thought"],
+    },
+  },
+  {
     name: "apply_patch",
     description: `Apply a patch to one or more files using the envelope format GPT-5.x was trained on. PREFER this over write_file — it is much smaller, faster, and less error-prone for targeted edits.
 
@@ -456,6 +472,14 @@ async function executeContainerTool(
       return result.stdout || "Empty directory.";
     }
 
+    case "think": {
+      const thought = ((input.thought as string) ?? "").trim();
+      const confidence = (input.confidence as string) ?? "medium";
+      if (!thought) return "Error: `thought` is required and cannot be empty.";
+      if (thought.length > 4000) return "Error: thought too long (> 4000 chars). Keep it ≤ 200 words.";
+      return `(recorded — confidence=${confidence}. Continue with the next tool call; the loop ends only when you call apply_patch, write_file, or submit_fix.)`;
+    }
+
     case "apply_patch": {
       const patchText = input.patch as string;
       if (!patchText) return "Error: patch is required";
@@ -609,18 +633,19 @@ WORKFLOW:
 1. Identify the project's language/stack — check for package.json (Node), requirements.txt/pyproject.toml (Python), go.mod (Go), Cargo.toml (Rust), pom.xml/build.gradle (Java). Use list_directory or read_file at the repo root.
 2. Read the file(s) mentioned in the error/stack trace.
 3. Check imports to understand what libraries the project uses.
-4. Apply your fix. PREFER apply_patch with 1-3 lines of context — it is much smaller, more accurate, and is the exact format GPT-5.x was trained on. Fall back to write_file only when replacing an entire file makes sense (new file from scratch, or a complete rewrite).
-5. VERIFY with the right command for the project's language:
+4. For non-trivial fixes (multiple files, unusual framework, risk of regression), call the think tool ONCE to sketch the minimal diff and what could regress. Skip for obvious one-line fixes.
+5. Apply your fix. PREFER apply_patch with 1-3 lines of context — it is much smaller, more accurate, and is the exact format GPT-5.x was trained on. Fall back to write_file only when replacing an entire file makes sense (new file from scratch, or a complete rewrite).
+6. VERIFY with the right command for the project's language:
    - TypeScript: "npx tsc --noEmit" MUST pass
    - JavaScript: "npm run build --if-present"
    - Python: "python -m mypy ." (if configured) or "python -m compileall ."
    - Go: "go build ./..." MUST succeed
    - Rust: "cargo check" MUST succeed
    - Java: "mvn compile" or "./gradlew build"
-6. VERIFY build (if the project has a build step): "npm run build", "go build", "cargo build", "mvn package", "./gradlew build".
-7. OPTIONAL tests (non-blocking): "npm test", "pytest", "go test ./...", "cargo test", "mvn test".
-8. If verification FAILS, read the error, fix it with write_file, and re-verify.
-9. When verification passes, call submit_fix with the list of files you changed.
+7. VERIFY build (if the project has a build step): "npm run build", "go build", "cargo build", "mvn package", "./gradlew build".
+8. OPTIONAL tests (non-blocking): "npm test", "pytest", "go test ./...", "cargo test", "mvn test".
+9. If verification FAILS, read the error, fix it with write_file, and re-verify.
+10. When verification passes, call submit_fix with the list of files you changed.
 
 EFFICIENCY RULES:
 - NEVER re-read a file you already read in this session. You have the content from your previous read_file call — refer to it directly. Re-reading wastes turns and budget.
