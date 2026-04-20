@@ -244,8 +244,15 @@ export async function verifySanity(input: VerifyInput): Promise<VerifyResult> {
 }
 
 /**
- * Combined gate: syntax first (cheap, deterministic), then sanity. Any
- * stage that rejects short-circuits the rest.
+ * Combined gate: syntax → mechanical → sanity. Each stage is stricter
+ * and more expensive than the last, and any rejection short-circuits
+ * the rest.
+ *
+ *   - Syntax (PR #6): ts.createSourceFile parser. ~10 ms/file, $0.
+ *   - Mechanical (PR #8): regex/AST pattern detectors for defects the
+ *     LLM-free layers should own — duplicate imports, leftover `!`
+ *     after a null-fix, dead code. ~2 ms/file, $0.
+ *   - Sanity (PR #6): cheap LLM. ~1-2 s, ~$0.001.
  */
 export async function verifyFix(input: VerifyInput): Promise<VerifyResult> {
   const syntax = verifySyntax(input.files);
@@ -258,6 +265,112 @@ export async function verifyFix(input: VerifyInput): Promise<VerifyResult> {
       syntaxErrors: syntax.errors,
     };
   }
+
+  const mechanical = verifyMechanical(input.files, input.diagnosis);
+  if (!mechanical.ok) {
+    return mechanical;
+  }
+
   if (input.skipSanity) return { ok: true };
   return verifySanity(input);
+}
+
+/**
+ * Deterministic pattern checks for defects that slipped through syntax
+ * (code parses fine) but are almost certainly wrong. These checks run
+ * BEFORE the LLM sanity gate so we save the $0.001-$0.002 LLM call
+ * when a cheap regex already proves the fix is defective.
+ *
+ * All detectors return an `issue` string pointing at file:line so the
+ * model can correct surgically on retry.
+ *
+ * Current detectors:
+ *   1. Duplicate imports — two `import …` statements with the same
+ *      specifier at the top of the file. Seen shipped in PR #5 E2E
+ *      session c32a… where the model emitted a fix that added an
+ *      `import { validateCoupon } from "./validators"` line without
+ *      noticing one already existed.
+ *   2. Leftover `!` non-null assertion on an identifier the diagnosis
+ *      flagged as nullable. The whole point of a null-fix is to
+ *      REMOVE the `!` — if we still see `validation!.discount` after
+ *      the patch applied, the fix is incomplete.
+ *   3. Unreachable code after `return` / `throw` within the same
+ *      block — usually a dangling `return NextResponse.json(…)` the
+ *      model forgot to delete.
+ */
+export function verifyMechanical(
+  files: { path: string; content: string }[],
+  diagnosis: string,
+): VerifyResult {
+  for (const f of files) {
+    if (!JS_TS_EXT.test(f.path)) continue;
+
+    const lines = f.content.split("\n");
+
+    // ── Detector 1: duplicate imports ──────────────────────────────
+    const importSeen = new Map<string, number>(); // spec → line
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^\s*import\s+(?:[^"']*?\s+from\s+)?['"]([^'"]+)['"]/.exec(lines[i]);
+      if (!m) continue;
+      const spec = m[1];
+      const prior = importSeen.get(spec);
+      if (prior !== undefined) {
+        return {
+          ok: false,
+          severity: "logic",
+          issue: `${f.path}:${i + 1} — duplicate import of "${spec}" (first seen at line ${prior + 1}). Remove one of the two statements.`,
+        };
+      }
+      importSeen.set(spec, i);
+    }
+
+    // ── Detector 2: leftover non-null assertion on a null-fix ──────
+    // Only triggers when the diagnosis explicitly mentions null /
+    // undefined — otherwise `!` might be legit (sorted array access,
+    // DOM queries, etc.) and we don't want false positives.
+    const mentionsNull = /\b(null|undefined|nullish|TypeError)\b/i.test(diagnosis);
+    if (mentionsNull) {
+      for (let i = 0; i < lines.length; i++) {
+        // `foo!.bar` or `foo!.bar(` — post-fix the diagnosis usually
+        // names the expression that crashed. Match ANY identifier with
+        // `!.`; low precision but high recall, and the issue string
+        // makes it easy for the model to verify.
+        const m = /(\b[A-Za-z_$][\w$]*)(\![.\[\(])/.exec(lines[i]);
+        if (m) {
+          return {
+            ok: false,
+            severity: "logic",
+            issue: `${f.path}:${i + 1} — non-null assertion \`${m[1]}!\` still present after a null-fix. Replace with an explicit null check (\`if (!${m[1]}) …\`) and access the value only on the non-null branch.`,
+          };
+        }
+      }
+    }
+
+    // ── Detector 3: dead code after return / throw ─────────────────
+    // Looks for a `return …;` or `throw …;` followed immediately by
+    // another statement at the SAME indentation level (not a closing
+    // brace, not a blank line, not a comment) — that's almost always
+    // unreachable. Walks lines and tracks indent; keeps it simple.
+    for (let i = 0; i < lines.length - 1; i++) {
+      const here = lines[i];
+      const next = lines[i + 1];
+      const hereMatch = /^(\s*)(return\b|throw\b)/.exec(here);
+      if (!hereMatch) continue;
+      const hereIndent = hereMatch[1];
+      const hereStmt = hereMatch[2];
+      const nextTrimmed = next.trimStart();
+      if (nextTrimmed === "") continue;
+      if (nextTrimmed.startsWith("//") || nextTrimmed.startsWith("/*")) continue;
+      if (nextTrimmed.startsWith("}") || nextTrimmed.startsWith(")") || nextTrimmed.startsWith("]")) continue;
+      const nextIndent = next.slice(0, next.length - nextTrimmed.length);
+      if (nextIndent.length >= hereIndent.length) {
+        return {
+          ok: false,
+          severity: "logic",
+          issue: `${f.path}:${i + 2} — unreachable code after \`${hereStmt}\` on line ${i + 1}. Remove the dangling statement or move the \`${hereStmt}\` into a conditional.`,
+        };
+      }
+    }
+  }
+  return { ok: true };
 }

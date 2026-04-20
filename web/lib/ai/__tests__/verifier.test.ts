@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { verifySyntax } from "../verifier";
+import { verifyMechanical, verifySyntax } from "../verifier";
 
 describe("verifySyntax", () => {
   it("passes valid TS", () => {
@@ -87,5 +87,132 @@ describe("verifySyntax", () => {
     expect(result.ok).toBe(false);
     expect(result.errors.every((e) => e.path === "bad.ts")).toBe(true);
     expect(result.errors[0].line).toBeTypeOf("number");
+  });
+});
+
+describe("verifyMechanical", () => {
+  it("passes a clean null-safe fix", () => {
+    const content = [
+      `import { validateCoupon } from "./validators";`,
+      ``,
+      `export async function applyDiscount(code: string) {`,
+      `  const validation = await validateCoupon(code);`,
+      `  if (!validation) throw new Error("Invalid");`,
+      `  return validation.discount * 100;`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "null reference on validation.discount");
+    expect(r.ok).toBe(true);
+  });
+
+  // Detector 1: duplicate imports
+  it("catches duplicate imports (the PR #5 E2E bug)", () => {
+    const content = [
+      `import { validateCoupon } from "./validators";`,
+      `// some other line`,
+      `import { validateCoupon } from "./validators";`,
+      `export const x = 1;`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "null reference");
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("duplicate import");
+    expect(r.issue).toContain("validators");
+    expect(r.issue).toContain(":3");
+  });
+
+  it("does not false-positive on different import specifiers", () => {
+    const content = [
+      `import { a } from "./mod-a";`,
+      `import { b } from "./mod-b";`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  // Detector 2: leftover non-null assertion
+  it("catches leftover `!` when diagnosis mentions null", () => {
+    const content = [
+      `export function f(x: { a: string } | null) {`,
+      `  if (!x) return "";`,
+      `  return x!.a.toUpperCase();`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical(
+      [{ path: "a.ts", content }],
+      "TypeError: cannot read property of null",
+    );
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("non-null assertion");
+    expect(r.issue).toContain("x!");
+  });
+
+  it("does NOT flag `!` when diagnosis is unrelated to null", () => {
+    const content = `const el = document.querySelector(".x")!.innerText;`;
+    const r = verifyMechanical(
+      [{ path: "a.ts", content }],
+      "race condition in checkout transaction",
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("does NOT flag `!foo` logical-not as non-null assertion", () => {
+    const content = `if (!validation) throw new Error("x");\nreturn 1;`;
+    const r = verifyMechanical([{ path: "a.ts", content }], "null reference");
+    expect(r.ok).toBe(true);
+  });
+
+  // Detector 3: dead code after return / throw
+  it("catches unreachable statement after return", () => {
+    const content = [
+      `export function f() {`,
+      `  return 1;`,
+      `  return 2;`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("unreachable");
+  });
+
+  it("catches unreachable statement after throw", () => {
+    const content = [
+      `export function f() {`,
+      `  throw new Error("x");`,
+      `  console.log("never");`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("unreachable");
+  });
+
+  it("allows `return` immediately followed by a closing brace", () => {
+    const content = [
+      `export function f() {`,
+      `  return 1;`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("allows `return` followed by comment or blank", () => {
+    const content = [
+      `export function f() {`,
+      `  return 1;`,
+      ``,
+      `  // trailing comment outside function scope`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("skips non-JS/TS files", () => {
+    const r = verifyMechanical(
+      [{ path: "README.md", content: "import x from 'y'\nimport x from 'y'\n" }],
+      "null",
+    );
+    expect(r.ok).toBe(true);
   });
 });
