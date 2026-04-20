@@ -215,4 +215,67 @@ describe("verifyMechanical", () => {
     );
     expect(r.ok).toBe(true);
   });
+
+  // Detector 0: duplicate variable declaration (E2E v11 bug)
+  it("catches const declared twice in same function scope", () => {
+    const content = [
+      `export async function applyDiscount(code: string) {`,
+      `  const validation = await validateCoupon(code);`,
+      `  if (!validation) throw new Error("invalid");`,
+      `  const validation = (await validateCoupon(code))!;`,
+      `  return validation.discount;`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "null reference");
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("duplicate");
+    expect(r.issue).toContain("validation");
+  });
+
+  it("catches let + let shadowing in same block", () => {
+    const content = `function f() { let x = 1; let x = 2; return x; }`;
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(false);
+    expect(r.issue).toContain("duplicate");
+  });
+
+  it("allows shadowing in a nested inner block", () => {
+    const content = [
+      `function f(cond: boolean) {`,
+      `  const x = 1;`,
+      `  if (cond) {`,
+      `    const x = 2;`,
+      `    return x;`,
+      `  }`,
+      `  return x;`,
+      `}`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("allows same name across sibling functions", () => {
+    const content = [
+      `function a() { const x = 1; return x; }`,
+      `function b() { const x = 2; return x; }`,
+    ].join("\n");
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
+
+  it("does not flag destructuring patterns that legitimately reuse names", () => {
+    const content = [
+      `function f(arr: { x: number }[]) {`,
+      `  for (const { x } of arr) {`,
+      `    console.log(x);`,
+      `  }`,
+      `  const { x } = arr[0];`,
+      `  return x;`,
+      `}`,
+    ].join("\n");
+    // The for-of body's `x` is a nested pattern at a different block
+    // scope, so no flag.
+    const r = verifyMechanical([{ path: "a.ts", content }], "");
+    expect(r.ok).toBe(true);
+  });
 });

@@ -683,76 +683,87 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
       // Pre-push sanity: make sure the patched files parse + the fix
       // plausibly addresses the error. Uses the CURRENT file cache
       // (the originals we've been operating against) as the "before".
-      // We allow up to 2 verifier-driven retries inside this loop; if
-      // the agent still can't land a passing patch we let it through
-      // and let downstream self_review decide.
-      if (verifierRetries < MAX_VERIFIER_RETRIES) {
-        try {
-          const { verifyFix } = await import("./verifier");
-          const verifyModel = params.verifyModel ?? params.exploreModel;
-          const result = await verifyFix({
-            files: parsed.files,
-            originalFiles: filesRead,
-            errorContext: params.errorContext,
-            diagnosis: params.diagnosisText ?? "(diagnosis unavailable)",
-            apiKey,
-            model: verifyModel,
-            log: params.log
-              ? {
-                  userId: params.log.userId,
-                  projectId: params.projectId,
-                  alertId: params.log.alertId,
-                  remediationSessionId: params.log.remediationSessionId,
-                  isPlatformKey: params.log.isPlatformKey,
-                }
-              : undefined,
-          });
-          emit("agentic_verify", {
-            turn,
-            ok: result.ok,
-            severity: result.severity,
-            issue: result.issue,
-          });
-          if (!result.ok) {
+      //
+      // The LLM-backed sanity gate is rate-limited by MAX_VERIFIER_RETRIES
+      // (cost + latency concern). But the deterministic gates — syntax
+      // parse and mechanical pattern checks — are essentially free, so
+      // we keep them running on EVERY apply_patch success. Shipping a
+      // fix that doesn't even parse is worse than one more cheap retry.
+      try {
+        const { verifyFix } = await import("./verifier");
+        const verifyModel = params.verifyModel ?? params.exploreModel;
+        const atLLMCap = verifierRetries >= MAX_VERIFIER_RETRIES;
+        const result = await verifyFix({
+          files: parsed.files,
+          originalFiles: filesRead,
+          errorContext: params.errorContext,
+          diagnosis: params.diagnosisText ?? "(diagnosis unavailable)",
+          apiKey,
+          model: verifyModel,
+          // At the cap, drop the expensive sanity LLM call but keep
+          // syntax + mechanical — those are deterministic + free.
+          skipSanity: atLLMCap,
+          log: params.log
+            ? {
+                userId: params.log.userId,
+                projectId: params.projectId,
+                alertId: params.log.alertId,
+                remediationSessionId: params.log.remediationSessionId,
+                isPlatformKey: params.log.isPlatformKey,
+              }
+            : undefined,
+        });
+        emit("agentic_verify", {
+          turn,
+          ok: result.ok,
+          severity: result.severity,
+          issue: result.issue,
+          cap: atLLMCap ? "sanity-skipped" : undefined,
+        });
+        if (!result.ok) {
+          // Deterministic gate failure (syntax / mechanical) must block
+          // regardless of cap — shipping a non-compiling fix is worse
+          // than one more in-loop turn. Only the LLM sanity gate uses
+          // the cap, and skipSanity above prevents those from firing
+          // past MAX_VERIFIER_RETRIES anyway.
             verifierRetries++;
             const verifierHint = [
               `apply_patch PARSED cleanly but the post-apply verifier REJECTED the result and rolled it back. The files on disk are still the ORIGINALS — nothing was applied.`,
               "",
               `Rejection reason (severity=${result.severity}):`,
               `  ${result.issue}`,
-              "",
-              `Next step: emit a COMPLETE apply_patch again (every file, every hunk, not just a "correction"), paying close attention to the issue above. The previous patch is discarded. Re-read any file if you need to refresh the byte-exact context lines.`,
-            ].join("\n");
-            const siblingResults = await executeSiblingTools(
-              toolUses.filter((t) => t.id !== applyPatchCall.id),
-              params,
-              filesRead,
-              turn,
-              emit,
-            );
-            messages.push({
-              role: "user",
-              content: [
-                ...siblingResults,
-                {
-                  type: "tool_result",
-                  tool_use_id: applyPatchCall.id,
-                  content: verifierHint,
-                  is_error: true,
-                } as ToolResultBlock,
-              ] as ContentBlock[],
-            });
-            continue;
-          }
-        } catch (verr) {
-          // Verifier runtime failure — advisory, never blocks.
-          emit("agentic_verify", {
+            "",
+            `Next step: emit a COMPLETE apply_patch again (every file, every hunk, not just a "correction"), paying close attention to the issue above. The previous patch is discarded. Re-read any file if you need to refresh the byte-exact context lines.`,
+          ].join("\n");
+          const siblingResults = await executeSiblingTools(
+            toolUses.filter((t) => t.id !== applyPatchCall.id),
+            params,
+            filesRead,
             turn,
-            ok: true,
-            severity: "warning",
-            issue: `verifier runtime error: ${verr instanceof Error ? verr.message.slice(0, 100) : "unknown"}`,
+            emit,
+          );
+          messages.push({
+            role: "user",
+            content: [
+              ...siblingResults,
+              {
+                type: "tool_result",
+                tool_use_id: applyPatchCall.id,
+                content: verifierHint,
+                is_error: true,
+              } as ToolResultBlock,
+            ] as ContentBlock[],
           });
+          continue;
         }
+      } catch (verr) {
+        // Verifier runtime failure — advisory, never blocks.
+        emit("agentic_verify", {
+          turn,
+          ok: true,
+          severity: "warning",
+          issue: `verifier runtime error: ${verr instanceof Error ? verr.message.slice(0, 100) : "unknown"}`,
+        });
       }
 
       emit("agentic_done", { turns: turn, files: parsed.files.map((f) => f.path), via: "apply_patch" });

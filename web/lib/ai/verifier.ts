@@ -307,6 +307,15 @@ export function verifyMechanical(
 
     const lines = f.content.split("\n");
 
+    // ── Detector 0: duplicate variable declaration in same scope ──
+    // Walks the TS AST and, for each BlockLike (function body, block,
+    // SourceFile), tracks names declared via `const|let|var`. A second
+    // declaration of the same name in the same block is almost always
+    // a merge mistake. Shipped in E2E v11 session 968733d1 — the agent
+    // re-declared `const validation` after adding a null check above.
+    const dupIssue = findDuplicateDeclaration(f);
+    if (dupIssue) return dupIssue;
+
     // ── Detector 1: duplicate imports ──────────────────────────────
     const importSeen = new Map<string, number>(); // spec → line
     for (let i = 0; i < lines.length; i++) {
@@ -373,4 +382,77 @@ export function verifyMechanical(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Walk a source file's AST and flag the first case of two `const` /
+ * `let` / `var` declarations sharing a name inside the same block
+ * scope. Uses the TS parser (same one as verifySyntax) to avoid
+ * regex false positives on destructuring / template literals / strings.
+ */
+function findDuplicateDeclaration(
+  f: { path: string; content: string },
+): VerifyResult | null {
+  const kind =
+    f.path.endsWith(".tsx") || f.path.endsWith(".jsx")
+      ? ts.ScriptKind.TSX
+      : f.path.endsWith(".ts") || f.path.endsWith(".cts") || f.path.endsWith(".mts")
+        ? ts.ScriptKind.TS
+        : ts.ScriptKind.JS;
+  const source = ts.createSourceFile(
+    f.path,
+    f.content,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    kind,
+  );
+
+  let found: VerifyResult | null = null;
+
+  const visitBlock = (block: ts.Node, seen: Map<string, number>) => {
+    ts.forEachChild(block, (child) => {
+      if (found) return;
+      if (ts.isVariableStatement(child)) {
+        for (const decl of child.declarationList.declarations) {
+          const name = decl.name;
+          // Only flag bare identifier bindings — destructuring patterns
+          // can legitimately introduce the same name in nested patterns,
+          // and our block-scope model won't match TS's for those.
+          if (ts.isIdentifier(name)) {
+            const id = name.text;
+            const lineNum = source.getLineAndCharacterOfPosition(name.getStart(source)).line + 1;
+            const prior = seen.get(id);
+            if (prior !== undefined) {
+              found = {
+                ok: false,
+                severity: "logic",
+                issue: `${f.path}:${lineNum} — duplicate \`${id}\` declared (first at line ${prior}). Remove one of the two declarations or rename.`,
+              };
+              return;
+            }
+            seen.set(id, lineNum);
+          }
+        }
+      }
+      // Recurse into nested blocks with a FRESH scope — shadowing
+      // inside an inner block is allowed.
+      if (
+        ts.isBlock(child) ||
+        ts.isSourceFile(child) ||
+        ts.isFunctionDeclaration(child) ||
+        ts.isFunctionExpression(child) ||
+        ts.isArrowFunction(child) ||
+        ts.isMethodDeclaration(child) ||
+        ts.isConstructorDeclaration(child) ||
+        ts.isModuleBlock(child)
+      ) {
+        visitBlock(child, new Map());
+      } else {
+        visitBlock(child, seen);
+      }
+    });
+  };
+
+  visitBlock(source, new Map());
+  return found;
 }
