@@ -118,7 +118,7 @@ env:
     # endpoint. Parallel-run safe: defaults to false until cutover.
     REDIS_HOST: "172.18.0.1"
     REDIS_PORT: "6379"
-    USE_LOCAL_REDIS: "false"
+    USE_LOCAL_REDIS: "true"
   secret:
     # Core
     - DATABASE_URL
