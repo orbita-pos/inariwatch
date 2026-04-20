@@ -52,16 +52,18 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-zinc-900">
-      {/* Full-bleed background image */}
+      {/* Full-bleed decorative background — NOT the LCP element. The form
+          card is. We intentionally lower priority and skip the inlined blur
+          placeholder so the paint is driven by the form, not a 194 KB webp. */}
       <div className="absolute inset-0">
         <Image
           src={loginSideSrc}
           alt=""
           fill
           className="hidden object-cover object-center sm:block"
-          priority
-          placeholder="blur"
-          quality={85}
+          fetchPriority="low"
+          loading="lazy"
+          quality={70}
           sizes="(min-width: 640px) 100vw, 0px"
         />
         <Image
@@ -69,8 +71,9 @@ export default function LoginPage() {
           alt=""
           fill
           className="block object-cover object-top sm:hidden"
-          placeholder="blur"
-          quality={85}
+          fetchPriority="low"
+          loading="lazy"
+          quality={70}
           sizes="(max-width: 639px) 100vw, 0px"
         />
         <div className="absolute inset-0 bg-black/50" />

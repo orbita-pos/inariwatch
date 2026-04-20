@@ -29,26 +29,34 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const userName = session.user?.name ?? session.user?.email ?? "User";
   const userEmail = session.user?.email ?? "";
 
-  // Fetch user plan + verification status for the nag banner
+  // Fetch user plan + verification status + activeOrgId in one go. The old
+  // layout issued this query and then called getActiveOrgId(), which ran
+  // getServerSession + a second users-row read — a duplicate JWT decode and
+  // a second DB round-trip for a value we already had in scope.
   let userPlan: "free" | "pro" = "free";
   let hasPassword = false;
   let emailVerifiedAt: Date | null = null;
+  let activeOrgId: string | null = null;
   if (userId) {
     const [row] = await db
       .select({
         plan: users.plan,
         passwordHash: users.passwordHash,
         emailVerifiedAt: users.emailVerifiedAt,
+        activeOrgId: users.activeOrgId,
       })
       .from(users)
       .where(eq(users.id, userId));
     userPlan = (row?.plan as "free" | "pro") ?? "free";
     hasPassword = !!row?.passwordHash;
     emailVerifiedAt = row?.emailVerifiedAt ?? null;
+    activeOrgId = row?.activeOrgId ?? null;
+  } else {
+    // Not signed in — fall back to the cookie-based helper, which handles
+    // the anonymous branch. Won't actually run because `redirect("/login")`
+    // fired above, but kept for defensive correctness.
+    activeOrgId = await getActiveOrgId();
   }
-
-  // Shared project IDs + organizations for sidebar
-  const activeOrgId = await getActiveOrgId();
   // Replay V2 is an org-scoped feature — the /replays page requires an
   // activeOrgId to render, so we only show the nav link when both the
   // feature flag AND a workspace are active. Otherwise personal-mode users
