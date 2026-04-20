@@ -108,14 +108,18 @@ export function parsePatch(patch: string): Patch {
   const ops: PatchOp[] = [];
 
   while (i < lines.length) {
-    const line = lines[i];
+    const rawLine = lines[i];
+    // Tolerate leading whitespace on envelope keywords — some models
+    // (gpt-4o-mini seen in the wild) sometimes emit " *** Update File:"
+    // or " *** End Patch" with an extra indent.
+    const line = rawLine.trimStart();
 
     if (line === END) {
       // Consume and finish — ignore trailing blank lines.
       return { ops };
     }
 
-    if (line.trim() === "") {
+    if (rawLine.trim() === "") {
       i++;
       continue;
     }
@@ -171,8 +175,16 @@ function parseHunks(
 
   while (i < lines.length) {
     const line = lines[i];
+    const lineTrimmed = line.trimStart();
 
-    if (line === END || line.startsWith(UPDATE_PREFIX) || line.startsWith(ADD_PREFIX) || line.startsWith(DELETE_PREFIX)) {
+    // Envelope keywords break out of the hunk body even if they have
+    // stray leading whitespace (some models indent them by accident).
+    if (
+      lineTrimmed === END ||
+      lineTrimmed.startsWith(UPDATE_PREFIX) ||
+      lineTrimmed.startsWith(ADD_PREFIX) ||
+      lineTrimmed.startsWith(DELETE_PREFIX)
+    ) {
       break;
     }
 
@@ -217,12 +229,13 @@ function parseHunks(
     const rawBodyLines: string[] = [];
     while (i < lines.length) {
       const bodyLine = lines[i];
+      const bodyTrimmed = bodyLine.trimStart();
       if (
-        bodyLine === END ||
-        bodyLine.startsWith(UPDATE_PREFIX) ||
-        bodyLine.startsWith(ADD_PREFIX) ||
-        bodyLine.startsWith(DELETE_PREFIX) ||
-        bodyLine.startsWith(HUNK_PREFIX)
+        bodyTrimmed === END ||
+        bodyTrimmed.startsWith(UPDATE_PREFIX) ||
+        bodyTrimmed.startsWith(ADD_PREFIX) ||
+        bodyTrimmed.startsWith(DELETE_PREFIX) ||
+        bodyTrimmed.startsWith(HUNK_PREFIX)
       ) {
         break;
       }

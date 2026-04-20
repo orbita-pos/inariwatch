@@ -112,6 +112,25 @@ describe("parsePatch", () => {
     expect(hunk.lines[2].text).toBe("const x = 2");
   });
 
+  it("tolerates leading whitespace on envelope keywords", () => {
+    // gpt-4o-mini sometimes indents " *** Update File: ..." and
+    // " *** End Patch" by one space — parser should still recognize them.
+    const patch = `*** Begin Patch
+*** Update File: a.ts
+@@
+-x
++X
+ *** Update File: b.ts
+@@
+-y
++Y
+ *** End Patch`;
+    const p = parsePatch(patch);
+    expect(p.ops).toHaveLength(2);
+    expect(p.ops[0].path).toBe("a.ts");
+    expect(p.ops[1].path).toBe("b.ts");
+  });
+
   it("does NOT enter space-prefix mode when traditional markers are present", () => {
     // Hunk mixes traditional and space-prefixed — stick with traditional.
     // Line " -old" should be parsed as context "- old" (rare edge case —
