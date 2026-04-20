@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { AttestationViewer } from "./viewer";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 3600;
 export const runtime = "nodejs";
 
 /**

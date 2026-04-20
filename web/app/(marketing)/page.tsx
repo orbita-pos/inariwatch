@@ -1,4 +1,4 @@
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -41,7 +41,6 @@ import { ArrowRight, CheckCircle2, GitPullRequest, ShieldCheck, ExternalLink } f
 import { Button } from "@/components/ui/button";
 import { InstallSnippet } from "./install-snippet";
 import { MarketingNav } from "./marketing-nav";
-import { DemoVideo } from "./demo-video";
 import { MiniDashboard } from "./mini-dashboard";
 
 // ── Latest blog pill ──────────────────────────────────────────────────────────
@@ -1478,7 +1477,6 @@ export default async function LandingPage() {
         <Hero latestPost={latestPost} />
         <RuntimeStrip />
         <QuickInstall />
-        <DemoVideo />
         <TrustedBy />
         <HowItWorks />
         <TerminalPreview />

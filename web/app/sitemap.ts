@@ -2,7 +2,7 @@ import { MetadataRoute } from "next";
 import { db, blogPosts } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 3600;
 
 const BASE_URL = "https://inariwatch.com";
 
