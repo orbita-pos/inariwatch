@@ -1,10 +1,10 @@
 /**
- * InariLens — internal AI observability.
+ * InariLens — internal AI observability (canonical, single source of truth).
  *
- * Canonical logger for every AI call we make. Replaces the need for a
- * third-party proxy (Helicone) for prompt/response capture. Calls still go
- * through Helicone if HELICONE_API_KEY is set — that path remains active as
- * a secondary observability layer.
+ * Logger for every AI call we make. All prompts, responses, tokens, costs,
+ * and errors live in our own Postgres — never shipped to third-party
+ * observability services. This enforces the privacy policy at the code
+ * level: "logs are stored exclusively within our own infrastructure."
  *
  * Fire-and-forget: never awaits the DB, never throws. AI pipelines must
  * never break because telemetry is slow.

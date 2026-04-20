@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import { heliconeEnabled } from "@/lib/ai/helicone";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "AI Observability — InariWatch" };
@@ -159,18 +159,93 @@ async function getTotalSpend(): Promise<{ total: string; calls: number }> {
   };
 }
 
+interface SessionSummary {
+  sessionId: string;
+  alertTitle: string | null;
+  status: string;
+  turns: number;
+  totalCost: string;
+  startedAt: string;
+}
+
+interface SessionStats {
+  avgTurns: string;
+  p95Turns: string;
+  avgCost: string;
+  sessionCount: number;
+}
+
+async function getRecentSessions(): Promise<SessionSummary[]> {
+  const rows = await db.execute(sql`
+    SELECT
+      rs.id AS session_id,
+      rs.status,
+      rs.created_at,
+      a.title AS alert_title,
+      COUNT(aul.id)::text AS turns,
+      COALESCE(SUM(aul.cost_usd), 0)::text AS total_cost
+    FROM remediation_sessions rs
+    LEFT JOIN alerts a ON a.id = rs.alert_id
+    LEFT JOIN ai_usage_logs aul ON aul.remediation_session_id = rs.id
+    WHERE rs.created_at > ${SEVEN_DAYS_AGO()}
+    GROUP BY rs.id, rs.status, rs.created_at, a.title
+    ORDER BY rs.created_at DESC
+    LIMIT 20
+  `);
+  const list = (rows as unknown as { rows: Record<string, unknown>[] }).rows ?? rows;
+  return (list as Record<string, unknown>[]).map((r) => ({
+    sessionId: String(r.session_id ?? ""),
+    alertTitle: r.alert_title ? String(r.alert_title) : null,
+    status: String(r.status ?? "unknown"),
+    turns: parseInt(String(r.turns ?? "0")),
+    totalCost: parseFloat(String(r.total_cost ?? "0")).toFixed(4),
+    startedAt: r.created_at ? new Date(String(r.created_at)).toISOString() : "",
+  }));
+}
+
+async function getSessionStats(): Promise<SessionStats> {
+  const rows = await db.execute(sql`
+    WITH session_agg AS (
+      SELECT
+        remediation_session_id,
+        COUNT(*) AS turns,
+        SUM(cost_usd) AS cost
+      FROM ai_usage_logs
+      WHERE remediation_session_id IS NOT NULL
+        AND created_at > ${SEVEN_DAYS_AGO()}
+      GROUP BY remediation_session_id
+    )
+    SELECT
+      AVG(turns)::text AS avg_turns,
+      percentile_cont(0.95) WITHIN GROUP (ORDER BY turns)::text AS p95_turns,
+      AVG(cost)::text AS avg_cost,
+      COUNT(*)::text AS session_count
+    FROM session_agg
+  `);
+  const list = (rows as unknown as { rows: Record<string, unknown>[] }).rows ?? rows;
+  const r = (list as Record<string, unknown>[])[0] ?? {};
+  return {
+    avgTurns: parseFloat(String(r.avg_turns ?? "0")).toFixed(1),
+    p95Turns: parseFloat(String(r.p95_turns ?? "0")).toFixed(0),
+    avgCost: parseFloat(String(r.avg_cost ?? "0")).toFixed(4),
+    sessionCount: parseInt(String(r.session_count ?? "0")),
+  };
+}
+
 export default async function AdminAIPage() {
   const session = await getServerSession(authOptions);
   const email = (session?.user as { email?: string })?.email;
   if (!requireAdmin(email)) notFound();
 
-  const [byFeature, byModel, classifierDist, cacheHits, percentiles, total] = await Promise.all([
+  const [byFeature, byModel, classifierDist, cacheHits, percentiles, total, sessions, sessionStats] = await Promise.all([
     getSpendByFeature(),
     getSpendByModel(),
     getClassifierDistribution(),
     getCacheHitRate(),
     getCostPercentiles(),
     getTotalSpend(),
+    getRecentSessions(),
+    getSessionStats(),
   ]);
 
   return (
@@ -181,7 +256,7 @@ export default async function AdminAIPage() {
           <h1 className="text-2xl font-bold">AI Observability</h1>
           <p className="text-sm text-zinc-400 mt-1">
             Last 7 days · ${total.total} across {total.calls.toLocaleString()} calls ·
-            Helicone proxy {heliconeEnabled ? <span className="text-green-400">enabled</span> : <span className="text-zinc-500">disabled (set HELICONE_API_KEY)</span>}
+            <span className="text-green-400">InariLens</span> capturing all AI telemetry in our own infrastructure
           </p>
         </div>
 
@@ -200,6 +275,82 @@ export default async function AdminAIPage() {
               </div>
             </div>
             <p className="text-xs text-zinc-500 mt-4">Watch p95 — if it spikes, a regression slipped in.</p>
+          </div>
+
+          {/* Session-level metrics — baseline for "mejor del mundo" plan */}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 md:col-span-2">
+            <h2 className="text-sm font-mono text-violet-400 uppercase tracking-wider mb-4">
+              Remediation session baseline (7d) · {sessionStats.sessionCount} sessions
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-zinc-400">Avg turns / session</p>
+                <p className="text-2xl font-bold text-white">{sessionStats.avgTurns}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400">p95 turns</p>
+                <p className="text-2xl font-bold text-amber-400">{sessionStats.p95Turns}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400">Avg cost / session</p>
+                <p className="text-2xl font-bold text-green-400">${sessionStats.avgCost}</p>
+              </div>
+            </div>
+            <p className="text-xs text-zinc-500 mt-4">
+              Baseline for the GPT-5.4 migration. Target post-PRs: avg turns -30%, avg cost $0.25→$0.08.
+            </p>
+          </div>
+
+          {/* Recent sessions — drill-down list */}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 md:col-span-2">
+            <h2 className="text-sm font-mono text-violet-400 uppercase tracking-wider mb-4">Recent remediation sessions</h2>
+            {sessions.length === 0 ? (
+              <p className="text-sm text-zinc-500">No sessions yet.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-zinc-500 border-b border-zinc-800">
+                    <th className="pb-2">ID</th>
+                    <th className="pb-2">Alert</th>
+                    <th className="pb-2">Status</th>
+                    <th className="pb-2 text-right">Turns</th>
+                    <th className="pb-2 text-right">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => (
+                    <tr key={s.sessionId} className="border-b border-zinc-900 hover:bg-zinc-900/30">
+                      <td className="py-2 font-mono text-xs">
+                        <Link
+                          href={`/admin/ai/session/${s.sessionId}`}
+                          className="text-violet-400 hover:underline"
+                        >
+                          {s.sessionId.slice(0, 8)}…
+                        </Link>
+                      </td>
+                      <td className="py-2 text-zinc-300 max-w-xs truncate">
+                        {s.alertTitle ?? <span className="text-zinc-500 italic">—</span>}
+                      </td>
+                      <td className="py-2">
+                        <span
+                          className={
+                            s.status === "completed" || s.status === "merging"
+                              ? "text-green-400 text-xs font-mono"
+                              : s.status === "failed" || s.status === "cancelled"
+                                ? "text-red-400 text-xs font-mono"
+                                : "text-amber-400 text-xs font-mono"
+                          }
+                        >
+                          {s.status}
+                        </span>
+                      </td>
+                      <td className="py-2 text-right text-zinc-400">{s.turns}</td>
+                      <td className="py-2 text-right font-mono text-xs text-green-400">${s.totalCost}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
 
           {/* Spend by Feature */}
