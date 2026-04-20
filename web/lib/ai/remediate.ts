@@ -1129,7 +1129,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
         let fixRaw: string;
         try {
-          fixRaw = await callAIWithRetry(aiKey.key, SYSTEM_REMEDIATOR, [
+          // Compose SYSTEM_REMEDIATOR with IMMUTABLE_RULES dual-point + GPT
+          // overlays when the active fix model is GPT-like. This extends
+          // PR #2 coverage to the single-shot retry path that doesn't go
+          // through the agent tool loop.
+          const { buildGPTRemediationSystemPrompt } = await import("./prompts");
+          const systemWithOverlays = buildGPTRemediationSystemPrompt(SYSTEM_REMEDIATOR, remModel);
+          fixRaw = await callAIWithRetry(aiKey.key, systemWithOverlays, [
             { role: "user", content: buildFixPrompt(diagnosis.diagnosis, fileContents, alert.body, previousAttempt, remediationContext?.codebaseContext, antiPatternCtx, stackContext) },
           ], {
             maxTokens: 4096,
@@ -1363,7 +1369,9 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       try {
         // Tier 0: cheap model (Haiku / GPT-4o-mini)
         const cheapModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
-        const reviewRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, reviewPromptMessages, {
+        const { buildGPTRemediationSystemPrompt: withOverlays } = await import("./prompts");
+        const reviewerWithOverlays = withOverlays(SYSTEM_REVIEWER, cheapModel);
+        const reviewRaw = await callAI(aiKey.key, reviewerWithOverlays, reviewPromptMessages, {
           maxTokens: 512,
           timeout: 30000,
           model: cheapModel,
@@ -1386,7 +1394,8 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             const strongModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
             if (strongModel !== cheapModel) {
               emit("self_review_escalating", { cheapScore: selfReview.score, model: strongModel });
-              const escalatedRaw = await callAI(aiKey.key, SYSTEM_REVIEWER, reviewPromptMessages, {
+              const strongReviewerWithOverlays = withOverlays(SYSTEM_REVIEWER, strongModel);
+              const escalatedRaw = await callAI(aiKey.key, strongReviewerWithOverlays, reviewPromptMessages, {
                 maxTokens: 512,
                 timeout: 45000,
                 model: strongModel,
