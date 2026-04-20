@@ -34,6 +34,7 @@ export const metadata: Metadata = {
 export const revalidate = 300; // refresh every 5 min
 
 async function getNetworkStats() {
+  try {
   const [patternCount] = await db
     .select({ count: sql<number>`count(*)` })
     .from(errorPatterns);
@@ -102,6 +103,21 @@ async function getNetworkStats() {
     topPatterns,
     recentActivity,
   };
+  } catch {
+    // DB unreachable (CI build) — ship a zero-state so the page still renders.
+    return {
+      totalPatterns: 0,
+      totalFixes: 0,
+      totalApplications: 0,
+      totalFailures: 0,
+      successRate: 0,
+      avgConfidence: 0,
+      totalRatings: 0,
+      patternsWithMultipleFixes: 0,
+      topPatterns: [],
+      recentActivity: [],
+    };
+  }
 }
 
 function formatTimeAgo(date: Date | null): string {

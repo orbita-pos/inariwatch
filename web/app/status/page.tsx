@@ -34,6 +34,7 @@ export const revalidate = 60;
 // ── Data ────────────────────────────────────────────────────────────────────────
 
 async function getPlatformData() {
+  try {
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const last90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -124,6 +125,21 @@ async function getPlatformData() {
     publicPages, alertStats, activeIncidents, recentResolved,
     allUpdates, allMonitors, allChecks, anyMonitorDown: allMonitors.some((m) => m.isDown),
   };
+  } catch {
+    // DB unreachable (e.g., CI build-time prerender with dummy DATABASE_URL)
+    // — return a zero-state so the page still renders; ISR on-demand at
+    // request time refills with real data.
+    return {
+      publicPages: [],
+      alertStats: { total: 0, resolved: 0 },
+      activeIncidents: [],
+      recentResolved: [],
+      allUpdates: [],
+      allMonitors: [],
+      allChecks: [],
+      anyMonitorDown: false,
+    };
+  }
 }
 
 // ── Services ────────────────────────────────────────────────────────────────────

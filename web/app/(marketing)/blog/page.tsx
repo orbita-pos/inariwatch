@@ -39,12 +39,21 @@ function formatDate(d: Date | null): string {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
+async function getPublishedPosts() {
+  try {
+    return await db
+      .select()
+      .from(blogPosts)
+      .where(eq(blogPosts.isPublished, true))
+      .orderBy(desc(blogPosts.publishedAt));
+  } catch {
+    // DB unreachable at build time — render empty state; ISR will refill.
+    return [];
+  }
+}
+
 export default async function BlogPage() {
-  const posts = await db
-    .select()
-    .from(blogPosts)
-    .where(eq(blogPosts.isPublished, true))
-    .orderBy(desc(blogPosts.publishedAt));
+  const posts = await getPublishedPosts();
 
   const jsonLd = {
     "@context":   "https://schema.org",

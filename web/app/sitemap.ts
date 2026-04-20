@@ -22,14 +22,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE_URL}/terms`, changeFrequency: "yearly", priority: 0.3 },
   ];
 
-  const posts = await db
-    .select({ slug: blogPosts.slug, updatedAt: blogPosts.updatedAt })
-    .from(blogPosts)
-    .where(eq(blogPosts.isPublished, true));
+  const posts = await (async () => {
+    try {
+      return await db
+        .select({ slug: blogPosts.slug, updatedAt: blogPosts.updatedAt })
+        .from(blogPosts)
+        .where(eq(blogPosts.isPublished, true));
+    } catch {
+      // DB unreachable (e.g., CI build uses dummy DATABASE_URL) — ship the
+      // static sitemap and let the next on-demand ISR fill in blog URLs once
+      // the container starts with real credentials.
+      return [] as Array<{ slug: string; updatedAt: Date | null }>;
+    }
+  })();
 
   const blogPages: MetadataRoute.Sitemap = posts.map((p) => ({
     url: `${BASE_URL}/blog/${p.slug}`,
-    lastModified: p.updatedAt,
+    lastModified: p.updatedAt ?? undefined,
     changeFrequency: "monthly" as const,
     priority: 0.6,
   }));
