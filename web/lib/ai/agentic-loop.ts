@@ -78,8 +78,40 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "apply_patch",
+    description: `PREFERRED terminal tool. Emit a patch envelope — GPT-5.x was trained on this format, it is much smaller than rewriting whole files, and the hunk-level context protects against accidental over-edit. This ENDS the loop; the parsed patch is applied against the files you read via read_file (the system reads originals through the GitHub API).
+
+Envelope format:
+
+*** Begin Patch
+*** Update File: path/to/file.ts
+@@ optional function name or section header (helps disambiguate if the same -/+ block appears more than once)
+ unchanged context line (leading SINGLE space)
+-line to remove
++line to add
+ more context
+*** Add File: path/to/new-file.ts
++line one
++line two
+*** End Patch
+
+Rules:
+- Context lines MUST start with ONE space. Every context line MUST match the file byte-for-byte (trailing whitespace on blank lines is normalized for you).
+- Include 1-3 context lines above and below each change.
+- Multiple hunks per file, multiple files per patch — all allowed.
+- "Add File" fails if the path exists. "Update File" fails if it doesn't.`,
+    input_schema: {
+      type: "object",
+      properties: {
+        explanation: { type: "string", description: "Brief summary of the fix (1-2 sentences for the PR description)" },
+        patch: { type: "string", description: "Full patch envelope starting with '*** Begin Patch' and ending with '*** End Patch'" },
+      },
+      required: ["explanation", "patch"],
+    },
+  },
+  {
     name: "submit_fix",
-    description: "Submit the final fix. This ENDS the loop. For each changed file, use '// ... keep existing code ...' markers for any unchanged block of 4+ lines — only output the lines you changed plus 1-2 lines of surrounding context. The system will expand markers against the original file.",
+    description: "FALLBACK terminal tool — prefer apply_patch. This ENDS the loop. For each changed file, use '// ... keep existing code ...' markers for any unchanged block of 4+ lines — only output the lines you changed plus 1-2 lines of surrounding context. The system will expand markers against the original file.",
     input_schema: {
       type: "object",
       properties: {
@@ -199,6 +231,71 @@ async function executeTool(
       return filtered.slice(0, 100).join("\n") + (filtered.length > 100 ? `\n... and ${filtered.length - 100} more` : "");
     }
 
+    case "apply_patch": {
+      // Terminal — parse + apply the envelope against file contents read
+      // via read_file (cached in filesRead). Build the files[] payload the
+      // rest of the pipeline expects.
+      const patchText = (tool.input as { patch?: string }).patch;
+      const explanation = (tool.input as { explanation?: string }).explanation ?? "";
+      if (!patchText) return JSON.stringify({ error: "patch is required" });
+
+      const { parsePatch, applyPatch: runApply, ApplyPatchError } = await import("./apply-patch");
+      let parsed;
+      try {
+        parsed = parsePatch(patchText);
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        return JSON.stringify({
+          error: `Parse failed: ${msg}`,
+          hint: "Check envelope syntax; retry with a valid patch.",
+        });
+      }
+
+      // Pre-validate paths so we surface blocklist errors early.
+      for (const op of parsed.ops) {
+        if (isBlockedFile(op.path)) {
+          return JSON.stringify({ error: `Access denied: ${op.path} is protected.` });
+        }
+      }
+
+      // Read helper: read_file tool already cached hits in filesRead. For
+      // patches that touch files the model didn't read, fall back to a
+      // fresh GitHub fetch so the patch still applies.
+      const readFromCacheOrGithub = async (p: string): Promise<string | null> => {
+        const cached = filesRead.get(p);
+        if (cached !== undefined) return cached;
+        const content = await gh.getFileContent(token, owner, repo, p, defaultBranch);
+        if (content !== null) filesRead.set(p, content);
+        return content;
+      };
+
+      let applied;
+      try {
+        applied = await runApply(parsed, readFromCacheOrGithub);
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        return JSON.stringify({
+          error: `Apply failed: ${msg}`,
+          hint: "Re-read the file and try again with correct context lines.",
+        });
+      }
+
+      // Filter out delete-ops — downstream push path doesn't handle deletes
+      // for this code path yet; surface a clear error if the model tried.
+      for (const c of applied.changed) {
+        if (c.op === "delete") {
+          return JSON.stringify({
+            error: `Delete File is not supported on this path yet; keep changes to update/add.`,
+          });
+        }
+      }
+
+      return JSON.stringify({
+        explanation,
+        files: applied.changed.map((c) => ({ path: c.path, content: c.content })),
+      });
+    }
+
     case "submit_fix": {
       // Terminal — return the fix payload as-is for the caller to process
       return JSON.stringify({ explanation: input.explanation, files: (tool.input as { files: unknown[] }).files });
@@ -215,7 +312,7 @@ function buildAgenticBasePrompt(): string {
   return `You are an expert software engineer fixing a production bug.
 
 You have tools to explore the repository: read files, search code, list directories.
-When you understand the bug and know how to fix it, call submit_fix.
+When you understand the bug and know how to fix it, emit a patch.
 
 STRATEGY:
 1. Read the file(s) mentioned in the error stack trace
@@ -223,11 +320,12 @@ STRATEGY:
 3. Read package.json if you need to know the tech stack
 4. Look for existing correct patterns in the same file or nearby files
 5. If a correct version of the same logic exists (e.g., in another branch of an if/else), copy that pattern
-6. When confident, call submit_fix with changed files using "// ... keep existing code ..." markers for unchanged sections
+6. When confident, call apply_patch with a small envelope that surgically fixes the bug. Only use submit_fix as a fallback for full-file rewrites.
 
 RULES:
 - NEVER re-read a file you already read in this session. Refer to the content from your previous read_file call. Re-reading wastes time and budget.
 - NEVER read files just to "verify" — you already have the content. Only re-read if you need a file you haven't seen yet.
+- PREFER apply_patch over submit_fix. The envelope format is what GPT-5.x was trained on and produces smaller, safer edits.
 - Use the same libraries and APIs the project already uses (check imports)
 - If the project uses an ORM (Drizzle, Prisma, etc.), use its query builder — never raw SQL
 - Make the MINIMUM change necessary to fix the bug
@@ -334,14 +432,43 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
     // Add assistant message with tool_use blocks
     messages.push({ role: "assistant", content: assistantContent });
 
-    // Check for terminal submit_fix first (before parallel execution)
+    // Check for terminal tools first (apply_patch preferred; submit_fix fallback).
+    const applyPatchCall = toolUses.find((t) => t.name === "apply_patch");
+    if (applyPatchCall) {
+      const patchPreview = ((applyPatchCall.input as { patch?: string }).patch ?? "").slice(0, 200);
+      emit("agentic_tool", { turn, tool: "apply_patch", input: { patchPreview } });
+      const result = await executeTool(applyPatchCall, params, filesRead);
+      const parsed = JSON.parse(result) as
+        | { explanation: string; files: { path: string; content: string }[] }
+        | { error: string; hint?: string };
+
+      // If parse/apply failed, surface the error back to the model as a
+      // tool_result and continue the loop — don't terminate on a bad patch.
+      if ("error" in parsed) {
+        emit("agentic_error", { turn, tool: "apply_patch", error: parsed.error });
+        messages.push({
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: applyPatchCall.id,
+            content: `apply_patch error: ${parsed.error}${parsed.hint ? `\nHint: ${parsed.hint}` : ""}`,
+            is_error: true,
+          } as ToolResultBlock] as ContentBlock[],
+        });
+        continue;
+      }
+
+      emit("agentic_done", { turns: turn, files: parsed.files.map((f) => f.path), via: "apply_patch" });
+      return { explanation: parsed.explanation, files: parsed.files, turns: turn };
+    }
+
     const submitFix = toolUses.find((t) => t.name === "submit_fix");
     if (submitFix) {
       emit("agentic_tool", { turn, tool: "submit_fix", input: { files: ((submitFix.input as { files?: { path: string }[] }).files ?? []).map((f) => f.path) } });
       const result = await executeTool(submitFix, params, filesRead);
       const fix = JSON.parse(result) as { explanation: string; files: { path: string; content: string }[] };
       const expandedFiles = expandFixFiles(fix.files, filesRead);
-      emit("agentic_done", { turns: turn, files: expandedFiles.map((f) => f.path) });
+      emit("agentic_done", { turns: turn, files: expandedFiles.map((f) => f.path), via: "submit_fix" });
       return { explanation: fix.explanation, files: expandedFiles, turns: turn };
     }
 
