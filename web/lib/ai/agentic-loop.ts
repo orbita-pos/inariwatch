@@ -381,6 +381,62 @@ async function executeSiblingTools(
   return results;
 }
 
+/**
+ * Build the inline pre-fetched-files section appended to the seed
+ * message. Includes each file's full body (up to a per-file cap) so
+ * the model does not feel it needs to call read_file to "look".
+ * Anything past the total-bytes budget gets summarized as a listing;
+ * the read_file tool will still serve those from cache on demand.
+ */
+function buildPrefetchPayload(prefetched: Map<string, string> | undefined): string {
+  if (!prefetched || prefetched.size === 0) return "";
+
+  const MAX_TOTAL_BYTES = 18_000;
+  const MAX_PER_FILE_BYTES = 6_000;
+
+  const fullyInlined: { path: string; body: string }[] = [];
+  const listedOnly: string[] = [];
+  let used = 0;
+
+  for (const [path, content] of prefetched) {
+    const slice = content.slice(0, MAX_PER_FILE_BYTES);
+    const cost = slice.length + path.length + 30; // fence + header overhead
+    if (used + cost > MAX_TOTAL_BYTES) {
+      listedOnly.push(path);
+      continue;
+    }
+    fullyInlined.push({ path, body: slice });
+    used += cost;
+  }
+
+  const langHint = (p: string): string =>
+    p.endsWith(".tsx") ? "tsx"
+      : p.endsWith(".ts") || p.endsWith(".cts") || p.endsWith(".mts") ? "ts"
+        : p.endsWith(".jsx") ? "jsx"
+          : p.endsWith(".js") || p.endsWith(".cjs") || p.endsWith(".mjs") ? "js"
+            : "";
+
+  const parts: string[] = [
+    "",
+    "── Pre-fetched context (full file bodies) ──",
+    "The files below are ALREADY loaded in your working set. DO NOT call read_file on them — their current contents are shown here byte-for-byte. Call think / apply_patch directly.",
+    "",
+  ];
+  for (const { path, body } of fullyInlined) {
+    parts.push(`### ${path}`);
+    parts.push("```" + langHint(path));
+    parts.push(body);
+    parts.push("```");
+    parts.push("");
+  }
+  if (listedOnly.length > 0) {
+    parts.push(`(Also fetched but omitted from this message to save tokens — read_file will return instantly from cache: ${listedOnly.join(", ")})`);
+    parts.push("");
+  }
+  parts.push("── End pre-fetched context ──");
+  return parts.join("\n");
+}
+
 // ── Build System Prompt ─────────────────────────────────────────────────────
 
 function buildAgenticBasePrompt(): string {
@@ -449,16 +505,19 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   let stallCount = 0;
   let lastToolSignature = "";
 
-  // Start with the error context as the first message. When the caller
-  // pre-fetched files (PR #7), append a short listing so the model knows
-  // it can skip read_file on those paths — their content is already
-  // available via the cache and any read_file on them will return
-  // immediately with "(already read …)".
-  const prefetchList = params.prefetchedFiles && params.prefetchedFiles.size > 0
-    ? `\n\n[PRE-FETCHED FILES — already in context, DO NOT call read_file on these unless you specifically need to re-check]\n${Array.from(params.prefetchedFiles.keys()).map((p) => `  • ${p}`).join("\n")}`
-    : "";
+  // Start with the error context. When the caller pre-fetched files
+  // (PR #7), INLINE their contents in the seed message so the model can
+  // reason about them on turn 1 without calling read_file. Merely
+  // listing paths was not enough — E2E v9 showed gpt-4o-mini still
+  // read_file'd each listed path "to check", burning turns.
+  //
+  // We cap total inlined bytes so a big pre-fetch doesn't blow up the
+  // first-turn prompt cost. Anything over the cap is summarized as a
+  // listing and the agent can read_file on demand (it'll hit the
+  // warm cache anyway).
+  const prefetchPayload = buildPrefetchPayload(params.prefetchedFiles);
   const messages: AIMessage[] = [
-    { role: "user", content: errorContext + prefetchList },
+    { role: "user", content: errorContext + prefetchPayload },
   ];
 
   // Responses API threading (GPT-5.x, store:false mode). Each turn returns
