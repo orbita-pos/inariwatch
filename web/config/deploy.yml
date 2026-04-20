@@ -113,12 +113,11 @@ env:
     NEXTAUTH_URL: "https://app.inariwatch.com"
     # Hetzner-local Redis (cache + rate-limit + dedup). The accessory below
     # binds to the kamal-network bridge gateway, reachable only from the
-    # `kamal` Docker network. USE_LOCAL_REDIS gates the flip — false keeps
-    # Upstash REST in lib/redis.ts; true switches to ioredis against this
-    # endpoint. Parallel-run safe: defaults to false until cutover.
+    # `kamal` Docker network. lib/redis.ts uses these vars + REDIS_PASSWORD
+    # secret to construct the ioredis client. Per-call DB fallback in
+    # callers handles Redis-down (Postgres slower but functional).
     REDIS_HOST: "172.18.0.1"
     REDIS_PORT: "6379"
-    USE_LOCAL_REDIS: "true"
   secret:
     # Core
     - DATABASE_URL
@@ -141,12 +140,10 @@ env:
     # AI
     - PLATFORM_AI_KEY
     - PLATFORM_ANTHROPIC_KEY
-    # Infra — Redis migration in progress (2026-04-19). UPSTASH_* still wired
-    # for the rollback path. REDIS_PASSWORD is for the new Hetzner-local
-    # accessory (see accessories: block below). lib/redis.ts picks one based
-    # on USE_LOCAL_REDIS. Drop the UPSTASH_* lines once the flip is stable.
-    - UPSTASH_REDIS_REST_URL
-    - UPSTASH_REDIS_REST_TOKEN
+    # Infra — Hetzner-local Redis. Auth password for the accessory below
+    # (kamal-network bridge gateway 172.18.0.1:6379). Migrated off Upstash
+    # 2026-04-19; UPSTASH_* and the dual-backend abstraction were removed
+    # after 2k+ commands ran clean over the local Redis.
     - REDIS_PASSWORD
     - R2_ACCOUNT_ID
     - R2_ACCESS_KEY_ID

@@ -1,37 +1,26 @@
 /**
- * Redis client — singleton, dual-backend.
+ * Redis client — singleton, ioredis against the Hetzner-local accessory.
  *
- * Two implementations behind one interface (`RedisLike`):
+ * Connection vars (from web/config/deploy.yml):
+ *   REDIS_HOST     — bridge-gateway IP of the kamal Docker network
+ *   REDIS_PORT     — 6379
+ *   REDIS_PASSWORD — sops-encrypted, auth wall enforced by the accessory
  *
- *   USE_LOCAL_REDIS=true  → Hetzner-local Redis via ioredis (TCP).
- *                            Set REDIS_HOST / REDIS_PORT / REDIS_PASSWORD.
- *   USE_LOCAL_REDIS!=true → Upstash REST via @upstash/redis (HTTP).
- *                            Set UPSTASH_REDIS_REST_URL / _TOKEN.
- *
- * The two backends are wire-incompatible (TCP vs HTTPS), so the flag is
- * the cutover switch. Default behavior is Upstash for backward compat;
- * the flag flips on once the local Redis accessory is healthy and the
- * parallel-run window confirms parity. See web/config/deploy.yml for
- * accessory definition and project_upstash_migration_plan.md for context.
- *
- * The Upstash REST client is structurally a superset of the methods we
- * use (get/set/incr/incrby/expire/hset/hget/hgetall/del/pipeline), so
- * we can cast it to RedisLike without an adapter. The ioredis path uses
- * a thin adapter to (a) auto-JSON-parse on get like Upstash does,
- * (b) accept Upstash's `{ ex, nx }` set-options object form, and
- * (c) unwrap pipeline results from `[err, value][]` to `value[]`.
+ * The exposed `RedisLike` interface preserves the Upstash REST surface our
+ * callers were already written against (auto-JSON-stringify on set, parse
+ * on get, `{ ex, nx }` set-options object form, pipeline.exec returning
+ * `value[]` instead of ioredis's `[err, value][]`). Migration history is
+ * in project_upstash_migration_plan.md (memory).
  */
 
-import { Redis as UpstashRedis } from "@upstash/redis";
 import IoRedis from "ioredis";
 
 // ── Public interface — the Upstash subset our app uses ─────────────────────
 
 export interface RedisLike {
   get<T = string>(key: string): Promise<T | null>;
-  /** Value may be any JSON-serializable shape — Upstash auto-stringifies, the
-   *  ioredis adapter mirrors that behavior so callers don't have to switch
-   *  serialization strategy when the backend flips. */
+  /** Value may be any JSON-serializable shape — mirrors the Upstash REST
+   *  client's auto-stringify so callers don't have to JSON.stringify. */
   set(
     key: string,
     value: unknown,
@@ -64,17 +53,12 @@ export interface RedisPipeline {
 let _redis: RedisLike | null = null;
 let _ioredis: IoRedis | null = null;
 
-function useLocal(): boolean {
-  return process.env.USE_LOCAL_REDIS === "true";
-}
-
 /**
  * Raw ioredis client — for libraries that need direct access (e.g.
- * rate-limiter-flexible's RateLimiterRedis). Only available when
- * USE_LOCAL_REDIS=true and connection vars are set. Returns null otherwise.
+ * rate-limiter-flexible's RateLimiterRedis). Returns null when REDIS_HOST
+ * or REDIS_PASSWORD is missing, in which case callers fall back to DB.
  */
 export function getIoredisClient(): IoRedis | null {
-  if (!useLocal()) return null;
   if (_ioredis) return _ioredis;
 
   const host = process.env.REDIS_HOST;
@@ -85,19 +69,16 @@ export function getIoredisClient(): IoRedis | null {
     host,
     port: Number(process.env.REDIS_PORT ?? 6379),
     password,
-    // Fail fast if the box is down so callers fall back to DB instead of
-    // hanging on the offline queue. Matches Upstash's "throws on failure"
-    // semantics for the existing fallback paths in callers.
+    // Fail fast when the box is down so callers' try/catch fires the DB
+    // fallback path instead of waiting on the offline queue.
     enableOfflineQueue: false,
     maxRetriesPerRequest: 3,
-    // Keep the connection alive — Hetzner is in the same DC, latency is
-    // < 1ms, but the box can be quiet between cron ticks.
     keepAlive: 30_000,
   });
 
   // Swallow connection errors so they don't crash the Node process when
-  // Redis is briefly unavailable. Callers that wrap in try/catch will see
-  // the per-command failure; everyone else relies on the DB fallback.
+  // Redis is briefly unavailable. Per-command failures still surface to
+  // the caller's try/catch.
   _ioredis.on("error", (err) => {
     console.error("[redis/ioredis] connection error:", err.message);
   });
@@ -107,42 +88,24 @@ export function getIoredisClient(): IoRedis | null {
 
 export function getRedis(): RedisLike | null {
   if (_redis) return _redis;
-
-  if (useLocal()) {
-    const client = getIoredisClient();
-    if (!client) return null;
-    _redis = ioredisAdapter(client);
-    return _redis;
-  }
-
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-
-  // Upstash REST client is a structural superset of RedisLike for the
-  // methods we use. Two minor signature differences (set options shape,
-  // pipeline.exec result format) match exactly the API we defined.
-  _redis = new UpstashRedis({ url, token }) as unknown as RedisLike;
+  const client = getIoredisClient();
+  if (!client) return null;
+  _redis = ioredisAdapter(client);
   return _redis;
 }
 
 export function requireRedis(): RedisLike {
   const r = getRedis();
-  if (!r) {
-    throw new Error(
-      useLocal()
-        ? "Redis not configured (missing REDIS_HOST / REDIS_PASSWORD)"
-        : "Redis not configured (missing UPSTASH_REDIS_REST_URL / _TOKEN)",
-    );
-  }
+  if (!r) throw new Error("Redis not configured (missing REDIS_HOST / REDIS_PASSWORD)");
   return r;
 }
 
 // ── ioredis → RedisLike adapter ────────────────────────────────────────────
 
 function ioredisAdapter(client: IoRedis): RedisLike {
-  // Upstash auto-parses values that look like JSON. Mimic that so callers
-  // don't have to JSON.parse manually on the local path.
+  // Mirror Upstash's auto-parse on get: values that look like JSON get
+  // JSON.parse'd; everything else passes through as a string. The leading
+  // char check keeps the cost negligible for non-JSON values.
   function tryParse<T>(raw: string): T {
     const c = raw[0];
     if (c === "{" || c === "[" || c === '"' || c === "t" || c === "f" || c === "n" || (c >= "0" && c <= "9") || c === "-") {
@@ -158,8 +121,7 @@ function ioredisAdapter(client: IoRedis): RedisLike {
     return args;
   }
 
-  // Mirror Upstash's auto-serialization: strings pass through, everything
-  // else gets JSON.stringify so reads via tryParse round-trip cleanly.
+  // Mirror Upstash's auto-serialize on set.
   function serializeForSet(value: unknown): string {
     if (typeof value === "string") return value;
     if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -176,7 +138,6 @@ function ioredisAdapter(client: IoRedis): RedisLike {
     async set(key, value, opts) {
       const v = serializeForSet(value);
       const extra = setArgs(opts);
-      // ioredis's set signature is overloaded; use the variadic form.
       const result = extra.length > 0
         ? await (client.set as unknown as (...a: unknown[]) => Promise<string | null>)(key, v, ...extra)
         : await client.set(key, v);
@@ -217,8 +178,7 @@ function ioredisAdapter(client: IoRedis): RedisLike {
           const result = await p.exec();
           if (!result) return [];
           // ioredis: [[err, value], ...] → unwrap to [value, ...] like Upstash.
-          // Throw on the first per-command error so callers' try/catch fires
-          // instead of silently getting an Error object as a "result".
+          // Throw on the first per-command error so callers' try/catch fires.
           return result.map(([err, value]) => {
             if (err) throw err;
             return value;
