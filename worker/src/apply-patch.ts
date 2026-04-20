@@ -411,33 +411,42 @@ function applyHunk(content: string, hunk: Hunk, path: string, hunkIndex: number)
 
   // Pass 3: remove-only match — find just the "-" lines as a consecutive
   // sequence. This handles unified-diff patches where context drifts
-  // (model got indentation or a nearby line slightly wrong).
+  // (model got indentation or a nearby line slightly wrong, or skipped
+  // a doc comment that sits between context and the remove block).
   if (matchIndex < 0 && removeLines.length > 0) {
-    const removeIdx = findBlockLoose(fileLines, removeLines);
-    if (removeIdx >= 0) {
-      // If context lines surround the remove block in the hunk, verify at
-      // least one of the adjacent file lines matches a context line to
-      // avoid applying the patch at the wrong location when the same
-      // remove block exists twice.
+    const allRemoveMatches = findAllBlockLoose(fileLines, removeLines);
+    if (allRemoveMatches.length === 1) {
+      // Unique — apply without needing context disambiguation. The remove
+      // lines only exist in one place, so there's no risk of patching the
+      // wrong region.
+      const removeIdx = allRemoveMatches[0];
+      const addLines = hunk.lines.filter((l) => l.kind === "add").map((l) => l.text);
+      const before = fileLines.slice(0, removeIdx);
+      const after = fileLines.slice(removeIdx + removeLines.length);
+      return [...before, ...addLines, ...after].join("\n");
+    } else if (allRemoveMatches.length > 1) {
+      // Ambiguous — use context lines to pick the right occurrence. Require
+      // at least one leading OR trailing context line to match (loose).
       const leadingCtx = contextLinesBeforeRemoveBlock(hunk);
       const trailingCtx = contextLinesAfterRemoveBlock(hunk);
-      const fileAbove = removeIdx > 0 ? fileLines[removeIdx - 1] : "";
-      const fileBelow =
-        removeIdx + removeLines.length < fileLines.length
-          ? fileLines[removeIdx + removeLines.length]
-          : "";
-      const leadingOk =
-        leadingCtx.length === 0 || leadingCtx.some((c) => normalizeLoose(c) === normalizeLoose(fileAbove));
-      const trailingOk =
-        trailingCtx.length === 0 || trailingCtx.some((c) => normalizeLoose(c) === normalizeLoose(fileBelow));
-
-      if (leadingOk && trailingOk) {
-        // Replace ONLY the remove block with the add lines — preserve
-        // whatever surrounding context the file actually has.
-        const addLines = hunk.lines.filter((l) => l.kind === "add").map((l) => l.text);
-        const before = fileLines.slice(0, removeIdx);
-        const after = fileLines.slice(removeIdx + removeLines.length);
-        return [...before, ...addLines, ...after].join("\n");
+      for (const removeIdx of allRemoveMatches) {
+        const fileAbove = removeIdx > 0 ? fileLines[removeIdx - 1] : "";
+        const fileBelow =
+          removeIdx + removeLines.length < fileLines.length
+            ? fileLines[removeIdx + removeLines.length]
+            : "";
+        const leadingOk =
+          leadingCtx.length === 0 ||
+          leadingCtx.some((c) => normalizeLoose(c) === normalizeLoose(fileAbove));
+        const trailingOk =
+          trailingCtx.length === 0 ||
+          trailingCtx.some((c) => normalizeLoose(c) === normalizeLoose(fileBelow));
+        if (leadingOk && trailingOk) {
+          const addLines = hunk.lines.filter((l) => l.kind === "add").map((l) => l.text);
+          const before = fileLines.slice(0, removeIdx);
+          const after = fileLines.slice(removeIdx + removeLines.length);
+          return [...before, ...addLines, ...after].join("\n");
+        }
       }
     }
   }
@@ -515,6 +524,24 @@ function findBlockLoose(lines: string[], block: string[]): number {
     return i;
   }
   return -1;
+}
+
+/**
+ * Like findBlockLoose but returns ALL starting indices where the block
+ * matches. Used by the 3rd-tier remove-only matcher to decide whether
+ * the match is unique (safe to apply without context) or ambiguous
+ * (need context to disambiguate).
+ */
+function findAllBlockLoose(lines: string[], block: string[]): number[] {
+  const normalizedBlock = block.map(normalizeLoose);
+  const hits: number[] = [];
+  outer: for (let i = 0; i <= lines.length - block.length; i++) {
+    for (let j = 0; j < block.length; j++) {
+      if (normalizeLoose(lines[i + j]) !== normalizedBlock[j]) continue outer;
+    }
+    hits.push(i);
+  }
+  return hits;
 }
 
 // ── Convenience: one-shot parse + apply ─────────────────────────────────────
