@@ -1073,6 +1073,37 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           const agenticExplore = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
           const agenticFix = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
 
+          // PR #7 context pre-fetch: the diagnose step already fetched
+          // diagnosis.filesToRead (fileContents). Use those as seeds and
+          // auto-pull 1 hop of relative imports so the agent starts with
+          // warm context instead of burning turns on read_file.
+          const prefetchedFiles = new Map<string, string>();
+          try {
+            const { prefetchContext } = await import("./context-prefetch");
+            const seedPaths = fileContents.map((f) => f.path);
+            const result = await prefetchContext(
+              gh,
+              token,
+              owner,
+              repo,
+              defaultBranch,
+              seedPaths,
+              repoFiles,
+              { maxFiles: 8, maxHops: 1 },
+            );
+            for (const [p, c] of result.files) prefetchedFiles.set(p, c);
+            emit("prefetch_context", {
+              seeds: result.sources.seeds.length,
+              imports: result.sources.imports.length,
+              skipped: result.skipped.length,
+            });
+          } catch (e) {
+            log.warn("prefetch_context_failed", { error: e instanceof Error ? e.message : String(e) });
+            // Fall through — the agentic loop will just read_file as
+            // before. Pre-fetch is an optimization, not a requirement.
+            for (const f of fileContents) prefetchedFiles.set(f.path, f.content);
+          }
+
           const agenticResult = await runAgenticLoop({
             apiKey: agenticApiKey,
             provider: agenticProvider,
@@ -1083,6 +1114,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             // model's reasoning budget.
             verifyModel: agenticExplore,
             diagnosisText: diagnosis.diagnosis,
+            prefetchedFiles,
             systemPrompt: "",
             errorContext,
             token,

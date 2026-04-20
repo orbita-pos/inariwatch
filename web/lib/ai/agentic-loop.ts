@@ -165,6 +165,13 @@ export interface AgenticLoopParams {
   verifyModel?: string;
   /** Root-cause diagnosis text — fed into the verifier sanity gate. */
   diagnosisText?: string;
+  /**
+   * Files the caller has already fetched (PR #7 context pre-fetch).
+   * Populate the `filesRead` cache before turn 1 so the model can skip
+   * the opening read_file round-trip and start reasoning or emitting
+   * a patch straight away. Keys are repo-relative paths.
+   */
+  prefetchedFiles?: Map<string, string>;
   token: string;
   owner: string;
   repo: string;
@@ -419,8 +426,22 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   const basePrompt = buildAgenticBasePrompt();
 
   // Track files read across turns — serves cached content on re-reads,
-  // saving GitHub API calls and preventing wasted turns.
+  // saving GitHub API calls and preventing wasted turns. Seeded with
+  // prefetchedFiles from the caller (PR #7) so the model can skip the
+  // opening read_file round-trip when the diagnose step already fetched
+  // the bug file + its direct imports.
   const filesRead = new Map<string, string>();
+  if (params.prefetchedFiles) {
+    for (const [path, content] of params.prefetchedFiles) {
+      filesRead.set(path, content);
+    }
+    if (params.prefetchedFiles.size > 0) {
+      emit("agentic_prefetch", {
+        count: params.prefetchedFiles.size,
+        paths: Array.from(params.prefetchedFiles.keys()).slice(0, 10),
+      });
+    }
+  }
 
   // Stall detection — if the agent re-reads the same files or makes no
   // progress for 3 consecutive turns, abort early to save budget.
@@ -428,9 +449,16 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   let stallCount = 0;
   let lastToolSignature = "";
 
-  // Start with the error context as the first message
+  // Start with the error context as the first message. When the caller
+  // pre-fetched files (PR #7), append a short listing so the model knows
+  // it can skip read_file on those paths — their content is already
+  // available via the cache and any read_file on them will return
+  // immediately with "(already read …)".
+  const prefetchList = params.prefetchedFiles && params.prefetchedFiles.size > 0
+    ? `\n\n[PRE-FETCHED FILES — already in context, DO NOT call read_file on these unless you specifically need to re-check]\n${Array.from(params.prefetchedFiles.keys()).map((p) => `  • ${p}`).join("\n")}`
+    : "";
   const messages: AIMessage[] = [
-    { role: "user", content: errorContext },
+    { role: "user", content: errorContext + prefetchList },
   ];
 
   // Responses API threading (GPT-5.x, store:false mode). Each turn returns
