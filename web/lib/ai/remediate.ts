@@ -1042,6 +1042,65 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         }
       }
 
+      // ── DETERMINISTIC TEMPLATE FAST-PATH (PR #9) ───────────────────
+      // Before burning an agentic loop, check whether the diagnosis +
+      // source file match a known-pattern we can fix without an LLM.
+      // The generated patch still runs through the verifier before
+      // anything ships, so a bad template never reaches prod.
+      if (!fix && attempt === 1 && !previousAttempt) {
+        try {
+          const { tryDeterministicFix } = await import("./templates");
+          const { verifyFix } = await import("./verifier");
+          const candidate = tryDeterministicFix(fileContents, diagnosis.diagnosis);
+          if (candidate) {
+            const originalsMap = new Map<string, string>();
+            for (const f of fileContents) originalsMap.set(f.path, f.content);
+            const { resolveModel: rm } = await import("./models");
+            const verify = await verifyFix({
+              files: [{ path: candidate.fix.path, content: candidate.fix.content }],
+              originalFiles: originalsMap,
+              errorContext: `${alert.title}\n\n${alert.body.slice(0, 2000)}`,
+              diagnosis: diagnosis.diagnosis,
+              apiKey: aiKey.key,
+              model: rm("analysis", aiKey.provider, aiKey.modelPrefs),
+              skipSanity: false,
+              log: {
+                userId: session.userId,
+                projectId: session.projectId,
+                alertId: session.alertId,
+                remediationSessionId: sessionId,
+                isPlatformKey: aiKey.isPlatformKey,
+              },
+            });
+            if (verify.ok) {
+              emit("template_fix", {
+                pattern: "non-null-await",
+                path: candidate.match.path,
+                line: candidate.match.line,
+                varName: candidate.match.varName,
+              });
+              fix = {
+                explanation: candidate.fix.explanation,
+                files: [{ path: candidate.fix.path, content: candidate.fix.content }],
+              };
+              log.info("template_fix_applied", {
+                pattern: "non-null-await",
+                path: candidate.match.path,
+              });
+            } else {
+              log.info("template_fix_rejected_by_verifier", {
+                pattern: "non-null-await",
+                issue: verify.issue,
+              });
+            }
+          }
+        } catch (e) {
+          log.warn("template_fix_errored", { error: e instanceof Error ? e.message : String(e) });
+          // Fall through to the agentic loop — template is an
+          // optimisation, not a requirement.
+        }
+      }
+
       // ── AGENTIC LOOP (fallback if Container Agent / Managed Agent didn't produce a fix) ──
       const supportsToolUse = aiKey.provider !== "gemini";
       const useAgentic = !fix && attempt === 1 && supportsToolUse && !previousAttempt;
