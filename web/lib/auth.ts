@@ -10,6 +10,15 @@ import { eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { decrypt } from "@/lib/crypto";
 
+// Precomputed bcryptjs hash at cost 12 of a constant string that nobody
+// will ever submit as a password. Used to force `bcrypt.compare` to run
+// even when the user-lookup branch returns no row — otherwise the "user
+// not found" path returns ~250 ms faster than the "user found, wrong
+// password" path, which is a usable email-enumeration oracle. Cost 12
+// matches register/reset actions so the timing is indistinguishable.
+const DUMMY_PASSWORD_HASH =
+  "$2a$12$sbSozBz44ZIwfKfmqXcUO.ZjLQE0qfHPooEgjKyckxz8237tAyWxO";
+
 export const authOptions: NextAuthOptions = {
   session: { 
     strategy: "jwt",
@@ -67,10 +76,17 @@ export const authOptions: NextAuthOptions = {
           .where(eq(users.email, credentials.email))
           .limit(1);
 
-        if (!user || !user.passwordHash) return null;
-
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+        // Constant-time: always run bcrypt.compare, even when the user
+        // doesn't exist or has no password hash (e.g. OAuth-only user).
+        // This removes the timing oracle on email enumeration — "user
+        // not found" now takes the same ~250 ms as "user found, wrong
+        // password". The post-compare null check preserves the original
+        // reject semantics.
+        const valid = await bcrypt.compare(
+          credentials.password,
+          user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+        );
+        if (!user || !user.passwordHash || !valid) return null;
 
         // Check 2FA if enabled
         if (user.twoFactorEnabled && user.totpSecret) {
