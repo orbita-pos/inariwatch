@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CookieConsent } from "@/components/cookie-consent";
@@ -93,7 +94,14 @@ const jsonLd = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Pull the per-request CSP nonce that middleware.ts attaches to the
+  // request headers. Without it, every <script> tag below violates the
+  // strict-dynamic + nonce CSP. JSON-LD is technically a data block
+  // (not executable) but Chromium still treats type="application/ld+json"
+  // as a script element, so it needs the nonce too.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en"
@@ -103,16 +111,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Theme init — must run before any CSS evaluates to prevent light→dark flash */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark')t='dark';document.documentElement.classList.add(t);document.documentElement.style.colorScheme=t;}catch(e){document.documentElement.classList.add('dark');}})();`,
           }}
         />
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        <script async src="https://plausible.io/js/pa-_2rUt9FS8WnW4yA3n6Ykd.js" />
         <script
+          nonce={nonce}
+          async
+          src="https://plausible.io/js/pa-_2rUt9FS8WnW4yA3n6Ykd.js"
+        />
+        <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`,
           }}

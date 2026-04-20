@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Shield } from "lucide-react";
+import { headers } from "next/headers";
 import { Button } from "@/components/ui/button";
 import { MarketingNav } from "../marketing-nav";
 import type { Metadata } from "next";
@@ -239,10 +240,12 @@ const jsonLd = {
   ],
 };
 
-export default function TrustPage() {
+export default async function TrustPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <div className="min-h-screen bg-page text-fg-base">
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />

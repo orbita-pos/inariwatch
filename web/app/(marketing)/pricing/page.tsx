@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Check, Sparkles, Building2, X } from "lucide-react";
+import { headers } from "next/headers";
 import { Button } from "@/components/ui/button";
 import { MarketingNav } from "../marketing-nav";
 import type { Metadata } from "next";
@@ -152,12 +153,14 @@ const jsonLd = {
   ],
 };
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <div className="min-h-screen bg-inari-bg">
       <MarketingNav opaque />
 
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />

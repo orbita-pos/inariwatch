@@ -3,6 +3,7 @@ export const revalidate = 3600;
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight } from "lucide-react";
+import { headers } from "next/headers";
 import { db, blogPosts } from "@/lib/db";
 import { eq, desc } from "drizzle-orm";
 import { MarketingNav } from "../marketing-nav";
@@ -81,9 +82,12 @@ export default async function BlogPage() {
     })),
   };
 
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <div className="min-h-screen bg-inari-bg">
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />

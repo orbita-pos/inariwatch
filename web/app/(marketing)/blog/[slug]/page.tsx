@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
+import { headers } from "next/headers";
 import blogHero from "@/public/image-blog.png";
 import { db, blogPosts } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
@@ -124,9 +125,11 @@ export default async function BlogPostPage({
     wordCount:    post.content.trim().split(/\s+/).length,
   };
 
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <div className="min-h-screen bg-inari-bg">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script nonce={nonce} type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <MarketingNav opaque />
       <main className="mx-auto max-w-2xl px-6 pt-24 pb-24">
 
