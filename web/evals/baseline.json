@@ -1,0 +1,403 @@
+{
+  "dataset": "golden-dataset-v4.jsonl",
+  "recordCount": 12,
+  "metrics": {
+    "success_rate": 0.5833333333333334,
+    "pattern_match_rate": 1,
+    "avg_turns": 15.25,
+    "avg_self_review": 91.42857142857143,
+    "avg_confidence": 85.28571428571429,
+    "avg_duration_s": 5615.833333333333,
+    "failure_by_reason": {
+      "ci_failures": 7,
+      "github_permissions": 4
+    }
+  },
+  "records": [
+    {
+      "session_id": "3ebc0add-5f39-449d-80f9-b5d474bd4152",
+      "bug_id": "off-by-one-loop",
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 1,
+          "label": "hit"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "95"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "d782f8a1-17c5-448b-ba35-9b03f1be49b3",
+      "bug_id": "division-by-zero",
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 1,
+          "label": "hit"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "95"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "eb08ab91-6b8c-4744-a87c-1c991437868e",
+      "bug_id": "missing-await",
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 1,
+          "label": "hit"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "95"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "ef7d2b57-5dcf-4111-a2d2-6d902be4b555",
+      "bug_id": "undefined-foreach",
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 1,
+          "label": "hit"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "90"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "dd2a7b4b-8b67-4c75-b3a9-7137e5cef1e6",
+      "bug_id": "null-deref-user-profile",
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 1,
+          "label": "hit"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "95"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "cc0f4ce9-083f-4b62-8b9b-f7ea0574ea88",
+      "bug_id": null,
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "85"
+        },
+        {
+          "name": "not_disabled",
+          "score": 0,
+          "label": "removed-code"
+        }
+      ]
+    },
+    {
+      "session_id": "4aa8afd1-8e72-4eeb-ac60-ae7d40161b72",
+      "bug_id": null,
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 1,
+          "label": "yes"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 1,
+          "label": "85"
+        },
+        {
+          "name": "not_disabled",
+          "score": 0,
+          "label": "removed-code"
+        }
+      ]
+    },
+    {
+      "session_id": "82d228be-82e7-40da-b959-cdb8f5a71ce8",
+      "bug_id": null,
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 0,
+          "label": "no"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 0,
+          "label": "0"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "2d3c43b9-d492-4562-a54e-0d281b8f9c6d",
+      "bug_id": null,
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 0,
+          "label": "no"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 0,
+          "label": "0"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "6b7d10e6-bd21-45ad-a386-64efcb67493c",
+      "bug_id": null,
+      "outcome": "queued",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 0,
+          "label": "no"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "queued"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 0,
+          "label": "0"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "f22d5fff-f67e-45e3-97d4-154fe9855c23",
+      "bug_id": null,
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 0,
+          "label": "no"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 0,
+          "label": "0"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    },
+    {
+      "session_id": "374f5a75-8b25-486f-980a-39291797528d",
+      "bug_id": null,
+      "outcome": "failed",
+      "scores": [
+        {
+          "name": "pattern_match",
+          "score": 0,
+          "label": "not-curated"
+        },
+        {
+          "name": "fix_generated",
+          "score": 0,
+          "label": "no"
+        },
+        {
+          "name": "reached_green",
+          "score": 0,
+          "label": "failed"
+        },
+        {
+          "name": "self_review_pass",
+          "score": 0,
+          "label": "0"
+        },
+        {
+          "name": "not_disabled",
+          "score": 1,
+          "label": "ok"
+        }
+      ]
+    }
+  ],
+  "timestamp": "2026-04-21T04:55:01.718Z"
+}
