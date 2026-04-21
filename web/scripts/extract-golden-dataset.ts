@@ -32,7 +32,9 @@ const CURATED_BUGS: Record<string, { id: string; pattern: RegExp; description: s
   },
   "bug-02-foreach-undefined.js": {
     id: "undefined-foreach",
-    pattern: /data\s*\?\s*\.|data\s*&&|\|\|\s*\[\]|Array\.isArray|if\s*\(.*data/,
+    // Accepts `data ?? []`, `data || []`, `data && data.forEach`, `Array.isArray(data)`,
+    // `if (data)` guards, or optional chaining `data?.forEach`.
+    pattern: /data\s*\?\.|\?\?\s*\[\]|data\s*&&|\|\|\s*\[\]|Array\.isArray|if\s*\(.*data/,
     description: "forEach on undefined — should guard or default to []",
   },
   "bug-03-missing-await.js": {
