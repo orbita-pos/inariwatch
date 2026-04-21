@@ -59,12 +59,9 @@ function buildCsp(nonce: string): string {
   const scriptSrc = [
     `'nonce-${nonce}'`,
     `'strict-dynamic'`,
-    // Legacy UAs that don't understand strict-dynamic fall back to the
-    // host list. Plausible is our only 3rd-party JS source.
-    "https://plausible.io",
-    // allow 'self' for same-origin script URLs under strict-dynamic,
-    // which modern browsers ignore when strict-dynamic is present but
-    // legacy UAs use.
+    // 'self' for same-origin script URLs; legacy UAs without
+    // strict-dynamic support fall back to this. Modern browsers with
+    // strict-dynamic ignore the host list entirely.
     "'self'",
     ...(isDev ? ["'unsafe-eval'"] : []),
   ].join(" ");
@@ -81,9 +78,10 @@ function buildCsp(nonce: string): string {
     "media-src 'self'",
     "font-src 'self' data:",
     // Narrow from the previous `connect-src 'self' https:` which allowed
-    // exfiltration to any https origin. Plausible for analytics, GH API
-    // for CLI dev mode + integrations preview.
-    "connect-src 'self' https://plausible.io https://api.github.com",
+    // exfiltration to any https origin. Cross-subdomain (`app.*` → root
+    // and vice versa) is required for Next RSC prefetches on `<Link>`
+    // components that navigate between the marketing and app surfaces.
+    "connect-src 'self' https://inariwatch.com https://app.inariwatch.com https://api.github.com",
     "frame-ancestors 'none'",
     "frame-src 'none'",
     "object-src 'none'",

@@ -89,7 +89,6 @@ export default function PrivacyPage() {
             <li><strong>Upstash</strong> — Redis caching for rate limiting, AI response caching, and deduplication. No personal data is stored — only counters, fingerprints, and cached AI analysis text.</li>
             <li><strong>AI providers</strong> — AI features use our platform OpenAI key by default. If you provide your own key, requests are sent to that provider instead (Anthropic, OpenAI, Groq, xAI/Grok, DeepSeek, Google Gemini). Alert data (error messages, stack traces) is sent to the AI provider for analysis. We store AI responses only as shown in the app (e.g., alert diagnosis, postmortems). We do <strong>not</strong> route AI calls through any third-party observability proxy — our own internal logging (see &quot;AI interaction logs&quot; in Section 2) keeps this data within our systems.</li>
             <li><strong>GitHub / Google / GitLab</strong> — optional OAuth sign-in. We only store the provider account ID, email, and name returned by the provider.</li>
-            <li><strong>Plausible Analytics</strong> — privacy-friendly, cookieless analytics. No personal data is collected. See <a href="https://plausible.io/privacy" target="_blank" rel="noreferrer" className="text-inari-accent hover:underline">plausible.io/privacy</a>.</li>
             <li><strong>Telegram / Slack</strong> — if you configure these as notification channels, alert data is sent to your Telegram bot or Slack webhook.</li>
           </ul>
         </Section>
