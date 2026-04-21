@@ -7,6 +7,7 @@ import {
   Shield, Eye, Undo2,
 } from "lucide-react";
 import { startRemediation, approveRemediation, cancelRemediation } from "./remediation-actions";
+import { confidenceTier, confidenceClasses, confidenceLabel } from "@/lib/ai/confidence";
 
 type Step = {
   id:        string;
@@ -397,27 +398,20 @@ export function RemediationPanel({
       {expanded && (
         <div id="remediation-body" className="px-5 py-4 space-y-4">
 
-          {/* Confidence badge */}
-          {state.confidence !== null && (
-            <div
-              role="status"
-              aria-label={`AI confidence ${state.confidence} percent`}
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                state.confidence >= 80
-                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30"
-                  : state.confidence >= 50
-                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30"
-                  : "bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30"
-              }`}
-            >
-              <span aria-hidden="true">
-                {state.confidence >= 80 ? "🟢" : state.confidence >= 50 ? "🟡" : "🔴"}
-              </span>
-              {state.confidence}% confidence
-              {state.confidence < 50 && " — manual review required"}
-              {state.confidence >= 50 && state.confidence < 80 && " — review carefully"}
-            </div>
-          )}
+          {/* Confidence badge — uses canonical tri-color helper */}
+          {state.confidence !== null && (() => {
+            const tier = confidenceTier(state.confidence);
+            const classes = confidenceClasses(tier);
+            return (
+              <div
+                role="status"
+                aria-label={`AI confidence ${state.confidence} percent, ${tier} tier`}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${classes.bg} ${classes.text} ${classes.ring} ring-1`}
+              >
+                {confidenceLabel(state.confidence)}
+              </div>
+            );
+          })()}
 
           {/* Live terminal */}
           {state.steps.length > 0 && (

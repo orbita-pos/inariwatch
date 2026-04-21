@@ -158,7 +158,10 @@ export async function sendRemediationComplete(
   session: { id: string; prUrl?: string | null; confidenceScore?: number | null; status: string }
 ): Promise<void> {
   const status = session.status === "completed" ? "✅ Completed" : "❌ Failed";
-  let text = `<b>${status}</b>\nConfidence: ${session.confidenceScore ?? "?"}%`;
+  // Tri-color confidence tier (PR #7).
+  const { confidenceLabel } = await import("@/lib/ai/confidence");
+  const confLine = confidenceLabel(session.confidenceScore ?? null);
+  let text = `<b>${status}</b>\n${confLine}`;
   if (session.prUrl) text += `\n<a href="${fmt.esc(session.prUrl)}">View PR</a>`;
 
   const buttons = session.status === "proposing" ? [[

@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from "fs";
 const inPath = process.argv[2] ?? "golden-dataset-v2.jsonl";
 const outPath = process.argv[3] ?? "golden-dataset-summary.md";
 
-interface Record {
+interface DatasetRecord {
   input: { alert_title: string; alert_source: string[]; alert_repo: string | null };
   expected: { fix_pattern: string; pattern_matched: boolean | null; bug_id: string } | null;
   output: {
@@ -23,7 +23,7 @@ interface Record {
 }
 
 const lines = readFileSync(inPath, "utf-8").trim().split("\n");
-const records: Record[] = lines.map((l) => JSON.parse(l));
+const records: DatasetRecord[] = lines.map((l) => JSON.parse(l));
 
 const md: string[] = [];
 md.push(`# Golden Dataset Summary\n`);

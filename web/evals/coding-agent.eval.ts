@@ -271,10 +271,13 @@ async function mirrorToBraintrust(
   scored: Array<{ session_id: string; bug_id: string | null; outcome: string; scores: Score[] }>,
   report: EvalReport,
 ) {
-  // Dynamic import — Braintrust is an optional dep
+  // Dynamic import — Braintrust is an optional dep. We hide the
+  // import behind a Function constructor so TypeScript doesn't try to
+  // resolve the package at build time when the user hasn't installed
+  // it. At runtime, the static analysis dodge is harmless.
   const project = process.env.BRAINTRUST_PROJECT ?? "inariwatch-remediation";
   try {
-    const mod = await import("braintrust");
+    const mod = await (Function("return import('braintrust')")() as Promise<unknown>);
     const { Eval } = mod as unknown as { Eval: (project: string, opts: unknown) => Promise<unknown> };
     await Eval(project, {
       data: () => records.map((r, i) => ({

@@ -140,7 +140,12 @@ export function buildRemediationCompleteBlocks(
   sessionId?: string,
   eapReceipt?: { verified: boolean; chainDepth: number; surfaces: { httpEndpoints: string[]; dbTables: string[]; llmCalls: { provider: string; model: string }[] } } | null,
 ): KnownBlock[] {
-  const confBadge = confidence >= 80 ? ":green_circle:" : confidence >= 50 ? ":large_orange_circle:" : ":red_circle:";
+  // Canonical tri-color tier (PR #7, lib/ai/confidence.ts). Slack
+  // renders emoji shortcodes to colored circles, so we map the tier
+  // to Slack's tokens rather than importing the unicode glyphs.
+  const tier = confidence >= 80 ? "green" : confidence >= 60 ? "yellow" : "red";
+  const confBadge = tier === "green" ? ":green_circle:" : tier === "yellow" ? ":large_orange_circle:" : ":red_circle:";
+  const descriptor = tier === "green" ? "safe to auto-merge" : tier === "yellow" ? "review recommended" : "escalated";
 
   const blocks: KnownBlock[] = [
     {
@@ -148,8 +153,8 @@ export function buildRemediationCompleteBlocks(
       text: {
         type: "mrkdwn",
         text: autoMerged
-          ? `:rocket: *Fix auto-merged!* Confidence: ${confBadge} ${confidence}%`
-          : `:pull_request: *Draft PR created.* Confidence: ${confBadge} ${confidence}%`,
+          ? `:rocket: *Fix auto-merged!* ${confBadge} ${confidence}% — ${descriptor}`
+          : `:pull_request: *Draft PR created.* ${confBadge} ${confidence}% — ${descriptor}`,
       },
     },
   ];

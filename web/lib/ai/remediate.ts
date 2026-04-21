@@ -2140,7 +2140,11 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
           await updateSession(sessionId, { simulateRiskScore });
         }
 
-        const confidenceEmoji = diagnosis.confidence >= 80 ? "🟢" : diagnosis.confidence >= 50 ? "🟡" : "🔴";
+        // Tri-color tier from the canonical helper (PR #7).
+        const { confidenceEmoji: confEmoji, confidenceTier, confidenceLabel: confLabel } =
+          await import("./confidence");
+        const confidenceEmoji = confEmoji(confidenceTier(diagnosis.confidence));
+        const confidenceLine = confLabel(diagnosis.confidence);
         const isAutoMerge = gateResult.strategy === "auto_merge";
 
         // ── CREATE PR ────────────────────────────────────────────────────
@@ -2161,7 +2165,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
           `|---|---|`,
           `| **Alert** | ${alert.title} |`,
           `| **Severity** | ${alert.severity} |`,
-          `| **Confidence** | ${confidenceEmoji} ${diagnosis.confidence}% |`,
+          `| **Confidence** | ${confidenceLine} |`,
           `| **Self-review** | ${selfReview ? `${selfReview.score}/100 (${selfReview.recommendation})` : "N/A"} |`,
           `| **Substrate simulate** | ${simulateRiskScore != null ? `${simulateRiskScore}/100 risk` : "No recording"} |`,
           `| **Strategy** | ${isAutoMerge ? "Auto-merged" : "Draft PR"} |`,
