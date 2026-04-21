@@ -5,6 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
+import { resolveRepoFromCaptureEvent } from "@/lib/webhooks/resolve-repo";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { PLAN_LIMITS } from "@/lib/db";
@@ -166,6 +167,15 @@ export async function POST(
   const ctx = event.context as Record<string, unknown> | undefined;
   if (ctx?.securityContext) correlationData.securityContext = ctx.securityContext;
 
+  // Canonical repo resolution at ingest time (migration 0068). capture
+  // v0.10+ SDK sends `git.repo`; older SDK versions still send `git.url`
+  // which we parse. If neither is present, remediate.ts will fall back to
+  // the project's default_repo.
+  const repo = resolveRepoFromCaptureEvent(event as {
+    git?: { repo?: unknown; url?: unknown } | null;
+    metadata?: { repo?: unknown } | null;
+  });
+
   const result = await createAlertIfNew(
     {
       severity,
@@ -178,6 +188,7 @@ export async function POST(
       isRead: false,
       isResolved: false,
       sessionId,
+      repo,
     },
     integ.projectId
   );

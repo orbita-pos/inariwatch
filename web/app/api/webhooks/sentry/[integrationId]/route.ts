@@ -5,6 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
+import { resolveRepoFromSentryPayload } from "@/lib/webhooks/resolve-repo";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { PLAN_LIMITS } from "@/lib/db";
@@ -155,6 +156,13 @@ export async function POST(
   const alertConfig = (config.alertConfig ?? {}) as Record<string, { enabled?: boolean }>;
   const sentryToken = config.token as string | undefined;
   const sentryOrg = (config.org as string) ?? "";
+  // Integration config may declare a project-slug → repo map so we can
+  // resolve `alert.repo` canonically at ingest (migration 0068). Shape:
+  //   alertConfig.repoMap = { "my-service": "orbita-pos/my-service", ... }
+  const repoMap =
+    (config.repoMap as Record<string, string> | undefined) ??
+    ((alertConfig as unknown as { repoMap?: Record<string, string> }).repoMap) ??
+    null;
 
   // ── Issue events ─────────────────────────────────────────────────────
   if (resource === "issue") {
@@ -211,6 +219,10 @@ export async function POST(
           sourceIntegrations: ["sentry"],
           isRead: false,
           isResolved: false,
+          repo: resolveRepoFromSentryPayload(
+            { project: proj as { slug?: unknown } | null | undefined },
+            repoMap,
+          ),
         },
         integ.projectId
       );
@@ -268,6 +280,10 @@ export async function POST(
           sourceIntegrations: ["sentry"],
           isRead: false,
           isResolved: false,
+          repo: resolveRepoFromSentryPayload(
+            { project: proj as { slug?: unknown } | null | undefined },
+            repoMap,
+          ),
         },
         integ.projectId
       );
@@ -295,6 +311,7 @@ export async function POST(
       eventUrl ? `Event URL: ${eventUrl}` : "",
     ].filter(Boolean).join("\n");
 
+    const evProject = ev.project as { slug?: unknown } | null | undefined;
     const result = await createAlertIfNew(
       {
         severity,
@@ -303,6 +320,7 @@ export async function POST(
         sourceIntegrations: ["sentry"],
         isRead: false,
         isResolved: false,
+        repo: resolveRepoFromSentryPayload({ project: evProject }, repoMap),
       },
       integ.projectId
     );

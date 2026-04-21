@@ -5,6 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
+import { resolveRepoFromVercelPayload } from "@/lib/webhooks/resolve-repo";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { db, alerts, PLAN_LIMITS } from "@/lib/db";
@@ -156,6 +157,10 @@ export async function POST(
         sourceIntegrations: ["vercel"],
         isRead: false,
         isResolved: false,
+        repo: resolveRepoFromVercelPayload(dep as {
+          gitSource?: { org?: unknown; repo?: unknown; type?: unknown } | null;
+          meta?: { githubCommitRepo?: unknown; githubRepo?: unknown; githubOrg?: unknown } | null;
+        }),
       },
       integ.projectId
     );

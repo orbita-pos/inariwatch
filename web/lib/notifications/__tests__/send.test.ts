@@ -99,6 +99,7 @@ function makeAlert(overrides = {}) {
     fingerprint: null,
     replaySessionId: null,
     sessionId: null,
+    repo: null,
     sentAt: null,
     stormId: null,
     createdAt: new Date(),

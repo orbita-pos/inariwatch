@@ -156,6 +156,13 @@ export const projects = pgTable("projects", {
    * backward-compatible for projects created before the column shipped.
    */
   replaySettings: jsonb("replay_settings").notNull().default(sql`'{}'::jsonb`),
+  /**
+   * Default `owner/repo` used at remediation time when the alert doesn't
+   * carry a repo of its own (custom webhooks, manually created alerts,
+   * sources whose payload can't identify a repo). Migration 0068. Set via
+   * Settings → Integrations → GitHub → "Default repository".
+   */
+  defaultRepo: text("default_repo"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -366,6 +373,15 @@ export const alerts = pgTable("alerts", {
   // replaySessionId (uuid FK) so we can correlate even before a replay
   // row exists. See migration 0057.
   sessionId: text("session_id"),
+  /**
+   * Canonical `owner/repo` resolved at webhook ingest (migration 0068).
+   * Replaces run-time fuzzy extraction in remediate.ts. NULL for alerts
+   * written before the migration — the backfill script in
+   * `scripts/backfill-alert-repo.ts` populates those. Sources that can't
+   * determine the repo (custom webhooks, manual alerts) fall back to
+   * `projects.default_repo` at remediation time.
+   */
+  repo: text("repo"),
   sentAt: timestamp("sent_at"),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

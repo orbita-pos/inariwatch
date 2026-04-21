@@ -366,40 +366,74 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const owner = config.owner as string;
   if (!token || !owner) { await fail(sessionId, emit, "GitHub integration missing token or owner."); return; }
 
-  // Detect repo name
-  let extractedRepo = extractRepo(alert.title);
-  
-  // Try listing repos first to validate
-  const repos = await gh.listOwnerRepos(token, owner);
-  
-  // Only use the extracted repo if it actually exists in GitHub
-  let repo = (extractedRepo && repos.includes(extractedRepo)) ? extractedRepo : null;
-
-  if (!repo) {
-    if (repos.length === 1) {
-      repo = repos[0];
-    } else if (repos.length > 1) {
-      // Heuristic 1: If user explicitly selected a repo in GitHub integration settings
-      const alertConfig = config.alertConfig as Record<string, any> | undefined;
-      const repoFilter = Array.isArray(alertConfig?.repoFilter) ? alertConfig.repoFilter : [];
-      let mappedRepo = null;
-      if (repoFilter.length === 1 && typeof repoFilter[0] === "string") {
-        mappedRepo = repoFilter[0].split("/")[1];
-      }
-      
-      if (mappedRepo && repos.includes(mappedRepo)) {
-        repo = mappedRepo;
-      } else {
-        // Heuristic 2: look for repo name in alert body
-        const bodyLower = alert.body.toLowerCase();
-        repo = repos.find((r) => bodyLower.includes(r.toLowerCase())) ?? null;
-      }
+  // ── Canonical repo resolution (migration 0068) ────────────────────────
+  // Prefer the `owner/repo` stored on the alert at ingest — that's the
+  // source-of-truth from whichever webhook delivered the event. Fall back
+  // to the project's `default_repo` when the source couldn't supply one
+  // (custom webhooks, manual alerts, pre-0068 alerts that never got
+  // backfilled). Only if BOTH are missing do we drop into the legacy
+  // fuzzy-match path below — it's kept intact for alerts written before
+  // the migration, but on new alerts we should never touch it.
+  let fullRepo: string | null = null;
+  if (alert.repo && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(alert.repo)) {
+    fullRepo = alert.repo;
+  } else {
+    const [projRow] = await db
+      .select({ defaultRepo: projects.defaultRepo })
+      .from(projects)
+      .where(eq(projects.id, session.projectId))
+      .limit(1);
+    if (projRow?.defaultRepo && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(projRow.defaultRepo)) {
+      fullRepo = projRow.defaultRepo;
     }
   }
 
-  if (!repo) { await fail(sessionId, emit, "Could not determine repository from alert. Please add the repo name in the integration config."); return; }
+  let repo: string;
+  if (fullRepo) {
+    const [declaredOwner, declaredRepo] = fullRepo.split("/");
+    if (declaredOwner !== owner) {
+      await fail(sessionId, emit,
+        `This alert is tagged repo=${fullRepo} but the project's GitHub integration is for owner '${owner}'. ` +
+        `Reconnect the GitHub integration under Settings → Integrations, or set a matching default repository.`
+      );
+      return;
+    }
+    repo = declaredRepo;
+  } else {
+    // Legacy path for alerts that predate migration 0068. Remove once
+    // backfill-alert-repo.ts has populated historical rows and the oldest
+    // unprocessed alerts age out of the 24h dedup window.
+    const extractedRepo = extractRepo(alert.title);
+    const repos = await gh.listOwnerRepos(token, owner);
+    let legacyRepo = (extractedRepo && repos.includes(extractedRepo)) ? extractedRepo : null;
 
-  const fullRepo = `${owner}/${repo}`;
+    if (!legacyRepo) {
+      if (repos.length === 1) {
+        legacyRepo = repos[0];
+      } else if (repos.length > 1) {
+        const alertConfig = config.alertConfig as Record<string, any> | undefined;
+        const repoFilter = Array.isArray(alertConfig?.repoFilter) ? alertConfig.repoFilter : [];
+        if (repoFilter.length === 1 && typeof repoFilter[0] === "string") {
+          const mapped = repoFilter[0].split("/")[1];
+          if (mapped && repos.includes(mapped)) legacyRepo = mapped;
+        }
+        if (!legacyRepo) {
+          const bodyLower = alert.body.toLowerCase();
+          legacyRepo = repos.find((r) => bodyLower.includes(r.toLowerCase())) ?? null;
+        }
+      }
+    }
+
+    if (!legacyRepo) {
+      await fail(sessionId, emit,
+        "Could not determine repository from alert. Set a default repository in Settings → Integrations → GitHub — " +
+        "new alerts from supported sources (capture, github, vercel, sentry, datadog) carry the repo automatically."
+      );
+      return;
+    }
+    repo = legacyRepo;
+    fullRepo = `${owner}/${repo}`;
+  }
   let steps: RemediationStep[] = (session.steps ?? []) as RemediationStep[];
 
   try {
@@ -1163,6 +1197,15 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             for (const f of fileContents) prefetchedFiles.set(f.path, f.content);
           }
 
+          // If this remediation was triggered from a Replay V2 session, its
+          // sessionId is stored on session.context — thread it through so the
+          // in-loop substrate replay gate sees the user's browser journey
+          // alongside the raw backend I/O (loader is tenant-scoped by
+          // projectId, so an untrusted value can't leak cross-tenant data).
+          const agenticCtx = session.context as { replaySessionId?: string } | null;
+          const agenticReplaySessionId =
+            typeof agenticCtx?.replaySessionId === "string" ? agenticCtx.replaySessionId : undefined;
+
           const agenticResult = await runAgenticLoop({
             apiKey: agenticApiKey,
             provider: agenticProvider,
@@ -1173,6 +1216,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             // model's reasoning budget.
             verifyModel: agenticExplore,
             diagnosisText: diagnosis.diagnosis,
+            replaySessionId: agenticReplaySessionId,
             prefetchedFiles,
             systemPrompt: "",
             errorContext,

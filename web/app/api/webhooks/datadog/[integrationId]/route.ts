@@ -5,6 +5,7 @@ import {
   createAlertIfNew,
   markIntegrationSuccess,
 } from "@/lib/webhooks/shared";
+import { resolveRepoFromDatadogTags } from "@/lib/webhooks/resolve-repo";
 import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { PLAN_LIMITS } from "@/lib/db";
@@ -179,6 +180,15 @@ export async function POST(
 
   let created = 0;
 
+  // Datadog sends tags as a comma-separated string ("env:prod,repo:o/r")
+  // OR as a string array in payload.tags — normalize to array for the
+  // repo resolver.
+  const tagsArray = Array.isArray(payload.tags)
+    ? payload.tags
+    : typeof tags === "string" && tags
+      ? tags.split(",").map((t) => t.trim())
+      : [];
+
   const result = await createAlertIfNew(
     {
       severity,
@@ -187,6 +197,7 @@ export async function POST(
       sourceIntegrations: ["datadog"],
       isRead: false,
       isResolved: false,
+      repo: resolveRepoFromDatadogTags(tagsArray),
     },
     integ.projectId
   );
