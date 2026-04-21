@@ -103,15 +103,19 @@ env:
     NODE_ENV: production
     PORT: "3000"
     NEXT_TELEMETRY_DISABLED: "1"
-    # DB driver selection — see web/lib/db/index.ts. Defaults to the
-    # legacy neon-http transport; flip to "pg" once DATABASE_URL_POOLED
-    # is seeded in sops and verified. Rollback: set back to "neon-http"
+    # DB driver selection — see web/lib/db/index.ts.
+    # "pg"        → pg.Pool against the Neon pooler endpoint (persistent
+    #               TCP, ~15 ms warm per query).
+    # "neon-http" → legacy HTTP transport, ~100 ms per query.
+    # Flipped to pg 2026-04-21 after scripts/csp-audit.ts cleared + DB
+    # URL was verified as Neon pooler. Rollback: set back to "neon-http"
     # and run `kamal env push`. No rebuild required either direction.
-    DB_DRIVER: "neon-http"
-    # CSP enforcement — see web/middleware.ts. Defaults unset
-    # (Report-Only). Set to "true" to flip enforcing; unset to revert.
-    # Flip only after scripts/csp-audit.ts reports 0 violations.
-    CSP_ENFORCE: ""
+    DB_DRIVER: "pg"
+    # CSP enforcement — see web/middleware.ts. "" = Content-Security-
+    # Policy-Report-Only; "true" = enforcing Content-Security-Policy.
+    # Flipped to enforcing 2026-04-21 after 18-page synthetic audit
+    # reported 0 violations. Rollback: unset this var, kamal env push.
+    CSP_ENFORCE: "true"
     # Canonical app URL. NEXTAUTH_URL drives OAuth callback composition +
     # post-login redirects, APP_URL drives all server-generated absolute
     # links (emails, OG images, share URLs). Both point at app.* now that

@@ -7,8 +7,14 @@ name: Deploy web to Hetzner
 on:
   push:
     branches: [main]
+    # Env-only changes go through env-push-web.yml (manual trigger, no
+    # rebuild). Negated pattern excludes .env.sops.yaml — if an app change
+    # lands alongside a sops edit, other files under web/** still match
+    # and the deploy fires. This only skips the case where .env.sops.yaml
+    # is the *sole* changed file.
     paths:
       - 'web/**'
+      - '!web/.env.sops.yaml'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
     inputs:

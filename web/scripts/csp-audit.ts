@@ -142,7 +142,7 @@ async function sweepPage(page: Page, url: string, label: string) {
 }
 
 async function signInWithCredentials(page: Page, email: string, password: string) {
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/login`, { waitUntil: "load", timeout: 25_000 });
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await Promise.all([
