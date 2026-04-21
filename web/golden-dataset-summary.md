@@ -1,25 +1,58 @@
 # Golden Dataset Summary
 
-Generated from golden-dataset-v2.jsonl (10 sessions)
+Generated from golden-dataset-v4.jsonl (12 sessions)
 
 ## Outcomes
 
 | Status | Count |
 |---|---|
-| failed | 7 |
-| pushing | 1 |
-| awaiting_ci | 1 |
+| failed | 11 |
 | queued | 1 |
 
-## Curated bugs (3)
+## Curated bugs (5)
 
 | Bug | Confidence | Self-Review | Pattern Match | Outcome | Fix Summary |
 |---|---|---|---|---|---|
-| missing-await | 98% | 95 | ✅ | pushing | Fix: Fixing unhandled promise rejection by awaiting the database insert operation. |
-| undefined-foreach | 92% | 90 | ✅ | awaiting_ci | Fix: Fixes TypeError by checking if 'data' is defined and initializing it to an empty array if not. |
+| off-by-one-loop | 99% | 95 | ✅ | failed | Fix: Adjusted the loop boundary in sumArray so it stops before arr.length, preventing an out-of-bounds read that produce |
+| division-by-zero | 98% | 95 | ✅ | failed | Fix: Updated average() to return 0 when called with an empty array instead of dividing by zero and producing Infinity. T |
+| missing-await | 98% | 95 | ✅ | failed | Fix: Fixing unhandled promise rejection by awaiting the database insert operation. |
+| undefined-foreach | 92% | 90 | ✅ | failed | Fix: Fixes TypeError by checking if 'data' is defined and initializing it to an empty array if not. |
 | null-deref-user-profile | 98% | 95 | ✅ | failed | Fix: Updated getUserName to safely handle a missing profile instead of dereferencing undefined. The function now returns |
 
 ## Fix code (curated bugs)
+
+### off-by-one-loop
+**Alert:** `TypeError: NaN returned from sumArray`  
+**Confidence:** 99% · **Self-Review:** 95 · **Pattern Match:** YES
+
+`__inari_bugs_fixtures__/bug-05-off-by-one.js`:
+```js
+// Bug: i <= length reads past end
+module.exports = function sumArray(arr) {
+  let total = 0;
+  for (let i = 0; i < arr.length; i++) {
+    total += arr[i];
+  }
+  return total;
+};
+
+```
+
+### division-by-zero
+**Alert:** `RangeError: average returned Infinity on empty input`  
+**Confidence:** 98% · **Self-Review:** 95 · **Pattern Match:** YES
+
+`__inari_bugs_fixtures__/bug-04-div-zero.js`:
+```js
+module.exports = function average(values) {
+  const count = values.length;
+  if (count === 0) {
+    return 0;
+  }
+  const sum = values.reduce((a, b) => a + b, 0);
+  return sum / count;
+};
+```
 
 ### missing-await
 **Alert:** `UnhandledPromiseRejection: database connection closed`  
@@ -44,11 +77,9 @@ module.exports = async function saveUser(db, user) {
 // Bug: data may be undefined when API returns empty
 module.exports = function sumItems(data) {
   let total = 0;
-  data = data || [];
-  data.forEach(item => { total += item.value; });
+  (data ?? []).forEach(item => { total += item.value; });
   return total;
-}; 
-
+};
 ```
 
 ### null-deref-user-profile
@@ -68,8 +99,8 @@ module.exports = function getUserName(user) {
 
 | Mode | Count | Meaning |
 |---|---|---|
+| ci_failures | 7 | Fix generated + pushed, but CI doesn't pass (demo-store has no CI workflow) |
 | github_permissions | 4 | GitHub token missing write scopes — reconnect integration |
-| ci_failures | 3 | Fix generated + pushed, but CI doesn't pass (demo-store has no CI workflow) |
 
 ## Real production alerts (7)
 
@@ -85,7 +116,7 @@ module.exports = function getUserName(user) {
 
 ## Key metrics
 
-- **Pattern match rate (curated)**: 3/3
-- **Sessions that produced a fix**: 5/10
-- **Avg diagnosis confidence**: 80.0% (across 5)
-- **Avg self-review score**: 90.0/100 (across 5)
+- **Pattern match rate (curated)**: 5/5
+- **Sessions that produced a fix**: 7/12
+- **Avg diagnosis confidence**: 85.3% (across 7)
+- **Avg self-review score**: 91.4/100 (across 7)
