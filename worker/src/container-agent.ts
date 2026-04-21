@@ -14,7 +14,11 @@ import type { AIMessage, AIProvider, ToolDefinition, ToolUseBlock, ToolResultBlo
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
 const MAX_OUTPUT_SIZE = 10_000;
-const EXEC_TIMEOUT = 120;
+// PR #8 (2026-04-21): bumped 120 -> 240 because gVisor + mitmproxy
+// add ~2x latency to npm install and build commands.  Orchestrator
+// caps via MAX_EXEC_TIMEOUT_SEC env (default 300 in PR #8 mode), so
+// 240 here gives headroom without overshooting the cap.
+const EXEC_TIMEOUT = 240;
 const READ_TIMEOUT = 10;
 
 // ── Blocked files/commands (same as web version) ────────────────────────────
@@ -360,10 +364,25 @@ export async function createContainer(
   repoUrl: string, branch: string, githubToken: string, sessionId: string
 ): Promise<string> {
   const containerId = `agent-${sessionId.slice(0, 8)}-${Date.now().toString(36)}`;
+  // PR #8 — same omit-mode flag the web app reads.  Server falls back
+  // to its own SERVER_GITHUB_TOKEN env when this is set, keeping the
+  // token off the wire between worker→Go server.
+  const omitToken = process.env.INARIWATCH_AGENT_PROXY === "true";
+  const body: Record<string, unknown> = {
+    id: containerId,
+    repo_url: repoUrl,
+    branch,
+    // PR #8 Stage 2.7: bumped 600 -> 1500 (25min).  Worker mode runs
+    // 40 turns vs Vercel's 15, so it needs more headroom under gVisor.
+    // Orchestrator caps via MAX_TTL env (1500 in PR #8 mode); set MAX_TTL
+    // accordingly on the staging host.
+    ttl_seconds: 1500,
+  };
+  if (!omitToken) body.github_token = githubToken;
   const res = await fetch(`${GO_SERVER}/container`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${STAGING_SECRET}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ id: containerId, repo_url: repoUrl, branch, github_token: githubToken, ttl_seconds: 600 }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(120_000),
   });
   if (!res.ok) {

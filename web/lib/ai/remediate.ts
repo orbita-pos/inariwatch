@@ -985,9 +985,14 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             const { jobId } = await jobRes.json() as { jobId: string };
             emit("container_agent", { status: "running", jobId });
 
-            // Poll for completion (worker writes steps to DB, SSE reads them)
+            // Poll for completion (worker writes steps to DB, SSE reads them).
+            // PR #8 (2026-04-21): bumped 8min -> 15min because gVisor + mitmproxy
+            // add ~2x latency; Stage 2.5 hit the 8min cap at turn 19/40 and
+            // had to fall back to agentic-loop, defeating the point of the
+            // hardened sandbox.  15min covers the full 40-turn budget under
+            // worst-case gVisor overhead.
             const pollStart = Date.now();
-            const maxPollMs = 8 * 60 * 1000;
+            const maxPollMs = 15 * 60 * 1000;
             type WorkerResult = { explanation: string; files: { path: string; content: string }[]; turns: number; verified: boolean; testsPassed: boolean };
             let workerResult: WorkerResult | null = null;
 

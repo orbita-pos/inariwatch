@@ -17,8 +17,12 @@ import { callAIWithTools } from "./client";
 const MAX_TURNS = 15;
 const MAX_FILE_SIZE = 15_000; // chars per file read
 const MAX_OUTPUT_SIZE = 10_000; // chars per command output
-const EXEC_TIMEOUT = 30; // seconds per command (was 120 — most commands finish in <10s, a hung npm install shouldn't burn 2 min of budget)
-const BUILD_TIMEOUT = 60; // seconds for build/test commands (npm run build, cargo build, etc.)
+// Per-command timeouts.  Bumped 2026-04-21 (Stage 2.5 of PR #8) after
+// gVisor + mitmproxy intercept caused many commands to hit the prior
+// 30s/60s caps.  Read commands kept at 10s -- still IO-bound, not
+// affected by gVisor TCP overhead.
+const EXEC_TIMEOUT = 90;   // general commands (was 30)
+const BUILD_TIMEOUT = 180; // build/test commands (was 60)
 const READ_TIMEOUT = 10;
 
 // ── Blocked Files (shared with agentic-loop.ts) ─────────────────────────────
@@ -861,19 +865,32 @@ export async function createContainer(
 ): Promise<string> {
   const containerId = `agent-${sessionId.slice(0, 8)}-${Date.now().toString(36)}`;
 
+  // PR #8 — when the orchestrator runs in proxied-sandbox mode, it
+  // sources the GitHub token from its own SERVER_GITHUB_TOKEN env
+  // instead of trusting per-request bodies.  We strip the token from
+  // the POST so it never traverses Vercel→Hetzner.  Default
+  // (INARIWATCH_AGENT_PROXY unset/false) keeps current behavior.
+  const omitToken = process.env.INARIWATCH_AGENT_PROXY === "true";
+  const body: Record<string, unknown> = {
+    id: containerId,
+    repo_url: repoUrl,
+    branch,
+    // PR #8 Stage 2.7: bumped 300 -> 1200 (20min).  Under gVisor +
+    // mitmproxy, container creation alone takes ~1m45s and individual
+    // execs run 60-120s.  Stage 2.6 saw the AI loop killed by the 5min
+    // TTL while still iterating on npm install at turn 13/15.  20min
+    // gives the agent the full 15-turn budget without TTL pressure.
+    ttl_seconds: 1200,
+  };
+  if (!omitToken) body.github_token = githubToken;
+
   const res = await fetch(`${stagingUrl}/container`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${stagingSecret}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      id: containerId,
-      repo_url: repoUrl,
-      branch,
-      github_token: githubToken,
-      ttl_seconds: 300,
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(120_000), // npm install can be slow
   });
 
