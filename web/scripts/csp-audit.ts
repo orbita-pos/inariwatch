@@ -61,7 +61,11 @@ interface Violation {
   blockedURI: string;
   sourceFile: string;
   lineNumber: number;
+  columnNumber?: number;
   sample: string;
+  disposition?: string;
+  referrer?: string;
+  documentURI?: string;
 }
 
 const ALL: Violation[] = [];
@@ -84,7 +88,12 @@ async function newPageWithListener(ctx: BrowserContext): Promise<Page> {
         blockedURI: e.blockedURI || "(inline)",
         sourceFile: e.sourceFile || "",
         lineNumber: e.lineNumber || 0,
-        sample: (e.sample || "").slice(0, 200),
+        columnNumber: (e as unknown as { columnNumber?: number }).columnNumber || 0,
+        sample: (e.sample || "").slice(0, 500),
+        originalPolicy: (e.originalPolicy || "").slice(0, 200),
+        disposition: e.disposition || "",
+        referrer: e.referrer || "",
+        documentURI: e.documentURI || "",
       });
     });
   });
@@ -194,8 +203,11 @@ async function main() {
     for (const v of ALL) {
       console.log(`  [${v.page}] ${v.directive}`);
       console.log(`    blocked=${v.blockedURI}`);
-      if (v.sourceFile) console.log(`    source=${v.sourceFile}:${v.lineNumber}`);
+      if (v.sourceFile) console.log(`    source=${v.sourceFile}:${v.lineNumber}:${v.columnNumber}`);
+      if (v.documentURI) console.log(`    doc=${v.documentURI}`);
+      if (v.referrer) console.log(`    referrer=${v.referrer}`);
       if (v.sample) console.log(`    sample=${v.sample}`);
+      if (v.disposition) console.log(`    disposition=${v.disposition}`);
     }
   }
 

@@ -1,10 +1,70 @@
 import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNeonHttp } from "drizzle-orm/neon-http";
+import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { eq, or, inArray, and, isNull } from "drizzle-orm";
 import * as schema from "./schema";
 
-const sql = neon(process.env.DATABASE_URL!);
-export const db = drizzle(sql, { schema });
+// Driver selection (A1 — VERCEL_LEVEL_AUDIT_REPORT.md):
+//
+//   DB_DRIVER=neon-http (default)
+//     Legacy serverless-optimised HTTP driver. New TCP/TLS handshake per
+//     query; great for ephemeral Vercel functions but wasteful on a
+//     long-running Kamal-hosted Node process (6 queries per dashboard
+//     render ≈ 6 × ~100 ms warm HTTP roundtrips).
+//
+//   DB_DRIVER=pg
+//     pg.Pool over persistent TCP. Reuses connections across requests,
+//     drops warm per-query latency from ~100 ms to ~15 ms against the
+//     Neon pooler endpoint. Expects DATABASE_URL to point at the Neon
+//     POOLER host (`ep-xxx-pooler.<region>.aws.neon.tech`) — transaction-
+//     mode pooling is compatible with Drizzle because we don't use
+//     prepared statements pinned across queries.
+//
+// Rollback path: `kamal env push DB_DRIVER=neon-http` — no rebuild needed.
+//
+// DATABASE_URL   — direct Neon endpoint (ep-xxx.<region>.aws.neon.tech),
+//                  used by both neon-http and pg when DATABASE_URL_POOLED
+//                  is unset. neon-http required this shape historically.
+// DATABASE_URL_POOLED — optional pooler endpoint
+//                  (ep-xxx-pooler.<region>.aws.neon.tech). When set and
+//                  DB_DRIVER=pg, the pg.Pool connects through PgBouncer
+//                  which caps at 10k pooled connections and reuses TCP.
+function createDb() {
+  const directUrl = process.env.DATABASE_URL;
+  const pooledUrl = process.env.DATABASE_URL_POOLED;
+  if (!directUrl) throw new Error("DATABASE_URL is not set");
+  const driver = (process.env.DB_DRIVER ?? "neon-http").toLowerCase();
+
+  if (driver === "pg") {
+    const url = pooledUrl ?? directUrl;
+    const pool = new Pool({
+      connectionString: url,
+      // CX22 has 2 vCPU — 10 per-pod connections is plenty. Neon pooler
+      // at Launch plan allows 10,000 pooled connections so we're nowhere
+      // near the ceiling.
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+      keepAlive: true,
+      // PgBouncer transaction-mode pooling + Drizzle: disable explicit
+      // prepared-statement caching so we don't pin prepared plans to a
+      // connection that gets handed to another session mid-transaction.
+      allowExitOnIdle: true,
+    });
+    console.log("[db] driver=pg against", url.replace(/\/\/[^@]+@/, "//***@").slice(0, 120));
+    return drizzlePg(pool, { schema });
+  }
+
+  console.log("[db] driver=neon-http against", directUrl.replace(/\/\/[^@]+@/, "//***@").slice(0, 120));
+  return drizzleNeonHttp(neon(directUrl), { schema });
+}
+
+// Runtime type varies by DB_DRIVER but the call surface Drizzle exposes
+// is identical for the two drivers on the methods we use (select, insert,
+// update, delete, execute). Cast to the neon-http return type so the rest
+// of the codebase keeps its existing inference without any churn.
+export const db = createDb() as ReturnType<typeof drizzleNeonHttp<typeof schema>>;
 
 export * from "./schema";
 

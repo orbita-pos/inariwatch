@@ -84,7 +84,11 @@ export default function LoginPage() {
       <div className="relative w-full max-w-sm px-4 py-12 sm:ml-16 lg:ml-24 xl:ml-32">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2.5">
+          {/* Logo link is cross-subdomain (app.* → root via middleware redirect).
+              prefetch=false avoids the RSC probe that hits the redirect and
+              trips connect-src, plus the redirected response doesn't carry
+              our per-request nonce since middleware skips CSP on 302s. */}
+          <Link href="/" prefetch={false} className="inline-flex items-center gap-2.5">
             <Image
               src="/logo-inari/favicon-96x96.png"
               alt="InariWatch"

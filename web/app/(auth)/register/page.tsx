@@ -85,7 +85,7 @@ export default function RegisterPage() {
         
         {/* Logo */}
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2.5">
+          <Link href="/" prefetch={false} className="inline-flex items-center gap-2.5">
             <Image
               src="/logo-inari/favicon-96x96.png"
               alt="InariWatch"
