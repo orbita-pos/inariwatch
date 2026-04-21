@@ -166,6 +166,14 @@ export interface AgenticLoopParams {
   /** Root-cause diagnosis text — fed into the verifier sanity gate. */
   diagnosisText?: string;
   /**
+   * Replay V2 session id, when this remediation was triggered from a
+   * browser session recording. Threaded into the substrate replay gate
+   * so the analyst sees the user's exact click → http → db → error
+   * chain alongside the raw I/O recording. Tenancy-scoped by projectId
+   * at the loader level — safe to pass an untrusted value.
+   */
+  replaySessionId?: string;
+  /**
    * Files the caller has already fetched (PR #7 context pre-fetch).
    * Populate the `filesRead` cache before turn 1 so the model can skip
    * the opening read_file round-trip and start reasoning or emitting
@@ -541,6 +549,16 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
   const MAX_VERIFIER_RETRIES = 2;
   let verifierRetries = 0;
 
+  // Substrate replay gate retry budget. The replay gate reasons about
+  // whether the patch would prevent the I/O sequence that was recorded
+  // before the crash — unique signal the static gates cannot produce.
+  // Same cap philosophy as the verifier: two bounce-backs, then we skip
+  // (advisory) so a stubborn recording + model disagreement doesn't
+  // thrash the turn budget. Downstream auto-merge gate #9 remains the
+  // authoritative post-push check.
+  const MAX_REPLAY_RETRIES = 2;
+  let replayRetries = 0;
+
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("agentic_turn", { turn, maxTurns: MAX_TURNS });
 
@@ -764,6 +782,113 @@ export async function runAgenticLoop(params: AgenticLoopParams): Promise<Agentic
           severity: "warning",
           issue: `verifier runtime error: ${verr instanceof Error ? verr.message.slice(0, 100) : "unknown"}`,
         });
+      }
+
+      // ── Substrate replay gate (pre-push, in-loop) ────────────────
+      // After the static gates pass, ask the replay analyst whether
+      // the patch would prevent the I/O sequence Substrate recorded
+      // before the crash. The analyst sees the real HTTP / DB / file
+      // ops that led to the failure — a different signal than the
+      // sanity gate, which only sees the diff + stack trace.
+      //
+      // This is the VAR signal: "verifiable" remediation means we can
+      // show evidence the fix addresses the recorded failure path,
+      // not just that the code parses + reads correctly.
+      //
+      // Blocking within MAX_REPLAY_RETRIES: a rejection kicks the
+      // model back for another turn with the analyst's reasoning in
+      // the tool_result. Past the cap we skip (advisory). Downstream
+      // auto-merge gate #9 re-runs the same analysis post-push and is
+      // the authority if the disagreement persists.
+      const replayAlertId = params.log?.alertId ?? null;
+      const replayUserId = params.log?.userId;
+      if (replayAlertId && replayUserId && replayRetries < MAX_REPLAY_RETRIES) {
+        try {
+          const { analyzeReplay } = await import("./substrate-replay");
+          const replayModel = params.verifyModel ?? params.exploreModel;
+          const replay = await analyzeReplay(
+            params.projectId,
+            replayAlertId,
+            params.diagnosisText ?? "(diagnosis unavailable)",
+            parsed.files,
+            apiKey,
+            provider,
+            replayModel,
+            {
+              userId: replayUserId,
+              remediationSessionId: params.log?.remediationSessionId ?? undefined,
+              isPlatformKey: params.log?.isPlatformKey,
+            },
+            params.replaySessionId,
+          );
+
+          if (replay === null) {
+            // No Substrate recording for this alert / project — gate
+            // is advisory, let the fix through.
+            emit("agentic_replay", { turn, skipped: true, reason: "no_recording" });
+          } else {
+            emit("agentic_replay", {
+              turn,
+              passed: replay.passed,
+              confidence: replay.confidence,
+              riskScore: replay.riskScore,
+              replayedEvents: replay.replayedEvents,
+              analysis: replay.analysis.slice(0, 200),
+              replayContextUsed: replay.replayContextUsed,
+              mode: replay.mode,
+            });
+
+            if (!replay.passed) {
+              replayRetries++;
+              const replayHint = [
+                `apply_patch PARSED cleanly and PASSED syntax + mechanical + sanity gates, but the SUBSTRATE REPLAY gate REJECTED the result and rolled it back. The files on disk are still the ORIGINALS — nothing was applied.`,
+                ``,
+                `The replay analyst reviewed the production I/O sequence Substrate recorded right before the crash — HTTP requests, DB queries, file operations — and concluded this fix would NOT prevent the same failure.`,
+                ``,
+                `Verdict: risk ${replay.riskScore}/100 (needed ≤ 40), confidence ${replay.confidence}/100, ${replay.replayedEvents} recorded events analyzed.`,
+                ``,
+                `Analyst reasoning:`,
+                `  ${replay.analysis}`,
+                ``,
+                `Next step: re-think the failure path using the recorded I/O above. Re-read any file you need; the previous patch is discarded. Then emit a COMPLETE apply_patch (every file, every hunk) that addresses the specific operations the analyst flagged.`,
+              ].join("\n");
+              const siblingResults = await executeSiblingTools(
+                toolUses.filter((t) => t.id !== applyPatchCall.id),
+                params,
+                filesRead,
+                turn,
+                emit,
+              );
+              messages.push({
+                role: "user",
+                content: [
+                  ...siblingResults,
+                  {
+                    type: "tool_result",
+                    tool_use_id: applyPatchCall.id,
+                    content: replayHint,
+                    is_error: true,
+                  } as ToolResultBlock,
+                ] as ContentBlock[],
+              });
+              continue;
+            }
+          }
+        } catch (rerr) {
+          // Runtime failure (network, DB, AI error, parse) — advisory,
+          // never blocks. Matches the verifier's behavior when the
+          // sanity gate can't run.
+          emit("agentic_replay", {
+            turn,
+            skipped: true,
+            reason: "runtime_error",
+            error: rerr instanceof Error ? rerr.message.slice(0, 200) : "unknown",
+          });
+        }
+      } else if (!replayAlertId || !replayUserId) {
+        emit("agentic_replay", { turn, skipped: true, reason: "no_alert_context" });
+      } else {
+        emit("agentic_replay", { turn, skipped: true, reason: "retry_cap" });
       }
 
       emit("agentic_done", { turns: turn, files: parsed.files.map((f) => f.path), via: "apply_patch" });

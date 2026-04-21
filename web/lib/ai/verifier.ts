@@ -2,7 +2,7 @@
  * Post-apply_patch verifier (PR #6).
  *
  * After the agent emits apply_patch and our envelope parser produces
- * the final file contents, we run two gates BEFORE pushing:
+ * the final file contents, we run three gates BEFORE pushing:
  *
  *   1. Syntax gate (deterministic, ~10 ms per file). Uses the TypeScript
  *      compiler's parser in SCRIPT mode to catch "this code won't even
@@ -10,10 +10,24 @@
  *      strings. For non-JS/TS files we skip (we don't ship a Python or
  *      Rust parser yet).
  *
- *   2. Sanity gate (cheap LLM). One gpt-4o-mini / analysis-tier call
+ *   2. Mechanical gate (PR #8, deterministic). Regex / AST pattern
+ *      detectors for defects the LLM-free layers should own — duplicate
+ *      imports, duplicate `const`/`let` declarations in the same block,
+ *      leftover `!` non-null assertion after a null-fix, dead code
+ *      after `return` / `throw`. ~2 ms/file, $0.
+ *
+ *   3. Sanity gate (cheap LLM). One gpt-4o-mini / analysis-tier call
  *      that sees the minimal diff plus the original error context and
  *      asks: "does this actually fix the error? any obvious logic
  *      bugs?". Returns JSON. Uses ≤ 500 tokens.
+ *
+ * A fourth gate, substrate_replay, is layered OUTSIDE this file by the
+ * agentic loop (see `agentic-loop.ts`). It asks the replay analyst
+ * whether the patch would prevent the I/O sequence Substrate recorded
+ * right before the crash — a signal none of the above gates can
+ * produce because they only see the diff, not the recorded failure
+ * path. Kept outside `verifyFix` to avoid coupling the static verifier
+ * to DB reads + Substrate-specific context.
  *
  * Motivation from PR #5 E2E (session 843de468): apply_patch parsed +
  * applied cleanly, the model's self_review scored 95/100 and the fix
