@@ -29,6 +29,7 @@ import { StatusPageSection } from "./status-page";
 import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
+import { DefaultRepoSection } from "./default-repo";
 import { StagingEnvSection } from "./staging-env";
 import { AllowedOriginsSection } from "./allowed-origins";
 import { ReplaySettingsSection } from "./replay-settings";
@@ -417,6 +418,12 @@ export default async function ProjectDetailPage({
         projectId={project.id}
         isAdmin={isAdmin}
         config={autoMergeConfig}
+      />
+
+      <DefaultRepoSection
+        projectId={project.id}
+        isAdmin={isAdmin}
+        currentValue={project.defaultRepo ?? null}
       />
 
       <StagingEnvSection
