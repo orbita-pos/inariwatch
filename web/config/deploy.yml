@@ -130,11 +130,12 @@ env:
   secret:
     # Core
     - DATABASE_URL
-    # Optional pooler endpoint (Neon -pooler.<region>.aws.neon.tech).
-    # Required when DB_DRIVER=pg so pg.Pool talks to PgBouncer instead
-    # of a direct Neon endpoint. Leave unset to keep the legacy neon-http
-    # transport.
-    - DATABASE_URL_POOLED
+    # NOTE: DATABASE_URL_POOLED is an optional override used by
+    # web/lib/db/index.ts when DB_DRIVER=pg and the direct URL is not
+    # already pooled. Only declare it here if sops actually carries the
+    # value — Kamal fails the deploy if a secret is listed but missing.
+    # Our current DATABASE_URL already points at the Neon pooler, so we
+    # omit it.
     - NEXTAUTH_SECRET
     - ENCRYPTION_KEY
     - CRON_SECRET
