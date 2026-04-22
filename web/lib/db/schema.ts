@@ -9,6 +9,7 @@ import {
   integer,
   numeric,
   doublePrecision,
+  real,
   bigint,
   index,
   uniqueIndex,
@@ -645,6 +646,18 @@ export const remediationSessions = pgTable("remediation_sessions", {
   previewSessionId: uuid("preview_session_id"),
   /** Timestamp of the first preview creation. Drives "preview shipped X days ago" UI. */
   previewEnabledAt: timestamp("preview_enabled_at", { withTimezone: true }),
+  // ── Fase 1 telemetry (migration 0069) ────────────────────────────────
+  /** Which tier handled the remediation: '0' | '1' | '2' | '3' | 'legacy'.
+   *  Written by the tier router in Fase 6; NULL for sessions that predate it. */
+  tierUsed: text("tier_used"),
+  /** How many candidate hypotheses the Tier 2/3 coordinator produced. */
+  hypothesisCount: integer("hypothesis_count"),
+  /** Cosine similarity [0, 1] of the closest pattern_memory entry. */
+  patternMatchScore: real("pattern_match_score"),
+  /** Which sandbox executed model-emitted code: 'none' | 'codeact-deno'. */
+  sandboxMode: text("sandbox_mode"),
+  /** True when Fase C SDK peer mode was active for this remediation. */
+  sdkPeerEnabled: boolean("sdk_peer_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -1414,6 +1427,22 @@ export const aiUsageLogs = pgTable(
      */
     replayOfRequestId: uuid("replay_of_request_id"),
 
+    // ── Fase 1 telemetry (migration 0069) ──────────────────────────────
+    /** Zero-based agent turn index within a remediation session. */
+    turnNumber: integer("turn_number"),
+    /** Time to first token in ms — null until a streaming writer lands. */
+    ttftMs: integer("ttft_ms"),
+    /** 'classify' | 'explore' | 'fix' | 'review' | 'graders' | 'other'. */
+    phase: text("phase"),
+    /** Provider-agnostic size bucket: 'nano' | 'mini' | 'standard' | 'reasoning'. */
+    modelTier: text("model_tier"),
+    /** When this row wraps a single tool invocation, the tool name. */
+    toolName: text("tool_name"),
+    /** Wall time of the tool execution on the cloud side. */
+    toolExecMs: integer("tool_exec_ms"),
+    /** Reasoning-token count reported by the provider (GPT-5.x family). */
+    reasoningTokens: integer("reasoning_tokens"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -1425,6 +1454,8 @@ export const aiUsageLogs = pgTable(
     uniqueIndex("idx_ai_usage_logs_request_id").on(table.requestId),
     index("idx_ai_usage_logs_feature_created").on(table.feature, table.createdAt),
     index("idx_ai_usage_logs_replay_of").on(table.replayOfRequestId),
+    index("idx_ai_usage_logs_phase_created").on(table.feature, table.phase, table.createdAt),
+    index("idx_ai_usage_logs_model_tier_created").on(table.modelTier, table.createdAt),
   ]
 );
 
@@ -1760,3 +1791,67 @@ export const rolloutRuns = pgTable("rollout_runs", {
 
 export type RolloutRun = typeof rolloutRuns.$inferSelect;
 export type NewRolloutRun = typeof rolloutRuns.$inferInsert;
+
+// ── Fase 1 telemetry — sandbox_audit_log (migration 0069) ──────────────────
+//
+// One row per CodeAct sandbox invocation (Fase 5). Populated by the
+// Deno + Pyodide runner in worker/src/sandbox/*. The code itself is not
+// stored here to keep the table small and to preserve PII scrubbing;
+// code_hash is a SHA-256 hex of the source so duplicate invocations can
+// be correlated.
+
+export const sandboxAuditLog = pgTable(
+  "sandbox_audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references(() => remediationSessions.id, { onDelete: "set null" }),
+    aiUsageLogId: uuid("ai_usage_log_id").references(() => aiUsageLogs.id, { onDelete: "set null" }),
+    codeHash: text("code_hash").notNull(),
+    purpose: text("purpose").notNull(),
+    resultSizeBytes: integer("result_size_bytes").notNull().default(0),
+    durationMs: integer("duration_ms").notNull().default(0),
+    success: boolean("success").notNull(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_sandbox_audit_log_session_created").on(table.sessionId, table.createdAt),
+    index("idx_sandbox_audit_log_success_created").on(table.success, table.createdAt),
+  ]
+);
+
+export type SandboxAuditLog = typeof sandboxAuditLog.$inferSelect;
+export type NewSandboxAuditLog = typeof sandboxAuditLog.$inferInsert;
+
+// ── Fase 1 telemetry — pattern_memory (migration 0069) ─────────────────────
+//
+// Per-project (error_fingerprint → fix) index queried by Tier 0 and Tier 1
+// in Fase 6. 1024-dim embedding mirrors the existing code_chunks schema so
+// operators only tune one HNSW index family. Fase 6 populates this; Fase 1
+// just declares the shape.
+
+export const patternMemory = pgTable(
+  "pattern_memory",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+    errorFingerprint: text("error_fingerprint").notNull(),
+    embedding: vector("embedding"),
+    fixStrategy: text("fix_strategy"),
+    filesTouched: jsonb("files_touched").notNull().default(sql`'[]'::jsonb`),
+    successCount: integer("success_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    confidence: real("confidence"),
+    postMergeHealthScore: real("post_merge_health_score"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_pattern_memory_project_fingerprint").on(table.projectId, table.errorFingerprint),
+    index("idx_pattern_memory_project_last_used").on(table.projectId, table.lastUsedAt),
+  ]
+);
+
+export type PatternMemory = typeof patternMemory.$inferSelect;
+export type NewPatternMemory = typeof patternMemory.$inferInsert;
