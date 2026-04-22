@@ -977,6 +977,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 sessionId, repoUrl: `https://github.com/${fullRepo}.git`, branch: defaultBranch,
                 githubToken: token, aiKey: containerApiKey, aiProvider: containerProvider,
                 exploreModel: containerExplore, fixModel: containerFix, errorContext, maxTurns: 40,
+                // Fase 2b — worker uses this to try /pool/checkout before
+                // cold-spawning when CONTAINER_POOL_ENABLED=true on the
+                // worker host. Older workers ignore it.
+                projectId: session.projectId,
               }),
               signal: AbortSignal.timeout(10_000),
             });

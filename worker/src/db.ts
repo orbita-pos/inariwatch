@@ -26,6 +26,11 @@ export const remediationSessions = pgTable("remediation_sessions", {
   confidenceScore: integer("confidence_score"),
   checkpointPhase: text("checkpoint_phase"),
   checkpointData: jsonb("checkpoint_data"),
+  // Fase 2b — 'pool-warm' when checkout succeeded, 'pool-cold-fallback'
+  // when checkout missed and we cold-spawned. NULL when the pool is
+  // disabled (CONTAINER_POOL_ENABLED=false) so the dashboard can
+  // distinguish "pool off" from "pool miss".
+  sandboxMode: text("sandbox_mode"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

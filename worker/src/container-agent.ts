@@ -10,6 +10,7 @@ import { callAIWithTools } from "./ai-client.js";
 import { db, remediationSessions } from "./db.js";
 import { eq } from "drizzle-orm";
 import type { AIMessage, AIProvider, ToolDefinition, ToolUseBlock, ToolResultBlock, ContentBlock } from "./ai-client.js";
+import { isPoolEnabled, tryPoolCheckout, returnPoolContainer, sandboxModeFor, type ContainerSource } from "./pool.js";
 
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
@@ -358,6 +359,20 @@ async function updateProgress(
   }
 }
 
+// Fase 2b — stamp the sandbox_mode column. Null value skips the write
+// (null means "pool off"; Fase 6 may write additional values).
+async function writeSandboxMode(sessionId: string, mode: string | null): Promise<void> {
+  if (mode === null) return;
+  try {
+    await db
+      .update(remediationSessions)
+      .set({ sandboxMode: mode })
+      .where(eq(remediationSessions.id, sessionId));
+  } catch {
+    // Telemetry failure must not abort a remediation
+  }
+}
+
 // ── Container lifecycle ─────────────────────────────────────────────────────
 
 export async function createContainer(
@@ -415,6 +430,14 @@ export interface AgentJobParams {
   fixModel: string;
   errorContext: string;
   maxTurns?: number;
+  /**
+   * Fase 2b — project UUID. When present and CONTAINER_POOL_ENABLED=true,
+   * the worker attempts to check out a pre-hydrated container from the
+   * pool before falling back to a cold spawn. Optional so older web
+   * dispatchers that don't include it still dispatch successfully —
+   * they just skip the pool path.
+   */
+  projectId?: string;
 }
 
 export interface AgentJobResult {
@@ -432,10 +455,38 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
   } = params;
   const maxTurns = params.maxTurns ?? MAX_TURNS;
 
-  // 1. Create container (localhost — fast)
-  await updateProgress(sessionId, { name: "container_create", status: "in_progress", detail: "Creating Docker container..." });
-  const containerId = await createContainer(repoUrl, branch, githubToken, sessionId);
-  await updateProgress(sessionId, { name: "container_create", status: "completed", detail: `Container ${containerId} ready` });
+  // 1. Acquire a container. Fase 2b tries the warm pool first when
+  // CONTAINER_POOL_ENABLED=true and we know the project; falls back to
+  // cold spawn on miss, disabled flag, or any pool error. tryPoolCheckout
+  // never throws — null means "use cold spawn".
+  const poolResult = await tryPoolCheckout({
+    projectId: params.projectId ?? null,
+    goServer: GO_SERVER,
+    secret: STAGING_SECRET,
+  });
+
+  let containerId: string;
+  let source: ContainerSource;
+  if (poolResult) {
+    containerId = poolResult.containerId;
+    source = "pool";
+    await updateProgress(sessionId, { name: "container_create", status: "completed", detail: `Pool checkout: ${containerId}` });
+  } else {
+    await updateProgress(sessionId, { name: "container_create", status: "in_progress", detail: "Creating Docker container..." });
+    containerId = await createContainer(repoUrl, branch, githubToken, sessionId);
+    source = "cold";
+    await updateProgress(sessionId, { name: "container_create", status: "completed", detail: `Container ${containerId} ready` });
+  }
+
+  // Record which sandbox path we took so /admin/remediation-lab can
+  // show pool hit rate. Null when pool is disabled (pool path never
+  // runs, so "cold" here doesn't mean "pool missed"). Fire-and-forget
+  // — a telemetry write failure must never abort a remediation.
+  void writeSandboxMode(sessionId, sandboxModeFor(source));
+
+  // Tracks the run outcome for the pool-return health signal. Flipped
+  // to true only if the submit_fix terminal path runs cleanly.
+  let runHealthy = false;
 
   try {
     // 2. Run AI loop
@@ -548,6 +599,9 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
               detail: `Fixed in ${turn} turns. Verified: ${tscPassed && buildPassed}. Tests: ${testsPassed}`,
             });
 
+            // submit_fix reached = the run completed cleanly; signal to
+            // pool-return that this container was healthy.
+            runHealthy = tscPassed && buildPassed;
             return { explanation: submission.explanation, files, turns: turn, verified: tscPassed && buildPassed, testsPassed };
           }
 
@@ -563,6 +617,20 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
 
     throw new Error(`Agent did not submit fix after ${maxTurns} turns`);
   } finally {
-    await destroyContainer(containerId);
+    if (source === "pool") {
+      // The pool owns destruction for pool-origin containers so it can
+      // record the health outcome before teardown. We report "healthy"
+      // only if the run finished without throwing — the catch clause
+      // of the outer try doesn't exist here, so we use a local flag.
+      // See releaseContainer() below for the actual wiring.
+      await returnPoolContainer({
+        containerId,
+        healthy: runHealthy,
+        goServer: GO_SERVER,
+        secret: STAGING_SECRET,
+      });
+    } else {
+      await destroyContainer(containerId);
+    }
   }
 }
