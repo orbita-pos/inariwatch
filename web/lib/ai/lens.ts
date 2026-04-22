@@ -53,7 +53,39 @@ const FEATURE_LIMITS: Record<LensFeature, { prompt: number; response: number }> 
   "other":           { prompt:  50_000, response: 50_000 },
 };
 
-export interface LensLogParams {
+/**
+ * Fase 1 telemetry — per-turn/per-tool fields populated by the tier router,
+ * container agent, and CodeAct sandbox in Fases 3/5/6. Every field is optional
+ * so existing callers continue to insert without emitting nulls explicitly.
+ */
+export interface LensTelemetry {
+  /** Zero-based agent turn index within a remediation session. */
+  turnNumber?: number | null;
+  /** Time to first token in ms (streaming providers only). */
+  ttftMs?: number | null;
+  /** 'classify' | 'explore' | 'fix' | 'review' | 'graders' | 'other'. */
+  phase?: LensPhase | null;
+  /** Provider-agnostic size bucket: 'nano' | 'mini' | 'standard' | 'reasoning'. */
+  modelTier?: LensModelTier | null;
+  /** When the row wraps a single tool invocation, the tool name. */
+  toolName?: string | null;
+  /** Wall time of the tool execution on the cloud side. */
+  toolExecMs?: number | null;
+  /** Reasoning-token count reported by the provider. */
+  reasoningTokens?: number | null;
+}
+
+export type LensPhase =
+  | "classify"
+  | "explore"
+  | "fix"
+  | "review"
+  | "graders"
+  | "other";
+
+export type LensModelTier = "nano" | "mini" | "standard" | "reasoning";
+
+export interface LensLogParams extends LensTelemetry {
   userId: string;
   projectId?: string | null;
   alertId?: string | null;
@@ -118,6 +150,13 @@ async function runLog(params: LensLogParams): Promise<void> {
     prompt: scrub(params.prompt, { maxChars: limits.prompt }),
     response: scrub(params.response, { maxChars: limits.response }),
     replayOfRequestId: params.replayOfRequestId ?? null,
+    turnNumber: params.turnNumber ?? null,
+    ttftMs: params.ttftMs ?? null,
+    phase: params.phase ?? null,
+    modelTier: params.modelTier ?? null,
+    toolName: params.toolName ?? null,
+    toolExecMs: params.toolExecMs ?? null,
+    reasoningTokens: params.reasoningTokens ?? null,
   });
 
   // Reconcile platform spend kill-switch counter. Only when the call
