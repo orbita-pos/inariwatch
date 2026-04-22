@@ -4,7 +4,7 @@
  * Gemini uses its own REST API.
  */
 
-import type { LensFeature } from "./lens";
+import type { LensFeature, LensTelemetry } from "./lens";
 
 export type AIMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
 export type AIVisionMessage = { role: "user"; text: string; imageBase64: string; beforeImageBase64?: string };
@@ -60,8 +60,13 @@ export interface AIResponse {
  * Optional per-call cost-tracking metadata. When provided, the client
  * auto-logs token usage + computed cost to `ai_usage_logs` after the call
  * completes. Each feature passes its own userId + feature name.
+ *
+ * `LensTelemetry` adds the Fase 1 per-turn/per-tool fields (phase,
+ * turnNumber, modelTier, toolName, etc.). Callers that know the phase
+ * boundary (agentic-loop, container-agent in Fase 3) populate these so
+ * the /admin/remediation-lab widget can group by phase / tier / model.
  */
-export interface AILogContext {
+export interface AILogContext extends LensTelemetry {
   userId: string;
   feature: LensFeature;
   projectId?: string | null;
@@ -87,6 +92,25 @@ export interface CallAIOpts {
 }
 
 /**
+ * Pick the optional Fase 1 telemetry fields (phase, turnNumber, modelTier,
+ * toolName, toolExecMs, reasoningTokens, ttftMs) off an `AILogContext`
+ * so they can be spread into every `logAICall` site without repeating the
+ * field list. Returns an empty object when none are set — avoids writing
+ * null-filled rows for callers that don't opt in.
+ */
+function pickTelemetryFields(ctx: AILogContext): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (ctx.turnNumber !== undefined && ctx.turnNumber !== null) out.turnNumber = ctx.turnNumber;
+  if (ctx.ttftMs !== undefined && ctx.ttftMs !== null) out.ttftMs = ctx.ttftMs;
+  if (ctx.phase !== undefined && ctx.phase !== null) out.phase = ctx.phase;
+  if (ctx.modelTier !== undefined && ctx.modelTier !== null) out.modelTier = ctx.modelTier;
+  if (ctx.toolName !== undefined && ctx.toolName !== null) out.toolName = ctx.toolName;
+  if (ctx.toolExecMs !== undefined && ctx.toolExecMs !== null) out.toolExecMs = ctx.toolExecMs;
+  if (ctx.reasoningTokens !== undefined && ctx.reasoningTokens !== null) out.reasoningTokens = ctx.reasoningTokens;
+  return out;
+}
+
+/**
  * Call the AI with a system prompt + messages and return the text response.
  * Pass opts.provider to override auto-detection (required for DeepSeek).
  *
@@ -107,6 +131,7 @@ export async function callAI(
       // Fire-and-forget via InariLens: captures prompt + response alongside
       // usage. Dynamic import keeps the client module free of a load-time
       // dep on the DB layer (matters for scripts / tools that import it).
+      const telemetry = pickTelemetryFields(opts.log);
       import("./lens").then(({ logAICall, serializePrompt }) => {
         logAICall({
           userId: opts.log!.userId,
@@ -124,12 +149,14 @@ export async function callAI(
           durationMs: Date.now() - t0,
           prompt: serializePrompt(systemPrompt, messages),
           response: response.text,
+          ...telemetry,
         });
       }).catch(() => {});
     }
     return response.text;
   } catch (err) {
     if (opts.log) {
+      const telemetry = pickTelemetryFields(opts.log);
       import("./lens").then(({ logAICall, serializePrompt }) => {
         logAICall({
           userId: opts.log!.userId,
@@ -146,6 +173,7 @@ export async function callAI(
           error: err instanceof Error ? err.message : String(err),
           durationMs: Date.now() - t0,
           prompt: serializePrompt(systemPrompt, messages),
+          ...telemetry,
         });
       }).catch(() => {});
     }
@@ -275,6 +303,7 @@ export async function callAIVision(
     }
 
     if (opts.log) {
+      const telemetry = pickTelemetryFields(opts.log);
       import("./lens").then(({ logAICall }) => {
         logAICall({
           userId: opts.log!.userId,
@@ -295,6 +324,7 @@ export async function callAIVision(
           // intentionally don't persist.
           prompt: `[VISION]\n[SYSTEM]\n${systemPrompt}\n---\n[USER]\n${message.text}`,
           response: result.text,
+          ...telemetry,
         });
       }).catch(() => {});
     }
@@ -302,6 +332,7 @@ export async function callAIVision(
     return result.text;
   } catch (err) {
     if (opts.log) {
+      const telemetry = pickTelemetryFields(opts.log);
       import("./lens").then(({ logAICall }) => {
         logAICall({
           userId: opts.log!.userId,
@@ -318,6 +349,7 @@ export async function callAIVision(
           error: err instanceof Error ? err.message : String(err),
           durationMs: Date.now() - t0,
           prompt: `[VISION]\n[SYSTEM]\n${systemPrompt}\n---\n[USER]\n${message.text}`,
+          ...telemetry,
         });
       }).catch(() => {});
     }
@@ -449,6 +481,7 @@ export async function callAIWithTools(
     }
 
     if (opts.log) {
+      const telemetry = pickTelemetryFields(opts.log);
       import("./lens").then(({ logAICall, serializePrompt }) => {
         // For tool_use turns there's no final text — record a marker listing
         // which tools were called so the admin UI shows what the model did.
@@ -476,6 +509,7 @@ export async function callAIWithTools(
           durationMs: Date.now() - t0,
           prompt: serializePrompt(systemPrompt, messages),
           response: responseText,
+          ...telemetry,
         });
       }).catch(() => {});
     }
@@ -499,6 +533,7 @@ export async function callAIWithTools(
     };
   } catch (err) {
     if (opts.log) {
+      const telemetry = pickTelemetryFields(opts.log);
       import("./lens").then(({ logAICall, serializePrompt }) => {
         logAICall({
           userId: opts.log!.userId,
@@ -515,6 +550,7 @@ export async function callAIWithTools(
           error: err instanceof Error ? err.message : String(err),
           durationMs: Date.now() - t0,
           prompt: serializePrompt(systemPrompt, messages),
+          ...telemetry,
         });
       }).catch(() => {});
     }

@@ -11,6 +11,10 @@ on:
 jobs:
   eval:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     timeout-minutes: 10
     defaults:
       run:
