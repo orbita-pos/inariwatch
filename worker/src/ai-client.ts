@@ -1,8 +1,17 @@
 /**
  * AI client for the worker — extracted from web/lib/ai/client.ts.
  * Supports Claude, OpenAI, Grok, DeepSeek, Groq (tool use).
- * Zero dependencies — uses native fetch.
+ *
+ * Uses native fetch. Fase 3 adds an undici keep-alive dispatcher (behind
+ * REMEDIATION_MODEL_ROUTING) so repeat provider calls reuse TLS sockets.
  */
+
+import { installKeepAliveDispatcher } from "./http-agent.js";
+
+// Fase 3 — install the undici keep-alive agent on first import. No-op when
+// REMEDIATION_MODEL_ROUTING is not "true", so behavior is unchanged for
+// deployments that haven't opted in yet.
+installKeepAliveDispatcher();
 
 export type AIProvider = "claude" | "openai" | "grok" | "deepseek" | "gemini" | "groq";
 export type AIMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
