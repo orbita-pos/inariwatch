@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --max-old-space-size=2048 dist/server.js",
     "build": "tsc",
-    "dev": "tsx src/server.ts"
+    "dev": "tsx src/server.ts",
+    "test": "tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
