@@ -54,20 +54,19 @@ jobs:
         with:
           deno-version: v2.x
 
-      # Cache Pyodide OUTSIDE the worker directory. Deno 2.x detects the
-      # repo's package.json and switches to `nodeModules: manual`, which
-      # rejects bare `deno cache npm:<x>` entrypoints. Running the cache
-      # step in a fresh directory with its own DENO_DIR bypasses that —
-      # the Pyodide bits land in /tmp/sandbox-cache and the test run
-      # reads them by pointing DENO_DIR at the same place.
-      - name: Pre-cache Pyodide
+      # Install the sandbox OUTSIDE the repo — mirrors production layout
+      # (/opt/sandbox/ per worker/src/sandbox/SETUP.md). Keeping the
+      # runner.ts inside the repo means Deno walks up to worker/package.json
+      # and tries to install every worker dep (drizzle, bullmq, pg...) via
+      # --node-modules-dir=auto. Copying to /tmp/sandbox/ isolates the
+      # runner the same way the Hetzner install does.
+      - name: Stage sandbox runtime in /tmp/sandbox
         run: |
-          mkdir -p /tmp/sandbox-cache
-          cd /tmp/sandbox-cache
-          # --node-modules-dir=auto matches what runner.ts passes to the
-          # Deno subprocess at runtime, so the cache layout written here
-          # is the one Pyodide expects to find when imported.
+          mkdir -p /tmp/sandbox /tmp/sandbox-cache
+          cp ${{ github.workspace }}/worker/src/sandbox/pyodide-runner.ts /tmp/sandbox/
+          cd /tmp/sandbox
           DENO_DIR=/tmp/sandbox-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
+          ls -la /tmp/sandbox /tmp/sandbox-cache
 
       - name: TypeCheck
         working-directory: worker
@@ -84,7 +83,7 @@ jobs:
 
       - name: Deno can resolve npm:pyodide
         run: |
-          cd /tmp/sandbox-cache
+          cd /tmp/sandbox
           DENO_DIR=/tmp/sandbox-cache deno eval \
             --node-modules-dir=auto \
             'import { loadPyodide } from "npm:pyodide@0.28"; console.log("pyodide import resolved:", typeof loadPyodide);'
@@ -93,12 +92,13 @@ jobs:
         shell: bash
         run: |
           set +e
+          cd /tmp/sandbox
           echo '{"type":"init","session":"smoke","code":"result = 1+1"}' \
             | DENO_DIR=/tmp/sandbox-cache deno run \
-                --allow-read=${{ github.workspace }}/worker/src/sandbox \
+                --allow-read=/tmp/sandbox \
                 --no-prompt \
                 --node-modules-dir=auto \
-                ${{ github.workspace }}/worker/src/sandbox/pyodide-runner.ts \
+                /tmp/sandbox/pyodide-runner.ts \
                 > /tmp/runner.stdout 2> /tmp/runner.stderr
           SMOKE_EXIT=$?
           echo "--- runner exit code: $SMOKE_EXIT ---"
@@ -112,13 +112,12 @@ jobs:
       - name: Adversarial sandbox tests
         working-directory: worker
         env:
-          # Point the runner at the in-repo file; SETUP.md describes the
-          # production /opt/sandbox layout.
-          SANDBOX_RUNNER_PATH: ${{ github.workspace }}/worker/src/sandbox/pyodide-runner.ts
-          SANDBOX_READ_ROOT: ${{ github.workspace }}/worker/src/sandbox
-          # The subprocess spawn in runner.ts forwards DENO_DIR to the
-          # Deno child, so Pyodide resolves from the pre-cache above
-          # instead of hitting npm at test time.
+          # Point the runner at the /tmp/sandbox/ copy (outside the repo)
+          # so Deno's --node-modules-dir=auto doesn't trip over
+          # worker/package.json. Mirrors the production layout where
+          # /opt/sandbox/ is the only thing the sandbox ever reads.
+          SANDBOX_RUNNER_PATH: /tmp/sandbox/pyodide-runner.ts
+          SANDBOX_READ_ROOT: /tmp/sandbox
           SANDBOX_DENO_DIR: /tmp/sandbox-cache
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: npx tsx --test src/__tests__/sandbox-security.test.ts
