@@ -63,9 +63,13 @@ export interface LensTelemetry {
   turnNumber?: number | null;
   /** Time to first token in ms (streaming providers only). */
   ttftMs?: number | null;
-  /** 'classify' | 'explore' | 'fix' | 'review' | 'graders' | 'other'. */
+  /** Pipeline phase the call belongs to. See LensPhase. */
   phase?: LensPhase | null;
-  /** Provider-agnostic size bucket: 'nano' | 'mini' | 'standard' | 'reasoning'. */
+  /**
+   * Provider-agnostic size bucket. When omitted, runLog derives it from the
+   * model name via deriveModelTier(), so callers don't have to keep the
+   * mapping in sync. Pass `null` explicitly to force "unclassified".
+   */
   modelTier?: LensModelTier | null;
   /** When the row wraps a single tool invocation, the tool name. */
   toolName?: string | null;
@@ -75,15 +79,54 @@ export interface LensTelemetry {
   reasoningTokens?: number | null;
 }
 
+/**
+ * Canonical pipeline phases. Fase 3.5 hotfix narrowed this to exactly the
+ * six values the /admin/remediation-lab dashboard groups by. `triage` covers
+ * pre-loop classification (auto-analyze, diagnose); `final` covers post-loop
+ * verification (visual, post-merge); `review` covers self-review and
+ * security review.
+ */
 export type LensPhase =
   | "classify"
+  | "triage"
   | "explore"
   | "fix"
-  | "review"
-  | "graders"
-  | "other";
+  | "final"
+  | "review";
 
 export type LensModelTier = "nano" | "mini" | "standard" | "reasoning";
+
+/**
+ * Derive the provider-agnostic model_tier bucket from a model name. Centralized
+ * here so every caller doesn't have to keep its own mapping in sync. Returns
+ * null for unrecognized models — clean "unclassified" beats the wrong tier.
+ *
+ * Rules (Fase 3.5):
+ *   - "nano"                            → "nano"
+ *   - "mini" | "haiku"                  → "mini"
+ *   - "5.4" | "sonnet" | "gpt-4"        → "standard"
+ *   - "opus" | "reasoning"              → "reasoning"
+ *   - anything else                     → null
+ *
+ * Order matters when a model name matches multiple rules (e.g. gpt-5.4-mini
+ * is "mini", not "standard"): we check nano first, mini next, then the
+ * standard tier, then reasoning. Each substring is matched with a word
+ * boundary so "gemini" doesn't masquerade as "mini" and "miniature" doesn't
+ * either — vendors universally separate model id segments with `-`, `.`, or
+ * end-of-string, all of which `\b` recognizes.
+ */
+export function deriveModelTier(model: string | null | undefined): LensModelTier | null {
+  if (!model) return null;
+  const m = model.toLowerCase();
+  if (/\bnano\b/.test(m)) return "nano";
+  if (/\bmini\b/.test(m) || /\bhaiku\b/.test(m)) return "mini";
+  // gpt-4 has no trailing boundary because "gpt-4o" / "gpt-4-turbo" must
+  // also classify as standard. The mini check above already siphons off
+  // "gpt-4o-mini" so we don't double-count.
+  if (/\b5\.4\b/.test(m) || /\bsonnet\b/.test(m) || /\bgpt-4/.test(m)) return "standard";
+  if (/\bopus\b/.test(m) || /\breasoning\b/.test(m)) return "reasoning";
+  return null;
+}
 
 export interface LensLogParams extends LensTelemetry {
   userId: string;
@@ -131,6 +174,11 @@ async function runLog(params: LensLogParams): Promise<void> {
 
   const limits = FEATURE_LIMITS[params.feature];
 
+  // Auto-derive model_tier from the model name when the caller didn't pass one.
+  // `undefined` opts in to derivation; explicit `null` opts out (forces unclassified).
+  const resolvedModelTier =
+    params.modelTier === undefined ? deriveModelTier(params.model) : params.modelTier;
+
   await db.insert(aiUsageLogs).values({
     userId: params.userId,
     projectId: params.projectId ?? null,
@@ -153,7 +201,7 @@ async function runLog(params: LensLogParams): Promise<void> {
     turnNumber: params.turnNumber ?? null,
     ttftMs: params.ttftMs ?? null,
     phase: params.phase ?? null,
-    modelTier: params.modelTier ?? null,
+    modelTier: resolvedModelTier,
     toolName: params.toolName ?? null,
     toolExecMs: params.toolExecMs ?? null,
     reasoningTokens: params.reasoningTokens ?? null,

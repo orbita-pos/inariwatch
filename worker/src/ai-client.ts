@@ -50,6 +50,16 @@ export interface CallAIWithToolsOpts {
   toolChoice?: "auto" | "required" | { type: "function"; name: string };
   /** Allow parallel tool calls in one turn. Default true. */
   parallelToolCalls?: boolean;
+  /**
+   * Fase 3.5 — pipeline phase the call belongs to. Today the worker has no
+   * lens.ts so this is signature-only parity with web/lib/ai/client.ts:
+   * callers in container-agent.ts pass it so future per-turn telemetry
+   * picks the value up without another caller refactor.
+   *
+   * Accepts the same six values as web's LensPhase
+   * (classify | triage | explore | fix | final | review).
+   */
+  phase?: "classify" | "triage" | "explore" | "fix" | "final" | "review";
 }
 
 const GPT_5_PREFIXES = ["gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.3", "gpt-5.4"] as const;

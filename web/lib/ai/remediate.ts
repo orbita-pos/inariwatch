@@ -675,6 +675,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             alertId: session.alertId,
             remediationSessionId: session.id,
             feature: "remediation",
+            phase: "triage",
             isPlatformKey: aiKey.isPlatformKey,
           },
         });
@@ -1326,6 +1327,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               alertId: session.alertId,
               remediationSessionId: session.id,
               feature: "remediation",
+              phase: "fix",
               isPlatformKey: aiKey.isPlatformKey,
             },
           });
@@ -1424,6 +1426,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             alertId: session.alertId,
             remediationSessionId: session.id,
             feature: "remediation",
+            phase: "triage",
             isPlatformKey: aiKey.isPlatformKey,
           },
         });
@@ -1484,6 +1487,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
                 alertId: session.alertId,
                 remediationSessionId: session.id,
                 feature: "security-scan",
+                phase: "review",
                 isPlatformKey: aiKey.isPlatformKey,
               },
             });
@@ -1541,6 +1545,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         alertId: session.alertId,
         remediationSessionId: session.id,
         feature: "self-review" as const,
+        phase: "review" as const,
         isPlatformKey: aiKey.isPlatformKey,
       };
 
@@ -2097,6 +2102,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
                         alertId: session.alertId,
                         remediationSessionId: sessionId,
                         feature: "remediation",
+                        phase: "final",
                         isPlatformKey: aiKey.isPlatformKey,
                       },
                     }
