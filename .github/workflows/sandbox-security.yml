@@ -64,7 +64,10 @@ jobs:
         run: |
           mkdir -p /tmp/sandbox-cache
           cd /tmp/sandbox-cache
-          DENO_DIR=/tmp/sandbox-cache deno cache npm:pyodide@0.28
+          # --node-modules-dir=auto matches what runner.ts passes to the
+          # Deno subprocess at runtime, so the cache layout written here
+          # is the one Pyodide expects to find when imported.
+          DENO_DIR=/tmp/sandbox-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
 
       - name: TypeCheck
         working-directory: worker

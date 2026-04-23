@@ -120,6 +120,13 @@ function spawnDeno(): SubprocessHandle {
       "--allow-none",
       `--allow-read=${SANDBOX_READ_ROOT}`,
       "--no-prompt",
+      // Deno 2.x walks upward looking for package.json and switches to
+      // `nodeModules: manual`, which rejects bare `npm:pyodide@0.28`
+      // imports inside pyodide-runner.ts. `--node-modules-dir=auto`
+      // tells Deno to manage its own node_modules tree (placed in the
+      // SANDBOX_DENO_DIR cache, not in the repo's node_modules), so the
+      // npm specifier resolves correctly at runtime.
+      "--node-modules-dir=auto",
       `--v8-flags=--max-old-space-size=${V8_HEAP_MB}`,
       RUNNER_PATH,
     ],
