@@ -9,7 +9,7 @@ have to be present before `CODEACT_ENABLED=true`.
 
 | Component | Version | Path | Why |
 |---|---|---|---|
-| Deno | pin to a 2.x point release at install time (record below) | `/usr/local/bin/deno` | Outermost layer of the sandbox — `--allow-none` denies file/exec/net to the runner |
+| Deno | pin to a 2.x point release at install time (record below) | `/usr/local/bin/deno` | Outermost layer of the sandbox — default-deny semantics (no `--allow-*` flags beyond a narrow `--allow-read` on `/opt/sandbox`) block file write, network, env access, and exec |
 | Pyodide cache | 0.28 (pinned) | `/opt/sandbox/.deno-cache/npm/registry.npmjs.org/pyodide/...` | No `npm install` at runtime — pre-baked per GPT54 §B9 |
 | `pyodide-runner.ts` | from this commit | `/opt/sandbox/pyodide-runner.ts` | Deno script — `runner.ts` spawns it |
 
@@ -42,8 +42,9 @@ sudo chmod 644 /opt/sandbox/pyodide-runner.ts
 
 # 4. Verify the runner can boot offline (no net, no privileges)
 sudo -u inari-worker -- env DENO_DIR=/opt/sandbox/.deno-cache \
-    deno run --allow-none --allow-read=/opt/sandbox \
-             --no-prompt --v8-flags=--max-old-space-size=256 \
+    deno run --allow-read=/opt/sandbox \
+             --no-prompt --node-modules-dir=auto \
+             --v8-flags=--max-old-space-size=256 \
              /opt/sandbox/pyodide-runner.ts <<< ''
 # Expected first line on stdout: {"type":"ready"}
 # Then the process waits for an `init` message on stdin — Ctrl+C to exit.
@@ -121,12 +122,13 @@ The worker is native systemd on Hetzner per `CLAUDE.md`. The Dockerfile
 snippet in arch doc §4 Fase 5 (lines 405-414) and GPT54 §B9 was
 assuming a containerized worker — that's not the topology we ship.
 Equivalent isolation comes from the existing per-remediation gVisor
-container (PR #8) plus `--allow-none` on the Deno subprocess.
+container (PR #8) plus Deno's default-deny permission model (only a
+narrow `--allow-read=/opt/sandbox` is granted).
 
 The triple-layer defense from arch doc §Pillar 3 stays intact:
 
 1. **Pyodide WASM** — no `os.system`, no `subprocess`, no socket
-2. **Deno `--allow-none --allow-read=/opt/sandbox`** — denies file write,
+2. **Deno default-deny + `--allow-read=/opt/sandbox`** — denies file write,
    network, env access, exec
 3. **Existing gVisor container (PR #8)** — every `read_file` /
    `apply_patch` / `run_command` from inside the sandbox crosses back

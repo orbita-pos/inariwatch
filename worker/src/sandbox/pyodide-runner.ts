@@ -3,9 +3,15 @@
  * Fase 5 — CodeAct sandbox Deno runner.
  *
  * Spawned by the worker's runner.ts as a subprocess with:
- *   deno run --allow-none --allow-read=/opt/sandbox \
- *            --no-prompt --v8-flags=--max-old-space-size=256 \
+ *   deno run --allow-read=/opt/sandbox \
+ *            --no-prompt --node-modules-dir=auto \
+ *            --v8-flags=--max-old-space-size=256 \
  *            /opt/sandbox/pyodide-runner.ts
+ *
+ * Deno's default is deny-everything — omitting --allow-write, --allow-net,
+ * --allow-env, --allow-run etc. is what makes this airtight. There is no
+ * `--allow-none` flag (despite what some spec drafts suggested); default-
+ * deny is achieved by adding only the narrow reads you need.
  *
  * Loads Pyodide from the pre-cached vendor directory (no runtime npm
  * install — the cache lives at /opt/sandbox/.deno-cache per SETUP.md).

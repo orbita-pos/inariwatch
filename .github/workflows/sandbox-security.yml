@@ -79,7 +79,6 @@ jobs:
       - name: Sandbox runner smoke test
         run: |
           DENO_DIR=/tmp/sandbox-cache deno run \
-            --allow-none \
             --allow-read=${{ github.workspace }}/worker/src/sandbox \
             --no-prompt \
             --node-modules-dir=auto \

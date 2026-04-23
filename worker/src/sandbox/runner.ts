@@ -8,7 +8,8 @@
  * Threat model (from arch doc §Pillar 3, GPT54 §B7):
  *   - Adversary: model emits Python that tries to escape the sandbox.
  *   - Layer 1 (Pyodide): WASM, no os.system / no subprocess / no network.
- *   - Layer 2 (Deno): --allow-none denies file/exec/net to the runner.
+ *   - Layer 2 (Deno): default-deny (no --allow-* flags except a narrow
+ *     --allow-read on SANDBOX_READ_ROOT) — no write, net, env, or exec.
  *   - Layer 3 (parent validators): every tool_request goes through
  *     validators.ts before any container action runs.
  *   - Watchdog: kill after 60s wall, 64KB stdout, or 256MB v8 heap.
@@ -117,7 +118,13 @@ function spawnDeno(): SubprocessHandle {
     DENO_BINARY,
     [
       "run",
-      "--allow-none",
+      // Deno's default is deny-everything: no --allow-* flag means no
+      // file write, no net, no env, no exec, no FFI. The only thing we
+      // grant is narrow read access to the runner directory so Deno can
+      // load pyodide-runner.ts itself + the cached Pyodide WASM. Note:
+      // older spec drafts mentioned a `--allow-none` flag — that does
+      // not exist in Deno 2.x. Default-deny is achieved by omitting
+      // every --allow-* flag.
       `--allow-read=${SANDBOX_READ_ROOT}`,
       "--no-prompt",
       // Deno 2.x walks upward looking for package.json and switches to
