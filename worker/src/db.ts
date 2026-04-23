@@ -66,6 +66,27 @@ export const aiUsageLogs = pgTable("ai_usage_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Sandbox Audit Log (Fase 5 — CodeAct) ────────────────────────────────────
+//
+// Worker-side subset of web `sandbox_audit_log` (migration 0069). One row
+// per CodeAct sandbox invocation written by worker/src/sandbox/runner.ts.
+// Code itself lives in ai_usage_logs.prompt; this table only stores the
+// SHA-256 hash so identical invocations correlate without exposing source.
+// Keep in sync with web/lib/db/schema.ts::sandboxAuditLog.
+
+export const sandboxAuditLog = pgTable("sandbox_audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: uuid("session_id"),
+  aiUsageLogId: uuid("ai_usage_log_id"),
+  codeHash: text("code_hash").notNull(),
+  purpose: text("purpose").notNull(),
+  resultSizeBytes: integer("result_size_bytes").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  success: boolean("success").notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Substrate Recordings (for What-If replay) ──────────────────────────────
 
 export const substrateRecordings = pgTable("substrate_recordings", {
