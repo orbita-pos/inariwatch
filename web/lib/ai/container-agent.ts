@@ -13,6 +13,7 @@
 
 import type { ToolDefinition, AIMessage, ContentBlock, ToolUseBlock, ToolResultBlock, AIProvider } from "./client";
 import { callAIWithTools } from "./client";
+import type { LensPhase } from "./lens";
 
 const MAX_TURNS = 15;
 const MAX_FILE_SIZE = 15_000; // chars per file read
@@ -733,6 +734,11 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
     // they are the caller-provided models and this is a no-op swap.
     const isNearEnd = turn > MAX_TURNS - 3;
     const currentModel = isNearEnd ? phaseFixModel : phaseExploreModel;
+    // Fase 3.5 — phase tag for /admin/remediation-lab. The Vercel fallback
+    // uses a simple turn-position rule (no boundary detection): exploration
+    // for turns 1..MAX_TURNS-3, fix for the last 3. Worker uses real
+    // boundary detection (worker/src/phase-boundary.ts).
+    const currentPhase: LensPhase = isNearEnd ? "fix" : "explore";
 
     // Model-aware system prompt — GPT gets the narration/stop-early overlay,
     // gpt-5.4 also gets the verbosity clamp, every model gets IMMUTABLE_RULES
@@ -753,6 +759,8 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
             alertId: params.log.alertId,
             remediationSessionId: params.log.remediationSessionId,
             feature: "remediation",
+            phase: currentPhase,
+            turnNumber: turn,
             isPlatformKey: params.log.isPlatformKey ?? false,
           }
         : undefined,

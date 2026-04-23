@@ -365,12 +365,35 @@ async function updateProgress(
   }
 }
 
-// Fase 2b — stamp the sandbox_mode column. Null value skips the write
-// (null means "pool off"; Fase 6 may write additional values).
-async function writeSandboxMode(sessionId: string, mode: string | null): Promise<void> {
+/**
+ * Minimal subset of the Drizzle update chain we need so callers (including
+ * the unit test) can pass a fake db. Real db.update returns a much richer
+ * builder, but we only ever use these three methods on this path.
+ */
+export interface SandboxModeDb {
+  update: (table: typeof remediationSessions) => {
+    set: (values: { sandboxMode: string }) => {
+      where: (predicate: ReturnType<typeof eq>) => Promise<unknown>;
+    };
+  };
+}
+
+/**
+ * Fase 2b — stamp the sandbox_mode column. Null value skips the write
+ * (null means "pool off"; Fase 6 may write additional values).
+ *
+ * Fase 3.5 hotfix — exported + db-injectable so the unit test can assert
+ * the right value lands in the right column without touching Neon. The
+ * default db is the worker's singleton; tests pass a fake.
+ */
+export async function writeSandboxMode(
+  sessionId: string,
+  mode: string | null,
+  client: SandboxModeDb = db as unknown as SandboxModeDb,
+): Promise<void> {
   if (mode === null) return;
   try {
-    await db
+    await client
       .update(remediationSessions)
       .set({ sandboxMode: mode })
       .where(eq(remediationSessions.id, sessionId));
@@ -581,6 +604,10 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
         provider: aiProvider,
         priorOutput,
         reasoningEffort,
+        // Fase 3.5 — phase tag matches the Fase 3 explore/fix variable so
+        // the eventual worker-side telemetry writer (when added) can group
+        // turns by phase without re-deriving it.
+        phase,
       });
 
       // Forward prior output to next turn (GPT-5.x only; no-op elsewhere).

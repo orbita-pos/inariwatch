@@ -79,7 +79,7 @@ describe("lens telemetry passthrough", () => {
     expect(values.reasoningTokens).toBe(1200);
   });
 
-  it("defaults every telemetry field to null when the caller omits it", async () => {
+  it("defaults non-derivable telemetry fields to null when the caller omits them", async () => {
     const { logAICall } = await import("../lens");
 
     logAICall(baseParams);
@@ -91,7 +91,11 @@ describe("lens telemetry passthrough", () => {
     expect(values.turnNumber).toBeNull();
     expect(values.ttftMs).toBeNull();
     expect(values.phase).toBeNull();
-    expect(values.modelTier).toBeNull();
+    // modelTier is auto-derived from baseParams.model ('gpt-5.4-mini' → 'mini')
+    // — the Fase 3.5 hotfix moved derivation into runLog so callers don't
+    // have to keep the mapping in sync. Pass modelTier:null explicitly to
+    // force unclassified (covered by a separate test below).
+    expect(values.modelTier).toBe("mini");
     expect(values.toolName).toBeNull();
     expect(values.toolExecMs).toBeNull();
     expect(values.reasoningTokens).toBeNull();
@@ -109,5 +113,82 @@ describe("lens telemetry passthrough", () => {
     expect(values.toolName).toBeNull();
     expect(values.toolExecMs).toBeNull();
     expect(values.turnNumber).toBeNull();
+  });
+
+  // ── Fase 3.5 hotfix: auto-derived modelTier ───────────────────────────────
+
+  it("derives modelTier from model name when caller omits it (gpt-5-nano → nano)", async () => {
+    const { logAICall } = await import("../lens");
+    logAICall({ ...baseParams, model: "gpt-5-nano", phase: "classify" });
+    await new Promise((r) => setImmediate(r));
+    expect(insertSpy.mock.calls[0]![0].modelTier).toBe("nano");
+  });
+
+  it("derives mini for gpt-5.4-mini even though it also contains '5.4'", async () => {
+    const { logAICall } = await import("../lens");
+    logAICall({ ...baseParams, model: "gpt-5.4-mini", phase: "explore" });
+    await new Promise((r) => setImmediate(r));
+    expect(insertSpy.mock.calls[0]![0].modelTier).toBe("mini");
+  });
+
+  it("derives standard for gpt-5.4 (flagship)", async () => {
+    const { logAICall } = await import("../lens");
+    logAICall({ ...baseParams, model: "gpt-5.4", phase: "fix" });
+    await new Promise((r) => setImmediate(r));
+    expect(insertSpy.mock.calls[0]![0].modelTier).toBe("standard");
+  });
+
+  it("derives reasoning for opus models", async () => {
+    const { logAICall } = await import("../lens");
+    logAICall({ ...baseParams, model: "claude-opus-4-7", phase: "fix" });
+    await new Promise((r) => setImmediate(r));
+    expect(insertSpy.mock.calls[0]![0].modelTier).toBe("reasoning");
+  });
+
+  it("respects explicit modelTier=null (caller forces unclassified)", async () => {
+    const { logAICall } = await import("../lens");
+    logAICall({ ...baseParams, model: "gpt-5.4", modelTier: null });
+    await new Promise((r) => setImmediate(r));
+    expect(insertSpy.mock.calls[0]![0].modelTier).toBeNull();
+  });
+
+  it("respects explicit modelTier=mini even when model name says 'standard'", async () => {
+    const { logAICall } = await import("../lens");
+    logAICall({ ...baseParams, model: "gpt-5.4", modelTier: "mini" });
+    await new Promise((r) => setImmediate(r));
+    expect(insertSpy.mock.calls[0]![0].modelTier).toBe("mini");
+  });
+});
+
+describe("deriveModelTier", () => {
+  it("classifies the full Fase 3.5 catalog correctly", async () => {
+    const { deriveModelTier } = await import("../lens");
+    // nano
+    expect(deriveModelTier("gpt-5-nano")).toBe("nano");
+    expect(deriveModelTier("anything-nano-foo")).toBe("nano");
+    // mini (includes haiku)
+    expect(deriveModelTier("gpt-4o-mini")).toBe("mini");
+    expect(deriveModelTier("gpt-5.4-mini")).toBe("mini");
+    expect(deriveModelTier("claude-haiku-4-5-20251001")).toBe("mini");
+    // standard
+    expect(deriveModelTier("gpt-5.4")).toBe("standard");
+    expect(deriveModelTier("claude-sonnet-4-6")).toBe("standard");
+    expect(deriveModelTier("gpt-4o")).toBe("standard");
+    // reasoning
+    expect(deriveModelTier("claude-opus-4-7")).toBe("reasoning");
+    // unknown → null (clean), not "unknown"
+    expect(deriveModelTier("gemini-1.5-flash")).toBeNull();
+    expect(deriveModelTier("llama3-70b")).toBeNull();
+    // empty/null/undefined → null
+    expect(deriveModelTier(null)).toBeNull();
+    expect(deriveModelTier(undefined)).toBeNull();
+    expect(deriveModelTier("")).toBeNull();
+  });
+
+  it("is case-insensitive on the canonical substrings", async () => {
+    const { deriveModelTier } = await import("../lens");
+    expect(deriveModelTier("GPT-5-NANO")).toBe("nano");
+    expect(deriveModelTier("Claude-Haiku")).toBe("mini");
+    expect(deriveModelTier("Claude-OPUS")).toBe("reasoning");
   });
 });
