@@ -62,11 +62,11 @@ jobs:
       # runner the same way the Hetzner install does.
       - name: Stage sandbox runtime in /tmp/sandbox
         run: |
-          mkdir -p /tmp/sandbox /tmp/sandbox-cache
+          mkdir -p /tmp/sandbox /tmp/sandbox/.deno-cache
           cp ${{ github.workspace }}/worker/src/sandbox/pyodide-runner.ts /tmp/sandbox/
           cd /tmp/sandbox
-          DENO_DIR=/tmp/sandbox-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
-          ls -la /tmp/sandbox /tmp/sandbox-cache
+          DENO_DIR=/tmp/sandbox/.deno-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
+          ls -la /tmp/sandbox /tmp/sandbox/.deno-cache
 
       - name: TypeCheck
         working-directory: worker
@@ -79,12 +79,12 @@ jobs:
         run: |
           deno --version
           echo "DENO_DIR cache contents:"
-          ls -la /tmp/sandbox-cache || echo "(cache dir missing)"
+          ls -la /tmp/sandbox/.deno-cache || echo "(cache dir missing)"
 
       - name: Deno can resolve npm:pyodide
         run: |
           cd /tmp/sandbox
-          DENO_DIR=/tmp/sandbox-cache deno eval \
+          DENO_DIR=/tmp/sandbox/.deno-cache deno eval \
             --node-modules-dir=auto \
             'import { loadPyodide } from "npm:pyodide@0.28"; console.log("pyodide import resolved:", typeof loadPyodide);'
 
@@ -94,7 +94,7 @@ jobs:
           set +e
           cd /tmp/sandbox
           echo '{"type":"init","session":"smoke","code":"result = 1+1"}' \
-            | DENO_DIR=/tmp/sandbox-cache deno run \
+            | DENO_DIR=/tmp/sandbox/.deno-cache deno run \
                 --allow-read=/tmp/sandbox \
                 --no-prompt \
                 --node-modules-dir=auto \
@@ -118,7 +118,7 @@ jobs:
           # /opt/sandbox/ is the only thing the sandbox ever reads.
           SANDBOX_RUNNER_PATH: /tmp/sandbox/pyodide-runner.ts
           SANDBOX_READ_ROOT: /tmp/sandbox
-          SANDBOX_DENO_DIR: /tmp/sandbox-cache
+          SANDBOX_DENO_DIR: /tmp/sandbox/.deno-cache
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: npx tsx --test src/__tests__/sandbox-security.test.ts
 
