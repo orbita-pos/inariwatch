@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import ShadowClassificationWidget from "./_components/ShadowClassificationWidget";
 
 export const metadata: Metadata = { title: "AI Observability — InariWatch" };
 
@@ -300,6 +301,9 @@ export default async function AdminAIPage() {
               Baseline for the GPT-5.4 migration. Target post-PRs: avg turns -30%, avg cost $0.25→$0.08.
             </p>
           </div>
+
+          {/* Fase 6 — Shadow classification metrics */}
+          <ShadowClassificationWidget />
 
           {/* Recent sessions — drill-down list */}
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 md:col-span-2">

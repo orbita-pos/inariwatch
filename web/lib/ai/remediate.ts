@@ -330,6 +330,17 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const alertFingerprint = computeErrorFingerprint(alert.title, alert.body);
   await updateSession(sessionId, { fingerprint: alertFingerprint });
 
+  // Fase 6 — Tier router shadow classification. When TIER_ROUTER_MODE='off'
+  // (default) this is a zero-cost no-op: routeTier returns null before any
+  // DB/LLM call. In 'shadow' it classifies and persists tier_used +
+  // pattern_match_score without affecting the fix path. Never throws.
+  try {
+    const { routeTier } = await import("./tier-router");
+    await routeTier(session.alertId, sessionId);
+  } catch {
+    // best-effort — routing failure never blocks remediation
+  }
+
   // Get AI key — platform key fallback funds all users (quotas + spend guard protect)
   const aiKey = await getProjectOwnerAIKey(session.projectId);
   if (!aiKey) { await fail(sessionId, emit, "AI is temporarily unavailable. Please try again later."); return; }
