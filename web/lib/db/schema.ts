@@ -1059,6 +1059,37 @@ export const substrateRecordings = pgTable("substrate_recordings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Fase 11 — EAP receipts (local mirror of cryptographic attestations) ─────
+//
+// See migration 0070_eap_receipts.sql for design notes. This table mirrors
+// the *public* material of each EAP server receipt (Merkle root, signature,
+// metadata). The EAP server at eap.inariwatch.com remains the cryptographic
+// source of truth; this table exists for fast local queries and to serve
+// /api/eap/verify/:receiptId without an upstream round-trip on every hit.
+
+export const eapReceipts = pgTable("eap_receipts", {
+  /** 64-char hex Merkle root returned by EAP. Content-addressed. */
+  receiptId: text("receipt_id").primaryKey(),
+  alertId: uuid("alert_id")
+    .references(() => alerts.id, { onDelete: "cascade" })
+    .notNull(),
+  remediationSessionId: uuid("remediation_session_id")
+    .references(() => remediationSessions.id, { onDelete: "set null" }),
+  recordingId: text("recording_id").notNull(),
+  /** merkleRoot == receiptId today; kept separate for forward-compat. */
+  merkleRoot: text("merkle_root").notNull(),
+  /** Hex-encoded Ed25519 signature. NULL when EAP server has no keypair. */
+  signature: text("signature"),
+  /** Convenience flag — true iff signature is non-null AND server signed it. */
+  signed: boolean("signed").notNull().default(false),
+  eventCount: integer("event_count").notNull().default(0),
+  attestor: text("attestor").notNull().default("inariwatch"),
+  /** Result of the last LOCAL verify pass. NULL = never verified locally. */
+  verified: boolean("verified"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Fix Replay: Error patterns + Community fixes ────────────────────────────
 
 export const errorPatterns = pgTable("error_patterns", {
