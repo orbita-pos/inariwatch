@@ -159,6 +159,24 @@ export async function POST(
           )
         );
     }
+
+    // Fase 4 Part B unification — publish wake for any remediation session
+    // waiting on this commit's CI. Fire-and-forget; Redis-down is handled
+    // inside publishCiCompletion (falls back to polling in the listener).
+    // Gated by CI_WEBHOOK_MODE so operators can disable without redeploy.
+    // This makes the existing GitHub webhook (which every user already has
+    // configured) drive the listener — no separate webhook setup required.
+    const headSha = typeof run?.head_sha === "string" ? run.head_sha : null;
+    if (headSha) {
+      const { publishCiCompletion, isCiWebhookEnabled } = await import("@/lib/ai/ci-webhook");
+      if (isCiWebhookEnabled()) {
+        publishCiCompletion(headSha, {
+          conclusion: typeof run?.conclusion === "string" ? run.conclusion : "unknown",
+          deliveryId: req.headers.get("x-github-delivery"),
+          checkRunId: typeof run?.id === "number" ? run.id : null,
+        }).catch(() => {});
+      }
+    }
   }
 
   // ── workflow_run.completed ────────────────────────────────────────────
