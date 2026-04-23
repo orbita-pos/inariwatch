@@ -16,6 +16,7 @@ vi.spyOn(console, "error").mockImplementation(() => undefined);
 
 let selectQueue: unknown[][] = [];
 const updateSeen: Array<{ set: Record<string, unknown> }> = [];
+const insertSeen: Array<{ table: string; values: Record<string, unknown> }> = [];
 
 function selectChain() {
   const obj: Record<string, unknown> = {};
@@ -36,14 +37,27 @@ function updateChain() {
   return obj;
 }
 
+function insertChain(tableName: string) {
+  const obj: Record<string, unknown> = {};
+  obj.values = (v: Record<string, unknown>) => {
+    insertSeen.push({ table: tableName, values: v });
+    return obj;
+  };
+  obj.onConflictDoNothing = () => obj;
+  // drizzle-orm awaits the final chained call — make every node thenable.
+  obj.then = (resolve: (v: unknown) => void) => resolve(undefined);
+  return obj;
+}
+
 vi.mock("@/lib/db", () => ({
   db: {
     select: () => selectChain(),
     update: () => updateChain(),
+    insert: (tbl: { _name?: string }) => insertChain(tbl?._name ?? "unknown"),
   },
 }));
 vi.mock("@/lib/db/schema", () => ({
-  alerts: { id: "id", sessionId: "session_id" },
+  alerts: { id: "id", sessionId: "session_id", _name: "alerts" },
   remediationSessions: {
     id: "id",
     alertId: "alert_id",
@@ -52,6 +66,7 @@ vi.mock("@/lib/db/schema", () => ({
     mergedCommitSha: "merged_commit_sha",
     eapReceiptId: "eap_receipt_id",
     updatedAt: "updated_at",
+    _name: "remediation_sessions",
   },
   substrateRecordings: {
     recordingId: "recording_id",
@@ -63,6 +78,19 @@ vi.mock("@/lib/db/schema", () => ({
     sessionId: "session_id",
     alertId: "alert_id",
     createdAt: "created_at",
+    _name: "substrate_recordings",
+  },
+  eapReceipts: {
+    receiptId: "receipt_id",
+    alertId: "alert_id",
+    remediationSessionId: "remediation_session_id",
+    recordingId: "recording_id",
+    merkleRoot: "merkle_root",
+    signature: "signature",
+    signed: "signed",
+    eventCount: "event_count",
+    attestor: "attestor",
+    _name: "eap_receipts",
   },
 }));
 vi.mock("drizzle-orm", () => ({
@@ -84,6 +112,7 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   selectQueue = [];
   updateSeen.length = 0;
+  insertSeen.length = 0;
   vi.restoreAllMocks();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
@@ -248,6 +277,22 @@ describe("submitReceiptForRemediation — submission", () => {
     // Persisted the receipt_id on the remediation.
     expect(updateSeen).toHaveLength(1);
     expect(updateSeen[0]!.set.eapReceiptId).toBe(RECEIPT_ID);
+
+    // Fase 11 — also mirrored into eap_receipts for fast local lookup.
+    const mirror = insertSeen.find((i) => i.table === "eap_receipts");
+    expect(mirror, "expected an insert into eap_receipts").toBeDefined();
+    expect(mirror!.values.receiptId).toBe(RECEIPT_ID);
+    expect(mirror!.values.merkleRoot).toBe(RECEIPT_ID);
+    expect(mirror!.values.alertId).toBe(ALERT_ID);
+    expect(mirror!.values.remediationSessionId).toBe(REMEDIATION_ID);
+    expect(mirror!.values.recordingId).toBe("rec_test");
+    expect(mirror!.values.signed).toBe(true);
+    expect(mirror!.values.eventCount).toBe(1);
+    expect(mirror!.values.attestor).toBe("inariwatch");
+    // Signature is intentionally NULL — EAP /receipts/from-events response
+    // does not include the raw signature; the verify endpoint fetches
+    // /chain/:id lazily when needed.
+    expect(mirror!.values.signature).toBeNull();
   });
 
   it("omits bearer header when EAP_API_KEY is unset", async () => {

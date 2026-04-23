@@ -28,6 +28,7 @@
 import { db } from "@/lib/db";
 import {
   alerts,
+  eapReceipts,
   remediationSessions,
   substrateRecordings,
 } from "@/lib/db/schema";
@@ -181,6 +182,41 @@ export async function submitReceiptForRemediation(
     .update(remediationSessions)
     .set({ eapReceiptId: body.receipt_id, updatedAt: new Date() })
     .where(eq(remediationSessions.id, remediationSessionId));
+
+  // 5. Mirror the receipt metadata into eap_receipts (Fase 11) so listing
+  // queries + /api/eap/verify/:receiptId don't need an EAP round-trip on
+  // every hit. Idempotent via PK conflict — re-submissions of the same
+  // content-addressed receipt are a no-op.
+  //
+  // NOTE: the EAP /receipts/from-events response does NOT include the raw
+  // Ed25519 signature (only a `signed: bool` flag). The signature is
+  // fetched lazily by the verify endpoint via /chain/:id when needed. We
+  // store merkle_root = receipt_id here since they're identical today.
+  try {
+    await db
+      .insert(eapReceipts)
+      .values({
+        receiptId: body.receipt_id,
+        alertId: row.alertId,
+        remediationSessionId: row.id,
+        recordingId: rec.recordingId,
+        merkleRoot: body.receipt_id,
+        signature: null,
+        signed: body.signed,
+        eventCount: body.event_count,
+        attestor: ATTESTOR_NAME,
+      })
+      .onConflictDoNothing({ target: eapReceipts.receiptId });
+  } catch (err) {
+    // Mirror write failure must NEVER fail the attestation. The receipt
+    // is already stored authoritatively on the EAP server AND pointed at
+    // by remediation_sessions.eap_receipt_id. The mirror is an
+    // optimization, not a requirement.
+    console.error(
+      "[eap-attestation] mirror insert failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 
   return {
     ok: true,
