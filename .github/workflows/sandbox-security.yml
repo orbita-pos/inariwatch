@@ -64,6 +64,12 @@ jobs:
         run: |
           mkdir -p /tmp/sandbox /tmp/sandbox/.deno-cache
           cp ${{ github.workspace }}/worker/src/sandbox/pyodide-runner.ts /tmp/sandbox/
+          # Anchor Deno to /tmp/sandbox with an empty deno.json so the
+          # cache step doesn't walk up looking for package.json and plant
+          # node_modules outside the --allow-read scope. Mirrors the
+          # /opt/sandbox/deno.json anchor in SETUP.md §3 — production
+          # hit this exact bug during the Fase 5 shadow-run prep.
+          echo '{}' > /tmp/sandbox/deno.json
           cd /tmp/sandbox
           DENO_DIR=/tmp/sandbox/.deno-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
           ls -la /tmp/sandbox /tmp/sandbox/.deno-cache

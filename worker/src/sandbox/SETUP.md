@@ -30,25 +30,59 @@ sudo mv ~/.deno/bin/deno /usr/local/bin/deno
 sudo chmod 755 /usr/local/bin/deno
 deno --version  # record this exact line in the install log
 
-# 2. Pre-bake the Pyodide cache (no net needed at remediation time)
+# 2. Prepare the sandbox directory
 sudo mkdir -p /opt/sandbox/.deno-cache
 sudo chown root:root /opt/sandbox
 sudo chmod 755 /opt/sandbox
-sudo DENO_DIR=/opt/sandbox/.deno-cache deno cache npm:pyodide@0.28
 
-# 3. Install the runner script (copy from this repo)
-sudo cp worker/src/sandbox/pyodide-runner.ts /opt/sandbox/pyodide-runner.ts
+# 3. Anchor Deno to /opt/sandbox with an empty deno.json.
+#    Without this, Deno walks up looking for package.json / deno.json and
+#    plants node_modules wherever it finds one first — typically the repo
+#    checkout at /opt/inariwatch/. That moves Pyodide's .wasm outside the
+#    --allow-read=/opt/sandbox scope and Pyodide fails to load at runtime
+#    with "Requires read access to /opt/inariwatch/node_modules/...".
+#    The empty {} tells Deno "this directory IS the project root, stop
+#    walking up" and node_modules lands inside /opt/sandbox/ as expected.
+echo '{}' | sudo tee /opt/sandbox/deno.json > /dev/null
+
+# 4. Pre-bake the Pyodide cache (no net needed at remediation time).
+#    MUST run from /opt/sandbox so the deno.json anchor applies.
+cd /opt/sandbox
+sudo DENO_DIR=/opt/sandbox/.deno-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
+
+# 5. Install the runner script from the repo checkout:
+sudo cp /opt/inariwatch/worker/src/sandbox/pyodide-runner.ts /opt/sandbox/pyodide-runner.ts
 sudo chmod 644 /opt/sandbox/pyodide-runner.ts
 
-# 4. Verify the runner can boot offline (no net, no privileges)
-sudo -u inari-worker -- env DENO_DIR=/opt/sandbox/.deno-cache \
-    deno run --allow-read=/opt/sandbox \
-             --no-prompt --node-modules-dir=auto \
-             --v8-flags=--max-old-space-size=256 \
-             /opt/sandbox/pyodide-runner.ts <<< ''
-# Expected first line on stdout: {"type":"ready"}
-# Then the process waits for an `init` message on stdin — Ctrl+C to exit.
+# 6. Verify the runner can boot offline (no net, no privileges).
+#    Expected output — exactly 2 lines of JSON, no errors:
+#      {"type":"ready"}
+#      {"type":"done","result":null}
+echo '{"type":"init","session":"smoke","code":"result = 1+1"}' \
+  | DENO_DIR=/opt/sandbox/.deno-cache deno run \
+    --allow-read=/opt/sandbox \
+    --no-prompt --node-modules-dir=auto \
+    --v8-flags=--max-old-space-size=256 \
+    /opt/sandbox/pyodide-runner.ts
 ```
+
+### If the smoke test fails with `NotCapable: Requires read access`
+
+The `deno.json` anchor was skipped or the cache ran from the wrong cwd.
+Confirm the WASM lives under `/opt/sandbox`:
+
+```bash
+find /opt/sandbox -name "pyodide.asm.wasm"
+# Expected paths:
+#   /opt/sandbox/.deno-cache/npm/registry.npmjs.org/pyodide/0.28.3/pyodide.asm.wasm
+#   /opt/sandbox/node_modules/.deno/pyodide@0.28.3/node_modules/pyodide/pyodide.asm.wasm
+```
+
+If you see `/opt/inariwatch/node_modules/.deno/...` in the output, the
+anchor was missed. Fix: ensure `/opt/sandbox/deno.json` exists, remove
+the misplaced cache with
+`sudo rm -rf /opt/inariwatch/node_modules/.deno/pyodide@0.28.3`,
+and re-run step 4.
 
 ## Worker env additions
 
