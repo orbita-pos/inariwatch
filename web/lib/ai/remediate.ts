@@ -1737,10 +1737,12 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
             if (Date.now() - startTime > maxWait) {
               if (ciResult.details.length === 0) {
-                // No CI configured — create draft PR instead of auto-merging untested code
+                // No CI configured — route through success path so the gate
+                // evaluation (ciPassed=false) downgrades the strategy to
+                // draft_pr instead of failing the session and burning retries.
                 steps = await resolveStep(sessionId, steps, "completed",
                   `No CI checks detected after ${maxWaitLabel} — creating draft PR for manual review`, emit);
-                ciResult = { status: "failure", details: [] };
+                ciResult = { status: "success", details: [] };
               }
               break;
             }
@@ -2253,7 +2255,7 @@ Respond in JSON: {"passed": true/false, "issues": "description of issues or empt
           confidenceScore: diagnosis.confidence,
           selfReviewResult: selfReview,
           linesChanged: totalLinesChanged,
-          ciPassed: true,
+          ciPassed: ciResult!.details.length > 0,
           simulateRiskScore,
           substrateReplayPassed: replayResult?.passed ?? null,
           substrateReplayUsedFrontendContext: replayResult?.replayContextUsed ?? null,
