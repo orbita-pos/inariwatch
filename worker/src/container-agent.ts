@@ -17,6 +17,13 @@ import { detectPhaseTransition } from "./phase-boundary.js";
 import { isModelRoutingEnabled } from "./http-agent.js";
 import { isPrepushEnabled, runPrepushHooks, formatPrepushFeedback, isPrepushVerified, type PrepushResult } from "./prepush-hooks.js";
 import { logPrepushResults } from "./prepush-telemetry.js";
+import {
+  isBlockedFile,
+  isBlockedWrite,
+  isCommandAllowed,
+} from "./sandbox/validators.js";
+import { runSandbox } from "./sandbox/runner.js";
+import type { ContainerShell } from "./sandbox/tool-bindings.js";
 
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
@@ -28,52 +35,8 @@ const MAX_OUTPUT_SIZE = 10_000;
 const EXEC_TIMEOUT = 240;
 const READ_TIMEOUT = 10;
 
-// ── Blocked files/commands (same as web version) ────────────────────────────
-
-const BLOCKED_FILE_PATTERNS = [
-  /^\.env/, /\.env$/, /secrets?\./i, /credentials?\./i, /private[_-]?key/i,
-  /\.pem$/, /\.key$/, /\.cert$/, /\.p12$/, /\.pfx$/, /serviceaccount/i, /token\.json$/i,
-];
-
-const BLOCKED_WRITE_PATTERNS = [
-  ...BLOCKED_FILE_PATTERNS,
-  /package-lock\.json$/, /yarn\.lock$/, /pnpm-lock\.yaml$/, /bun\.lockb$/,
-  /^node_modules\//, /\/node_modules\//,
-];
-
-const ALLOWED_COMMANDS = [
-  "npm", "npx", "node", "tsc", "git", "cat", "ls", "grep", "find",
-  "mkdir", "cp", "head", "tail", "wc", "diff", "echo", "pwd", "which",
-  "pnpm", "yarn", "bun",
-];
-
-const BLOCKED_PATTERNS = [
-  /\brm\s+-rf\s+\//, /\bsudo\b/, /\bchmod\b/, /\bchown\b/, /\bkill\b/, /\bpkill\b/,
-  /\bcurl\b/, /\bwget\b/, /\bnc\b/, /\bdd\b/, /\bmkfs\b/, /\bfdisk\b/,
-  />\s*\/dev\//, /\|.*\bsh\b/, /\|.*\bbash\b/, /\bsh\s+-c\b/, /\bbash\s+-c\b/, /\bsh\s+[<>|]/,
-  /\$\(/, /`[^']*`/, /;\s*\w/,  // subshell $(), backticks, semicolon chaining
-];
-
-function isBlockedFile(path: string): boolean {
-  const filename = path.split("/").pop() ?? path;
-  return BLOCKED_FILE_PATTERNS.some((p) => p.test(filename) || p.test(path));
-}
-
-function isBlockedWrite(path: string): boolean {
-  const filename = path.split("/").pop() ?? path;
-  return BLOCKED_WRITE_PATTERNS.some((p) => p.test(filename) || p.test(path));
-}
-
-function isCommandAllowed(command: string): { allowed: boolean; reason?: string } {
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(command)) return { allowed: false, reason: "Command blocked: matches dangerous pattern" };
-  }
-  const baseCommand = command.trim().split(/\s+/)[0].replace(/^\.\//, "");
-  if (!ALLOWED_COMMANDS.includes(baseCommand)) {
-    return { allowed: false, reason: `Command "${baseCommand}" is not in the allowed list` };
-  }
-  return { allowed: true };
-}
+// Blocked-file / allowed-command validators live in ./sandbox/validators.ts
+// — single source of truth shared with the CodeAct sandbox tool-bindings.
 
 function shellEscape(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
@@ -115,6 +78,61 @@ const CONTAINER_TOOLS: ToolDefinition[] = [
   { name: "run_command", description: "Run a shell command for verification: 'npx tsc --noEmit', 'npm run build', 'npm test'.", input_schema: { type: "object", properties: { command: { type: "string", description: "Shell command" } }, required: ["command"] } },
   { name: "submit_fix", description: "Signal fix is complete. ONLY call after tsc and build pass.", input_schema: { type: "object", properties: { explanation: { type: "string" }, files_changed: { type: "array", items: { type: "string" } } }, required: ["explanation", "files_changed"] } },
 ];
+
+// Fase 5 — CodeAct sandbox tool. Added to the active tool list only when
+// CODEACT_ENABLED=true AND the agent has burned at least 2 turns of
+// exploration (arch doc §Fase 5: "only available from turn 3+"). Schema
+// matches GPT54_AGENT_OPTIMIZATION_PLAN.md §B4.
+const EXECUTE_PLAN_TOOL: ToolDefinition = {
+  name: "execute_plan",
+  description: `Run a Python plan that orchestrates multiple tool calls in a single turn.
+
+Use this when your next step requires 3+ related tool calls whose intermediate results do not need to be shown to you (the model). For example: reading 5 files to find which has the bug, applying a patch and verifying with tsc in one pass, or doing a read→patch→verify→re-read→re-patch loop.
+
+Available async helpers (inside Python):
+- await read_file(path: str) -> str
+- await write_file(path: str, content: str) -> dict
+- await apply_patch(envelope: str) -> dict   # unified-diff envelope format
+- await run_command(cmd: str) -> dict        # same whitelist as individual tool
+- await search_code(pattern: str, glob: str = "**/*") -> list[dict]
+- await list_directory(path: str) -> list[str]
+
+Python rules:
+- Must assign final output to variable 'result' (str or JSON-serializable dict)
+- Standard library only; no 'import requests', 'import subprocess', etc.
+- asyncio.gather() is available for parallel reads
+- Total wall time capped at 60s
+
+Return: your 'result' variable, or an error dict with 'error' + 'traceback'.
+
+Do NOT use execute_plan for single-tool actions — use the individual tool instead.`,
+  input_schema: {
+    type: "object",
+    properties: {
+      code: { type: "string", description: "Python 3 source code. Must assign to 'result'." },
+      purpose: { type: "string", description: "One-sentence description of what this plan does (for logging)." },
+    },
+    required: ["code", "purpose"],
+  },
+};
+
+export function isCodeActEnabled(): boolean {
+  return process.env.CODEACT_ENABLED === "true";
+}
+
+const CODEACT_MIN_TURN = 3;
+
+/**
+ * Tool list shown to the model on a given turn. Pure of side effects so
+ * tests can assert which tools the model sees per turn / per flag without
+ * mocking a full container roundtrip.
+ */
+export function buildToolsForTurn(turn: number): ToolDefinition[] {
+  if (isCodeActEnabled() && turn >= CODEACT_MIN_TURN) {
+    return [...CONTAINER_TOOLS, EXECUTE_PLAN_TOOL];
+  }
+  return CONTAINER_TOOLS;
+}
 
 // ── Container API (localhost Go server) ──────────────────────────────────────
 
@@ -159,8 +177,50 @@ async function containerWrite(
 
 // ── Tool executor ───────────────────────────────────────────────────────────
 
+/**
+ * Build a ContainerShell bound to a single Hetzner gVisor container, used
+ * by the CodeAct sandbox tool-bindings to execute on the same container
+ * the explicit tools see. Created fresh per execute_plan invocation so a
+ * leaked reference can't be reused across sessions.
+ */
+function buildContainerShell(containerId: string): ContainerShell {
+  return {
+    exec: (command, timeoutSeconds) =>
+      containerExec(containerId, command, timeoutSeconds ?? EXEC_TIMEOUT),
+    write: (path, content) => containerWrite(containerId, path, content),
+    applyPatch: async (envelope) => {
+      const { parsePatch, applyPatch: runApply, ApplyPatchError } = await import("./apply-patch.js");
+      try {
+        const parsed = parsePatch(envelope);
+        const readFromContainer = async (p: string): Promise<string | null> => {
+          const r = await containerExec(containerId, `cat ${shellEscape(p)}`, READ_TIMEOUT);
+          return r.exitCode === 0 ? r.stdout : null;
+        };
+        const applied = await runApply(parsed, readFromContainer);
+        const summary: string[] = [];
+        for (const c of applied.changed) {
+          if (c.op === "delete") {
+            const d = await containerExec(containerId, `rm -f ${shellEscape(c.path)}`, READ_TIMEOUT);
+            if (d.exitCode !== 0) return { ok: false, error: `delete failed: ${c.path}` };
+            summary.push(`deleted ${c.path}`);
+            continue;
+          }
+          await containerWrite(containerId, c.path, c.content);
+          summary.push(`${c.op === "add" ? "added" : "updated"} ${c.path}`);
+        }
+        return { ok: true, summary: summary.join("\n") };
+      } catch (e) {
+        const msg = e instanceof ApplyPatchError ? e.message : String(e);
+        return { ok: false, error: msg };
+      }
+    },
+  };
+}
+
 async function executeContainerTool(
-  tool: ToolUseBlock, containerId: string
+  tool: ToolUseBlock,
+  containerId: string,
+  ctx: { sessionId: string; turn: number },
 ): Promise<string> {
   const input = tool.input as Record<string, string>;
 
@@ -255,6 +315,40 @@ async function executeContainerTool(
     }
     case "submit_fix":
       return JSON.stringify({ explanation: input.explanation, files_changed: (tool.input as { files_changed: string[] }).files_changed });
+
+    case "execute_plan": {
+      // Defense-in-depth: the tool list builder also gates on flag + turn,
+      // but a model-emitted call could in theory reach here if the model
+      // fabricates a tool name on a turn the tool wasn't offered. Reject.
+      if (!isCodeActEnabled()) {
+        return "Error: execute_plan is not enabled (CODEACT_ENABLED=false).";
+      }
+      if (ctx.turn < CODEACT_MIN_TURN) {
+        return `Error: execute_plan is not available before turn ${CODEACT_MIN_TURN}.`;
+      }
+      const code = typeof input.code === "string" ? input.code : "";
+      const purpose = typeof input.purpose === "string" ? input.purpose : "execute_plan";
+      if (!code.trim()) return "Error: execute_plan requires non-empty 'code'.";
+
+      const outcome = await runSandbox({
+        sessionId: ctx.sessionId,
+        purpose,
+        code,
+        shell: buildContainerShell(containerId),
+      });
+
+      if (!outcome.ok) {
+        return `execute_plan failed (${outcome.durationMs}ms): ${outcome.error}${
+          outcome.traceback ? `\n${outcome.traceback.slice(0, 1000)}` : ""
+        }`;
+      }
+      try {
+        return JSON.stringify(outcome.result).slice(0, 8_000);
+      } catch {
+        return "execute_plan returned a non-serializable result";
+      }
+    }
+
     default:
       return `Unknown tool: ${tool.name}`;
   }
@@ -311,8 +405,49 @@ function buildGPTRemediationSystemPrompt(basePrompt: string, modelId: string): s
   return parts.join("\n\n");
 }
 
+// Fase 5 — appended to the base prompt only when CODEACT_ENABLED is on.
+// Source: GPT54_AGENT_OPTIMIZATION_PLAN.md §B8.
+const CODEACT_TOOL_GUIDANCE = `<tool_guidance>
+You have access to an \`execute_plan\` tool that runs Python code in a sandbox.
+The Python can await your other tools as local async functions.
+
+Use execute_plan when:
+- You need to read 3+ files and make decisions on their combined content
+- You need a patch→verify loop (apply_patch → run_command("tsc") → on error, re-patch)
+- You want parallel reads via asyncio.gather()
+- You're about to make 5+ sequential tool calls with interdependent logic
+
+Do NOT use execute_plan when:
+- You only need 1-2 tool calls (use the individual tool)
+- You want to show the user intermediate reasoning between steps
+- You're uncertain what to do next (think + individual tool calls are better)
+
+Example good execute_plan usage:
+\`\`\`python
+import asyncio
+files = ["src/auth.ts", "src/middleware.ts", "src/session.ts"]
+contents = await asyncio.gather(*[read_file(f) for f in files])
+
+buggy = None
+for path, code in zip(files, contents):
+    if "user.email" in code and "user == null" not in code:
+        buggy = (path, code)
+        break
+
+if buggy:
+    patch = build_patch(buggy[0], buggy[1])
+    await apply_patch(patch)
+    tsc = await run_command("npx tsc --noEmit")
+    result = {"fixed_file": buggy[0], "tsc_ok": tsc["exitCode"] == 0}
+else:
+    result = {"error": "no file matched pattern"}
+\`\`\`
+
+Always assign to \`result\` at the end. Keep result compact; it's what you see next turn.
+</tool_guidance>`;
+
 function buildBasePrompt(): string {
-  return `You are an expert software engineer fixing a production bug.
+  const base = `You are an expert software engineer fixing a production bug.
 You are working inside a container with the repository at /workspace/repo.
 
 You have tools to explore, modify, and VERIFY code:
@@ -345,6 +480,7 @@ CRITICAL RULES:
 - If tsc fails, DO NOT give up — read the error message and fix the issue
 
 Respond ONLY with tool calls. Do not output free text.`;
+  return isCodeActEnabled() ? `${base}\n\n${CODEACT_TOOL_GUIDANCE}` : base;
 }
 
 // ── Progress tracking ───────────────────────────────────────────────────────
@@ -597,7 +733,7 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
       // overlays applied when the active model is GPT-like.
       const systemPrompt = buildGPTRemediationSystemPrompt(basePrompt, currentModel);
 
-      const response = await callAIWithTools(aiKey, systemPrompt, messages, CONTAINER_TOOLS, {
+      const response = await callAIWithTools(aiKey, systemPrompt, messages, buildToolsForTurn(turn), {
         maxTokens: 4096,
         model: currentModel,
         timeout: 120_000, // Responses API reasoning can run longer
@@ -627,7 +763,7 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
 
       for (const toolUse of toolUses) {
         try {
-          let result = await executeContainerTool(toolUse, containerId);
+          let result = await executeContainerTool(toolUse, containerId, { sessionId, turn });
 
           // Augment apply_patch failures with retry-memory hint (PR #5).
           if (toolUse.name === "apply_patch") {

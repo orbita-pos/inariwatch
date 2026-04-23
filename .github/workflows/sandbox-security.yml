@@ -1,0 +1,129 @@
+# Fase 5 — adversarial gate for the CodeAct sandbox.
+#
+# Runs the full `sandbox-security.test.ts` suite (10 escape vectors from
+# REMEDIATION_SYSTEM_ARCHITECTURE.md §Fase 5 + 3 defense-in-depth
+# additions) on every PR that touches the sandbox surface or its
+# validators. Failing this gate must block merge — the sandbox is the
+# only thing standing between model-emitted Python and the worker host.
+#
+# Pyodide is fetched from npm via `deno cache` once, then the runner is
+# exercised against the in-repo pyodide-runner.ts (no /opt/sandbox
+# install needed in CI).
+
+name: sandbox-security
+
+on:
+  pull_request:
+    paths:
+      - 'worker/src/sandbox/**'
+      - 'worker/src/__tests__/sandbox-security.test.ts'
+      - 'worker/src/__tests__/execute-plan.test.ts'
+      - 'worker/src/container-agent.ts'
+      - 'worker/package.json'
+      - '.github/workflows/sandbox-security.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'worker/src/sandbox/**'
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install worker deps
+        working-directory: worker
+        run: npm ci || npm install
+
+      # Pin Deno to a 2.x point release. Bumping this version is a
+      # security-sensitive change — match the version recorded in
+      # worker/src/sandbox/SETUP.md after a CVE review.
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Install the sandbox OUTSIDE the repo — mirrors production layout
+      # (/opt/sandbox/ per worker/src/sandbox/SETUP.md). Keeping the
+      # runner.ts inside the repo means Deno walks up to worker/package.json
+      # and tries to install every worker dep (drizzle, bullmq, pg...) via
+      # --node-modules-dir=auto. Copying to /tmp/sandbox/ isolates the
+      # runner the same way the Hetzner install does.
+      - name: Stage sandbox runtime in /tmp/sandbox
+        run: |
+          mkdir -p /tmp/sandbox /tmp/sandbox/.deno-cache
+          cp ${{ github.workspace }}/worker/src/sandbox/pyodide-runner.ts /tmp/sandbox/
+          cd /tmp/sandbox
+          DENO_DIR=/tmp/sandbox/.deno-cache deno cache --node-modules-dir=auto npm:pyodide@0.28
+          ls -la /tmp/sandbox /tmp/sandbox/.deno-cache
+
+      - name: TypeCheck
+        working-directory: worker
+        run: npx tsc --noEmit
+
+      # Diagnostic: invoke the Deno runner directly with a 1-line Python
+      # script so failures here surface the raw stderr from Pyodide
+      # instead of being absorbed by the test runner's TAP output.
+      - name: Deno sanity check
+        run: |
+          deno --version
+          echo "DENO_DIR cache contents:"
+          ls -la /tmp/sandbox/.deno-cache || echo "(cache dir missing)"
+
+      - name: Deno can resolve npm:pyodide
+        run: |
+          cd /tmp/sandbox
+          DENO_DIR=/tmp/sandbox/.deno-cache deno eval \
+            --node-modules-dir=auto \
+            'import { loadPyodide } from "npm:pyodide@0.28"; console.log("pyodide import resolved:", typeof loadPyodide);'
+
+      - name: Sandbox runner smoke test
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/sandbox
+          echo '{"type":"init","session":"smoke","code":"result = 1+1"}' \
+            | DENO_DIR=/tmp/sandbox/.deno-cache deno run \
+                --allow-read=/tmp/sandbox \
+                --no-prompt \
+                --node-modules-dir=auto \
+                /tmp/sandbox/pyodide-runner.ts \
+                > /tmp/runner.stdout 2> /tmp/runner.stderr
+          SMOKE_EXIT=$?
+          echo "--- runner exit code: $SMOKE_EXIT ---"
+          echo "--- runner stdout ---"
+          cat /tmp/runner.stdout
+          echo "--- runner stderr ---"
+          cat /tmp/runner.stderr
+          echo "--- end ---"
+          exit $SMOKE_EXIT
+
+      - name: Adversarial sandbox tests
+        working-directory: worker
+        env:
+          # Point the runner at the /tmp/sandbox/ copy (outside the repo)
+          # so Deno's --node-modules-dir=auto doesn't trip over
+          # worker/package.json. Mirrors the production layout where
+          # /opt/sandbox/ is the only thing the sandbox ever reads.
+          SANDBOX_RUNNER_PATH: /tmp/sandbox/pyodide-runner.ts
+          SANDBOX_READ_ROOT: /tmp/sandbox
+          SANDBOX_DENO_DIR: /tmp/sandbox/.deno-cache
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: npx tsx --test src/__tests__/sandbox-security.test.ts
+
+      - name: execute_plan gating tests
+        working-directory: worker
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: npx tsx --test src/__tests__/execute-plan.test.ts
