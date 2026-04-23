@@ -32,8 +32,12 @@ const STDOUT_CAP_BYTES = 64 * 1024;
 const V8_HEAP_MB = 256;
 
 // Where the Deno binary + runner script live on the worker host. Operator
-// pre-bakes both per worker/src/sandbox/SETUP.md. Override only for tests.
-const DENO_BINARY = process.env.SANDBOX_DENO_BINARY ?? "/usr/local/bin/deno";
+// pre-bakes both per worker/src/sandbox/SETUP.md. Default resolves via
+// PATH (`deno`) so the CI runners and dev machines that install Deno
+// via `setup-deno` / homebrew / scoop work without setting the env var;
+// production Hetzner sets SANDBOX_DENO_BINARY=/usr/local/bin/deno in
+// /opt/inari-worker/.env to pin the exact binary location.
+const DENO_BINARY = process.env.SANDBOX_DENO_BINARY ?? "deno";
 const RUNNER_PATH = process.env.SANDBOX_RUNNER_PATH ?? "/opt/sandbox/pyodide-runner.ts";
 const SANDBOX_READ_ROOT = process.env.SANDBOX_READ_ROOT ?? "/opt/sandbox";
 
