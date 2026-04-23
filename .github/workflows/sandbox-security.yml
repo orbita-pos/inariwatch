@@ -90,7 +90,9 @@ jobs:
             'import { loadPyodide } from "npm:pyodide@0.28"; console.log("pyodide import resolved:", typeof loadPyodide);'
 
       - name: Sandbox runner smoke test
+        shell: bash
         run: |
+          set +e
           echo '{"type":"init","session":"smoke","code":"result = 1+1"}' \
             | DENO_DIR=/tmp/sandbox-cache deno run \
                 --allow-read=${{ github.workspace }}/worker/src/sandbox \
