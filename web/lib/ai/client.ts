@@ -5,6 +5,12 @@
  */
 
 import type { LensFeature, LensTelemetry } from "./lens";
+import { installKeepAliveDispatcher } from "./http-agent";
+
+// Fase 3 — install the undici keep-alive agent on first load of this module.
+// No-op when REMEDIATION_MODEL_ROUTING is not "true", so this is backward
+// compatible with every current deployment.
+installKeepAliveDispatcher();
 
 export type AIMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
 export type AIVisionMessage = { role: "user"; text: string; imageBase64: string; beforeImageBase64?: string };

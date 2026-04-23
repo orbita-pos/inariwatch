@@ -31,6 +31,9 @@ export const CLAUDE_MODELS: ModelInfo[] = [
 export const OPENAI_MODELS: ModelInfo[] = [
   { id: "gpt-4o-mini",  label: "GPT-4o mini",  desc: "Fast & cheap ($0.15/$0.60 per M)",       tier: "fast" },
   { id: "gpt-4.1-mini", label: "GPT-4.1 mini", desc: "1M context, balanced ($0.40/$1.60)",     tier: "balanced" },
+  // Fase 3 — gpt-5-nano is the cheapest reasoning model in the GPT-5 family;
+  // catalog only for now. Fase 6 wires it into the tier router (ADR-006).
+  { id: "gpt-5-nano",   label: "GPT-5 nano",   desc: "Cheapest reasoning, for routing/triage ($0.05/$0.40)", tier: "fast" },
   { id: "gpt-5-mini",   label: "GPT-5 mini",   desc: "Reasoning, cheap ($0.25/$2.00)",          tier: "balanced" },
   { id: "gpt-5.4",      label: "GPT-5.4",      desc: "Flagship, best for code ($1.25/$10)",     tier: "powerful" },
 ];
@@ -129,6 +132,73 @@ export function resolveModel(
   const pref = preferences?.[task];
   if (pref && pref !== "auto") return pref;
   return DEFAULTS[provider]?.[task] ?? DEFAULTS.openai[task];
+}
+
+// ── Fase 3 — Phase-aware model routing ──────────────────────────────────────
+//
+// The remediation loop runs in two distinct phases:
+//
+//   • "explore" — the agent is searching, reading, and reasoning about the
+//     bug. A cheap reasoning model (gpt-5-mini, low effort) is enough here;
+//     burning gpt-5.4 reasoning tokens to decide which file to grep next
+//     is wasteful.
+//
+//   • "fix" — the agent has located the bug and is producing the patch.
+//     Quality of output matters here, so the flagship (gpt-5.4) does the
+//     work. The last few turns ("final") bump reasoning to high to give
+//     the model room to correct tsc/build errors before the turn cap.
+//
+// Two pre-remediation phases map to the cheapest reasoning tier:
+//
+//   • "classify"  — tier router classifier (Fase 6). gpt-5-nano.
+//   • "triage"    — alert triage / auto-analyze / correlate. gpt-5-mini.
+//
+// Other providers don't have a native "nano" tier yet; for those we fall
+// back to whatever that provider uses for `triage` today. The mapping is
+// intentionally conservative — only OpenAI gets the full Fase 3 treatment.
+// The rest of the providers keep their existing defaults so BYOK users
+// experience no behavior change.
+
+export type RemediationPhase = "classify" | "triage" | "explore" | "fix" | "final";
+
+const PHASE_MODELS_OPENAI: Record<RemediationPhase, string> = {
+  // Catalog only in Fase 3 — Fase 6 wires it into the tier router.
+  classify: "gpt-5-nano",
+  triage:   "gpt-5-mini",
+  explore:  "gpt-5-mini",
+  fix:      "gpt-5.4",
+  final:    "gpt-5.4",
+};
+
+/**
+ * Resolve the model to use for a specific phase of the remediation loop.
+ * Only OpenAI has phase-specialized models today (the others keep their
+ * existing `triage` / `remediation` defaults). Callers that don't care
+ * about the phase should keep using `resolveModel(task, provider, prefs)`.
+ *
+ * Fase 3: called from worker/container-agent once REMEDIATION_MODEL_ROUTING
+ * is on. When the flag is off, `remediate.ts` keeps passing the single
+ * remediation model it always did.
+ */
+export function resolveModelForPhase(
+  phase: RemediationPhase,
+  provider: AIProvider,
+): string {
+  if (provider === "openai") return PHASE_MODELS_OPENAI[phase];
+
+  const defaults = DEFAULTS[provider];
+  if (!defaults) return DEFAULTS.openai.remediation;
+
+  switch (phase) {
+    case "classify":
+    case "triage":
+      return defaults.triage;
+    case "explore":
+      return defaults.analysis;
+    case "fix":
+    case "final":
+      return defaults.remediation;
+  }
 }
 
 /** Default preferences object (all "auto") */

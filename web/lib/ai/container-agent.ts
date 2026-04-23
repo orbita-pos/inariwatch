@@ -682,6 +682,18 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
   const { buildGPTRemediationSystemPrompt } = await import("./prompts");
   const basePrompt = buildContainerBasePrompt();
 
+  // Fase 3 — minimal model routing for the Vercel fallback path. When
+  // REMEDIATION_MODEL_ROUTING is on AND provider is OpenAI, swap in the
+  // Fase 3 phase-specialized models. We deliberately do NOT port the
+  // worker's phase-boundary + compaction logic: this fallback is capped
+  // at 15 turns, so there's no meaningful compaction window and the
+  // extra state machine is not worth the code surface.
+  const { isModelRoutingEnabled } = await import("./http-agent");
+  const { resolveModelForPhase } = await import("./models");
+  const useFase3Routing = isModelRoutingEnabled() && provider === "openai";
+  const phaseExploreModel = useFase3Routing ? resolveModelForPhase("explore", provider) : exploreModel;
+  const phaseFixModel     = useFase3Routing ? resolveModelForPhase("fix",     provider) : fixModel;
+
   // Track files read across turns — serves cached content on re-reads.
   const filesRead = new Map<string, string>();
 
@@ -715,9 +727,12 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     emit("container_turn", { turn, maxTurns: MAX_TURNS });
 
-    // Haiku for exploration (cheap), Sonnet for final fix (quality)
+    // Haiku for exploration (cheap), Sonnet for final fix (quality).
+    // Fase 3 — when the flag is on, phaseExploreModel / phaseFixModel
+    // already point at the phase-specialized models for OpenAI; otherwise
+    // they are the caller-provided models and this is a no-op swap.
     const isNearEnd = turn > MAX_TURNS - 3;
-    const currentModel = isNearEnd ? fixModel : exploreModel;
+    const currentModel = isNearEnd ? phaseFixModel : phaseExploreModel;
 
     // Model-aware system prompt — GPT gets the narration/stop-early overlay,
     // gpt-5.4 also gets the verbosity clamp, every model gets IMMUTABLE_RULES

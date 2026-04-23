@@ -11,6 +11,10 @@ import { db, remediationSessions } from "./db.js";
 import { eq } from "drizzle-orm";
 import type { AIMessage, AIProvider, ToolDefinition, ToolUseBlock, ToolResultBlock, ContentBlock } from "./ai-client.js";
 import { isPoolEnabled, tryPoolCheckout, returnPoolContainer, sandboxModeFor, type ContainerSource } from "./pool.js";
+import { resolveModelForPhase } from "./models.js";
+import { compactMessages, shouldCompact } from "./context-compaction.js";
+import { detectPhaseTransition } from "./phase-boundary.js";
+import { isModelRoutingEnabled } from "./http-agent.js";
 
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
@@ -494,6 +498,20 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
     const messages: AIMessage[] = [{ role: "user", content: errorContext }];
     let tscPassed = false, buildPassed = false, testsPassed = false;
 
+    // Fase 3 — phase-aware routing, gated by REMEDIATION_MODEL_ROUTING.
+    // When the flag is off, we keep the exact current behavior (caller's
+    // models, old reasoning curve). When on and the provider is OpenAI,
+    // we swap in the Fase 3 phase-specialized models; non-OpenAI providers
+    // still receive the caller's models unchanged.
+    const modelRoutingOn = isModelRoutingEnabled();
+    const explorePhaseModel = modelRoutingOn
+      ? resolveModelForPhase("explore", aiProvider) ?? exploreModel
+      : exploreModel;
+    const fixPhaseModel = modelRoutingOn
+      ? resolveModelForPhase("fix", aiProvider) ?? fixModel
+      : fixModel;
+    let phase: "explore" | "fix" = "explore";
+
     // Responses API threading (GPT-5.x, store:false). Forward prior turn's
     // output items so reasoning.encrypted_content stays paired with
     // function_call items. Pass-through on other providers.
@@ -513,13 +531,29 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
       });
 
       const isNearEnd = turn > maxTurns - 3;
-      const currentModel = isNearEnd ? fixModel : exploreModel;
+      let currentModel: string;
+      let reasoningEffort: "minimal" | "low" | "medium" | "high";
 
-      // Reasoning effort dial — low during exploration (60% of turns),
-      // medium during the fix phase, high in the final 3 turns.
-      const frac = turn / maxTurns;
-      const reasoningEffort =
-        frac <= 0.6 ? "low" : turn <= maxTurns - 3 ? "medium" : "high";
+      if (modelRoutingOn) {
+        // Fase 3 routing: phase drives model + reasoning budget. The
+        // last 3 turns of the fix phase bump reasoning to high so the
+        // model has room to recover from tsc/build failures before the
+        // turn cap.
+        if (phase === "explore") {
+          currentModel = explorePhaseModel;
+          reasoningEffort = "low";
+        } else {
+          currentModel = fixPhaseModel;
+          reasoningEffort = isNearEnd ? "high" : "medium";
+        }
+      } else {
+        // Preserve current behavior: last 3 turns use fixModel; reasoning
+        // uses the fraction-based curve (low → medium → high).
+        currentModel = isNearEnd ? fixModel : exploreModel;
+        const frac = turn / maxTurns;
+        reasoningEffort =
+          frac <= 0.6 ? "low" : turn <= maxTurns - 3 ? "medium" : "high";
+      }
 
       // Model-aware system prompt — IMMUTABLE_RULES top + bottom, GPT
       // overlays applied when the active model is GPT-like.
@@ -613,6 +647,30 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
       }
 
       messages.push({ role: "user", content: toolResults as ContentBlock[] });
+
+      // Fase 3 — phase transition detection runs at the turn boundary,
+      // after both halves (assistant tool_use + user tool_result) are in
+      // the history. This preserves pairing for Responses API threading
+      // and for compaction's tail-cut invariants. Only fires once per run.
+      if (modelRoutingOn && phase === "explore" && detectPhaseTransition(assistantContent)) {
+        phase = "fix";
+        let compactionDetail = "no compaction needed";
+        if (shouldCompact(messages)) {
+          const compacted = compactMessages(messages);
+          messages.length = 0;
+          messages.push(...compacted.messages);
+          compactionDetail = `compacted ${compacted.compactedFrom} → ${compacted.compactedTo} msgs`;
+        }
+        // Reset the Responses API reasoning chain: the encrypted
+        // priorOutput is no longer valid once history is rewritten,
+        // and the next call uses a different model anyway.
+        priorOutput = undefined;
+        await updateProgress(sessionId, {
+          name: "phase_transition",
+          status: "completed",
+          detail: `explore → fix @ turn ${turn} (${compactionDetail})`,
+        });
+      }
     }
 
     throw new Error(`Agent did not submit fix after ${maxTurns} turns`);
