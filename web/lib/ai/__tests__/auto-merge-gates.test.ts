@@ -1080,3 +1080,41 @@ describe("Gate 14: cost_impact", () => {
     expect(gate.passed).toBe(true);
   });
 });
+
+// ── Regression: "No CI configured" path ─────────────────────────────────────
+// remediate.ts line 1738-1746 routes repos without any GitHub Actions
+// workflow through the success branch (status="success", details=[]) and
+// relies on the gate to downgrade the merge strategy to draft_pr via
+// `ciPassed: ciResult.details.length > 0`. The previous behaviour forced
+// status="failure" and burned 3 full retries before escalating — the fix
+// depends on this gate contract holding.
+describe("Regression: no-CI repos route to draft_pr, not failure", () => {
+  it("downgrades to draft_pr when ciPassed=false but everything else is green", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      ciPassed: false, // Caller passes `ciResult.details.length > 0`
+      confidenceScore: 95,
+      selfReviewResult: { score: 95, concerns: [], recommendation: "approve" },
+      linesChanged: 20,
+    });
+    expect(r.strategy).toBe("draft_pr");
+    const ciGate = r.gates.find((g) => g.name === "ci_passed")!;
+    expect(ciGate.passed).toBe(false);
+    expect(ciGate.reason).toContain("CI checks failed");
+    // No other gate should be the blocker — the whole point is CI alone blocks merge.
+    const otherBlockers = r.gates.filter((g) => g.name !== "ci_passed" && !g.passed);
+    expect(otherBlockers).toEqual([]);
+  });
+
+  it("allows auto_merge when ciPassed=true (real CI success) with same inputs", () => {
+    const r = evaluateAutoMergeGates({
+      ...passingBase,
+      ciPassed: true,
+      confidenceScore: 95,
+      selfReviewResult: { score: 95, concerns: [], recommendation: "approve" },
+      linesChanged: 20,
+    });
+    expect(r.strategy).toBe("auto_merge");
+    expect(r.passed).toBe(true);
+  });
+});
