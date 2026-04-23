@@ -131,6 +131,23 @@ env:
     # callers handles Redis-down (Postgres slower but functional).
     REDIS_HOST: "172.18.0.1"
     REDIS_PORT: "6379"
+    # ── Fase 3 — model routing (gpt-5-mini explore → gpt-5.4 fix) ─────
+    # Activated 2026-04-22. Kill switch: set to "false" and
+    # `kamal env push` (no rebuild, ~30s rollback). Expected gains:
+    # p50 wall -15 to -25s, cost per remediation -25% to -40%.
+    REMEDIATION_MODEL_ROUTING: "true"
+    # ── Fase 4 Part A — pre-push strict (tsc / test / lint gate) ─────
+    # Activated 2026-04-22. Worker also needs this set in
+    # /opt/inari-worker/.env; kamal only pushes to the web host.
+    # Kill switch: set to "false" and `kamal env push`.
+    PREPUSH_TESTS_ENABLED: "true"
+    # ── Fase 4 Part B/C — CI webhook + flake-retry ───────────────────
+    # Activated 2026-04-22. Requires a second GitHub webhook per
+    # monitored repo targeting /api/webhooks/github-check-run/<id>
+    # with the SAME integration secret and "Check runs" event only.
+    # Without the webhook config the flag is inert (falls back to
+    # the existing 15s polling loop).
+    CI_WEBHOOK_MODE: "true"
   secret:
     # Core
     - DATABASE_URL
