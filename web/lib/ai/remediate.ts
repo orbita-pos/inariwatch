@@ -21,6 +21,7 @@ import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
 import { gatherRemediationContext } from "./context-gatherer";
 import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
+import { runGateDag } from "./gates-executor";
 import { startPostMergeMonitoring } from "./post-merge-monitor";
 import { submitReceiptForRemediation } from "@/lib/services/eap-attestation.service";
 import { linkRemediationToIncident, updateIncidentStatus, resolveIncident as resolveStatusIncident } from "./status-page-automation";
@@ -1451,9 +1452,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           "Regression test generation skipped (non-blocking)", emit);
       }
 
-      // ── SECURITY SCAN ────────────────────────────────────────────────
-      // Managed Agent pushes directly — fix.files may be empty.
-      // Fetch actual changed files from GitHub for security scan + self-review.
+      // ── PRE-PUSH COHORT (Fase 8) ──────────────────────────────────────
+      // Managed Agent pushes directly — fix.files may be empty. Fetch
+      // actual changed files from GitHub FIRST so both security scan and
+      // self-review see hydrated files (same ordering as pre-Fase-8).
       if (managedAgentPushed && (!fix.files || fix.files.length === 0) && managedBranch) {
         try {
           const changedPaths = await gh.getRecentCommitFiles(token, owner, repo, managedBranch);
@@ -1466,32 +1468,95 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         } catch { /* non-blocking — proceed with what we have */ }
       }
 
+      // Two gate producers — security AI review and self-review cheap AI —
+      // share no data deps and together dominate pre-push wall time (p50
+      // ~15s serial). When GATES_PARALLEL=true, `runGateDag` fans them out
+      // under Promise.all; flag off restores the original serial order.
+      // Step UI push/resolve stays serial because resolveStep targets the
+      // array tail and cannot safely interleave across concurrent branches.
       let securityHighCount: number | null = null;
+      const { scanFiles: _scanFiles, aiSecurityReview: _aiSecurityReview } = await import("./security-scan");
+      let scanSyncResult: ReturnType<typeof _scanFiles> | null = null;
+      try {
+        scanSyncResult = _scanFiles(fix.files);
+      } catch {
+        // scanFiles is sync but defensive: if it throws we'll skip the
+        // security gate entirely further down (same contract as pre-Fase-8
+        // where the outer try/catch absorbed any scan failure).
+      }
+
+      const scanModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
+      const callAIScan = (key: string, system: string, msgs: { role: "user"; content: string }[]) =>
+        callAI(key, system, msgs, {
+          model: scanModel,
+          provider: aiKey.provider,
+          log: {
+            userId: session.userId,
+            projectId: session.projectId,
+            alertId: session.alertId,
+            remediationSessionId: session.id,
+            feature: "security-scan",
+            phase: "review",
+            isPlatformKey: aiKey.isPlatformKey,
+          },
+        });
+
+      const cheapReviewModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
+      const { buildGPTRemediationSystemPrompt: withOverlays } = await import("./prompts");
+      const cheapReviewerWithOverlays = withOverlays(SYSTEM_REVIEWER, cheapReviewModel);
+      const reviewPromptMessages = [
+        { role: "user" as const, content: buildSelfReviewPrompt(
+          diagnosis.diagnosis, fileContents, fix.files, alert.body
+        ) },
+      ];
+      const reviewLogCtx = {
+        userId: session.userId,
+        projectId: session.projectId,
+        alertId: session.alertId,
+        remediationSessionId: session.id,
+        feature: "self-review" as const,
+        phase: "review" as const,
+        isPlatformKey: aiKey.isPlatformKey,
+      };
+
+      const prePushDag = await runGateDag([
+        {
+          name: "security_ai_review",
+          dependsOn: [],
+          run: () => _aiSecurityReview(fix.files, callAIScan, aiKey.key),
+        },
+        {
+          name: "self_review_cheap",
+          dependsOn: [],
+          run: () => callAI(aiKey.key, cheapReviewerWithOverlays, reviewPromptMessages, {
+            maxTokens: 512,
+            timeout: 30000,
+            model: cheapReviewModel,
+            provider: aiKey.provider,
+            log: reviewLogCtx,
+          }),
+        },
+      ]);
+      emit("gates_dag", {
+        cohort: "pre_push",
+        mode: prePushDag.mode,
+        totalMs: prePushDag.totalDurationMs,
+        producers: Object.fromEntries(
+          Object.entries(prePushDag.results).map(([n, r]) => [n, { ms: r.durationMs, ok: r.error == null }])
+        ),
+      });
+
       steps = await pushStep(sessionId, steps,
         makeStep("security_scan", "Running security scan on generated fix..."), emit);
 
       try {
-        const { scanFiles, aiSecurityReview } = await import("./security-scan");
-        const scanResult = scanFiles(fix.files);
-
-        // AI security review — async, non-blocking enhancement
-        try {
-          const scanModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
-          const callAIScan = (key: string, system: string, msgs: { role: "user"; content: string }[]) =>
-            callAI(key, system, msgs, {
-              model: scanModel,
-              provider: aiKey.provider,
-              log: {
-                userId: session.userId,
-                projectId: session.projectId,
-                alertId: session.alertId,
-                remediationSessionId: session.id,
-                feature: "security-scan",
-                phase: "review",
-                isPlatformKey: aiKey.isPlatformKey,
-              },
-            });
-          const aiFindings = await aiSecurityReview(fix.files, callAIScan, aiKey.key);
+        if (scanSyncResult === null) {
+          throw new Error("scan_sync_failed");
+        }
+        const scanResult = scanSyncResult;
+        const aiReviewRes = prePushDag.results["security_ai_review"];
+        if (aiReviewRes && !aiReviewRes.error && Array.isArray(aiReviewRes.value)) {
+          const aiFindings = aiReviewRes.value as Awaited<ReturnType<typeof _aiSecurityReview>>;
           for (const f of aiFindings) {
             const exists = scanResult.findings.some(
               (e) => e.file === f.file && e.line === f.line && e.rule === f.rule
@@ -1503,9 +1568,9 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           scanResult.mediumCount = scanResult.findings.filter(f => f.severity === "MEDIUM").length;
           scanResult.lowCount = scanResult.findings.filter(f => f.severity === "LOW").length;
           scanResult.passed = scanResult.highCount === 0;
-        } catch {
-          // AI review failure is non-blocking
         }
+        // If aiReviewRes.error is populated, AI review failure is non-blocking —
+        // we fall through to the sync-only scanResult (same as pre-Fase-8).
 
         securityHighCount = scanResult.highCount;
 
@@ -1529,39 +1594,19 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           "Security scan skipped (non-blocking)", emit);
       }
 
-      // ── SELF-REVIEW (cascaded: cheap model first, escalate if ambiguous) ─
+      // ── SELF-REVIEW resolution (consumes prePushDag[self_review_cheap]) ─
+      // Cheap call already happened in the DAG above. We parse its output
+      // here and escalate serially if the score lands in the 40-70 band.
       let selfReview: SelfReviewResult | null = null;
       steps = await pushStep(sessionId, steps,
         makeStep("self_review", "AI is reviewing the generated fix for correctness..."), emit);
 
-      const reviewPromptMessages = [
-        { role: "user" as const, content: buildSelfReviewPrompt(
-          diagnosis.diagnosis, fileContents, fix.files, alert.body
-        ) },
-      ];
-      const reviewLogCtx = {
-        userId: session.userId,
-        projectId: session.projectId,
-        alertId: session.alertId,
-        remediationSessionId: session.id,
-        feature: "self-review" as const,
-        phase: "review" as const,
-        isPlatformKey: aiKey.isPlatformKey,
-      };
-
       try {
-        // Tier 0: cheap model (Haiku / GPT-4o-mini)
-        const cheapModel = resolveModel("analysis", aiKey.provider, aiKey.modelPrefs);
-        const { buildGPTRemediationSystemPrompt: withOverlays } = await import("./prompts");
-        const reviewerWithOverlays = withOverlays(SYSTEM_REVIEWER, cheapModel);
-        const reviewRaw = await callAI(aiKey.key, reviewerWithOverlays, reviewPromptMessages, {
-          maxTokens: 512,
-          timeout: 30000,
-          model: cheapModel,
-          provider: aiKey.provider,
-          log: reviewLogCtx,
-        });
-
+        const cheapRes = prePushDag.results["self_review_cheap"];
+        if (!cheapRes || cheapRes.error || typeof cheapRes.value !== "string") {
+          throw cheapRes?.error ?? new Error("self_review cheap call missing");
+        }
+        const reviewRaw = cheapRes.value;
         const parsed = JSON.parse(cleanJSON(reviewRaw));
         selfReview = {
           score: isFinite(Number(parsed.score)) ? Math.max(0, Math.min(100, Number(parsed.score))) : 50,
@@ -1575,7 +1620,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         if (selfReview.score >= 40 && selfReview.score <= 70) {
           try {
             const strongModel = resolveModel("remediation", aiKey.provider, aiKey.modelPrefs);
-            if (strongModel !== cheapModel) {
+            if (strongModel !== cheapReviewModel) {
               emit("self_review_escalating", { cheapScore: selfReview.score, model: strongModel });
               const strongReviewerWithOverlays = withOverlays(SYSTEM_REVIEWER, strongModel);
               const escalatedRaw = await callAI(aiKey.key, strongReviewerWithOverlays, reviewPromptMessages, {
