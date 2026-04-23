@@ -15,6 +15,8 @@ import { resolveModelForPhase } from "./models.js";
 import { compactMessages, shouldCompact } from "./context-compaction.js";
 import { detectPhaseTransition } from "./phase-boundary.js";
 import { isModelRoutingEnabled } from "./http-agent.js";
+import { isPrepushEnabled, runPrepushHooks, formatPrepushFeedback, isPrepushVerified, type PrepushResult } from "./prepush-hooks.js";
+import { logPrepushResults } from "./prepush-telemetry.js";
 
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
@@ -450,6 +452,14 @@ export interface AgentJobResult {
   turns: number;
   verified: boolean;
   testsPassed: boolean;
+  /**
+   * Fase 4 — null when PREPUSH_TESTS_ENABLED is off OR every hook skipped
+   * (no tsconfig/test/lint in the project). True only when ≥1 hook ran
+   * and all ran hooks passed. Used by the web's Part C retry logic to
+   * distinguish CI flake from "CI failed because code was never locally
+   * verified".
+   */
+  prepushPassed: boolean | null;
 }
 
 export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResult> {
@@ -491,6 +501,11 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
   // Tracks the run outcome for the pool-return health signal. Flipped
   // to true only if the submit_fix terminal path runs cleanly.
   let runHealthy = false;
+
+  // Fase 4 — last pre-push result. Populated each time submit_fix calls
+  // runPrepushHooks. Nullable because many remediations complete before
+  // the agent ever calls submit_fix (error paths return early).
+  let lastPrepush: PrepushResult | null = null;
 
   try {
     // 2. Run AI loop
@@ -616,6 +631,57 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
 
           // Terminal: submit_fix
           if (toolUse.name === "submit_fix") {
+            // Fase 4 — pre-push strict gate. Before the web app can push this
+            // to GitHub, run tsc/test/lint inside the container and feed any
+            // failure back into the loop as a synthetic tool_result so the
+            // agent retries apply_patch with the error context. Flag-gated
+            // via PREPUSH_TESTS_ENABLED; default-off preserves current flow.
+            if (isPrepushEnabled()) {
+              await updateProgress(sessionId, {
+                name: "prepush",
+                status: "in_progress",
+                detail: "Running pre-push strict hooks (tsc / test / lint)...",
+              });
+              const prepush = await runPrepushHooks({
+                sessionId,
+                exec: (cmd, timeoutSec) => containerExec(containerId, cmd, timeoutSec),
+                readFile: async (path) => {
+                  const r = await containerExec(containerId, `cat ${shellEscape(path)}`, READ_TIMEOUT);
+                  return r.exitCode === 0 ? r.stdout : null;
+                },
+              });
+              lastPrepush = prepush;
+              // Fire-and-forget telemetry so a slow Neon insert doesn't block
+              // the remediation — failures inside logPrepushResults never
+              // surface because it catches and logs to stderr only.
+              void logPrepushResults(sessionId, prepush.results);
+              if (!prepush.passed) {
+                const failed = prepush.results.find((r) => r.ran && r.passed === false);
+                await updateProgress(sessionId, {
+                  name: "prepush",
+                  status: "failed",
+                  detail: `${failed?.kind ?? "unknown"} failed (exit ${failed?.exitCode ?? "n/a"}) — retrying`,
+                });
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: toolUse.id,
+                  content: formatPrepushFeedback(prepush),
+                  is_error: true,
+                });
+                // Skip terminal return — the tool_result falls through to the
+                // next turn and the agent gets to retry apply_patch.
+                continue;
+              }
+              await updateProgress(sessionId, {
+                name: "prepush",
+                status: "completed",
+                detail: prepush.results
+                  .filter((r) => r.ran)
+                  .map((r) => `${r.kind}:${r.passed ? "ok" : "fail"}`)
+                  .join(" "),
+              });
+            }
+
             const submission = JSON.parse(result) as { explanation: string; files_changed: string[] };
 
             // Read back changed files from container
@@ -636,7 +702,15 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
             // submit_fix reached = the run completed cleanly; signal to
             // pool-return that this container was healthy.
             runHealthy = tscPassed && buildPassed;
-            return { explanation: submission.explanation, files, turns: turn, verified: tscPassed && buildPassed, testsPassed };
+            const prepushPassed = lastPrepush ? isPrepushVerified(lastPrepush) : null;
+            return {
+              explanation: submission.explanation,
+              files,
+              turns: turn,
+              verified: tscPassed && buildPassed,
+              testsPassed,
+              prepushPassed,
+            };
           }
 
           toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });

@@ -99,6 +99,12 @@ REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 WORKER_PORT=9401
 MAX_CONCURRENT_JOBS=2
+
+# Fase 3 (dormant — set to "true" only during shadow-run)
+REMEDIATION_MODEL_ROUTING=false
+
+# Fase 4 Part A (pre-push strict hooks) — default off
+PREPUSH_TESTS_ENABLED=false
 ```
 
 ## Architecture After Deploy

@@ -8,12 +8,15 @@
 
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { pgTable, uuid, text, jsonb, integer, boolean, timestamp, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, integer, boolean, timestamp, doublePrecision, numeric } from "drizzle-orm/pg-core";
 
 // ── Remediation Sessions (container agent) ──────────────────────────────────
 
 export const remediationSessions = pgTable("remediation_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  // Fase 4 — userId is required by ai_usage_logs; the worker writes
+  // prepush telemetry rows and needs to resolve userId from the session.
+  userId: uuid("user_id"),
   status: text("status").notNull().default("analyzing"),
   steps: jsonb("steps").notNull().default([]),
   error: text("error"),
@@ -31,6 +34,35 @@ export const remediationSessions = pgTable("remediation_sessions", {
   // disabled (CONTAINER_POOL_ENABLED=false) so the dashboard can
   // distinguish "pool off" from "pool miss".
   sandboxMode: text("sandbox_mode"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── AI Usage Logs (Fase 4 — prepush telemetry) ──────────────────────────────
+//
+// Worker-side subset of the web `ai_usage_logs` table. The worker only
+// inserts pre-push hook rows (feature 'prepush-tsc|test|lint') — other
+// writers live in web/lib/ai/lens.ts. Columns here track the NOT NULL
+// fields of the migration plus a handful of nullable columns we set.
+// Keep in sync with web/lib/db/schema.ts::aiUsageLogs.
+
+export const aiUsageLogs = pgTable("ai_usage_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  projectId: uuid("project_id"),
+  alertId: uuid("alert_id"),
+  remediationSessionId: uuid("remediation_session_id"),
+  feature: text("feature").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+  costUsd: numeric("cost_usd", { precision: 12, scale: 8 }).notNull().default("0"),
+  isPlatformKey: boolean("is_platform_key").notNull().default(false),
+  error: text("error"),
+  durationMs: integer("duration_ms"),
+  toolName: text("tool_name"),
+  toolExecMs: integer("tool_exec_ms"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

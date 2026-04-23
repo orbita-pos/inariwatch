@@ -34,6 +34,13 @@ import { recordFailedFix, getAntiPatterns, buildAntiPatternContext, recordCalibr
 import { DEFAULT_AUTO_MERGE_CONFIG, type AutoMergeConfig } from "@/lib/db/schema";
 import type { RemediationStep } from "@/lib/db/schema";
 import { createSessionLogger } from "./logger";
+import {
+  isCiWebhookEnabled,
+  registerCiSession,
+  unregisterCiSession,
+  waitForCiWebhook,
+} from "./ci-webhook";
+import { shouldRetryCiFlake, ciFlakeBackoffMs } from "./ci-retry";
 
 type Emit = (event: string, data: unknown) => void;
 
@@ -867,6 +874,13 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       let managedAgentPushed = false; // If true, skip our own push — agent already pushed
       let managedBranch: string | null = null; // Branch name from Managed Agent (different from branchName)
       let containerVerified = false; // If true, fix was verified (tsc+build) in container — boosts gate confidence
+      // Fase 4 — tri-state from the Hetzner worker's pre-push hooks. True
+      // only when tsc / npm test / npm run lint all actually ran AND all
+      // passed inside the container. Null when PREPUSH_TESTS_ENABLED was
+      // off, or when the non-worker path ran (Vercel container / agentic
+      // loop / managed agent — none of which have Fase 4 hooks). Gates
+      // the Part C intelligent CI retry below.
+      let prepushPassed: boolean | null = null;
 
       // ── MANAGED AGENT (first attempt, if enabled) ─────────────────────
       // The agent clones the repo, explores, fixes, verifies (tsc/build/test), and pushes.
@@ -997,7 +1011,21 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
             // worst-case gVisor overhead.
             const pollStart = Date.now();
             const maxPollMs = 15 * 60 * 1000;
-            type WorkerResult = { explanation: string; files: { path: string; content: string }[]; turns: number; verified: boolean; testsPassed: boolean };
+            // Fase 4 — prepushPassed is a tri-state: true when the worker
+            // verified via tsc/test/lint; false when the field was explicitly
+            // reported false (defensive — worker never returns false on a
+            // submit_fix terminal path, but the type is conservative);
+            // null when the worker didn't run pre-push (flag off or old
+            // worker version). Older workers omit the field entirely and we
+            // coerce `undefined` → `null` below.
+            type WorkerResult = {
+              explanation: string;
+              files: { path: string; content: string }[];
+              turns: number;
+              verified: boolean;
+              testsPassed: boolean;
+              prepushPassed?: boolean | null;
+            };
             let workerResult: WorkerResult | null = null;
 
             while (Date.now() - pollStart < maxPollMs) {
@@ -1033,9 +1061,10 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
             fix = { explanation: workerResult.explanation, files: workerResult.files };
             containerVerified = workerResult.verified;
+            prepushPassed = workerResult.prepushPassed ?? null;
 
             steps = await resolveStep(sessionId, steps, "completed",
-              `Container agent fixed in ${workerResult.turns} turns (tsc: ${workerResult.verified ? "✅" : "❌"}, tests: ${workerResult.testsPassed ? "✅" : "⚠"})`, emit);
+              `Container agent fixed in ${workerResult.turns} turns (tsc: ${workerResult.verified ? "✅" : "❌"}, tests: ${workerResult.testsPassed ? "✅" : "⚠"}${prepushPassed === true ? ", prepush: ✅" : ""})`, emit);
           } else {
             // ── Fallback: run container agent on Vercel (original path) ──
             const { runContainerAgent, createContainer, destroyContainer } = await import("./container-agent");
@@ -1598,89 +1627,182 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
         return;
       }
 
-      // ── PUSH ─────────────────────────────────────────────────────────────
-      // If Managed Agent already pushed, use its branch name and skip push
+      // ── PUSH + WAIT CI (with Fase 4 Part C flake-retry wrapper) ─────────
+      // When pre-push (Fase 4 Part A) verified the fix green AND webhook
+      // mode is on, a GitHub CI failure is likely flake (env-specific data,
+      // network hiccup, runner caching) — re-push the same fix up to 3
+      // times with 30s/2m/5m backoff before falling through to the
+      // existing regenerate path. Only active when BOTH flags are on AND
+      // the worker reported prepushPassed=true — a missing prepush signal
+      // cannot distinguish flake from genuinely broken code.
       const effectiveBranch = managedAgentPushed && managedBranch
         ? managedBranch
         : branchName;
+      let ciFlakeAttempts = 0;
+      let headSha = "";
+      let ciResult: Awaited<ReturnType<typeof gh.getCheckRunsStatus>> = null!;
 
-      if (managedAgentPushed) {
-        await updateSession(sessionId, { status: "pushing", branch: effectiveBranch });
-        steps = await pushStep(sessionId, steps,
-          makeStep("push", `Managed Agent already pushed to ${effectiveBranch}`), emit);
-        steps = await resolveStep(sessionId, steps, "completed",
-          `Using Managed Agent branch ${effectiveBranch}`, emit);
-      } else {
-        await updateSession(sessionId, { status: "pushing", branch: effectiveBranch });
-        emit("status", { status: "pushing" });
+      ciFlakeLoop: while (true) {
+        const isFlakeRetry = ciFlakeAttempts > 0;
 
-        steps = await pushStep(sessionId, steps,
-          makeStep("push", `Pushing fix to branch ${effectiveBranch}...`), emit);
-
-        try {
-          if (attempt === 1) {
-            await gh.createBranch(token, owner, repo, effectiveBranch, baseSha);
-          }
-          const commitSha = await gh.commitFiles(
-            token, owner, repo, effectiveBranch,
-            `fix: ${alert.title.slice(0, 60)}\n\nAutomated fix by Inari AI (attempt ${attempt})`,
-            fix.files
-          );
+        // ── PUSH ─────────────────────────────────────────────────────────
+        // On a flake retry we always push from our side even if the
+        // managed agent pushed initially — we need a fresh commit to
+        // re-trigger CI and the agent is no longer in the loop.
+        if (managedAgentPushed && !isFlakeRetry) {
+          await updateSession(sessionId, { status: "pushing", branch: effectiveBranch });
+          steps = await pushStep(sessionId, steps,
+            makeStep("push", `Managed Agent already pushed to ${effectiveBranch}`), emit);
           steps = await resolveStep(sessionId, steps, "completed",
-            `Pushed commit ${commitSha.slice(0, 7)} to ${effectiveBranch}`, emit);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Push failed";
-          steps = await resolveStep(sessionId, steps, "failed", msg, emit);
-          if (msg.includes("403") || msg.includes("404")) {
-            await fail(sessionId, emit,
-              "GitHub token lacks write permissions. The token needs 'contents: write' scope to push fixes.");
+            `Using Managed Agent branch ${effectiveBranch}`, emit);
+        } else {
+          await updateSession(sessionId, { status: "pushing", branch: effectiveBranch });
+          emit("status", { status: "pushing" });
+
+          steps = await pushStep(sessionId, steps,
+            makeStep("push", isFlakeRetry
+              ? `Re-pushing fix (CI flake retry ${ciFlakeAttempts}/3)...`
+              : `Pushing fix to branch ${effectiveBranch}...`), emit);
+
+          try {
+            // createBranch only on the very first push — flake retries +
+            // subsequent full attempts both reuse the branch that already
+            // exists on GitHub.
+            if (attempt === 1 && !isFlakeRetry) {
+              await gh.createBranch(token, owner, repo, effectiveBranch, baseSha);
+            }
+            const commitMessage = isFlakeRetry
+              ? `ci: retry ${ciFlakeAttempts}/3 (flake after green pre-push)\n\nPre-push passed locally; GitHub CI flaked. Re-triggering CI. Fix unchanged from attempt ${attempt}.`
+              : `fix: ${alert.title.slice(0, 60)}\n\nAutomated fix by Inari AI (attempt ${attempt})`;
+            const commitSha = await gh.commitFiles(
+              token, owner, repo, effectiveBranch, commitMessage, fix.files
+            );
+            steps = await resolveStep(sessionId, steps, "completed",
+              `Pushed commit ${commitSha.slice(0, 7)} to ${effectiveBranch}`, emit);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "Push failed";
+            steps = await resolveStep(sessionId, steps, "failed", msg, emit);
+            if (msg.includes("403") || msg.includes("404")) {
+              await fail(sessionId, emit,
+                "GitHub token lacks write permissions. The token needs 'contents: write' scope to push fixes.");
+              return;
+            }
+            await fail(sessionId, emit, msg);
             return;
           }
-          await fail(sessionId, emit, msg);
-          return;
+        } // end else (our push)
+
+        // ── WAIT FOR CI ─────────────────────────────────────────────────
+        await updateSession(sessionId, { status: "awaiting_ci" });
+        emit("status", { status: "awaiting_ci" });
+
+        steps = await pushStep(sessionId, steps,
+          makeStep("await_ci", isFlakeRetry
+            ? `Waiting for CI to re-run (flake retry ${ciFlakeAttempts}/3)...`
+            : "Waiting for CI checks to run..."), emit);
+
+        headSha = await gh.getBranchSha(token, owner, repo, effectiveBranch);
+
+        // Fase 4 — webhook-driven CI monitoring. When CI_WEBHOOK_MODE=true,
+        // register the sha→session mapping so the webhook handler can route
+        // check_run.completed back to this session via Redis pub/sub. The
+        // wait loop below uses waitForCiWebhook() instead of sleep() for
+        // faster wake-up (sub-second vs 15s). Failure to register is
+        // non-fatal — the loop falls back to plain polling.
+        const ciWebhookOn = isCiWebhookEnabled();
+        if (ciWebhookOn) {
+          await registerCiSession(sessionId, headSha);
         }
-      } // end if (!managedAgentPushed)
 
-      // ── WAIT FOR CI ──────────────────────────────────────────────────────
-      await updateSession(sessionId, { status: "awaiting_ci" });
-      emit("status", { status: "awaiting_ci" });
+        // Give GitHub a moment to register the push and start checks
+        await sleep(10_000);
 
-      steps = await pushStep(sessionId, steps,
-        makeStep("await_ci", "Waiting for CI checks to run..."), emit);
+        // Fase 4 — webhooks are reliable enough to justify a longer overall
+        // cap (10 min vs 5). In polling-only mode the 5-min cap stays in
+        // place so /admin behavior and MTTR numbers don't shift.
+        const maxWait = ciWebhookOn ? 10 * 60 * 1000 : 5 * 60 * 1000;
+        const maxWaitLabel = ciWebhookOn ? "10 min" : "5 min";
+        const startTime = Date.now();
 
-      const headSha = await gh.getBranchSha(token, owner, repo, effectiveBranch);
+        try {
+          while (true) {
+            ciResult = await gh.getCheckRunsStatus(token, owner, repo, headSha);
 
-      // Give GitHub a moment to register the push and start checks
-      await sleep(10_000);
+            if (ciResult.status === "success" || ciResult.status === "failure") break;
 
-      const maxWait = 5 * 60 * 1000; // 5 minutes
-      const startTime = Date.now();
-      let ciResult: Awaited<ReturnType<typeof gh.getCheckRunsStatus>>;
+            if (Date.now() - startTime > maxWait) {
+              if (ciResult.details.length === 0) {
+                // No CI configured — create draft PR instead of auto-merging untested code
+                steps = await resolveStep(sessionId, steps, "completed",
+                  `No CI checks detected after ${maxWaitLabel} — creating draft PR for manual review`, emit);
+                ciResult = { status: "failure", details: [] };
+              }
+              break;
+            }
 
-      while (true) {
-        ciResult = await gh.getCheckRunsStatus(token, owner, repo, headSha);
+            // Notify the user we're still waiting
+            emit("ci_poll", {
+              elapsed: Math.round((Date.now() - startTime) / 1000),
+              checks: ciResult.details.length,
+              running: ciResult.details.filter((d) => d.status !== "completed").length,
+              webhookMode: ciWebhookOn,
+              flakeAttempt: ciFlakeAttempts,
+            });
 
-        if (ciResult.status === "success" || ciResult.status === "failure") break;
-
-        if (Date.now() - startTime > maxWait) {
-          if (ciResult.details.length === 0) {
-            // No CI configured — create draft PR instead of auto-merging untested code
-            steps = await resolveStep(sessionId, steps, "completed",
-              "No CI checks detected after 5 min — creating draft PR for manual review", emit);
-            ciResult = { status: "failure", details: [] };
+            if (ciWebhookOn) {
+              // Cap the wake at 15s so we still get a periodic re-check even
+              // when the webhook never fires (CI disabled, webhook misrouted,
+              // GitHub outage). On "unavailable" — Redis down — fall back to a
+              // plain sleep so the session doesn't burn CPU in a tight loop.
+              const wait = await waitForCiWebhook(sessionId, 15_000);
+              if (wait.result === "unavailable") {
+                await sleep(15_000);
+              }
+            } else {
+              await sleep(15_000);
+            }
           }
-          break;
+        } finally {
+          // Always clean up the sha→session mapping so a late webhook for a
+          // past remediation doesn't ping a dead channel.
+          if (ciWebhookOn) {
+            await unregisterCiSession(headSha);
+          }
         }
 
-        // Notify the user we're still waiting
-        emit("ci_poll", {
-          elapsed: Math.round((Date.now() - startTime) / 1000),
-          checks: ciResult.details.length,
-          running: ciResult.details.filter((d) => d.status !== "completed").length,
+        // ── PART C: Intelligent CI retry ─────────────────────────────────
+        // A CI failure after a green local pre-push is almost always flake
+        // (env-specific data, network hiccup, runner caching). Re-push the
+        // same fix up to 3 times with 30s / 2m / 5m backoff. Decision
+        // lives in ci-retry.ts so the policy is unit-testable without
+        // mocking the whole pipeline.
+        const partCEligible = shouldRetryCiFlake({
+          ciStatus: ciResult.status,
+          prepushEnabled: process.env.PREPUSH_TESTS_ENABLED === "true",
+          ciWebhookEnabled: isCiWebhookEnabled(),
+          prepushPassed,
+          flakeAttempts: ciFlakeAttempts,
+          fileCount: fix.files.length,
         });
+        if (!partCEligible) break ciFlakeLoop;
 
-        await sleep(15_000);
-      }
+        const flakeBackoffMs = ciFlakeBackoffMs(ciFlakeAttempts);
+        ciFlakeAttempts++;
+        emit("ci_flake_retry", {
+          attempt: ciFlakeAttempts,
+          of: 3,
+          backoffSec: Math.round(flakeBackoffMs / 1000),
+        });
+        steps = await pushStep(sessionId, steps,
+          makeStep(
+            "ci_flake_retry",
+            `CI flake suspected (pre-push was green). Waiting ${Math.round(flakeBackoffMs / 1000)}s before retry ${ciFlakeAttempts}/3...`,
+            "completed",
+          ),
+          emit,
+        );
+        await sleep(flakeBackoffMs);
+      } // end ciFlakeLoop
 
       // ── CI RESULT ──────────────────────────────────────────────────────
       if (ciResult!.status === "success") {
