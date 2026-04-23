@@ -59,6 +59,11 @@ Add to `/opt/inari-worker/.env` on the Hetzner host:
 # tested. See REMEDIATION_SYSTEM_ARCHITECTURE.md §4 Fase 5.
 CODEACT_ENABLED=false
 
+# Point Deno at the pre-baked cache so the subprocess never hits npm at
+# remediation time. MUST match step 2 of the provisioning above. The
+# worker spawn copies this into the subprocess env as DENO_DIR.
+SANDBOX_DENO_DIR=/opt/sandbox/.deno-cache
+
 # Optional overrides (defaults shown):
 # SANDBOX_DENO_BINARY=/usr/local/bin/deno
 # SANDBOX_RUNNER_PATH=/opt/sandbox/pyodide-runner.ts

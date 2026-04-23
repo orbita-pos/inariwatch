@@ -95,6 +95,20 @@ interface SubprocessHandle {
 }
 
 function spawnDeno(): SubprocessHandle {
+  // SANDBOX_DENO_DIR points the Deno subprocess at a pre-populated npm
+  // cache (Pyodide 0.28) so it never reaches out to the registry at
+  // remediation time. On Hetzner this is /opt/sandbox/.deno-cache per
+  // SETUP.md; in CI the workflow sets it to /tmp/sandbox-cache. Deno
+  // 2.x treats the repo's package.json as `nodeModules: manual`, which
+  // breaks bare `npm:` specifiers — running with a clean DENO_DIR
+  // outside the repo bypasses that mode entirely. If the var isn't set
+  // (dev box without a pre-bake), the spawn inherits parent env which
+  // is almost always what the caller wants for local smoke-testing.
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (process.env.SANDBOX_DENO_DIR) {
+    env.DENO_DIR = process.env.SANDBOX_DENO_DIR;
+  }
+
   const child = spawn(
     DENO_BINARY,
     [
@@ -105,7 +119,7 @@ function spawnDeno(): SubprocessHandle {
       `--v8-flags=--max-old-space-size=${V8_HEAP_MB}`,
       RUNNER_PATH,
     ],
-    { stdio: ["pipe", "pipe", "pipe"] },
+    { stdio: ["pipe", "pipe", "pipe"], env },
   );
   return { child, buffer: { value: "" }, stdoutBytes: { value: 0 } };
 }
