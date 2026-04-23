@@ -261,6 +261,25 @@ export async function startPostMergeMonitoring(params: {
     updatedAt: new Date(),
   }).where(eq(remediationSessions.id, sessionId));
 
+  // Fase 6 — pattern memory write (idempotent on project_id + fingerprint).
+  // Gated by PATTERN_MEMORY_WRITE_ENABLED (default: true). Health score =
+  // 1.0 since we reached 'passed' across the full monitoring window with
+  // zero regressions. Disabled patterns stay disabled — writePattern logs
+  // 'pattern_disable_conflict' for operator visibility and returns skipped.
+  try {
+    const { writePattern } = await import("./pattern-memory");
+    const [sessionRow] = await db
+      .select()
+      .from(remediationSessions)
+      .where(eq(remediationSessions.id, sessionId))
+      .limit(1);
+    if (sessionRow) {
+      await writePattern(sessionRow, { postMergeHealthScore: 1.0 });
+    }
+  } catch (e) {
+    log.warn("pattern_memory_write_failed", { error: e instanceof Error ? e.message : String(e) });
+  }
+
   // Verify pending predictions for this project
   try {
     const { verifyPendingPredictions } = await import("./prediction-feedback");

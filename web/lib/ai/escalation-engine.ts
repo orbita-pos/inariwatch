@@ -57,6 +57,19 @@ export async function triggerEscalation(ctx: EscalationContext): Promise<number>
 
   if (!alert) return 0;
 
+  // Fase 6 — pattern memory regression accounting. Future-ready no-op until
+  // the Tier 0 handler wires up in Fase 6.1 and writes patternIdUsed into
+  // checkpoint_data. Today: nothing sets that field, so this exits before
+  // any side effect. Kept here so Fase 6.1 needs no touch to this file.
+  if (ctx.reason === "regression_after_merge") {
+    try {
+      const { recordPatternRegression } = await import("./pattern-memory");
+      await recordPatternRegression(ctx.alertId, alert.severity);
+    } catch {
+      // best-effort
+    }
+  }
+
   // Get active escalation rules for this project
   const rules = await db
     .select()
