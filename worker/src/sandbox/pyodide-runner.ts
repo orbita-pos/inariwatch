@@ -77,12 +77,16 @@ const { code } = init as { code: string };
 
 const py = await loadPyodide({ stdout: () => {}, stderr: () => {} });
 
-py.globalThis.read_file      = (p: string) => rpcCall("read_file", { path: p });
-py.globalThis.write_file     = (p: string, c: string) => rpcCall("write_file", { path: p, content: c });
-py.globalThis.apply_patch    = (env: string) => rpcCall("apply_patch", { patch: env });
-py.globalThis.run_command    = (c: string) => rpcCall("run_command", { command: c });
-py.globalThis.search_code    = (pat: string, glob = "**/*") => rpcCall("search_code", { pattern: pat, glob });
-py.globalThis.list_directory = (p: string) => rpcCall("list_directory", { path: p });
+// Pyodide exposes JS host globals to Python via `from js import <name>`.
+// The right hook is the JS `globalThis` (this realm), NOT a `py.globalThis`
+// — older spec drafts mis-described the API. Each function below becomes a
+// PyProxy on the Python side that the user code can `await` on.
+(globalThis as Record<string, unknown>).read_file      = (p: string) => rpcCall("read_file", { path: p });
+(globalThis as Record<string, unknown>).write_file     = (p: string, c: string) => rpcCall("write_file", { path: p, content: c });
+(globalThis as Record<string, unknown>).apply_patch    = (env: string) => rpcCall("apply_patch", { patch: env });
+(globalThis as Record<string, unknown>).run_command    = (c: string) => rpcCall("run_command", { command: c });
+(globalThis as Record<string, unknown>).search_code    = (pat: string, glob = "**/*") => rpcCall("search_code", { pattern: pat, glob });
+(globalThis as Record<string, unknown>).list_directory = (p: string) => rpcCall("list_directory", { path: p });
 
 try {
   await py.runPythonAsync(`
