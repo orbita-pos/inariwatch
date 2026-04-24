@@ -309,6 +309,16 @@ export interface ContainerAgentParams {
     remediationSessionId?: string | null;
     isPlatformKey?: boolean;
   };
+  /**
+   * Fase 7 PR B.1 — optional cancellation signal. The coordinator fires
+   * abort() on losing sub-agents when a winner is found. `runContainerAgent`
+   * checks the signal between turns and throws a DOMException("AbortError")
+   * at the next boundary. `in-flight` network calls are NOT interrupted
+   * (that would require composing with the tool-call fetch abort) but the
+   * loop does not advance, so a 15-turn loser finishes at most one more
+   * turn of work after the winner.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ContainerAgentResult {
@@ -673,7 +683,12 @@ Respond ONLY with tool calls. Do not output free text.`;
 // ── Main Loop ───────────────────────────────────────────────────────────────
 
 export async function runContainerAgent(params: ContainerAgentParams): Promise<ContainerAgentResult> {
-  const { apiKey, provider, exploreModel, fixModel, errorContext, containerUrl, containerId, stagingSecret, emit } = params;
+  const { apiKey, provider, exploreModel, fixModel, errorContext, containerUrl, containerId, stagingSecret, emit, signal } = params;
+
+  // Fast fail if caller already aborted before we even start.
+  if (signal?.aborted) {
+    throw new DOMException("runContainerAgent aborted before first turn", "AbortError");
+  }
 
   // System prompt depends on the ACTIVE model per turn (mini for exploration
   // turns vs full for the fix turns). We compose per-call below inside the
@@ -726,6 +741,13 @@ export async function runContainerAgent(params: ContainerAgentParams): Promise<C
   const TEST_RE = /\bnpm\s+test\b|\bpnpm\s+test\b|\byarn\s+test\b|\bpytest\b|\bmvn\s+test\b|\bgradlew\s+test\b|\bgo\s+test\b|\bcargo\s+test\b|\brspec\b|\bvitest\b|\bjest\b/;
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    // Fase 7 PR B.1 — cooperative cancellation point. Coordinator aborts
+    // losing sub-agents when a winner emerges; the current turn finishes
+    // its already-issued fetch, but the NEXT turn never starts.
+    if (signal?.aborted) {
+      emit("container_aborted", { turn, maxTurns: MAX_TURNS });
+      throw new DOMException(`runContainerAgent aborted at turn ${turn}`, "AbortError");
+    }
     emit("container_turn", { turn, maxTurns: MAX_TURNS });
 
     // Haiku for exploration (cheap), Sonnet for final fix (quality).
