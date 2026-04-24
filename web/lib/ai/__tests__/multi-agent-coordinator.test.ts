@@ -205,4 +205,77 @@ describe("runMultiAgentFanout", () => {
     expect(FANOUT_TIMEOUT_MS).toBeGreaterThanOrEqual(30_000);
     expect(FANOUT_TIMEOUT_MS).toBeLessThanOrEqual(600_000);
   });
+
+  // ── Fase 7 PR B.1 — AbortSignal propagation ──────────────────────────────
+
+  it("fires abort() on losing sub-agents after winner resolves", async () => {
+    // Record the signal each sub-agent receives + whether it was
+    // eventually aborted. Winner (index 0) resolves fast; losers
+    // return a slow pending promise so the coordinator has time to
+    // see the winner + abort them.
+    const seenSignals: Array<{ signal: AbortSignal; i: number }> = [];
+
+    runContainerAgentMock.mockImplementation(async (p: {
+      signal?: AbortSignal;
+      emit: (event: string, data: Record<string, unknown>) => void;
+    }) => {
+      const i = seenSignals.length;
+      if (p.signal) seenSignals.push({ signal: p.signal, i });
+
+      if (i === 0) {
+        // Winner — resolves immediately with a verified fix.
+        return {
+          explanation: "win-a",
+          files: [{ path: "a.ts", content: "a" }],
+          turns: 2,
+          verified: true,
+          testsPassed: true,
+        };
+      }
+
+      // Loser — waits until the coordinator aborts us, then throws.
+      // Matches the real container-agent behavior when its turn-level
+      // check sees signal.aborted.
+      await new Promise<void>((resolve) => {
+        if (p.signal?.aborted) resolve();
+        else p.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      throw new DOMException("aborted", "AbortError");
+    });
+
+    const r = await runMultiAgentFanout(
+      baseInput([spec("a"), spec("b"), spec("c")])
+    );
+    expect(r.ok).toBe(true);
+
+    // The winner's signal may or may not be aborted depending on
+    // implementation (coordinator aborts ALL including winner after
+    // race resolves — acceptable). Losers MUST be aborted.
+    const loserSignals = seenSignals.slice(1);
+    expect(loserSignals.length).toBeGreaterThanOrEqual(1);
+    for (const { signal } of loserSignals) {
+      expect(signal.aborted).toBe(true);
+    }
+  });
+
+  it("passes the per-sub-agent signal through the ContainerAgentParams", async () => {
+    const receivedSignals: Array<AbortSignal | undefined> = [];
+    runContainerAgentMock.mockImplementation(async (p: { signal?: AbortSignal }) => {
+      receivedSignals.push(p.signal);
+      return {
+        explanation: "ok",
+        files: [{ path: "x.ts", content: "y" }],
+        turns: 1,
+        verified: true,
+        testsPassed: true,
+      };
+    });
+
+    await runMultiAgentFanout(baseInput([spec("a"), spec("b")]));
+    // Each sub-agent must receive its own distinct signal.
+    expect(receivedSignals.length).toBe(2);
+    expect(receivedSignals[0]).toBeDefined();
+    expect(receivedSignals[1]).toBeDefined();
+    expect(receivedSignals[0]).not.toBe(receivedSignals[1]);
+  });
 });

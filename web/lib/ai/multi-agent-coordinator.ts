@@ -120,11 +120,13 @@ export async function runMultiAgentFanout(input: CoordinatorInput): Promise<Coor
     return { ok: false, skipped: "too_few_hypotheses", attempted: specs.length, durationMs: Date.now() - start };
   }
 
-  // One abort controller per sub-agent. Winner signals; losers are
-  // aborted post-hoc. The container-agent loop does not accept an
-  // AbortSignal today — PR B.1 adds that wiring. For now `aborted`
-  // is a best-effort flag the coordinator reads before DB writes /
-  // downstream emits.
+  // One abort controller per sub-agent. On winner resolution we fire
+  // `controller.abort()` on the losers; their runContainerAgent honors
+  // the signal (Fase 7 PR B.1) and throws at the next turn boundary.
+  // Losers still complete the turn they are currently inside — we
+  // can't interrupt a fetch mid-flight cleanly — but no subsequent
+  // turn starts, which caps the wasted work to at most one turn
+  // of cost per loser.
   const controllers = specs.map(() => new AbortController());
   let winnerIndex: number | null = null;
 
@@ -208,7 +210,7 @@ async function runSubAgent(
   input: CoordinatorInput,
   spec: SubAgentSpec,
   index: number,
-  _signal: AbortSignal,
+  signal: AbortSignal,
 ): Promise<SubAgentRunResult> {
   const subAgentErrorContext = buildHypothesisErrorContext(spec.hypothesis, input.baseErrorContext);
 
@@ -221,6 +223,10 @@ async function runSubAgent(
     containerUrl: spec.containerUrl,
     containerId: spec.containerId,
     stagingSecret: spec.stagingSecret,
+    // Fase 7 PR B.1 — thread the per-sub-agent abort signal through.
+    // When the coordinator sees a winner, it fires abort() on the
+    // losers; their runContainerAgent throws at the next turn boundary.
+    signal,
     emit: (event, data) => {
       input.emit(`sub_agent_${event}`, {
         ...data,
