@@ -10,6 +10,7 @@ import type { Metadata } from "next";
 import ShadowClassificationWidget from "./_components/ShadowClassificationWidget";
 import HypothesisQualityWidget from "./_components/HypothesisQualityWidget";
 import SLOStatusWidget from "./_components/SLOStatusWidget";
+import FanoutWidget from "./_components/FanoutWidget";
 
 export const metadata: Metadata = { title: "AI Observability — InariWatch" };
 
@@ -312,6 +313,9 @@ export default async function AdminAIPage() {
 
           {/* Fase 7 PR A — Hypothesis generator shadow observability */}
           <HypothesisQualityWidget />
+
+          {/* Fase 7 PR B — Multi-agent fan-out observability */}
+          <FanoutWidget />
 
           {/* Recent sessions — drill-down list */}
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 md:col-span-2">

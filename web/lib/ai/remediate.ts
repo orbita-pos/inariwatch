@@ -1006,6 +1006,54 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
               durationMs: hgResult.durationMs,
               tier: tierDecision.tier,
             });
+
+            // ── Fase 7 PR B — Multi-agent fan-out dispatch ─────────────
+            // Gated behind MULTI_AGENT_FANOUT=true. When on + we have
+            // >= 2 hypotheses + a staging server, dispatch N sub-agents
+            // in parallel and race to first verified fix. When off or
+            // on a skipped path, fall through to the legacy Managed /
+            // Container / agentic loop below. Non-throwing.
+            const stagingUrl = process.env.STAGING_SERVER_URL ?? "";
+            const stagingSecret = process.env.STAGING_API_SECRET ?? "";
+            if (stagingUrl && stagingSecret) {
+              try {
+                const { runTier2MultiAgent, isFanoutEnabled } = await import("./tier-2-handler").then(async (m) => ({
+                  runTier2MultiAgent: m.runTier2MultiAgent,
+                  isFanoutEnabled: (await import("./multi-agent-coordinator")).isFanoutEnabled,
+                }));
+                if (isFanoutEnabled()) {
+                  steps = await pushStep(sessionId, steps,
+                    makeStep("generate_fix", `Tier 2 fan-out: ${hgResult.hypotheses.length} sub-agents racing...`), emit);
+                  const t2 = await runTier2MultiAgent(
+                    { id: session.id, projectId: session.projectId, alertId: session.alertId, userId: session.userId },
+                    {
+                      hypotheses: hgResult.hypotheses,
+                      baseErrorContext: `${alert.title}\n\n${alert.body}\n\nDiagnosis:\n${diagnosis.diagnosis}`,
+                      apiKey: aiKey.key,
+                      provider: aiKey.provider,
+                      exploreModel: resolveModel("analysis", aiKey.provider, aiKey.modelPrefs),
+                      fixModel: resolveModel("remediation", aiKey.provider, aiKey.modelPrefs),
+                      stagingUrl,
+                      stagingSecret,
+                      githubToken: token,
+                      repoUrl: `https://github.com/${fullRepo}.git`,
+                      branch: defaultBranch,
+                      emit,
+                    },
+                  );
+                  if (t2.ok) {
+                    fix = { explanation: t2.explanation, files: t2.fileChanges };
+                    steps = await resolveStep(sessionId, steps, "completed",
+                      `Fan-out winner: hypothesis ${t2.winnerHypothesisId.slice(0, 8)} in ${t2.turnsOfWinner} turns (${t2.subAgentsRun} sub-agents raced, ${Math.round(t2.durationMs / 1000)}s)`, emit);
+                  } else {
+                    steps = await resolveStep(sessionId, steps, "completed",
+                      `Fan-out skipped (${t2.skipped}) — falling through to single-agent`, emit);
+                  }
+                }
+              } catch (e) {
+                log.warn("tier_2_fanout_dispatch_failed", { error: e instanceof Error ? e.message : String(e) });
+              }
+            }
           } else {
             emit("hypotheses_skipped", { reason: hgResult.skipped, tier: tierDecision.tier });
           }
