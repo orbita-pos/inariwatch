@@ -232,11 +232,69 @@ export type CIStatus = "pending" | "success" | "failure" | "in_progress";
 
 export type CheckDetail = { name: string; status: string; conclusion: string | null };
 
+/**
+ * Fetch the list of required status-check contexts for a branch.
+ *
+ * Returns:
+ *   - `string[]` with the names of required checks when branch protection
+ *     is configured. Empty array when protection exists but no checks
+ *     are required (caller treats this the same as null).
+ *   - `null` when the branch has NO protection rules (404), we lack
+ *     permission (403), or any other non-200 response. Callers then
+ *     fall back to "wait for all checks" — the previous behavior.
+ *
+ * Used by the CI-wait loop in `remediate.ts` so we only block on the
+ * checks GitHub's merge API would actually require. On a typical repo
+ * with slow optional checks (coverage, audit, etc.) this cuts 10-60s
+ * off the wait without changing safety semantics — GitHub's own merge
+ * gate still enforces the required list.
+ */
+export async function getRequiredStatusChecks(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<string[] | null> {
+  const res = await ghFetch(
+    `${API}/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}/protection`,
+    { headers: headers(token) }
+  );
+  if (!res.ok) return null;
+
+  const data = await res.json().catch(() => null);
+  if (!data) return null;
+
+  // Branch protection "required_status_checks" shape:
+  //   { strict: bool, contexts: string[], checks: [{ context, app_id }] }
+  // `contexts` is the legacy field; `checks` is the newer list that
+  // supports app-scoped contexts. We merge both to be safe.
+  const rsc = data.required_status_checks;
+  if (!rsc) return [];
+
+  const names = new Set<string>();
+  if (Array.isArray(rsc.contexts)) {
+    for (const c of rsc.contexts) if (typeof c === "string") names.add(c);
+  }
+  if (Array.isArray(rsc.checks)) {
+    for (const c of rsc.checks) {
+      if (c && typeof c.context === "string") names.add(c.context);
+    }
+  }
+  return Array.from(names);
+}
+
 export async function getCheckRunsStatus(
   token: string,
   owner: string,
   repo: string,
-  ref: string
+  ref: string,
+  /**
+   * Optional list of required check names. When provided and non-empty,
+   * the status is computed ONLY over matching checks — optional checks
+   * still appear in `details` but do not hold up the verdict. Pass `null`
+   * or `undefined` to restore the previous "wait for all" behavior.
+   */
+  requiredChecks?: string[] | null
 ): Promise<{ status: CIStatus; details: CheckDetail[] }> {
   const res = await ghFetch(`${API}/repos/${owner}/${repo}/commits/${ref}/check-runs?per_page=100`, {
     headers: headers(token),
@@ -249,10 +307,23 @@ export async function getCheckRunsStatus(
   const checks = data.check_runs as { name: string; status: string; conclusion: string | null }[];
   const details = checks.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion }));
 
-  const allCompleted = checks.every((c) => c.status === "completed");
+  // When the caller supplied a required-check list (non-empty), only
+  // those gate the verdict. Unknown optional checks can keep running
+  // without holding up the merge.
+  const gating = requiredChecks && requiredChecks.length > 0
+    ? checks.filter((c) => requiredChecks.includes(c.name))
+    : checks;
+
+  // If branch protection requires a check name that hasn't even reported
+  // yet (gating list non-empty but no matching checks), treat as pending.
+  if (requiredChecks && requiredChecks.length > 0 && gating.length === 0) {
+    return { status: "pending", details };
+  }
+
+  const allCompleted = gating.every((c) => c.status === "completed");
   if (!allCompleted) return { status: "in_progress", details };
 
-  const anyFailed = checks.some((c) => c.conclusion === "failure" || c.conclusion === "timed_out");
+  const anyFailed = gating.some((c) => c.conclusion === "failure" || c.conclusion === "timed_out");
   return { status: anyFailed ? "failure" : "success", details };
 }
 
