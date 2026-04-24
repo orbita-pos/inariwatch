@@ -182,7 +182,7 @@ function handleJobStatus(res: ServerResponse, jobId: string): void {
 const ALLOWED_JOBS: Record<string, string[]> = {
   critical: ["uptime-check", "post-alert-created", "process-webhook"],
   default: ["escalate-alert", "deploy-monitor", "deploy-health-check", "flush-notifications", "poll-integrations"],
-  low: ["escalation-sweep", "anomaly-aggregate", "digest", "poll-webhook-fallback", "fleet-verification", "performance-benchmark", "substrate-extract", "behavioral-drift"],
+  low: ["escalation-sweep", "anomaly-aggregate", "digest", "poll-webhook-fallback", "fleet-verification", "performance-benchmark", "substrate-extract", "behavioral-drift", "slo-check"],
 };
 
 async function handleEnqueue(req: IncomingMessage, res: ServerResponse): Promise<void> {

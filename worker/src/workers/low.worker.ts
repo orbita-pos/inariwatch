@@ -19,6 +19,7 @@ import { runFleetVerification, type FleetJobInput } from "../jobs/fleet-verifica
 import { runPerformanceBenchmark, type PerfJobInput } from "../jobs/performance-benchmark.js";
 import { runSubstrateExtract, type SubstrateExtractInput } from "../jobs/substrate-extract.js";
 import { runBehavioralDrift, type DriftJobInput } from "../jobs/behavioral-drift.js";
+import { runSLOCheck } from "../jobs/slo-check.js";
 
 async function handler(job: Job): Promise<unknown> {
   switch (job.name) {
@@ -45,6 +46,9 @@ async function handler(job: Job): Promise<unknown> {
 
     case "behavioral-drift":
       return await runBehavioralDrift(job.data as DriftJobInput);
+
+    case "slo-check":
+      return await runSLOCheck();
 
     default:
       console.warn(`[low] Unknown job: ${job.name}`);

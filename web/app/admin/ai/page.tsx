@@ -9,6 +9,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import ShadowClassificationWidget from "./_components/ShadowClassificationWidget";
 import HypothesisQualityWidget from "./_components/HypothesisQualityWidget";
+import SLOStatusWidget from "./_components/SLOStatusWidget";
 
 export const metadata: Metadata = { title: "AI Observability — InariWatch" };
 
@@ -302,6 +303,9 @@ export default async function AdminAIPage() {
               Baseline for the GPT-5.4 migration. Target post-PRs: avg turns -30%, avg cost $0.25→$0.08.
             </p>
           </div>
+
+          {/* Fase 12 Part A — SLO status */}
+          <SLOStatusWidget />
 
           {/* Fase 6 — Shadow classification metrics */}
           <ShadowClassificationWidget />

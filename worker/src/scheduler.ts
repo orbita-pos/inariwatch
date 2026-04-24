@@ -58,6 +58,15 @@ export async function startScheduler(): Promise<void> {
     priority: 4,
   });
 
+  // SLO check — Fase 12 Part A. Measures per-tier SLOs over the last
+  // 15 minutes of remediation_sessions and upserts breaches into
+  // slo_events. 5-min cadence matches the arch spec's "3 consecutive
+  // 5-min windows" paging rule.
+  await lowQueue.add("slo-check", {}, {
+    repeat: { every: 300_000 }, // 5 min
+    priority: 5,
+  });
+
   // Weekly fallback poll for webhook services (GitHub/Vercel/Sentry)
   // Catches events missed by webhooks — runs Sunday at 03:00 UTC
   await lowQueue.add("poll-webhook-fallback", {}, {
