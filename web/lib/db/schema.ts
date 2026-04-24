@@ -1886,3 +1886,27 @@ export const patternMemory = pgTable(
 
 export type PatternMemory = typeof patternMemory.$inferSelect;
 export type NewPatternMemory = typeof patternMemory.$inferInsert;
+
+// ── tier_router_labels (Fase 6.1, migration 0072) ──────────────────────────
+// Human ground-truth for tier router accuracy. The /admin/ai widget upgrades
+// from outcome-based approximation to real agreement once this table holds
+// >= 50 rows. Required gate before promoting TIER_ROUTER_MODE shadow → live.
+
+export const tierRouterLabels = pgTable(
+  "tier_router_labels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references(() => remediationSessions.id, { onDelete: "cascade" }).notNull(),
+    labelerUserId: uuid("labeler_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    humanTier: text("human_tier").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("tier_router_labels_session_labeler_idx").on(table.sessionId, table.labelerUserId),
+    index("tier_router_labels_created_idx").on(table.createdAt),
+  ]
+);
+
+export type TierRouterLabel = typeof tierRouterLabels.$inferSelect;
+export type NewTierRouterLabel = typeof tierRouterLabels.$inferInsert;
