@@ -148,6 +148,16 @@ env:
     # Without the webhook config the flag is inert (falls back to
     # the existing 15s polling loop).
     CI_WEBHOOK_MODE: "true"
+    # ── Fase 6 — Tier Router + Pattern Memory (shadow mode) ──────────
+    # Activated 2026-04-23. Shadow = classifier runs + writes tier_used
+    # / pattern_match_score to remediation_sessions, but remediate.ts
+    # keeps taking the Tier 2 path. Pattern memory writes are on (the
+    # default) so the pattern store warms from day 1. Promotion to
+    # `live` is gated on 5 hard requirements in
+    # web/docs/tier-router-rollout.md — minimum 14 consecutive days of
+    # shadow data + 50-sample human-label backfill before flipping.
+    # Rollback: set to "off" and `kamal env push` (~30s, no rebuild).
+    TIER_ROUTER_MODE: "shadow"
   secret:
     # Core
     - DATABASE_URL
