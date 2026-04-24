@@ -154,4 +154,57 @@ describe("runTier2MultiAgent", () => {
     if (!r.ok) expect(r.skipped).toBe("all_sub_agents_failed");
     expect(destroyContainerMock).toHaveBeenCalledTimes(3);
   });
+
+  it("provisions containers in parallel (wall time ≈ max RTT, not sum)", async () => {
+    // Each createContainer takes 50ms. Sequential (3 calls) = 150ms,
+    // parallel = ~50ms. We allow 100ms of slack for vitest scheduling
+    // jitter on slow CI; still far below the 150ms sequential bound.
+    createContainerMock.mockImplementation(async (_url, _secret, _repo, _branch, _token, sessionId) => {
+      await new Promise((r) => setTimeout(r, 50));
+      return `c-${sessionId}`;
+    });
+    runMultiAgentFanoutMock.mockResolvedValue({
+      ok: true,
+      winnerSubAgentId: "s0", winnerHypothesisId: "a",
+      explanation: "fix", files: [{ path: "x.ts", content: "y" }],
+      turns: 1, verified: true, testsPassed: true,
+      durationMs: 1, losersCount: 0,
+    });
+
+    const start = Date.now();
+    const r = await runTier2MultiAgent(
+      sess,
+      baseCtx([hypothesis("a"), hypothesis("b"), hypothesis("c")])
+    );
+    const elapsed = Date.now() - start;
+
+    expect(r.ok).toBe(true);
+    expect(createContainerMock).toHaveBeenCalledTimes(3);
+    // Parallel: elapsed should be roughly max(50ms) + coord overhead,
+    // not sum(150ms). 120ms is a comfortable upper bound.
+    expect(elapsed).toBeLessThan(120);
+  });
+
+  it("destroys every successful checkout when any parallel call fails", async () => {
+    // Two succeed fast, one rejects — we must destroy the two that
+    // landed, even though they arrived after the rejection.
+    createContainerMock.mockImplementation(async (_url, _secret, _repo, _branch, _token, sessionId) => {
+      const idx = sessionId.endsWith("-s0") ? 0 : sessionId.endsWith("-s1") ? 1 : 2;
+      if (idx === 1) throw new Error("pool full on s1");
+      await new Promise((r) => setTimeout(r, 10));
+      return `c-${sessionId}`;
+    });
+
+    const r = await runTier2MultiAgent(
+      sess,
+      baseCtx([hypothesis("a"), hypothesis("b"), hypothesis("c")])
+    );
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.skipped).toBe("container_create_failed");
+    // Two containers succeeded, both destroyed. The rejected one was
+    // never created, so nothing to destroy for it.
+    expect(destroyContainerMock).toHaveBeenCalledTimes(2);
+    expect(runMultiAgentFanoutMock).not.toHaveBeenCalled();
+  });
 });

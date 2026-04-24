@@ -82,34 +82,64 @@ export async function runTier2MultiAgent(
 
   const effective = ctx.hypotheses.slice(0, MAX_SUB_AGENTS);
 
-  // ── Provision N containers (sequential checkouts — see coordinator notes) ──
-  const created: { containerId: string }[] = [];
-  try {
-    for (let i = 0; i < effective.length; i++) {
-      const containerId = await createContainer(
+  // ── Provision N containers IN PARALLEL (batch checkout) ──────────────
+  //
+  // Earlier versions awaited createContainer sequentially — N × ~100ms
+  // round-trip to the staging server. Promise.allSettled fires all N
+  // at once; wall time becomes max(RTT) instead of sum(RTT). Savings
+  // are biggest on high-N fan-outs: at N=3 we cut ~200ms.
+  //
+  // If any individual checkout fails, we destroy the ones that did
+  // succeed so no container is leaked. Partial success is still
+  // reported as `container_create_failed` — we need all N to run the
+  // race fairly (a 2-of-3 fan-out isn't the same experiment).
+  //
+  // A Go-server /pool/checkout?count=N endpoint would further cut the
+  // wall time to one RTT. That lives in the inari-staging repo and is
+  // a separate follow-up. Client-side parallelism here is ~95% of the
+  // savings with zero cross-repo coordination.
+  const checkoutResults = await Promise.allSettled(
+    effective.map((_, i) =>
+      createContainer(
         ctx.stagingUrl,
         ctx.stagingSecret,
         ctx.repoUrl,
         ctx.branch,
         ctx.githubToken,
         `${session.id}-s${i}`,
-      );
-      created.push({ containerId });
+      )
+    )
+  );
+
+  const successes: { containerId: string }[] = [];
+  const firstError: { error: string } | null = (() => {
+    for (const r of checkoutResults) {
+      if (r.status === "fulfilled") {
+        successes.push({ containerId: r.value });
+      }
     }
-  } catch (err) {
-    // Any partial checkout — destroy what we grabbed and bail.
+    const rejected = checkoutResults.find((r) => r.status === "rejected");
+    if (!rejected) return null;
+    const err = (rejected as PromiseRejectedResult).reason;
+    return { error: err instanceof Error ? err.message : String(err) };
+  })();
+
+  if (firstError) {
+    // Any partial checkout — destroy the ones we grabbed and bail.
     await Promise.all(
-      created.map((c) =>
+      successes.map((c) =>
         destroyContainer(ctx.stagingUrl, ctx.stagingSecret, c.containerId).catch(() => {})
       )
     );
     ctx.emit("fanout_container_create_failed", {
-      error: err instanceof Error ? err.message : String(err),
-      acquired: created.length,
+      error: firstError.error,
+      acquired: successes.length,
       attempted: effective.length,
     });
     return { ok: false, skipped: "container_create_failed" };
   }
+
+  const created = successes;
 
   // ── Run the coordinator ────────────────────────────────────────────────
   const subAgents: SubAgentSpec[] = effective.map((h, i) => ({
