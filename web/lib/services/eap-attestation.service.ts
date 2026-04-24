@@ -54,6 +54,15 @@ interface EapSubmitResponse {
   receipt_id: string;
   event_count: number;
   signed: boolean;
+  /** Server-provided fields added for local verification (Fase 11
+   *  follow-up). All three are null when `signed=false`, populated hex
+   *  when `signed=true`. Older EAP server builds that predate this
+   *  response extension will omit them → we treat as null (receipt can
+   *  still be mirrored, just won't be locally-verifiable without a
+   *  later upstream hydrate). */
+  signature?: string | null;
+  public_key?: string | null;
+  key_id?: string | null;
 }
 
 export type SubmitOutcome =
@@ -188,10 +197,14 @@ export async function submitReceiptForRemediation(
   // every hit. Idempotent via PK conflict — re-submissions of the same
   // content-addressed receipt are a no-op.
   //
-  // NOTE: the EAP /receipts/from-events response does NOT include the raw
-  // Ed25519 signature (only a `signed: bool` flag). The signature is
-  // fetched lazily by the verify endpoint via /chain/:id when needed. We
-  // store merkle_root = receipt_id here since they're identical today.
+  // Fase 11 follow-up: the server response now carries the raw Ed25519
+  // signature hex (see `eap/crates/server/src/routes.rs::submit_from_events`).
+  // We persist it so local verification (`eap-verify-local.ts`) can check
+  // Ed25519(sig, SHA-256(receipt_id), pubkey) without round-tripping
+  // /chain/:id. Older server builds that predate the response extension
+  // omit the field → body.signature is undefined → we fall back to null
+  // and the receipt ends up server-verifiable only (current behavior).
+  const mirrorSignature = body.signature ?? null;
   try {
     await db
       .insert(eapReceipts)
@@ -201,7 +214,7 @@ export async function submitReceiptForRemediation(
         remediationSessionId: row.id,
         recordingId: rec.recordingId,
         merkleRoot: body.receipt_id,
-        signature: null,
+        signature: mirrorSignature,
         signed: body.signed,
         eventCount: body.event_count,
         attestor: ATTESTOR_NAME,

@@ -11,6 +11,7 @@ import { CertsWidget } from "./widgets/certs";
 import { CronsWidget } from "./widgets/crons";
 import { ErrorsWidget } from "./widgets/errors";
 import { BansWidget } from "./widgets/bans";
+import { EapVerifyWidget } from "./widgets/eap-verify";
 
 export const metadata: Metadata = { title: "Admin — Ops" };
 
@@ -87,6 +88,10 @@ export default async function OpsPage() {
 
         <Suspense fallback={<Skeleton title="Own-product alerts" />}>
           <ErrorsWidget />
+        </Suspense>
+
+        <Suspense fallback={<Skeleton title="EAP local verify" />}>
+          <EapVerifyWidget />
         </Suspense>
 
         <Suspense fallback={<Skeleton title="staging — fail2ban" />}>

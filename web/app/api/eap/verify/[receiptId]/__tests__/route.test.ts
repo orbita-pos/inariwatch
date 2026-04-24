@@ -51,6 +51,20 @@ vi.mock("drizzle-orm", () => ({
   eq: (a: unknown, b: unknown) => ({ _eq: [a, b] }),
 }));
 
+// Mock eap-verify-local to assert whether/when the route fires the
+// on-first-hit lazy verify path without invoking real crypto or hitting
+// Redis/EAP. Flag state is controlled via isLocalVerifyEnabled.
+const verifyAndPersistMock = vi.fn(async () => ({
+  verified: true as const,
+  keyId: "abcdef0123456789",
+  durationMs: 1,
+}));
+let localVerifyFlag = false;
+vi.mock("@/lib/services/eap-verify-local", () => ({
+  isLocalVerifyEnabled: () => localVerifyFlag,
+  verifyAndPersist: verifyAndPersistMock,
+}));
+
 const VALID_ID = "deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567";
 
 function mkReq(path = `/api/eap/verify/${VALID_ID}`): import("next/server").NextRequest {
@@ -67,6 +81,8 @@ beforeEach(() => {
   rateLimitMock.mockReset();
   rateLimitMock.mockImplementation(async () => ({ allowed: true }));
   vi.unstubAllGlobals();
+  verifyAndPersistMock.mockClear();
+  localVerifyFlag = false;
 });
 
 // ── Receipt ID validation ────────────────────────────────────────────────
@@ -328,5 +344,133 @@ describe("CORS preflight", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     expect(res.headers.get("access-control-allow-methods")).toMatch(/GET/);
     expect(res.headers.get("access-control-max-age")).toBe("86400");
+  });
+});
+
+// ── On-first-hit lazy local verify ───────────────────────────────────────
+//
+// When the feature flag is on AND the mirror row has a signature but no
+// persisted verdict, the route must kick off verifyAndPersist without
+// blocking the response. Conversely, it must NOT fire when the flag is
+// off, when signature is absent (unsigned receipt), or when a verdict
+// has already been persisted.
+
+describe("on-first-hit local verify", () => {
+  beforeEach(() => {
+    vi.stubEnv("EAP_SERVER_URL", "https://eap.example.com");
+  });
+
+  function pushMirror(over: Partial<{
+    signature: string | null;
+    signed: boolean;
+    verified: boolean | null;
+  }> = {}): void {
+    // Use `in` check instead of ?? so explicit null overrides don't get
+    // replaced by the default value — ?? only returns the RHS when LHS
+    // is null/undefined, which collapses a deliberate null into "ab"…
+    selectQueue.push([
+      {
+        receiptId: VALID_ID,
+        merkleRoot: VALID_ID,
+        signature: "signature" in over ? over.signature : "ab".repeat(64),
+        signed: "signed" in over ? over.signed : true,
+        eventCount: 7,
+        attestor: "inariwatch",
+        createdAt: new Date("2026-04-22T12:00:00Z"),
+        verified: "verified" in over ? over.verified : null,
+      },
+    ]);
+  }
+
+  it("fires verifyAndPersist when flag on + signature + verified=null", async () => {
+    localVerifyFlag = true;
+    pushMirror();
+    const { GET } = await loadRoute();
+    const res = await GET(mkReq(), {
+      params: Promise.resolve({ receiptId: VALID_ID }),
+    });
+    expect(res.status).toBe(200);
+
+    // Wait a microtask so the fire-and-forget promise schedules.
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(verifyAndPersistMock).toHaveBeenCalledTimes(1);
+    expect(verifyAndPersistMock).toHaveBeenCalledWith({
+      receiptId: VALID_ID,
+      signatureHex: "ab".repeat(64),
+    });
+  });
+
+  it("does NOT fire when flag is off", async () => {
+    localVerifyFlag = false;
+    pushMirror();
+    const { GET } = await loadRoute();
+    await GET(mkReq(), { params: Promise.resolve({ receiptId: VALID_ID }) });
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(verifyAndPersistMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire when receipt is unsigned (signature null)", async () => {
+    localVerifyFlag = true;
+    pushMirror({ signature: null, signed: false });
+    const { GET } = await loadRoute();
+    await GET(mkReq(), { params: Promise.resolve({ receiptId: VALID_ID }) });
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(verifyAndPersistMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire when verified has already been persisted", async () => {
+    localVerifyFlag = true;
+    pushMirror({ verified: true });
+    const { GET } = await loadRoute();
+    await GET(mkReq(), { params: Promise.resolve({ receiptId: VALID_ID }) });
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(verifyAndPersistMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire in ?chain=1 mode (bypasses mirror entirely)", async () => {
+    localVerifyFlag = true;
+    pushMirror();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            chain: [{ meta: { receipt_id: VALID_ID } }],
+            verification: { all_signatures_valid: true },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    const { GET } = await loadRoute();
+    const req = new Request(
+      `https://app.inariwatch.com/api/eap/verify/${VALID_ID}?chain=1`,
+    ) as unknown as import("next/server").NextRequest;
+    await GET(req, { params: Promise.resolve({ receiptId: VALID_ID }) });
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(verifyAndPersistMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces verified field in the local response body", async () => {
+    localVerifyFlag = false;
+    pushMirror({ verified: true });
+    const { GET } = await loadRoute();
+    const res = await GET(mkReq(), {
+      params: Promise.resolve({ receiptId: VALID_ID }),
+    });
+    const body = await res.json();
+    expect(body.verified).toBe(true);
+    expect(body.source).toBe("local");
+  });
+
+  it("response body has verified=null when not yet verified", async () => {
+    localVerifyFlag = false;
+    pushMirror({ verified: null });
+    const { GET } = await loadRoute();
+    const res = await GET(mkReq(), {
+      params: Promise.resolve({ receiptId: VALID_ID }),
+    });
+    const body = await res.json();
+    expect(body.verified).toBeNull();
   });
 });

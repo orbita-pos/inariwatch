@@ -188,6 +188,18 @@ env:
     # or any producer errors correlate with concurrency, rollback.
     # Rollback: set to "false" and `kamal env push` (~30s, no rebuild).
     GATES_PARALLEL: "true"
+    # ── Fase 11 follow-up — local EAP signature verification ─────────
+    # Activated 2026-04-24. When true, the verify endpoint + the new
+    # /api/cron/eap-verify-sweep route do an in-process Ed25519 verify
+    # against the cached attestor pubkey (24h Redis TTL, keyed by
+    # EAP_SERVER_URL). Decouples Gate 6 (`eap_chain_verified`) from a
+    # synchronous round-trip to eap.staging.inariwatch.com. Receipts
+    # already in the mirror with `signature IS NOT NULL` get verified
+    # lazily on first hit; the rest by the hourly sweep. Rollback: set
+    # to "false" and `kamal env push` (~30s, no rebuild). The flag is
+    # checked at every call site, so flipping off resumes the previous
+    # server-side-only behavior with zero deploy.
+    EAP_LOCAL_VERIFY_ENABLED: "true"
   secret:
     # Core
     - DATABASE_URL

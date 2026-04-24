@@ -37,7 +37,8 @@ export type CronRoute =
   | "replay-stats"
   | "cleanup-ai-logs"
   | "whatif-retention"
-  | "pool-rehydrate";
+  | "pool-rehydrate"
+  | "eap-verify-sweep";
 
 export function cronLog(
   route: CronRoute,

@@ -3,6 +3,10 @@ import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limi
 import { db } from "@/lib/db";
 import { eapReceipts } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import {
+  isLocalVerifyEnabled,
+  verifyAndPersist,
+} from "@/lib/services/eap-verify-local";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -75,6 +79,7 @@ interface MirrorRow {
   eventCount: number;
   attestor: string;
   createdAt: Date;
+  verified: boolean | null;
 }
 
 export async function GET(
@@ -107,6 +112,28 @@ export async function GET(
   if (!wantChain) {
     const mirror = await loadFromMirror(receiptIdLc);
     if (mirror) {
+      // Lazy on-first-hit local verify: when the flag is on, the receipt
+      // is signed, and verification hasn't been persisted yet, fire-and-
+      // forget the verify + persist path. Does NOT block the response —
+      // the next request (or the hourly sweep cron) reads the cached
+      // verdict from `eap_receipts.verified`. This gives us warmer Gate
+      // 6 inputs without adding latency to the hot path.
+      if (
+        isLocalVerifyEnabled() &&
+        mirror.verified === null &&
+        mirror.signature !== null
+      ) {
+        void verifyAndPersist({
+          receiptId: mirror.receiptId,
+          signatureHex: mirror.signature,
+        }).catch((err) => {
+          console.error(
+            "[eap-verify] on-hit verify failed:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      }
+
       return jsonWithCors(
         {
           receipt_id: mirror.receiptId,
@@ -116,6 +143,7 @@ export async function GET(
           event_count: mirror.eventCount,
           attestor: mirror.attestor,
           created_at: mirror.createdAt.toISOString(),
+          verified: mirror.verified,
           source: "local" as const,
         },
         200,
@@ -208,6 +236,7 @@ async function loadFromMirror(receiptId: string): Promise<MirrorRow | null> {
         eventCount: eapReceipts.eventCount,
         attestor: eapReceipts.attestor,
         createdAt: eapReceipts.createdAt,
+        verified: eapReceipts.verified,
       })
       .from(eapReceipts)
       .where(eq(eapReceipts.receiptId, receiptId))
