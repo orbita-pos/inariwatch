@@ -158,6 +158,19 @@ env:
     # shadow data + 50-sample human-label backfill before flipping.
     # Rollback: set to "off" and `kamal env push` (~30s, no rebuild).
     TIER_ROUTER_MODE: "shadow"
+    # ── Fase 8 — Auto-merge gate parallelization ─────────────────────
+    # Activated 2026-04-24. When true, `runGateDag` (lib/ai/gates-
+    # executor.ts) fans security_ai_review + self_review_cheap out via
+    # Promise.all instead of running them serially. Flag off is byte-
+    # identical to the pre-PR #21 serial path (validated by
+    # web/lib/ai/__tests__/gates-executor.test.ts). Expected impact:
+    # pre-push gate wall time p50 drops ~60% (from ~15s → ~6s) because
+    # both producers are I/O-bound AI calls.
+    # Monitoring after flip: watch the `gates_dag` events in the
+    # remediation stream (totalMs + per-producer ms). If p95 regresses
+    # or any producer errors correlate with concurrency, rollback.
+    # Rollback: set to "false" and `kamal env push` (~30s, no rebuild).
+    GATES_PARALLEL: "true"
   secret:
     # Core
     - DATABASE_URL
