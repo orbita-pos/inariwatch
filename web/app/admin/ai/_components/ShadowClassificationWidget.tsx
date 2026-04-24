@@ -9,6 +9,7 @@
  * Mirrors the Tailwind / zinc palette used by the rest of /admin/ai.
  */
 
+import Link from "next/link";
 import {
   getTierDistribution,
   getClassifierAccuracy,
@@ -45,9 +46,17 @@ export default async function ShadowClassificationWidget() {
         <h2 className="text-sm font-mono text-violet-400 uppercase tracking-wider">
           Shadow Classification (Fase 6)
         </h2>
-        <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-          7d · {total} classified
-        </span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/ai/labels"
+            className="text-[10px] font-mono text-violet-400 uppercase tracking-wider hover:text-violet-300"
+          >
+            Label sessions →
+          </Link>
+          <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+            7d · {total} classified
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

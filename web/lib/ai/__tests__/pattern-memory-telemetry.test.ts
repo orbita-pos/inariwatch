@@ -58,22 +58,38 @@ describe("getTierDistribution", () => {
 });
 
 describe("getClassifierAccuracy", () => {
-  it("returns isApproximation=true always for Fase 6", async () => {
-    executeMock.mockResolvedValueOnce(rowsResult([{ labeled: 10, accurate: 8 }]));
+  it("returns approximation when human labels < 50", async () => {
+    executeMock
+      .mockResolvedValueOnce(rowsResult([{ total: 5, agreed: 3 }]))   // labels query
+      .mockResolvedValueOnce(rowsResult([{ labeled: 10, accurate: 8 }])); // fallback
     const r = await getClassifierAccuracy();
+    expect(r.isApproximation).toBe(true);
+    expect(r.accuracyPct).toBe(80);
+  });
+
+  it("computes approximation percentage from outcome fallback", async () => {
+    executeMock
+      .mockResolvedValueOnce(rowsResult([{ total: 0, agreed: 0 }]))
+      .mockResolvedValueOnce(rowsResult([{ labeled: 50, accurate: 42 }]));
+    const r = await getClassifierAccuracy();
+    expect(r.accuracyPct).toBe(84);
     expect(r.isApproximation).toBe(true);
   });
 
-  it("computes percentage", async () => {
-    executeMock.mockResolvedValueOnce(rowsResult([{ labeled: 50, accurate: 42 }]));
-    const r = await getClassifierAccuracy();
-    expect(r.accuracyPct).toBe(84);
-  });
-
   it("handles zero labeled without dividing by zero", async () => {
-    executeMock.mockResolvedValueOnce(rowsResult([{ labeled: 0, accurate: 0 }]));
+    executeMock
+      .mockResolvedValueOnce(rowsResult([{ total: 0, agreed: 0 }]))
+      .mockResolvedValueOnce(rowsResult([{ labeled: 0, accurate: 0 }]));
     const r = await getClassifierAccuracy();
     expect(r.accuracyPct).toBe(0);
+  });
+
+  it("switches to real accuracy once labels >= 50", async () => {
+    executeMock.mockResolvedValueOnce(rowsResult([{ total: 60, agreed: 54 }]));
+    const r = await getClassifierAccuracy();
+    expect(r.isApproximation).toBe(false);
+    expect(r.accuracyPct).toBe(90);
+    expect(r.labeledCount).toBe(60);
   });
 });
 

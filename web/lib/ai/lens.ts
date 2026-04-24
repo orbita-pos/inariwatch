@@ -89,6 +89,7 @@ export interface LensTelemetry {
 export type LensPhase =
   | "classify"
   | "triage"
+  | "hypothesis"
   | "explore"
   | "fix"
   | "final"
