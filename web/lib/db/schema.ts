@@ -1886,3 +1886,32 @@ export const patternMemory = pgTable(
 
 export type PatternMemory = typeof patternMemory.$inferSelect;
 export type NewPatternMemory = typeof patternMemory.$inferInsert;
+
+// ── Fase 12 Part A — slo_events (migration 0071) ───────────────────────────
+//
+// One open row per (tier, metric). The SLO check cron UPSERTs against the
+// partial unique index idx_slo_events_open_unique WHERE resolved_at IS NULL.
+// Closed rows form the audit trail. Read by /admin/ai and /api/cron/slo-check.
+
+export const sloEvents = pgTable(
+  "slo_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tier: text("tier").notNull(),
+    metric: text("metric").notNull(),
+    thresholdValue: real("threshold_value").notNull(),
+    observedValue: real("observed_value").notNull(),
+    sampleCount: integer("sample_count").notNull(),
+    consecutiveBreachCount: integer("consecutive_breach_count").notNull().default(1),
+    firstBreachAt: timestamp("first_breach_at", { withTimezone: true }).defaultNow().notNull(),
+    lastBreachAt: timestamp("last_breach_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("slo_events_history").on(table.tier, table.metric, table.createdAt),
+  ]
+);
+
+export type SLOEvent = typeof sloEvents.$inferSelect;
+export type NewSLOEvent = typeof sloEvents.$inferInsert;
