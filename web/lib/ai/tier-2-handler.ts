@@ -23,6 +23,45 @@ import {
   type SubAgentSpec,
 } from "./multi-agent-coordinator";
 import { createContainer, destroyContainer } from "./container-agent";
+import crypto from "node:crypto";
+
+/**
+ * Canary percentage [0..100]. Only sessions whose deterministic hash
+ * (sha256(sessionId) mod 100) falls below this number enter the fan-out
+ * path. Default 100 = every eligible session (legacy behavior).
+ *
+ * Rationale: each fan-out costs ~N× the single-agent pipeline because
+ * N sub-agents each run their own ~15-turn loop. Rolling the flag
+ * broad blind = 3× cost jump across all Tier 2/3 traffic. A canary
+ * lets us collect signal without burning the full multiplier.
+ *
+ * Rollout plan: start at 20 after the flag is first flipped on. Once
+ * FanoutWidget shows success rate >= single-agent baseline for 48h,
+ * ramp to 50, then 100. Roll back by setting to 0 — no code change.
+ */
+export function fanoutCanaryPct(): number {
+  const raw = process.env.FANOUT_CANARY_PCT;
+  if (raw == null) return 100;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return 100;
+  if (n < 0) return 0;
+  if (n > 100) return 100;
+  return n;
+}
+
+/**
+ * Deterministic canary gate on a session id. Same input always returns
+ * the same bucket, so a given session never flip-flops between the
+ * fan-out and the legacy path mid-retry.
+ */
+export function sessionInCanary(sessionId: string, pct: number): boolean {
+  if (pct <= 0) return false;
+  if (pct >= 100) return true;
+  // 4-byte prefix of sha256 is plenty; mod 100 fairness is well-studied.
+  const digest = crypto.createHash("sha256").update(sessionId).digest();
+  const bucket = digest.readUInt32BE(0) % 100;
+  return bucket < pct;
+}
 
 export type Tier2MultiAgentContext = {
   /** The diagnosis string remediate.ts already built — becomes the
@@ -62,6 +101,7 @@ export type Tier2MultiAgentResult =
       ok: false;
       skipped:
         | "disabled"
+        | "canary_skip"
         | "too_few_hypotheses"
         | "no_staging_server"
         | "container_create_failed"
@@ -75,6 +115,14 @@ export async function runTier2MultiAgent(
   ctx: Tier2MultiAgentContext,
 ): Promise<Tier2MultiAgentResult> {
   if (!isFanoutEnabled()) return { ok: false, skipped: "disabled" };
+  // Canary gate — skip fan-out on sessions outside the configured
+  // percentage. Fires BEFORE container provisioning so we do not pay
+  // any infra cost on skipped sessions.
+  const canary = fanoutCanaryPct();
+  if (!sessionInCanary(session.id, canary)) {
+    ctx.emit("fanout_canary_skip", { sessionId: session.id, canaryPct: canary });
+    return { ok: false, skipped: "canary_skip" };
+  }
   if (ctx.hypotheses.length < 2) return { ok: false, skipped: "too_few_hypotheses" };
   if (!ctx.stagingUrl || !ctx.stagingSecret) {
     return { ok: false, skipped: "no_staging_server" };
