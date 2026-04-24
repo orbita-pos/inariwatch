@@ -330,15 +330,19 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const alertFingerprint = computeErrorFingerprint(alert.title, alert.body);
   await updateSession(sessionId, { fingerprint: alertFingerprint });
 
-  // Fase 6 — Tier router shadow classification. When TIER_ROUTER_MODE='off'
-  // (default) this is a zero-cost no-op: routeTier returns null before any
-  // DB/LLM call. In 'shadow' it classifies and persists tier_used +
-  // pattern_match_score without affecting the fix path. Never throws.
+  // Fase 6 — Tier router classification. When TIER_ROUTER_MODE='off' (default)
+  // this is a zero-cost no-op. In 'shadow' it classifies and persists
+  // tier_used + pattern_match_score without affecting the fix path. In 'live'
+  // (Fase 6.1) the result is consumed below by the Tier 0/1 fast-path
+  // dispatch inside the attempt loop. Never throws.
+  let tierDecision: import("./tier-router").ClassificationResult | null = null;
   try {
-    const { routeTier } = await import("./tier-router");
-    await routeTier(session.alertId, sessionId);
+    const { routeTier, getTierRouterMode } = await import("./tier-router");
+    tierDecision = await routeTier(session.alertId, sessionId);
+    if (getTierRouterMode() !== "live") tierDecision = null;
   } catch {
     // best-effort — routing failure never blocks remediation
+    tierDecision = null;
   }
 
   // Get AI key — platform key fallback funds all users (quotas + spend guard protect)
@@ -895,11 +899,126 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
       // the Part C intelligent CI retry below.
       let prepushPassed: boolean | null = null;
 
+      // ── TIER 0/1 FAST-PATH (Fase 6.1, live mode only) ────────────────
+      // Skip Managed Agent / Container Agent / Agentic / single-shot when
+      // the router classified this as Tier 0 (cached patch) or Tier 1
+      // (single-shot nano with category template). Both paths are first-
+      // attempt only — retries fall through to the existing cascade.
+      if (tierDecision && attempt === 1 && !previousAttempt) {
+        if (tierDecision.tier === 0) {
+          steps = await pushStep(sessionId, steps,
+            makeStep("generate_fix", "Tier 0: applying cached patch from pattern memory..."), emit);
+          try {
+            const { runTier0 } = await import("./tier-0-handler");
+            const match = tierDecision.patternMatches[0];
+            if (match && alertFingerprint) {
+              const tier0 = await runTier0(
+                { id: session.id, projectId: session.projectId, alertId: session.alertId, repo: fullRepo, baseBranch: defaultBranch },
+                match,
+                { githubToken: token, owner, repo, baseBranch: defaultBranch, fingerprint: alertFingerprint },
+              );
+              if (tier0.ok) {
+                fix = { explanation: `Tier 0 cached patch (donor session ${tier0.donorSessionId.slice(0, 8)})`, files: tier0.fileChanges };
+                try {
+                  await db.update(remediationSessions)
+                    .set({ checkpointData: { patternIdUsed: match.patternId, donorSessionId: tier0.donorSessionId }, updatedAt: new Date() })
+                    .where(eq(remediationSessions.id, sessionId));
+                } catch { /* non-blocking */ }
+                steps = await resolveStep(sessionId, steps, "completed",
+                  `Tier 0 applied (${tier0.fileChanges.length} file${tier0.fileChanges.length === 1 ? "" : "s"}, no LLM call)`, emit);
+              } else {
+                steps = await resolveStep(sessionId, steps, "completed",
+                  `Tier 0 skipped (${tier0.skipped}) — falling through`, emit);
+              }
+            } else {
+              steps = await resolveStep(sessionId, steps, "completed",
+                "Tier 0 skipped (no pattern match available) — falling through", emit);
+            }
+          } catch (e) {
+            log.warn("tier_0_dispatch_failed", { error: e instanceof Error ? e.message : String(e) });
+            steps = await resolveStep(sessionId, steps, "completed",
+              "Tier 0 errored — falling through to standard pipeline", emit);
+          }
+        } else if (tierDecision.tier === 1) {
+          steps = await pushStep(sessionId, steps,
+            makeStep("generate_fix", `Tier 1: single-shot nano with ${tierDecision.featuresSnapshot.errorCategory} template...`), emit);
+          try {
+            const { runTier1 } = await import("./tier-1-handler");
+            const tier1 = await runTier1(
+              { id: session.id, projectId: session.projectId, alertId: session.alertId, userId: session.userId },
+              tierDecision.featuresSnapshot,
+              {
+                diagnosis: diagnosis.diagnosis,
+                fileContents,
+                alertTitle: alert.title,
+                alertBody: alert.body,
+              },
+            );
+            if (tier1.ok) {
+              fix = { explanation: tier1.explanation, files: tier1.fileChanges };
+              steps = await resolveStep(sessionId, steps, "completed",
+                `Tier 1 generated fix (${tier1.fileChanges.length} file${tier1.fileChanges.length === 1 ? "" : "s"})`, emit);
+            } else {
+              steps = await resolveStep(sessionId, steps, "completed",
+                `Tier 1 skipped (${tier1.skipped}) — falling through`, emit);
+            }
+          } catch (e) {
+            log.warn("tier_1_dispatch_failed", { error: e instanceof Error ? e.message : String(e) });
+            steps = await resolveStep(sessionId, steps, "completed",
+              "Tier 1 errored — falling through to standard pipeline", emit);
+          }
+        }
+      }
+
+      // ── Fase 7 PR A — Hypothesis generation (shadow-only) ─────────────
+      // For Tier 2/3 sessions, ask gpt-5-mini to enumerate 3-5 distinct
+      // fix hypotheses. PR A does NOT dispatch on them; it writes the
+      // count to remediation_sessions.hypothesis_count so we can measure
+      // "what does real production alert distribution look like" before
+      // investing in the coordinator (PR B). Kill switch:
+      // HYPOTHESIS_GEN_ENABLED=false (default: on). Fully non-blocking —
+      // any failure falls through to the legacy single-agent path.
+      if (
+        !fix
+        && tierDecision
+        && (tierDecision.tier === 2 || tierDecision.tier === 3)
+        && attempt === 1
+        && !previousAttempt
+      ) {
+        try {
+          const { generateHypotheses } = await import("./hypothesis-generator");
+          const hgResult = await generateHypotheses(
+            { id: session.id, projectId: session.projectId, alertId: session.alertId, userId: session.userId },
+            {
+              alertTitle: alert.title,
+              alertBody: alert.body,
+              diagnosis: diagnosis.diagnosis,
+            },
+          );
+          if (hgResult.ok) {
+            try {
+              await db.update(remediationSessions)
+                .set({ hypothesisCount: hgResult.hypotheses.length, updatedAt: new Date() })
+                .where(eq(remediationSessions.id, sessionId));
+            } catch { /* non-blocking — column is soft */ }
+            emit("hypotheses_generated", {
+              count: hgResult.hypotheses.length,
+              durationMs: hgResult.durationMs,
+              tier: tierDecision.tier,
+            });
+          } else {
+            emit("hypotheses_skipped", { reason: hgResult.skipped, tier: tierDecision.tier });
+          }
+        } catch (e) {
+          log.warn("hypothesis_gen_dispatch_failed", { error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
       // ── MANAGED AGENT (first attempt, if enabled) ─────────────────────
       // The agent clones the repo, explores, fixes, verifies (tsc/build/test), and pushes.
       // Falls back to agentic loop if Managed Agent fails.
       const managedAgentEnabled = process.env.MANAGED_AGENT_ENABLED?.toLowerCase() === "true" || process.env.MANAGED_AGENT_ENABLED === "1";
-      const useManagedAgent = attempt === 1 && !previousAttempt && managedAgentEnabled;
+      const useManagedAgent = !fix && attempt === 1 && !previousAttempt && managedAgentEnabled;
 
       if (useManagedAgent) {
         steps = await pushStep(sessionId, steps,

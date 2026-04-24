@@ -67,12 +67,42 @@ export async function getTierDistribution(): Promise<TierDistribution> {
 }
 
 /**
- * Approximation until human labels exist. `accurate` = session
- * completed AND post-merge passed. This correlates with the classifier
- * having chosen a survivable tier, but it is NOT a direct accuracy
- * measurement. The widget labels it as such.
+ * When `tier_router_labels` (Fase 6.1) holds ≥ 50 rows, return real
+ * agreement: the share of the latest label per session that matches the
+ * classifier's `tier_used`. Below 50 rows we fall back to the original
+ * outcome-based approximation (`status='completed' AND monitoring_status
+ * IN ('passed', NULL)`) so the widget stays useful before the labeling
+ * backfill clears the gate.
  */
 export async function getClassifierAccuracy(): Promise<AccuracyStats> {
+  type LabelRow = { total: string | number; agreed: string | number };
+  const labelRes = await db.execute<LabelRow>(sql`
+    WITH latest AS (
+      SELECT DISTINCT ON (l.session_id) l.session_id, l.human_tier
+      FROM tier_router_labels l
+      ORDER BY l.session_id, l.created_at DESC
+    )
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE r.tier_used = latest.human_tier)::int AS agreed
+    FROM latest
+    JOIN remediation_sessions r ON r.id = latest.session_id
+    WHERE r.tier_used IS NOT NULL
+  `);
+  const labelRows = Array.isArray(labelRes) ? labelRes : ((labelRes as { rows?: LabelRow[] }).rows ?? []);
+  const labelRow = labelRows[0];
+  const labelTotal = typeof labelRow?.total === "number" ? labelRow.total : parseInt(String(labelRow?.total ?? 0), 10) || 0;
+  const labelAgreed = typeof labelRow?.agreed === "number" ? labelRow.agreed : parseInt(String(labelRow?.agreed ?? 0), 10) || 0;
+
+  if (labelTotal >= 50) {
+    return {
+      labeledCount: labelTotal,
+      accurateCount: labelAgreed,
+      accuracyPct: Math.round((labelAgreed / labelTotal) * 100),
+      isApproximation: false,
+    };
+  }
+
   type Row = { labeled: string | number; accurate: string | number };
   const res = await db.execute<Row>(sql`
     SELECT

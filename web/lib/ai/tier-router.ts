@@ -79,6 +79,11 @@ export type ClassificationResult = {
   usedFallback: boolean;    // true when heuristic rules produced the answer
   latencyMs: number;
   featuresSnapshot: RouterFeatures;
+  /** Top pattern matches from the lookup that produced this classification.
+   *  Populated by `routeTier`; empty in synthetic results from `classifyTier`
+   *  called directly with pre-built features (tests). Live dispatch in
+   *  remediate.ts uses `patternMatches[0]` for Tier 0 without re-querying. */
+  patternMatches: PatternMatch[];
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -293,6 +298,7 @@ export async function classifyTier(
     alertId: string;
     remediationSessionId: string;
   },
+  patternMatches: PatternMatch[] = [],
 ): Promise<ClassificationResult> {
   const started = Date.now();
 
@@ -306,6 +312,7 @@ export async function classifyTier(
       usedFallback: true,
       latencyMs: Date.now() - started,
       featuresSnapshot: features,
+      patternMatches,
     };
   }
 
@@ -319,6 +326,7 @@ export async function classifyTier(
       usedFallback: true,
       latencyMs: Date.now() - started,
       featuresSnapshot: features,
+      patternMatches,
     };
   }
 
@@ -357,6 +365,7 @@ export async function classifyTier(
       usedFallback: true,
       latencyMs: Date.now() - started,
       featuresSnapshot: features,
+      patternMatches,
     };
   }
 
@@ -371,6 +380,7 @@ export async function classifyTier(
       usedFallback: true,
       latencyMs: Date.now() - started,
       featuresSnapshot: features,
+      patternMatches,
     };
   }
 
@@ -383,6 +393,7 @@ export async function classifyTier(
       usedFallback: true,
       latencyMs: Date.now() - started,
       featuresSnapshot: features,
+      patternMatches,
     };
   }
 
@@ -393,6 +404,7 @@ export async function classifyTier(
     usedFallback: false,
     latencyMs: Date.now() - started,
     featuresSnapshot: features,
+    patternMatches,
   };
 }
 
@@ -504,12 +516,16 @@ export async function routeTier(
       priorCount,
     );
 
-    const result = await classifyTier(features, {
-      userId: (await resolveSessionUserId(sessionId)) ?? "",
-      projectId: session.project_id,
-      alertId: alert.id,
-      remediationSessionId: sessionId,
-    });
+    const result = await classifyTier(
+      features,
+      {
+        userId: (await resolveSessionUserId(sessionId)) ?? "",
+        projectId: session.project_id,
+        alertId: alert.id,
+        remediationSessionId: sessionId,
+      },
+      patternMatches,
+    );
 
     await persistRoute(sessionId, result);
     return result;
