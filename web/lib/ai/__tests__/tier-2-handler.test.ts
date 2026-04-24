@@ -61,6 +61,59 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.MULTI_AGENT_FANOUT;
+  delete process.env.FANOUT_CANARY_PCT;
+});
+
+describe("canary helpers", () => {
+  it("fanoutCanaryPct defaults to 100 when unset", async () => {
+    delete process.env.FANOUT_CANARY_PCT;
+    const { fanoutCanaryPct } = await import("../tier-2-handler");
+    expect(fanoutCanaryPct()).toBe(100);
+  });
+
+  it("fanoutCanaryPct clamps to [0, 100]", async () => {
+    const { fanoutCanaryPct } = await import("../tier-2-handler");
+    process.env.FANOUT_CANARY_PCT = "-5";
+    expect(fanoutCanaryPct()).toBe(0);
+    process.env.FANOUT_CANARY_PCT = "999";
+    expect(fanoutCanaryPct()).toBe(100);
+    process.env.FANOUT_CANARY_PCT = "not a number";
+    expect(fanoutCanaryPct()).toBe(100);
+    process.env.FANOUT_CANARY_PCT = "20";
+    expect(fanoutCanaryPct()).toBe(20);
+  });
+
+  it("sessionInCanary is deterministic for a given session id", async () => {
+    const { sessionInCanary } = await import("../tier-2-handler");
+    const id = "aaaaaaaa-bbbb-cccc-dddd-000000000001";
+    const a = sessionInCanary(id, 50);
+    const b = sessionInCanary(id, 50);
+    expect(a).toBe(b);
+  });
+
+  it("sessionInCanary: pct=0 rejects everything, pct=100 accepts everything", async () => {
+    const { sessionInCanary } = await import("../tier-2-handler");
+    for (let i = 0; i < 10; i++) {
+      const id = `${i.toString().padStart(8, "0")}-0000-0000-0000-000000000000`;
+      expect(sessionInCanary(id, 0)).toBe(false);
+      expect(sessionInCanary(id, 100)).toBe(true);
+    }
+  });
+
+  it("sessionInCanary: pct=20 accepts ~20% of random session ids", async () => {
+    const { sessionInCanary } = await import("../tier-2-handler");
+    let accepted = 0;
+    const N = 2000;
+    for (let i = 0; i < N; i++) {
+      // Random-but-deterministic IDs — use the iteration number mixed
+      // with a salt so the bucket distribution is roughly uniform.
+      const id = `${i.toString(16).padStart(8, "0")}-aaaa-bbbb-cccc-${i.toString(16).padStart(12, "0")}`;
+      if (sessionInCanary(id, 20)) accepted++;
+    }
+    // 20% ± 3% tolerance on N=2000 samples.
+    expect(accepted / N).toBeGreaterThan(0.17);
+    expect(accepted / N).toBeLessThan(0.23);
+  });
 });
 
 describe("runTier2MultiAgent", () => {
@@ -77,6 +130,32 @@ describe("runTier2MultiAgent", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.skipped).toBe("too_few_hypotheses");
     expect(createContainerMock).not.toHaveBeenCalled();
+  });
+
+  it("returns skipped=canary_skip when session falls outside canary bucket (FANOUT_CANARY_PCT=0)", async () => {
+    process.env.FANOUT_CANARY_PCT = "0";
+    const r = await runTier2MultiAgent(sess, baseCtx([hypothesis("a"), hypothesis("b")]));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.skipped).toBe("canary_skip");
+    expect(createContainerMock).not.toHaveBeenCalled();
+  });
+
+  it("FANOUT_CANARY_PCT=100 (default) lets every session through", async () => {
+    createContainerMock.mockResolvedValue("c-x");
+    runMultiAgentFanoutMock.mockResolvedValue({
+      ok: true,
+      winnerSubAgentId: "s0",
+      winnerHypothesisId: "a",
+      explanation: "fix",
+      files: [{ path: "x.ts", content: "y" }],
+      turns: 4,
+      verified: true,
+      testsPassed: true,
+      durationMs: 1000,
+      losersCount: 1,
+    });
+    const r = await runTier2MultiAgent(sess, baseCtx([hypothesis("a"), hypothesis("b")]));
+    expect(r.ok).toBe(true);
   });
 
   it("returns skipped=no_staging_server when stagingUrl is empty", async () => {
