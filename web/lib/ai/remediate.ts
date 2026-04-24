@@ -1942,8 +1942,33 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
           await registerCiSession(sessionId, headSha);
         }
 
-        // Give GitHub a moment to register the push and start checks
-        await sleep(10_000);
+        // Pre-webhook we needed a 10s sleep to let GitHub register the
+        // push + queue checks before polling started. With CI_WEBHOOK_MODE
+        // the webhook fires exactly when check_run.created/completed
+        // events happen, so the preventive sleep is dead weight that
+        // adds ~10s to every remediation with zero benefit. In polling-
+        // only mode we keep the sleep because tight polling without a
+        // head-start wastes GitHub API tokens.
+        if (!ciWebhookOn) {
+          await sleep(10_000);
+        }
+
+        // "First required check" — fetch the branch protection rules so
+        // we only gate the CI verdict on checks GitHub would actually
+        // require for merge. Optional / informational checks (coverage,
+        // audit, lint-only) can keep running after we merge — they do
+        // not block the remediation. When the branch is unprotected or
+        // the query fails, we fall back to the legacy "wait for all"
+        // behavior so repos without protection see no regression.
+        let requiredChecks: string[] | null = null;
+        try {
+          requiredChecks = await gh.getRequiredStatusChecks(token, owner, repo, defaultBranch);
+        } catch {
+          requiredChecks = null;
+        }
+        if (requiredChecks && requiredChecks.length > 0) {
+          emit("ci_required_checks", { checks: requiredChecks });
+        }
 
         // Fase 4 — webhooks are reliable enough to justify a longer overall
         // cap (10 min vs 5). In polling-only mode the 5-min cap stays in
@@ -1954,7 +1979,7 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
 
         try {
           while (true) {
-            ciResult = await gh.getCheckRunsStatus(token, owner, repo, headSha);
+            ciResult = await gh.getCheckRunsStatus(token, owner, repo, headSha, requiredChecks);
 
             if (ciResult.status === "success" || ciResult.status === "failure") break;
 
