@@ -1,0 +1,167 @@
+/**
+ * Fase 7 PR B — Tier 2 handler (multi-agent fan-out)
+ *
+ * Thin wrapper around `multi-agent-coordinator.ts` that (a) provisions
+ * N sub-agent containers from the pool, (b) runs the coordinator, and
+ * (c) cleans up after itself. Gated behind `MULTI_AGENT_FANOUT=true`
+ * — when off, every call returns `{ ok: false, skipped: "disabled" }`
+ * and remediate.ts falls through to the legacy single-agent path.
+ *
+ * Same result envelope shape as `tier-1-handler.ts` so remediate.ts
+ * can treat both handlers uniformly.
+ */
+
+import type { RemediationSession } from "@/lib/db/schema";
+import type { AIProvider } from "./client";
+import type { FileChange } from "./tier-0-handler";
+import type { Hypothesis } from "./hypothesis-generator";
+import {
+  runMultiAgentFanout,
+  isFanoutEnabled,
+  MAX_SUB_AGENTS,
+  type CoordinatorInput,
+  type SubAgentSpec,
+} from "./multi-agent-coordinator";
+import { createContainer, destroyContainer } from "./container-agent";
+
+export type Tier2MultiAgentContext = {
+  /** The diagnosis string remediate.ts already built — becomes the
+   *  shared base of every sub-agent's prompt. */
+  baseErrorContext: string;
+  /** Output of `generateHypotheses()`. Minimum 2 required. */
+  hypotheses: Hypothesis[];
+  apiKey: string;
+  provider: AIProvider;
+  exploreModel: string;
+  fixModel: string;
+  /** Hetzner staging URL (same for all sub-agents). */
+  stagingUrl: string;
+  stagingSecret: string;
+  /** GitHub token — required to clone the repo inside each sub-agent
+   *  container. Per-request for now; PR #8 container proxy will
+   *  source it from the server env when `INARIWATCH_AGENT_PROXY=true`. */
+  githubToken: string;
+  /** `owner/repo` + branch for the clone URL composition. */
+  repoUrl: string;
+  branch: string;
+  /** SSE emit — coordinator prefixes sub-agent events. */
+  emit: (event: string, data: Record<string, unknown>) => void;
+};
+
+export type Tier2MultiAgentResult =
+  | {
+      ok: true;
+      explanation: string;
+      fileChanges: FileChange[];
+      winnerHypothesisId: string;
+      subAgentsRun: number;
+      turnsOfWinner: number;
+      durationMs: number;
+    }
+  | {
+      ok: false;
+      skipped:
+        | "disabled"
+        | "too_few_hypotheses"
+        | "no_staging_server"
+        | "container_create_failed"
+        | "all_sub_agents_failed"
+        | "timeout"
+        | "internal_error";
+    };
+
+export async function runTier2MultiAgent(
+  session: Pick<RemediationSession, "id" | "projectId" | "alertId" | "userId">,
+  ctx: Tier2MultiAgentContext,
+): Promise<Tier2MultiAgentResult> {
+  if (!isFanoutEnabled()) return { ok: false, skipped: "disabled" };
+  if (ctx.hypotheses.length < 2) return { ok: false, skipped: "too_few_hypotheses" };
+  if (!ctx.stagingUrl || !ctx.stagingSecret) {
+    return { ok: false, skipped: "no_staging_server" };
+  }
+
+  const effective = ctx.hypotheses.slice(0, MAX_SUB_AGENTS);
+
+  // ── Provision N containers (sequential checkouts — see coordinator notes) ──
+  const created: { containerId: string }[] = [];
+  try {
+    for (let i = 0; i < effective.length; i++) {
+      const containerId = await createContainer(
+        ctx.stagingUrl,
+        ctx.stagingSecret,
+        ctx.repoUrl,
+        ctx.branch,
+        ctx.githubToken,
+        `${session.id}-s${i}`,
+      );
+      created.push({ containerId });
+    }
+  } catch (err) {
+    // Any partial checkout — destroy what we grabbed and bail.
+    await Promise.all(
+      created.map((c) =>
+        destroyContainer(ctx.stagingUrl, ctx.stagingSecret, c.containerId).catch(() => {})
+      )
+    );
+    ctx.emit("fanout_container_create_failed", {
+      error: err instanceof Error ? err.message : String(err),
+      acquired: created.length,
+      attempted: effective.length,
+    });
+    return { ok: false, skipped: "container_create_failed" };
+  }
+
+  // ── Run the coordinator ────────────────────────────────────────────────
+  const subAgents: SubAgentSpec[] = effective.map((h, i) => ({
+    hypothesis: h,
+    containerId: created[i].containerId,
+    containerUrl: ctx.stagingUrl,
+    stagingSecret: ctx.stagingSecret,
+  }));
+
+  const coordinatorInput: CoordinatorInput = {
+    session,
+    apiKey: ctx.apiKey,
+    provider: ctx.provider,
+    exploreModel: ctx.exploreModel,
+    fixModel: ctx.fixModel,
+    baseErrorContext: ctx.baseErrorContext,
+    subAgents,
+    emit: ctx.emit,
+  };
+
+  const result = await runMultiAgentFanout(coordinatorInput);
+
+  // ── Cleanup — destroy every container, including the winner's ─────────
+  //
+  // We do NOT keep the winner's container for the downstream gates phase
+  // in PR B v1. remediate.ts will re-run the normal single-agent path on
+  // the fix files in a fresh container (or the worker's localhost Docker).
+  // This keeps the coordinator isolated from the rest of the pipeline.
+  await Promise.all(
+    created.map((c) =>
+      destroyContainer(ctx.stagingUrl, ctx.stagingSecret, c.containerId).catch(() => {})
+    )
+  );
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      skipped:
+        result.skipped === "all_sub_agents_failed" ? "all_sub_agents_failed"
+        : result.skipped === "timeout" ? "timeout"
+        : result.skipped === "too_few_hypotheses" ? "too_few_hypotheses"
+        : "internal_error",
+    };
+  }
+
+  return {
+    ok: true,
+    explanation: result.explanation,
+    fileChanges: result.files.map((f) => ({ path: f.path, content: f.content })),
+    winnerHypothesisId: result.winnerHypothesisId,
+    subAgentsRun: effective.length,
+    turnsOfWinner: result.turns,
+    durationMs: result.durationMs,
+  };
+}
