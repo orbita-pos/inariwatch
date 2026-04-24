@@ -566,6 +566,68 @@ export async function callAIWithTools(
 
 // ── Claude Tool Use ─────────────────────────────────────────────────────────
 
+/**
+ * Attach cache_control to the last tool in the array. Claude treats this
+ * as "cache everything up to and including this tool", so a single
+ * breakpoint covers the entire tools definition. No-op when tools is
+ * empty (breakpoint has nowhere to land).
+ */
+export function buildToolsWithCache(tools: ToolDefinition[]): Record<string, unknown>[] {
+  const mapped: Record<string, unknown>[] = tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema,
+  }));
+  if (mapped.length === 0) return mapped;
+  mapped[mapped.length - 1] = { ...mapped[mapped.length - 1], cache_control: { type: "ephemeral" } };
+  return mapped;
+}
+
+/**
+ * Attach cache_control to the last content block of the last message.
+ * For the multi-turn tool-use loop, this turns turn N's full context
+ * into a cache prefix for turn N+1 — Claude's caching matches the
+ * longest cached prefix and charges the residual at fresh rates.
+ *
+ * The last-message-last-block pattern is the one documented for tool
+ * use: docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+ * (section "Caching tool definitions and multi-turn conversations").
+ *
+ * When the last message's content is a string (typical first-turn user
+ * message), we promote it to a block so the breakpoint has a home.
+ */
+export function buildMessagesWithCache(messages: AIMessage[]): Array<{ role: string; content: unknown }> {
+  if (messages.length === 0) return [];
+
+  const out: Array<{ role: string; content: unknown }> = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+  const last = out[out.length - 1];
+
+  // Normalize last message content to a block array so we can attach
+  // cache_control to the final block.
+  const contentBlocks: Array<Record<string, unknown>> =
+    typeof last.content === "string"
+      ? [{ type: "text", text: last.content }]
+      : Array.isArray(last.content)
+        ? (last.content as Record<string, unknown>[]).map((b) => ({ ...b }))
+        : [];
+
+  if (contentBlocks.length === 0) return out;
+
+  const tail = contentBlocks[contentBlocks.length - 1];
+  // cache_control is the only API-level field we add; the block's own
+  // shape (text / tool_use / tool_result / image) is preserved.
+  contentBlocks[contentBlocks.length - 1] = {
+    ...tail,
+    cache_control: { type: "ephemeral" },
+  };
+  last.content = contentBlocks;
+
+  return out;
+}
+
 async function callClaudeWithTools(
   apiKey: string,
   systemPrompt: string,
@@ -585,9 +647,17 @@ async function callClaudeWithTools(
     body: JSON.stringify({
       model,
       max_tokens: opts.maxTokens ?? 4096,
+      // 3 Anthropic cache breakpoints (4 allowed max):
+      //   1) system prompt (covers IMMUTABLE_RULES + overlays — ~5-10k tokens)
+      //   2) last tool (covers entire tools array — ~1-2k tokens)
+      //   3) last message's last block (rolling prefix — grows each turn, so
+      //      the NEXT turn reads the current turn's context as a cache hit).
+      // Claude auto-promotes `cache_control` on the last entry in `tools`
+      // and `messages` to cover everything before it. See
+      // docs.anthropic.com/en/docs/build-with-claude/prompt-caching.
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-      tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      tools: buildToolsWithCache(tools),
+      messages: buildMessagesWithCache(messages),
     }),
     signal: AbortSignal.timeout(opts.timeout ?? 60000),
   });
