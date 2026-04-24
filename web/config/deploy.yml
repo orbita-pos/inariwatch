@@ -158,6 +158,17 @@ env:
     # shadow data + 50-sample human-label backfill before flipping.
     # Rollback: set to "off" and `kamal env push` (~30s, no rebuild).
     TIER_ROUTER_MODE: "shadow"
+    # ── Fase 7 PR B — Multi-agent fan-out (default OFF) ───────────────
+    # When true, Tier 2/3 sessions with >= 2 generated hypotheses
+    # dispatch to the multi-agent coordinator instead of the legacy
+    # single-agent path. See web/lib/ai/multi-agent-coordinator.ts.
+    # Do NOT flip until PR A shadow metrics (HypothesisQualityWidget
+    # on /admin/ai) show 3-5 avg hypotheses per session and p95
+    # hypothesis latency < 5s. When flipped, expect Tier 2 wall-time
+    # to increase slightly (sub-agent races) but success rate should
+    # improve per arch spec §Fase 7 acceptance.
+    # Rollback: unset / set to "false" and `kamal env push` (~30s).
+    # MULTI_AGENT_FANOUT: "false"
     # ── Fase 8 — Auto-merge gate parallelization ─────────────────────
     # Activated 2026-04-24. When true, `runGateDag` (lib/ai/gates-
     # executor.ts) fans security_ai_review + self_review_cheap out via
