@@ -48,6 +48,18 @@ SCENARIOS=(
   "chaos-mcp-storm"
   "chaos-tenant-isolation"
   "chaos-sse"
+  # Fase 12 Part B — chaos scenarios for VAR pipeline resilience
+  "chaos-sandbox-cve"
+  "chaos-pattern-poisoning"
+  "chaos-community-fix-abuse"
+  "chaos-model-regression"
+  "chaos-tier-router-attack"
+  "chaos-eap-chain-break"
+  "chaos-worker-pool-starvation"
+  "chaos-redis-partition"
+  "chaos-substrate-corruption"
+  "chaos-gate-parallel-race"
+  "chaos-classifier-timeout"
 )
 
 # List mode
