@@ -115,6 +115,54 @@ function detectProvider(key: string): AIProvider {
 
 // ── Claude ───────────────────────────────────────────────────────────────────
 
+/**
+ * Attach cache_control to the last tool — Claude promotes the breakpoint
+ * to cover the entire tools array. Mirror of web/lib/ai/client.ts.
+ */
+function buildToolsWithCache(tools: ToolDefinition[]): Record<string, unknown>[] {
+  const mapped: Record<string, unknown>[] = tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema,
+  }));
+  if (mapped.length === 0) return mapped;
+  mapped[mapped.length - 1] = { ...mapped[mapped.length - 1], cache_control: { type: "ephemeral" } };
+  return mapped;
+}
+
+/**
+ * Attach cache_control to the last content block of the last message.
+ * Turns turn N's full context into a cache prefix for turn N+1 —
+ * critical for the 40-turn worker loop. Mirror of web/lib/ai/client.ts.
+ */
+function buildMessagesWithCache(messages: AIMessage[]): Array<{ role: string; content: unknown }> {
+  if (messages.length === 0) return [];
+
+  const out: Array<{ role: string; content: unknown }> = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+  const last = out[out.length - 1];
+
+  const contentBlocks: Array<Record<string, unknown>> =
+    typeof last.content === "string"
+      ? [{ type: "text", text: last.content }]
+      : Array.isArray(last.content)
+        ? (last.content as Record<string, unknown>[]).map((b) => ({ ...b }))
+        : [];
+
+  if (contentBlocks.length === 0) return out;
+
+  const tail = contentBlocks[contentBlocks.length - 1];
+  contentBlocks[contentBlocks.length - 1] = {
+    ...tail,
+    cache_control: { type: "ephemeral" },
+  };
+  last.content = contentBlocks;
+
+  return out;
+}
+
 async function callClaudeWithTools(
   apiKey: string,
   systemPrompt: string,
@@ -133,9 +181,14 @@ async function callClaudeWithTools(
     body: JSON.stringify({
       model: opts.model ?? "claude-sonnet-4-6",
       max_tokens: opts.maxTokens ?? 4096,
+      // Same 3-breakpoint caching strategy as web/lib/ai/client.ts —
+      // system prompt, last tool (covers tools array), last message's
+      // last block (rolling prefix across turns). The worker runs a
+      // 40-turn loop so the rolling cache saves more than the web's
+      // 15-turn fallback path.
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-      tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      tools: buildToolsWithCache(tools),
+      messages: buildMessagesWithCache(messages),
     }),
     signal: AbortSignal.timeout(opts.timeout ?? 90_000),
   });
