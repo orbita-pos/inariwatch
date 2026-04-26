@@ -14,6 +14,16 @@ import { db } from "@/lib/db";
 import { substrateRecordings } from "@/lib/db/schema";
 import { productMetrics, VAR_EVENTS } from "@/lib/telemetry/product-metrics";
 import { extractSessionId } from "@/lib/fulltrace/session-header";
+import { assembleCorrelationData } from "@/lib/webhooks/capture-correlation";
+import {
+  verifyCaptureV2Payload,
+  insertCaptureReceipt,
+} from "@/lib/services/capture-v2-verify";
+import { enrichEventIntentIfMissing } from "@/lib/services/intent-server-enrich";
+import {
+  hasZeroRetentionHeader,
+  processZeroRetention,
+} from "@/lib/webhooks/zero-retention";
 import crypto from "crypto";
 
 /**
@@ -122,6 +132,78 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Zero-retention mode (Track E pieza 11). When the SDK sets
+  // `INARIWATCH_ZERO_RETENTION=true`, every webhook carries
+  // `X-IW-Zero-Retention: 1`. We MUST NOT insert into `alerts` — instead
+  // run a strict subset (maintenance check, dedup, lightweight notify)
+  // and return a signed tombstone receipt the SDK persists locally for
+  // audit. Branch BEFORE any DB-writing path.
+  if (hasZeroRetentionHeader(req)) {
+    const zr = await processZeroRetention({
+      integrationId,
+      projectId: integ.projectId,
+      event,
+    });
+    await markIntegrationSuccess(integrationId);
+    if (zr.status === "tombstoned") {
+      return NextResponse.json({
+        ok: true,
+        mode: "zero-retention",
+        tombstone: zr.tombstone,
+        processed_actions: zr.processedActions,
+      });
+    }
+    return NextResponse.json({
+      ok: true,
+      mode: "zero-retention",
+      tombstone: null,
+      tombstone_unsigned_reason: zr.reason,
+      processed_actions: zr.processedActions,
+    });
+  }
+
+  // Payload v2 cryptographic verification. Runs ONLY when the SDK explicitly
+  // bumped `schema_version` to "2.0". A malformed signature on a v2 payload
+  // is logged but doesn't reject the event — backward compat is absolute,
+  // and the HMAC over the body (already verified above) provides transport
+  // integrity. The Ed25519 signature adds a per-install identity layer that
+  // we'll start GATING on in a future phase once every SDK version reports it.
+  let v2Verification:
+    | { receiptId: string; pubKeyId: string; signerPubkey: string }
+    | null = null;
+  if (event.schema_version === "2.0") {
+    const result = verifyCaptureV2Payload(event);
+    if (result.verified) {
+      v2Verification = {
+        receiptId: result.receiptId,
+        pubKeyId: result.pubKeyId,
+        signerPubkey: result.signerPubkey,
+      };
+    } else {
+      console.warn(
+        JSON.stringify({
+          eventname: "capture_v2_verify_failed",
+          reason: result.reason,
+          integration_id: integrationId,
+          fingerprint: event.fingerprint,
+        }),
+      );
+    }
+  }
+
+  // Server-side intent enrichment (SKYNET §3 piece 20). When the SDK
+  // couldn't compile expected-shape contracts on its own (browser bundle,
+  // edge runtime without filesystem, INARIWATCH_INTENT_COMPILER off),
+  // fetch the failing file from the linked GitHub repo at the reported
+  // commit SHA and run a server-side extractor. Best-effort — never
+  // blocks alert creation. Cached in Redis with `(repo, sha, path,
+  // symbol)` so retry storms don't pound GitHub. Awaited because intent
+  // contracts are part of the alert payload that downstream auto-analyze
+  // and remediation read.
+  await enrichEventIntentIfMissing(event, integ.projectId).catch((err) =>
+    console.warn("[capture-webhook] intent enrich failed:", err),
+  );
+
   // FullTrace correlation id — checked after JSON parse so we can fall back
   // to the event payload when the SDK's fetch interceptor was bypassed.
   // Null = this event is not part of a tracked session (cron jobs, pollers,
@@ -156,16 +238,10 @@ export async function POST(
   const eventType = event.eventType as string | undefined;
   const alertType = eventType === "security" ? "security" : eventType === "log" ? "log" : "error";
 
-  // Build structured context from SDK payload (git, breadcrumbs, env, user, tags, securityContext)
-  const correlationData: Record<string, unknown> = {};
-  if (event.git) correlationData.git = event.git;
-  if (event.breadcrumbs) correlationData.breadcrumbs = event.breadcrumbs;
-  if (event.env) correlationData.env = event.env;
-  if (event.user) correlationData.user = event.user;
-  if (event.tags) correlationData.tags = event.tags;
-  if (event.request) correlationData.request = event.request;
-  const ctx = event.context as Record<string, unknown> | undefined;
-  if (ctx?.securityContext) correlationData.securityContext = ctx.securityContext;
+  // Build structured context from SDK payload (v1 + v2 fields). Pulled into
+  // a pure helper so the assembly logic can be unit-tested without standing
+  // up Next/DB/rate-limiting. See web/lib/webhooks/capture-correlation.ts.
+  const correlationData = assembleCorrelationData(event) ?? {};
 
   // Canonical repo resolution at ingest time (migration 0068). capture
   // v0.10+ SDK sends `git.repo`; older SDK versions still send `git.url`
@@ -200,6 +276,23 @@ export async function POST(
         valueText: sessionId,
         metadata: { alertId: result.id, fingerprint, projectId: integ.projectId },
       });
+    }
+
+    // Persist verified v2 signature into the EAP receipts mirror so it's
+    // queryable from /api/eap/verify/:receiptId without rescanning every
+    // alert. Idempotent on receiptId — a duplicated event from the same
+    // SDK install is a no-op. Fire-and-forget: failure logged, not raised.
+    if (v2Verification) {
+      const sig = (event.signature as { sig?: string } | undefined)?.sig;
+      if (sig) {
+        insertCaptureReceipt({
+          receiptId: v2Verification.receiptId,
+          alertId: result.id,
+          signatureHex: sig,
+          pubKeyId: v2Verification.pubKeyId,
+          signerPubkey: v2Verification.signerPubkey,
+        }).catch(() => {});
+      }
     }
 
     autoAnalyzeAlert(result).catch(() => {});
