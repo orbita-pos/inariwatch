@@ -13,7 +13,7 @@
  * as errors — no separate ingestion endpoint needed.
  *
  * Usage:
- *   import { init } from "@inariwatch/capture"
+ *   import { init } from "../types.js"
  *   import { performanceIntegration } from "@inariwatch/capture-performance"
  *
  *   init({
@@ -21,7 +21,7 @@
  *     integrations: [performanceIntegration()],
  *   })
  */
-import { captureLog } from "@inariwatch/capture";
+import { captureLog } from "../client.js";
 const DEFAULT_METRICS = ["LCP", "INP", "CLS", "FCP", "TTFB"];
 const RATING_ORDER = {
     good: 0,

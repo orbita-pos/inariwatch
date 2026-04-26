@@ -13,7 +13,7 @@
  * as errors — no separate ingestion endpoint needed.
  *
  * Usage:
- *   import { init } from "@inariwatch/capture"
+ *   import { init } from "../types.js"
  *   import { performanceIntegration } from "@inariwatch/capture-performance"
  *
  *   init({
@@ -21,7 +21,7 @@
  *     integrations: [performanceIntegration()],
  *   })
  */
-import type { Integration } from "@inariwatch/capture";
+import type { Integration } from "../types.js";
 export interface PerformanceOptions {
     /**
      * Which metrics to collect. Omit a metric to skip its observer entirely —

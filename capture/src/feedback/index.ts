@@ -7,7 +7,7 @@
  * captured — no silent screenshot ever.
  *
  * Usage:
- *   import { init } from "@inariwatch/capture"
+ *   import { init } from "../types.js"
  *   import { feedbackIntegration } from "@inariwatch/capture-feedback"
  *
  *   init({
@@ -16,8 +16,8 @@
  *   })
  */
 
-import type { Integration, CaptureConfig } from "@inariwatch/capture"
-import { captureLog } from "@inariwatch/capture"
+import type { Integration, CaptureConfig } from "../types.js"
+import { captureLog } from "../client.js"
 import { mountFeedbackWidget, type WidgetOptions, type FeedbackPayload } from "./widget.js"
 
 export type { WidgetOptions, FeedbackPayload } from "./widget.js"
