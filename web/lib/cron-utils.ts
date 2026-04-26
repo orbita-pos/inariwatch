@@ -34,6 +34,7 @@ export type CronRoute =
   | "quota-reset"
   | "budget-alert"
   | "replay-retention"
+  | "build-fleet-bloom"
   | "replay-stats"
   | "cleanup-ai-logs"
   | "whatif-retention"
