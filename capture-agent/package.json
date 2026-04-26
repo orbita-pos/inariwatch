@@ -1,0 +1,45 @@
+{
+  "name": "@inariwatch/capture-agent",
+  "version": "0.1.0-alpha.0",
+  "description": "Local pre-egress diagnostic peer for @inariwatch/capture. Runs GPT-5.4 with 4 in-process tools (locals, fingerprint match, deploy diff, eval) and attaches 3 ranked hypotheses to the event before flush. Spec: CAPTURE_V2_IMPLEMENTATION.md Q5.3.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test --no-warnings dist/__test__/*.test.js"
+  },
+  "keywords": [
+    "inariwatch",
+    "capture",
+    "agent",
+    "ai",
+    "diagnostics",
+    "openai",
+    "gpt"
+  ],
+  "author": "Jesus Bernal <info@jesusbr.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "@inariwatch/capture": ">=0.10.0"
+  },
+  "devDependencies": {
+    "@inariwatch/capture": "file:../capture",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.5.0"
+  }
+}
