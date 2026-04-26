@@ -69,6 +69,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test --no-warnings test-setup/run-tests.mjs test/*.test.mjs test/causal/*.test.mjs test/intent/*.test.mjs",
     "prepublishOnly": "tsc"
   },
   "keywords": [
@@ -90,14 +91,26 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "rrweb": "^2.0.0-alpha.18"
+    "rrweb": "^2.0.0-alpha.18",
+    "@inariwatch/capture-agent": "*",
+    "@inariwatch/capture-fleet": "*",
+    "@inariwatch/node-forensic": "*"
   },
   "peerDependenciesMeta": {
     "rrweb": {
       "optional": true
+    },
+    "@inariwatch/capture-agent": {
+      "optional": true
+    },
+    "@inariwatch/capture-fleet": {
+      "optional": true
+    },
+    "@inariwatch/node-forensic": {
+      "optional": true
     }
   },
-  "//": "rrweb stays as an optional peer solely because `session.ts` (the legacy 60s ring buffer attached to errors) still uses it. Full Replay V2 moved to @inariwatch/capture-replay which depends on rrweb directly.",
+  "//": "rrweb stays as an optional peer solely because `session.ts` (the legacy 60s ring buffer attached to errors) still uses it. Full Replay V2 moved to @inariwatch/capture-replay which depends on rrweb directly. The three @inariwatch/capture-* peers are the v2 ecosystem (forensics, fleet bloom, local diagnostic agent) — auto-loaded when INARIWATCH_CAPTURE_V2=true; otherwise the SDK never references them and they add zero weight.",
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^5.5.0"
