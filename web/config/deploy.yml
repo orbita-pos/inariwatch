@@ -243,6 +243,12 @@ env:
     - WORKER_URL
     - EAP_SERVER_URL
     - EAP_API_KEY
+    # Track E pieza 11 — zero-retention tombstone signing (Ed25519 32-byte
+    # raw key, hex-encoded). Required by web/lib/services/tombstone-sign.ts
+    # to issue signed receipts for clients running INARIWATCH_ZERO_RETENTION.
+    # Key in sops 2026-04-26. Rotation: replace in sops + `kamal env push`
+    # — `loadTombstoneKey()` invalidates its cache when the env value changes.
+    - INARIWATCH_TOMBSTONE_KEY_HEX
     # Email + push
     # Transactional email (signup verify, password reset, digests) uses
     # nodemailer against Resend's SMTP relay — see lib/notifications/email.ts.
