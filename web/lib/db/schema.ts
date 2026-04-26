@@ -1939,3 +1939,46 @@ export const tierRouterLabels = pgTable(
 
 export type TierRouterLabel = typeof tierRouterLabels.$inferSelect;
 export type NewTierRouterLabel = typeof tierRouterLabels.$inferInsert;
+
+// ── substrate_replay_comparisons (Sesión 18, migration 0073) ───────────────
+// Side-by-side log of v1 (AI-analysis) vs v2 (RaaS) replay-gate verdicts
+// during the SUBSTRATE_V2_GATE canary. Empty when the flag is off. Drives
+// the /admin/ops "Substrate replay v1 vs v2" widget.
+
+export const substrateReplayComparisons = pgTable(
+  "substrate_replay_comparisons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+    remediationSessionId: uuid("remediation_session_id").references(
+      () => remediationSessions.id,
+      { onDelete: "set null" },
+    ),
+    recordingId: text("recording_id"),
+
+    v1Passed: boolean("v1_passed"),
+    v1RiskScore: integer("v1_risk_score"),
+    v1Confidence: integer("v1_confidence"),
+    v1Reason: text("v1_reason"),
+    v1DurationMs: integer("v1_duration_ms"),
+
+    v2Passed: boolean("v2_passed"),
+    v2RiskScore: integer("v2_risk_score"),
+    v2Confidence: integer("v2_confidence"),
+    v2Reason: text("v2_reason"),
+    v2DurationMs: integer("v2_duration_ms"),
+    v2RunnerMode: text("v2_runner_mode"),
+
+    chosen: text("chosen").notNull(),
+    agreed: boolean("agreed"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("substrate_replay_comparisons_created_idx").on(table.createdAt),
+    index("substrate_replay_comparisons_alert_idx").on(table.alertId),
+  ],
+);
+
+export type SubstrateReplayComparison = typeof substrateReplayComparisons.$inferSelect;
+export type NewSubstrateReplayComparison = typeof substrateReplayComparisons.$inferInsert;
