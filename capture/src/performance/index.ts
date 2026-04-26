@@ -13,7 +13,7 @@
  * as errors — no separate ingestion endpoint needed.
  *
  * Usage:
- *   import { init } from "@inariwatch/capture"
+ *   import { init } from "../types.js"
  *   import { performanceIntegration } from "@inariwatch/capture-performance"
  *
  *   init({
@@ -22,8 +22,8 @@
  *   })
  */
 
-import type { Integration, CaptureConfig } from "@inariwatch/capture"
-import { captureLog } from "@inariwatch/capture"
+import type { Integration, CaptureConfig } from "../types.js"
+import { captureLog } from "../client.js"
 
 export interface PerformanceOptions {
   /**
