@@ -41,13 +41,42 @@ async function run(): Promise<void> {
       return;
     }
 
-    // Fetch diff
-    const { data: diff } = await octokit.rest.pulls.get({
-      owner,
-      repo,
-      pull_number: prNumber,
-      mediaType: { format: "diff" },
-    });
+    // Fetch diff. The single-shot diff endpoint caps at 20k lines and
+    // returns HTTP 406 `too_large` for big PRs (polyglot SDKs, vendored
+    // bundles, etc). Fall back to concatenating per-file `patch` from
+    // listFiles, which paginates and has no global cap.
+    let diff: string;
+    try {
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+        mediaType: { format: "diff" },
+      });
+      diff = typeof data === "string" ? data : String(data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/too_large/i.test(msg)) throw err;
+      core.warning(`PR diff too large for single-shot fetch — falling back to per-file patches.`);
+      let allFiles = [...files];
+      let page = 2;
+      while (true) {
+        const { data: more } = await octokit.rest.pulls.listFiles({
+          owner,
+          repo,
+          pull_number: prNumber,
+          per_page: 100,
+          page,
+        });
+        if (more.length === 0) break;
+        allFiles = allFiles.concat(more);
+        if (more.length < 100) break;
+        page++;
+      }
+      diff = allFiles
+        .map((f) => `diff --git a/${f.filename} b/${f.filename}\n${f.patch ?? "(binary or patch unavailable)"}`)
+        .join("\n");
+    }
 
     // Build prompt
     const prFiles = files.map((f) => ({
@@ -57,12 +86,7 @@ async function run(): Promise<void> {
       deletions: f.deletions,
     }));
 
-    const prompt = buildPrompt(
-      pr.title,
-      pr.body || "",
-      prFiles,
-      typeof diff === "string" ? diff : String(diff)
-    );
+    const prompt = buildPrompt(pr.title, pr.body || "", prFiles, diff);
 
     // Call AI
     core.info("Calling AI for risk assessment...");
