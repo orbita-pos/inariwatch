@@ -1,0 +1,1 @@
+{"version":3,"file":"hooks-redis.d.ts","sourceRoot":"","sources":["../../src/causal/hooks-redis.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;GAeG;AAQH,KAAK,SAAS,GAAG,MAAM,OAAO,CAAC,GAAG,CAAC,CAAA;AAUnC;;;GAGG;AACH,wBAAsB,gBAAgB,CACpC,MAAM,GAAE,SAA0B,GACjC,OAAO,CAAC,OAAO,CAAC,CAYlB;AAkGD,eAAO,MAAM,8BAA8B,EAAE,MAAmB,CAAA"}

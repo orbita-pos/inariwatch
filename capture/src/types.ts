@@ -51,8 +51,9 @@ export interface Integration {
   setup: (config: CaptureConfig) => void
   /**
    * Optional async hook fired immediately before an event is sent to the
-   * transport. Lets integrations enrich (e.g. `@inariwatch/capture-agent`
-   * attaches `event.hypotheses[]`) or drop (return `null`) events.
+   * transport. Lets integrations enrich (e.g. the in-package `agent`
+   * integration attaches `event.hypotheses[]`) or drop (return `null`)
+   * events.
    *
    * Hooks run in registration order; any one returning `null` short-
    * circuits the chain (event is dropped, transport not called). The user-

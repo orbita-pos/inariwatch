@@ -1,21 +1,69 @@
-/**
- * Auto-initializing import — just import this module and capture starts.
- *
- * Usage:
- *   import "@inariwatch/capture/auto"
- *
- * Or via CLI:
- *   node --import @inariwatch/capture/auto app.js
- *
- * Reads config from environment variables:
- *   INARIWATCH_DSN         — capture endpoint (omit for local mode)
- *   INARIWATCH_ENVIRONMENT — environment tag (fallback: NODE_ENV)
- *   INARIWATCH_RELEASE     — release version
- *   INARIWATCH_SUBSTRATE   — set to "true" to enable I/O recording
- */
 import { init } from "./client.js";
-init({
+function warn(ctx, msg, err) {
+    if (!ctx.debug)
+        return;
+    console.warn(`[@inariwatch/capture] ${msg}`, err instanceof Error ? err.message : err ?? "");
+}
+async function loadAgent(ctx) {
+    const apiKey = process.env.OPENAI_API_KEY ?? process.env.INARIWATCH_PEER_AGENT_API_KEY;
+    if (!apiKey) {
+        warn(ctx, "v2 agent: OPENAI_API_KEY not set, skipping");
+        return null;
+    }
+    try {
+        const mod = await import("./agent/index.js");
+        return mod.peerAgentIntegration?.({
+            apiKey,
+            model: process.env.INARIWATCH_PEER_AGENT_MODEL,
+            baseUrl: process.env.INARIWATCH_PEER_AGENT_BASE_URL,
+        }) ?? null;
+    }
+    catch (err) {
+        warn(ctx, "v2 agent failed to load", err);
+        return null;
+    }
+}
+async function loadFleet(ctx) {
+    try {
+        const mod = await import("./fleet/index.js");
+        return mod.fleetBloomIntegration?.({
+            baseUrl: process.env.INARIWATCH_FLEET_BASE_URL,
+            contribute: process.env.INARIWATCH_FLEET_CONTRIBUTE === "true",
+        }) ?? null;
+    }
+    catch (err) {
+        warn(ctx, "v2 fleet failed to load", err);
+        return null;
+    }
+}
+async function loadForensic(ctx) {
+    try {
+        const mod = await import("./forensic/index.js");
+        return mod.forensicIntegration?.() ?? null;
+    }
+    catch (err) {
+        warn(ctx, "v2 forensic failed to load", err);
+        return null;
+    }
+}
+async function loadV2Integrations() {
+    const ctx = { debug: process.env.INARIWATCH_DEBUG === "1" };
+    const xs = await Promise.all([loadForensic(ctx), loadFleet(ctx), loadAgent(ctx)]);
+    return xs.filter((x) => x !== null);
+}
+const baseConfig = {
     release: process.env.INARIWATCH_RELEASE,
     substrate: process.env.INARIWATCH_SUBSTRATE === "true",
-});
+};
+const v2Flag = process.env.INARIWATCH_CAPTURE_V2;
+const v2Enabled = v2Flag === "true" || v2Flag === "1" || v2Flag === "yes";
+let integrations = [];
+if (v2Enabled) {
+    // Top-level await: the integrations are now in-package, so dynamic
+    // import resolves sub-ms when the flag is on, and is never reached
+    // when the flag is off — bundlers tree-shake the agent/fleet/forensic
+    // dirs out entirely for non-opt-in users.
+    integrations = await loadV2Integrations();
+}
+init({ ...baseConfig, integrations });
 //# sourceMappingURL=auto.js.map

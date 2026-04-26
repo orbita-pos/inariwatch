@@ -16,13 +16,13 @@ import test from "node:test"
 import assert from "node:assert/strict"
 
 import { init, captureException } from "../dist/index.js"
-import { peerAgentIntegration } from "../../capture-agent/dist/index.js"
-import { fleetBloomIntegration } from "../../capture-fleet/dist/index.js"
+import { peerAgentIntegration } from "../dist/agent/index.js"
+import { fleetBloomIntegration } from "../dist/fleet/index.js"
 import {
   forensicIntegration,
   __pushCaptureForTesting,
   __resetForensicIntegrationForTesting,
-} from "../../capture-forensic/dist/index.js"
+} from "../dist/forensic/index.js"
 
 const ORIG_FETCH = globalThis.fetch
 
