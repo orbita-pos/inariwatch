@@ -171,10 +171,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     },
   });
 
-  // Wrap in a Node Buffer so the NextResponse BodyInit signature accepts
-  // it (BodyInit doesn't list bare Uint8Array). Buffer extends Uint8Array
-  // — same bytes, no copy.
-  return new NextResponse(Buffer.from(bundle.zip), {
+  // BodyInit accepts ArrayBufferView (incl. Uint8Array) but newer TS lib
+  // types reject bare Node Buffer — narrow to Uint8Array view to satisfy
+  // both runtime (same underlying bytes) and the type checker.
+  return new NextResponse(new Uint8Array(bundle.zip), {
     status: 200,
     headers: {
       "content-type": "application/zip",

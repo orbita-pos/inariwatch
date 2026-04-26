@@ -50,7 +50,9 @@ export async function GET(req: Request): Promise<NextResponse | Response> {
     })
   }
 
-  return new Response(loaded.buffer, {
+  // Wrap as Uint8Array — BodyInit accepts ArrayBufferView but newer TS lib
+  // types reject bare Node Buffer (parameter narrows to URLSearchParams).
+  return new Response(new Uint8Array(loaded.buffer), {
     status: 200,
     headers: {
       "content-type": "application/octet-stream",
