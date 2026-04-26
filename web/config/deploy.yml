@@ -188,6 +188,18 @@ env:
     # or any producer errors correlate with concurrency, rollback.
     # Rollback: set to "false" and `kamal env push` (~30s, no rebuild).
     GATES_PARALLEL: "true"
+    # ── Sesión 17/18 — Substrate v2 in-loop canary (5%) ──────────────
+    # Activated 2026-04-26 after substrate-v2-replay binary + agent dirs
+    # were rsynced to inari-staging (run #24966127346) and REPLAY_V2_*
+    # env vars added to /opt/inari-staging/.env. With this flag on, ~5%
+    # of alerts (deterministic by sha256(alertId)[0..4]) route to v2 as
+    # primary; the other 95% stay on v1. v1 still runs in shadow on the
+    # 5% so substrate_replay_comparisons captures side-by-side verdicts
+    # for the /admin/ops widget.
+    # Rollback: set to "false" and `kamal env push` (~30s, no rebuild).
+    # The gate is checked at every dispatch, so flipping off resumes the
+    # pre-Sesión 17 v1-only path with zero deploy.
+    SUBSTRATE_V2_GATE: "true"
     # ── Fase 11 follow-up — local EAP signature verification ─────────
     # Activated 2026-04-24. When true, the verify endpoint + the new
     # /api/cron/eap-verify-sweep route do an in-process Ed25519 verify
