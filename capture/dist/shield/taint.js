@@ -9,7 +9,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let asyncStorage = null;
 try {
-    const { AsyncLocalStorage } = (0, eval)("require")("node:async_hooks");
+    const { AsyncLocalStorage } = globalThis.require("node:async_hooks");
     asyncStorage = new AsyncLocalStorage();
 }
 catch {

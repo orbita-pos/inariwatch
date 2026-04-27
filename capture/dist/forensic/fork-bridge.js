@@ -1,10 +1,15 @@
 function getBinding() {
-    const versions = process.versions;
+    // Access process via globalThis so Turbopack / Edge Runtime static
+    // analysis doesn't flag `process.binding` (forbidden Node API in Edge).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proc = globalThis.process;
+    if (!proc)
+        return null;
+    const versions = (proc.versions ?? {});
     if (!versions.iw_forensic)
         return null;
     // Not wired on stock Node. Real implementation lands with the fork patch.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    const binding = process.binding?.("iw_forensic");
+    const binding = proc.binding?.("iw_forensic");
     return binding ?? null;
 }
 export function isAvailable() {

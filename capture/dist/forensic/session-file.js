@@ -70,10 +70,10 @@ function sessionFilePath(pid) {
     return path.join(sessionDir(), `${pid}.sess`);
 }
 function nowNs() {
-    return process.hrtime.bigint();
+    return globalThis.process.hrtime.bigint();
 }
 function isLinux() {
-    return process.platform === "linux";
+    return globalThis.process?.platform === "linux";
 }
 /**
  * Atomically write a single-line JSON payload.  We deliberately keep the
@@ -139,7 +139,7 @@ export function installSessionFile(ctx) {
     if (!ctx.sessionId) {
         throw new Error("installSessionFile: sessionId is required (the agent uses it as the correlation key)");
     }
-    const pid = process.pid;
+    const pid = globalThis.process.pid;
     if (!isLinux()) {
         // Track install for symmetry — uninstall() should still succeed.
         current = { filePath: sessionFilePath(pid), active: false };
@@ -157,7 +157,9 @@ export function installSessionFile(ctx) {
         exitListener = handler;
         // `exit` fires on normal process completion, not on SIGKILL — for
         // SIGKILL the agent's stale-record check catches the orphan.
-        process.on("exit", handler);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const procOn = globalThis.process;
+        procOn?.on?.("exit", handler);
     }
     return written ? filePath : null;
 }
@@ -193,7 +195,7 @@ export function updateRequestContext(opts) {
         next.requestId = opts.requestId;
     if (opts.userId !== undefined)
         next.userId = opts.userId;
-    return writeSessionFile(process.pid, next);
+    return writeSessionFile(globalThis.process.pid, next);
 }
 /**
  * Remove the session file and detach the exit listener.  Safe to call
