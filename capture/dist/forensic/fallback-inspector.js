@@ -151,7 +151,7 @@ export async function install(hook, options = {}) {
     session = s;
 }
 async function handlePaused(s, event) {
-    const startNs = process.hrtime.bigint();
+    const startNs = globalThis.process.hrtime.bigint();
     const startMs = Date.now();
     const opts = activeOptions;
     const deadline = startMs + opts.captureBudgetMs;
@@ -181,11 +181,11 @@ async function handlePaused(s, event) {
     const synthetic = new Error(description);
     synthetic.name = "ForensicCapturedException";
     errorObj ?? (errorObj = synthetic);
-    const endNs = process.hrtime.bigint();
+    const endNs = globalThis.process.hrtime.bigint();
     const capture = {
         frames,
         error: errorObj,
-        pid: process.pid,
+        pid: globalThis.process.pid,
         tid: threadId,
         tsNs: startNs,
         source: "inspector",

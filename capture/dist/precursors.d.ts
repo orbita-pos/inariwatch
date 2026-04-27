@@ -9,8 +9,8 @@
  * Sources:
  *   - eventloop p99: `perf_hooks.monitorEventLoopDelay({ resolution: 10 })`,
  *     read + reset every second so each sample reflects the prior 1s slice.
- *   - rss: `process.memoryUsage().rss`.
- *   - active handles: `process._getActiveHandles().length` (private API,
+ *   - rss: `((globalThis as any).process as any)?.memoryUsage?.().rss`.
+ *   - active handles: `((globalThis as any).process as any)?._getActiveHandles().length` (private API,
  *     guarded — silently 0 if Node yanks it).
  *   - near-misses: `process.on('rejectionHandled')` increments a counter
  *     (a rejection that was unhandled at first tick but caught later).
@@ -22,7 +22,7 @@
  *   - Browser / Edge / sandboxed Node: `node:perf_hooks` import fails →
  *     fall back to a setTimeout(1) jitter probe. p99 becomes "max scheduling
  *     lag observed in window" — coarser but still useful and never throws.
- *   - `process._getActiveHandles` missing → handles=0.
+ *   - `((globalThis as any).process as any)?._getActiveHandles` missing → handles=0.
  *   - undici / opossum not installed → manual counters still work.
  *
  * Overhead budget (verified in test/precursors.test.mjs):

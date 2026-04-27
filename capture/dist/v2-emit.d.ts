@@ -28,6 +28,5 @@ import { type ErrorEventV2 } from "./payload-v2.js";
  * correctness requirement. A signing failure must not lose the error event.
  */
 export declare function prepareV2Payload(event: ErrorEvent): Promise<ErrorEventV2 | ErrorEvent>;
-/** Resolve the active payload version from env at call time (lets tests flip it). */
-export declare function resolvePayloadVersion(): "1" | "2";
+export { resolvePayloadVersion } from "./payload-version.js";
 //# sourceMappingURL=v2-emit.d.ts.map

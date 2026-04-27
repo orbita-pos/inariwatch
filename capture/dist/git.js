@@ -28,12 +28,12 @@ export function getGitContext() {
 export function extractGitInfo() {
     // Browser guard — `child_process` doesn't exist there. Bundlers only try
     // to resolve `require("child_process")` when it's a static literal, so we
-    // hide it behind indirect eval (`(0, eval)("require")`).
+    // hide it behind indirect eval (`((globalThis as any).require as (m: string) => any)`).
     if (typeof window !== "undefined")
         return {};
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const req = (0, eval)("require");
+        const req = globalThis.require;
         const { execSync } = req("child_process");
         const run = (cmd) => {
             try {

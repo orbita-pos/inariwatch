@@ -9,8 +9,8 @@
  * Sources:
  *   - eventloop p99: `perf_hooks.monitorEventLoopDelay({ resolution: 10 })`,
  *     read + reset every second so each sample reflects the prior 1s slice.
- *   - rss: `process.memoryUsage().rss`.
- *   - active handles: `process._getActiveHandles().length` (private API,
+ *   - rss: `((globalThis as any).process as any)?.memoryUsage?.().rss`.
+ *   - active handles: `((globalThis as any).process as any)?._getActiveHandles().length` (private API,
  *     guarded — silently 0 if Node yanks it).
  *   - near-misses: `process.on('rejectionHandled')` increments a counter
  *     (a rejection that was unhandled at first tick but caught later).
@@ -22,7 +22,7 @@
  *   - Browser / Edge / sandboxed Node: `node:perf_hooks` import fails →
  *     fall back to a setTimeout(1) jitter probe. p99 becomes "max scheduling
  *     lag observed in window" — coarser but still useful and never throws.
- *   - `process._getActiveHandles` missing → handles=0.
+ *   - `((globalThis as any).process as any)?._getActiveHandles` missing → handles=0.
  *   - undici / opossum not installed → manual counters still work.
  *
  * Overhead budget (verified in test/precursors.test.mjs):
@@ -228,18 +228,18 @@ function startJitterFallback(s) {
     unref(s.jitterTimer);
 }
 function tryAttachRejectionHandled(s) {
-    if (typeof process === "undefined" || typeof process.on !== "function")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proc = globalThis.process;
+    if (!proc || typeof proc.on !== "function")
         return;
     const handler = () => {
         s.counters.nearMisses++;
     };
     try {
-        process.on("rejectionHandled", handler);
+        proc.on("rejectionHandled", handler);
         s.cleanups.push(() => {
             try {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;
-                process.off?.("rejectionHandled", handler);
+                proc.off?.("rejectionHandled", handler);
             }
             catch {
                 // best-effort
@@ -303,15 +303,16 @@ function sample(s) {
     let activeHandles = 0;
     if (typeof process !== "undefined") {
         try {
-            rssMb = process.memoryUsage().rss / 1024 / 1024;
+            rssMb = globalThis.process?.memoryUsage?.().rss / 1024 / 1024;
         }
         catch {
             // memoryUsage unavailable on some runtimes.
         }
         try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const fn = process._getActiveHandles;
-            activeHandles = typeof fn === "function" ? fn.call(process).length : 0;
+            const proc = globalThis.process;
+            const fn = proc?._getActiveHandles;
+            activeHandles = typeof fn === "function" ? fn.call(proc).length : 0;
         }
         catch {
             activeHandles = 0;
