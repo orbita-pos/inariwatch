@@ -6,7 +6,12 @@
 //
 // Required env:
 //   GITHUB_APP_ID            — numeric App ID from github.com/settings/apps/<slug>
-//   GITHUB_APP_PRIVATE_KEY   — PEM, with newlines escaped as \n (we un-escape)
+//   GITHUB_APP_PRIVATE_KEY_BASE64 — base64 of the raw PEM (preferred; safe in
+//                                   any env transport — no backslash/newline
+//                                   escaping problems)
+//   GITHUB_APP_PRIVATE_KEY   — fallback: raw PEM with newlines escaped as \n
+//                              (works only if no shell/dotenv layer eats the
+//                              backslashes en route to the container)
 //   GITHUB_APP_WEBHOOK_SECRET — for webhook verification (used in /api/webhooks/github-app)
 
 import { createSign, createHmac, timingSafeEqual } from "node:crypto";
@@ -15,12 +20,21 @@ const GITHUB_API = "https://api.github.com";
 
 export function appConfig(): { appId: string; privateKey: string } {
   const appId = process.env.GITHUB_APP_ID;
-  const rawKey = process.env.GITHUB_APP_PRIVATE_KEY;
-  if (!appId || !rawKey) {
-    throw new Error("GitHub App env not configured (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY).");
+  const b64   = process.env.GITHUB_APP_PRIVATE_KEY_BASE64;
+  const raw   = process.env.GITHUB_APP_PRIVATE_KEY;
+  if (!appId || (!b64 && !raw)) {
+    throw new Error(
+      "GitHub App env not configured " +
+      "(GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY[_BASE64]).",
+    );
   }
-  // Newlines are typically escaped as \n in env vars. Restore them.
-  const privateKey = rawKey.includes("\\n") ? rawKey.replace(/\\n/g, "\n") : rawKey;
+  let privateKey: string;
+  if (b64) {
+    privateKey = Buffer.from(b64, "base64").toString("utf8");
+  } else {
+    // Newlines may be escaped as literal \n in env transport. Restore them.
+    privateKey = raw!.includes("\\n") ? raw!.replace(/\\n/g, "\n") : raw!;
+  }
   return { appId, privateKey };
 }
 

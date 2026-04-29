@@ -235,6 +235,7 @@ env:
     # auto-PR on user repos. Webhook secret verifies inbound events.
     - GITHUB_APP_ID
     - GITHUB_APP_PRIVATE_KEY
+    - GITHUB_APP_PRIVATE_KEY_BASE64
     - GITHUB_APP_WEBHOOK_SECRET
     - SLACK_CLIENT_ID
     - SLACK_CLIENT_SECRET
