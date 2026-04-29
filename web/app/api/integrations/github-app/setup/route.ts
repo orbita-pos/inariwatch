@@ -17,7 +17,7 @@ import { authOptions } from "@/lib/auth";
 import { db, organizations, organizationMembers, users, githubAppInstallations } from "@/lib/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
-import { getInstallationToken, ghFetch } from "@/lib/github-app/octokit";
+import { getInstallationToken, ghFetchApp } from "@/lib/github-app/octokit";
 import { openSetupPRForInstallation } from "@/lib/github-app/open-setup-pr";
 
 /**
@@ -55,14 +55,17 @@ export async function GET(req: Request) {
   }
 
   // Resolve installation account (User vs Organization, login, id).
+  // /app/installations/{id} is App-level → JWT (Bearer), not installation
+  // token (`token` header). The installation token is minted separately
+  // for the per-repo PR work below.
   let token: string;
   let accountInfo: { login: string; type: string; id: number };
   try {
-    token = await getInstallationToken(installationId);
-    const res = await ghFetch(token, `/app/installations/${installationId}`);
-    if (!res.ok) throw new Error(`installation: ${res.status}`);
+    const res = await ghFetchApp(`/app/installations/${installationId}`);
+    if (!res.ok) throw new Error(`installation: ${res.status} ${await res.text()}`);
     const json = (await res.json()) as { account: { login: string; type: string; id: number } };
     accountInfo = json.account;
+    token = await getInstallationToken(installationId);
   } catch (err) {
     console.error("[github-app] setup failed:", err);
     return NextResponse.redirect(new URL("/integrations?error=github_app_init", APP_BASE));

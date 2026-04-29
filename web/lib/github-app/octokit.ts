@@ -110,6 +110,30 @@ export async function ghFetch(
 }
 
 /**
+ * Fetch helper authed with a freshly-minted App JWT (Bearer). Required
+ * for App-level endpoints like `/app`, `/app/installations`,
+ * `/app/installations/{id}` — these reject installation tokens.
+ */
+export async function ghFetchApp(
+  path: string,
+  init?: RequestInit & { json?: unknown },
+): Promise<Response> {
+  const jwt = mintAppJwt();
+  const headers = new Headers(init?.headers ?? {});
+  headers.set("Authorization", `Bearer ${jwt}`);
+  headers.set("Accept",        "application/vnd.github+json");
+  headers.set("X-GitHub-Api-Version", "2022-11-28");
+  if (init?.json !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+  return fetch(`${GITHUB_API}${path}`, {
+    ...init,
+    headers,
+    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+  });
+}
+
+/**
  * Verify a GitHub webhook payload. Header is `X-Hub-Signature-256`,
  * value is `sha256=<hmac>` of the raw body.
  */
