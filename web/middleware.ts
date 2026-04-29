@@ -136,6 +136,18 @@ export function middleware(req: NextRequest) {
   const host = req.headers.get("host") ?? "";
   const { pathname } = req.nextUrl;
 
+  // Strip stray whitespace from the pathname (e.g. trailing %20 from a
+  // misconfigured external Setup URL). 308 keeps the method + body so POST
+  // webhooks survive the bounce; query string is preserved automatically.
+  if (/\s/.test(pathname)) {
+    const cleaned = pathname.replace(/\s+/g, "");
+    if (cleaned !== pathname && cleaned.length > 0) {
+      const url = req.nextUrl.clone();
+      url.pathname = cleaned;
+      return NextResponse.redirect(url, { status: 308 });
+    }
+  }
+
   // MCP subdomain rewrite — mcp.inariwatch.com → /api/mcp
   if (host.startsWith("mcp.")) {
     const url = req.nextUrl.clone();
