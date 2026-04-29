@@ -29,6 +29,12 @@ import {
 
 import { CopyDsnButton } from "./copy-dsn-button";
 
+// Force dynamic — uses searchParams, session, and DB. Without this,
+// Next 15 tries to prerender as static and fails with "Dynamic server
+// usage" errors that surface as the generic "Something went wrong"
+// boundary in production.
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   searchParams: Promise<{ pr?: string }>;
 }
