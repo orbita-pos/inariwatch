@@ -8,10 +8,6 @@
  * (the public demo account that paid ads land on).
  *
  * Read-only. Idempotent.
- *
- * Usage:
- *   curl -H "Authorization: Bearer $CRON_SECRET" \
- *     https://app.inariwatch.com/api/admin/funnel-diagnostic | jq
  */
 
 import { NextResponse } from "next/server";
@@ -25,8 +21,8 @@ const DEMO_EMAIL = "demo@inariwatch.com";
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn();
-  } catch {
-    return fallback;
+  } catch (e: any) {
+    return { ...fallback, _error: e?.message?.slice(0, 200) ?? "query failed" } as any;
   }
 }
 
@@ -47,27 +43,14 @@ export async function GET(req: Request) {
   const signupFunnel = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
-        -- All-time
-        COUNT(*)::int                                                                AS users_total,
-        COUNT(*) FILTER (WHERE email_verified_at IS NOT NULL)::int                   AS users_verified_total,
-        COUNT(*) FILTER (WHERE plan != 'free')::int                                  AS users_paid_total,
-
-        -- Last 30 days
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int         AS users_30d,
-        COUNT(*) FILTER (
-          WHERE created_at > NOW() - INTERVAL '30 days'
-          AND email_verified_at IS NOT NULL
-        )::int                                                                       AS users_verified_30d,
-
-        -- Last 7 days
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int          AS users_7d,
-        COUNT(*) FILTER (
-          WHERE created_at > NOW() - INTERVAL '7 days'
-          AND email_verified_at IS NOT NULL
-        )::int                                                                       AS users_verified_7d,
-
-        -- Last 24h
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')::int        AS users_24h
+        CAST(COUNT(*) AS integer) AS users_total,
+        CAST(COUNT(*) FILTER (WHERE email_verified_at IS NOT NULL) AS integer) AS users_verified_total,
+        CAST(COUNT(*) FILTER (WHERE plan != 'free') AS integer) AS users_paid_total,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS integer) AS users_30d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days' AND email_verified_at IS NOT NULL) AS integer) AS users_verified_30d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS integer) AS users_7d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days' AND email_verified_at IS NOT NULL) AS integer) AS users_verified_7d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') AS integer) AS users_24h
       FROM users
     `)) as unknown as Array<Record<string, number>>;
     return r[0] ?? {};
@@ -77,11 +60,11 @@ export async function GET(req: Request) {
   const projectFunnel = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
-        COUNT(*)::int                                                                AS projects_total,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int         AS projects_30d,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int          AS projects_7d,
-        COUNT(*) FILTER (WHERE default_repo IS NOT NULL)::int                        AS projects_with_repo,
-        COUNT(DISTINCT user_id)::int                                                 AS users_with_at_least_one_project
+        CAST(COUNT(*) AS integer) AS projects_total,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS integer) AS projects_30d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS integer) AS projects_7d,
+        CAST(COUNT(*) FILTER (WHERE default_repo IS NOT NULL) AS integer) AS projects_with_repo,
+        CAST(COUNT(DISTINCT user_id) AS integer) AS users_with_at_least_one_project
       FROM projects
     `)) as unknown as Array<Record<string, number>>;
     return r[0] ?? {};
@@ -91,19 +74,18 @@ export async function GET(req: Request) {
   const integrationFunnel = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
-        COUNT(*)::int                                                                AS integrations_total,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int         AS integrations_30d,
-        COUNT(DISTINCT project_id)::int                                              AS projects_with_integration,
-        COUNT(DISTINCT type)::int                                                    AS distinct_types
+        CAST(COUNT(*) AS integer) AS integrations_total,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS integer) AS integrations_30d,
+        CAST(COUNT(DISTINCT project_id) AS integer) AS projects_with_integration,
+        CAST(COUNT(DISTINCT type) AS integer) AS distinct_types
       FROM project_integrations
     `)) as unknown as Array<Record<string, number>>;
     return r[0] ?? {};
   }, {} as Record<string, number>);
 
-  // Distribution of integration types
   const integrationTypes = await safe(async () => {
     const r = (await db.execute(sql`
-      SELECT type, COUNT(*)::int AS count
+      SELECT type, CAST(COUNT(*) AS integer) AS count
       FROM project_integrations
       GROUP BY type
       ORDER BY count DESC
@@ -116,22 +98,21 @@ export async function GET(req: Request) {
   const alertFunnel = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
-        COUNT(*)::int                                                                AS alerts_total,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int         AS alerts_30d,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int          AS alerts_7d,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')::int        AS alerts_24h,
-        COUNT(DISTINCT project_id) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS projects_with_alerts_7d
+        CAST(COUNT(*) AS integer) AS alerts_total,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS integer) AS alerts_30d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS integer) AS alerts_7d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') AS integer) AS alerts_24h,
+        CAST(COUNT(DISTINCT project_id) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS integer) AS projects_with_alerts_7d
       FROM alerts
     `)) as unknown as Array<Record<string, number>>;
     return r[0] ?? {};
   }, {} as Record<string, number>);
 
-  // Sources of alerts (where are alerts coming from?)
   const alertSources = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
         COALESCE(source, '<null>') AS source,
-        COUNT(*)::int AS count,
+        CAST(COUNT(*) AS integer) AS count,
         MAX(created_at)::text AS last_seen
       FROM alerts
       WHERE created_at > NOW() - INTERVAL '30 days'
@@ -146,63 +127,62 @@ export async function GET(req: Request) {
   const remediationFunnel = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
-        COUNT(*)::int                                                                AS remediations_total,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int         AS remediations_30d,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int          AS remediations_7d,
-        MAX(created_at)::text                                                        AS latest_remediation_at
+        CAST(COUNT(*) AS integer) AS remediations_total,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS integer) AS remediations_30d,
+        CAST(COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS integer) AS remediations_7d,
+        MAX(created_at)::text AS latest_remediation_at
       FROM remediation_sessions
     `)) as unknown as Array<{ remediations_total: number; remediations_30d: number; remediations_7d: number; latest_remediation_at: string | null }>;
     return r[0] ?? { remediations_total: 0, remediations_30d: 0, remediations_7d: 0, latest_remediation_at: null };
   }, { remediations_total: 0, remediations_30d: 0, remediations_7d: 0, latest_remediation_at: null });
 
-  // ── auto-remediate adoption (autoMergeConfig) ───────────────────────────────
+  // ── auto-remediate adoption ─────────────────────────────────────────────────
   const autoRemediate = await safe(async () => {
     const r = (await db.execute(sql`
       SELECT
-        COUNT(*)::int                                                                AS projects_total,
-        COUNT(*) FILTER (
+        CAST(COUNT(*) AS integer) AS projects_total,
+        CAST(COUNT(*) FILTER (
           WHERE auto_merge_config IS NOT NULL
           AND (auto_merge_config->>'enabled')::boolean = true
-        )::int                                                                       AS auto_merge_enabled,
-        COUNT(*) FILTER (
+        ) AS integer) AS auto_merge_enabled,
+        CAST(COUNT(*) FILTER (
           WHERE auto_merge_config IS NOT NULL
           AND (auto_merge_config->>'autoRemediate')::boolean = true
-        )::int                                                                       AS auto_remediate_enabled
+        ) AS integer) AS auto_remediate_enabled
       FROM projects
     `)) as unknown as Array<Record<string, number>>;
     return r[0] ?? {};
   }, {} as Record<string, number>);
 
-  // ── Demo user activity (Stage C of plan) ────────────────────────────────────
+  // ── Demo user activity ──────────────────────────────────────────────────────
   const demoActivity = await safe(async () => {
     const userRows = (await db.execute(sql`
-      SELECT id, email, created_at::text, email_verified_at::text
+      SELECT id, email, created_at::text AS created_at, email_verified_at::text AS email_verified_at
       FROM users
       WHERE email = ${DEMO_EMAIL}
       LIMIT 1
     `)) as unknown as Array<{ id: string; email: string; created_at: string; email_verified_at: string | null }>;
     const u = userRows[0];
-    if (!u) return { exists: false };
+    if (!u) return { exists: false } as any;
 
     const projectRows = (await db.execute(sql`
-      SELECT COUNT(*)::int AS n
+      SELECT CAST(COUNT(*) AS integer) AS n
       FROM projects WHERE user_id = ${u.id}::uuid
     `)) as unknown as Array<{ n: number }>;
 
     const alertRows = (await db.execute(sql`
       SELECT
-        COUNT(*)::int                                                                AS total,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int         AS d30,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int          AS d7,
-        MAX(created_at)::text                                                        AS latest
+        CAST(COUNT(*) AS integer) AS total,
+        CAST(COUNT(*) FILTER (WHERE a.created_at > NOW() - INTERVAL '30 days') AS integer) AS d30,
+        CAST(COUNT(*) FILTER (WHERE a.created_at > NOW() - INTERVAL '7 days') AS integer) AS d7,
+        MAX(a.created_at)::text AS latest
       FROM alerts a
       JOIN projects p ON p.id = a.project_id
       WHERE p.user_id = ${u.id}::uuid
     `)) as unknown as Array<{ total: number; d30: number; d7: number; latest: string | null }>;
 
     const remRows = (await db.execute(sql`
-      SELECT COUNT(*)::int AS total,
-             MAX(created_at)::text AS latest
+      SELECT CAST(COUNT(*) AS integer) AS total, MAX(created_at)::text AS latest
       FROM remediation_sessions
       WHERE user_id = ${u.id}::uuid
     `)) as unknown as Array<{ total: number; latest: string | null }>;
@@ -221,11 +201,11 @@ export async function GET(req: Request) {
   // ── Diagnosis: where does the funnel break? ─────────────────────────────────
   const diagnosis: string[] = [];
 
-  const u30 = signupFunnel.users_30d ?? 0;
-  const v30 = signupFunnel.users_verified_30d ?? 0;
-  const p30 = projectFunnel.projects_30d ?? 0;
-  const i30 = integrationFunnel.integrations_30d ?? 0;
-  const a30 = alertFunnel.alerts_30d ?? 0;
+  const u30 = (signupFunnel as any).users_30d ?? 0;
+  const v30 = (signupFunnel as any).users_verified_30d ?? 0;
+  const p30 = (projectFunnel as any).projects_30d ?? 0;
+  const i30 = (integrationFunnel as any).integrations_30d ?? 0;
+  const a30 = (alertFunnel as any).alerts_30d ?? 0;
   const r30 = remediationFunnel.remediations_30d ?? 0;
 
   if (u30 === 0) {
@@ -249,7 +229,7 @@ export async function GET(req: Request) {
   }
 
   if (a30 > 0 && r30 === 0) {
-    const auto = autoRemediate.auto_remediate_enabled ?? 0;
+    const auto = (autoRemediate as any).auto_remediate_enabled ?? 0;
     diagnosis.push(`STAGE_6_NO_REMEDIATION: ${a30} alerts received but 0 remediations triggered in 30d. autoRemediate=true on only ${auto} projects. Either users don't click Fix-It OR autoRemediate not activated by default.`);
   }
 
