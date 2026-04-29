@@ -230,6 +230,12 @@ env:
     - GOOGLE_CLIENT_SECRET
     - GITHUB_CLIENT_ID
     - GITHUB_CLIENT_SECRET
+    # GitHub App — zero-install monitoring flow. Setup route mints
+    # installation tokens (JWT signed with the private key) to open the
+    # auto-PR on user repos. Webhook secret verifies inbound events.
+    - GITHUB_APP_ID
+    - GITHUB_APP_PRIVATE_KEY
+    - GITHUB_APP_WEBHOOK_SECRET
     - SLACK_CLIENT_ID
     - SLACK_CLIENT_SECRET
     - SLACK_SIGNING_SECRET
