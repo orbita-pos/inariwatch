@@ -53,22 +53,35 @@ interface InstallationRepoList {
   repositories: Array<{ name: string; owner: { login: string } }>;
 }
 
-/** Open the auto-PR on every repo the user authorized. Returns the first PR opened. */
+/**
+ * Open the auto-PR on every repo the user authorized. Runs all repos in
+ * parallel — sequential was hitting Cloudflare's 100s gateway timeout on
+ * accounts with many non-Node repos (each one still costs a GET to check
+ * package.json). With Promise.allSettled the total time is dominated by
+ * the slowest repo (~5-10s typical), not the sum.
+ */
 export async function openSetupPRForInstallation(
   installationToken: string,
   dsn:               string,
 ): Promise<OpenedPR[]> {
   const repos = await listRepos(installationToken);
-  const opened: OpenedPR[] = [];
-  for (const r of repos) {
-    try {
-      const pr = await openSetupPR(installationToken, r.owner.login, r.name, dsn);
-      if (pr) opened.push(pr);
-    } catch (err) {
-      console.warn(`[github-app] auto-PR failed for ${r.owner.login}/${r.name}:`, err instanceof Error ? err.message : err);
-    }
-  }
-  return opened;
+  const results = await Promise.allSettled(
+    repos.map(async (r) => {
+      try {
+        return await openSetupPR(installationToken, r.owner.login, r.name, dsn);
+      } catch (err) {
+        console.warn(
+          `[github-app] auto-PR failed for ${r.owner.login}/${r.name}:`,
+          err instanceof Error ? err.message : err,
+        );
+        return null;
+      }
+    }),
+  );
+  return results
+    .filter((x): x is PromiseFulfilledResult<OpenedPR | null> => x.status === "fulfilled")
+    .map((x) => x.value)
+    .filter((x): x is OpenedPR => x !== null);
 }
 
 async function listRepos(token: string): Promise<InstallationRepoList["repositories"]> {
