@@ -20,22 +20,36 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getInstallationToken, ghFetch } from "@/lib/github-app/octokit";
 import { openSetupPRForInstallation } from "@/lib/github-app/open-setup-pr";
 
+/**
+ * Public base URL the app thinks it lives at. Inside the kamal-proxy'd
+ * container `req.url` resolves to the bind address (`http://0.0.0.0:3000`)
+ * not the public hostname, so any redirect built from `url.origin` would
+ * 302 the user to localhost. Pin the canonical URL via env (NEXTAUTH_URL is
+ * already set in sops; falls back to the production hostname).
+ */
+const APP_BASE = (
+  process.env.NEXTAUTH_URL
+    ?? process.env.APP_URL
+    ?? process.env.NEXT_PUBLIC_APP_URL
+    ?? "https://app.inariwatch.com"
+).replace(/\/$/, "");
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const installationIdRaw = url.searchParams.get("installation_id");
   const setupAction       = url.searchParams.get("setup_action");
 
   if (!installationIdRaw) {
-    return NextResponse.redirect(new URL("/integrations?error=missing_installation", url.origin));
+    return NextResponse.redirect(new URL("/integrations?error=missing_installation", APP_BASE));
   }
   const installationId = Number(installationIdRaw);
   if (!Number.isFinite(installationId)) {
-    return NextResponse.redirect(new URL("/integrations?error=bad_installation", url.origin));
+    return NextResponse.redirect(new URL("/integrations?error=bad_installation", APP_BASE));
   }
 
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
-    const loginUrl = new URL("/login", url.origin);
+    const loginUrl = new URL("/login", APP_BASE);
     loginUrl.searchParams.set("from", url.pathname + url.search);
     return NextResponse.redirect(loginUrl);
   }
@@ -51,12 +65,12 @@ export async function GET(req: Request) {
     accountInfo = json.account;
   } catch (err) {
     console.error("[github-app] setup failed:", err);
-    return NextResponse.redirect(new URL("/integrations?error=github_app_init", url.origin));
+    return NextResponse.redirect(new URL("/integrations?error=github_app_init", APP_BASE));
   }
 
   const orgRow = await firstOwnedOrgFor(session.user.email);
   if (!orgRow) {
-    return NextResponse.redirect(new URL("/integrations?error=no_org", url.origin));
+    return NextResponse.redirect(new URL("/integrations?error=no_org", APP_BASE));
   }
 
   // Persist the installation row first so failures in the auto-PR step
@@ -110,7 +124,7 @@ export async function GET(req: Request) {
 
   // Land on the dedicated success page — shows the DSN, the PR link,
   // and "now go set INARIWATCH_DSN in your hosting provider" guidance.
-  const redirect = new URL("/integrations/github-app/installed", url.origin);
+  const redirect = new URL("/integrations/github-app/installed", APP_BASE);
   if (firstPrUrl) redirect.searchParams.set("pr", firstPrUrl);
   return NextResponse.redirect(redirect);
 }
