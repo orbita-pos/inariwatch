@@ -112,14 +112,17 @@ jobs:
           } > .kamal/secrets
           chmod 600 .kamal/secrets
 
-      - name: Push env to Hetzner
+      - name: Push env to Hetzner (redeploy without rebuild)
         working-directory: web
         env:
           KAMAL_REGISTRY_USERNAME: ${{ github.actor }}
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT }}
           SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
-          kamal env push --verbose
+          # Kamal 2.x removed `kamal env push`. The replacement that does the
+          # same job (re-render env on host + gapless container restart with
+          # current image, no rebuild) is `kamal redeploy`.
+          kamal redeploy --verbose
 
       - name: Notify on failure
         if: failure()
