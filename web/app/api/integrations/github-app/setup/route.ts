@@ -98,28 +98,30 @@ export async function GET(req: Request) {
   // Mint the per-org DSN once — every PR we open in this run shares it.
   const dsn = inariwatchDsnForOrg(orgRow.id);
 
-  // Open the auto-PR — best effort, parallelized across repos.
+  // Open the auto-PR — best effort, parallelized across repos. Run on
+  // every setup_action: `install` opens fresh, `update` is idempotent
+  // (open-setup-pr handles existing branches/PRs via the 422 path) so
+  // re-installs and re-clicks of the Configure page converge on the
+  // same single PR.
+  void setupAction; // intentionally unused — see comment above
   let firstPrUrl: string | null = null;
-  if (setupAction !== "update") {
-    try {
-      const prs = await openSetupPRForInstallation(token, dsn);
-      firstPrUrl = prs[0]?.url ?? null;
-      // Persist the first PR for the dashboard to surface.
-      if (prs[0]) {
-        await db
-          .update(githubAppInstallations)
-          .set({
-            setupPrUrl:    prs[0].url,
-            setupPrOwner:  prs[0].owner,
-            setupPrRepo:   prs[0].repo,
-            setupPrNumber: prs[0].number,
-            updatedAt:     new Date(),
-          })
-          .where(eq(githubAppInstallations.installationId, installationId));
-      }
-    } catch (err) {
-      console.warn("[github-app] auto-PR generation failed:", err instanceof Error ? err.message : err);
+  try {
+    const prs = await openSetupPRForInstallation(token, dsn);
+    firstPrUrl = prs[0]?.url ?? null;
+    if (prs[0]) {
+      await db
+        .update(githubAppInstallations)
+        .set({
+          setupPrUrl:    prs[0].url,
+          setupPrOwner:  prs[0].owner,
+          setupPrRepo:   prs[0].repo,
+          setupPrNumber: prs[0].number,
+          updatedAt:     new Date(),
+        })
+        .where(eq(githubAppInstallations.installationId, installationId));
     }
+  } catch (err) {
+    console.warn("[github-app] auto-PR generation failed:", err instanceof Error ? err.message : err);
   }
 
   // Land on the dedicated success page — shows the DSN, the PR link,
