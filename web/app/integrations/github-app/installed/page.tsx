@@ -34,25 +34,56 @@ interface PageProps {
 }
 
 export default async function GithubAppInstalledPage({ searchParams }: PageProps) {
-  const { pr } = await searchParams;
+  // Defensive — every step gets a try/catch + log so we can see the
+  // exact failure in `docker logs` when something goes wrong, instead
+  // of Next.js's generic "Something went wrong" error boundary.
+  let pr: string | undefined;
+  try {
+    const sp = await searchParams;
+    pr = sp.pr;
+  } catch (err) {
+    console.error("[github-app/installed] searchParams failed:", err);
+  }
 
-  const session = await getServerSession(authOptions);
+  let session;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (err) {
+    console.error("[github-app/installed] getServerSession threw:", err);
+  }
   if (!session?.user?.email) {
     redirect("/login?from=/integrations/github-app/installed");
   }
 
-  const orgRow = await firstOwnedOrgFor(session.user.email!);
-  if (!orgRow) redirect("/onboarding/workspace");
+  let orgRow: { id: string; userId: string } | null = null;
+  try {
+    orgRow = await firstOwnedOrgFor(session.user.email);
+  } catch (err) {
+    console.error("[github-app/installed] firstOwnedOrgFor threw:", err);
+  }
+  if (!orgRow) {
+    redirect("/onboarding/workspace");
+  }
 
-  const installation = (await db
-    .select()
-    .from(githubAppInstallations)
-    .where(eq(githubAppInstallations.organizationId, orgRow.id))
-    .orderBy(desc(githubAppInstallations.createdAt))
-    .limit(1))[0];
+  let installation: { setupPrUrl: string | null } | undefined;
+  try {
+    installation = (await db
+      .select()
+      .from(githubAppInstallations)
+      .where(eq(githubAppInstallations.organizationId, orgRow.id))
+      .orderBy(desc(githubAppInstallations.createdAt))
+      .limit(1))[0];
+  } catch (err) {
+    console.error("[github-app/installed] installation lookup threw:", err);
+  }
 
-  const base = process.env.APP_URL ?? "https://app.inariwatch.com";
-  const dsn = `${base.replace(/\/$/, "")}/capture/${orgRow.id}`;
+  const base = (
+    process.env.APP_URL
+      ?? process.env.NEXTAUTH_URL
+      ?? process.env.NEXT_PUBLIC_APP_URL
+      ?? "https://app.inariwatch.com"
+  ).replace(/\/$/, "");
+  const dsn = `${base}/capture/${orgRow.id}`;
   const prUrl = pr || installation?.setupPrUrl || null;
 
   return (
