@@ -1982,3 +1982,100 @@ export const substrateReplayComparisons = pgTable(
 
 export type SubstrateReplayComparison = typeof substrateReplayComparisons.$inferSelect;
 export type NewSubstrateReplayComparison = typeof substrateReplayComparisons.$inferInsert;
+
+// ── A4 / A5 — Inari Live bug-saved counter ──────────────────────────────────
+//
+// See migration 0074_inari_live_saves.sql for the design rationale.
+
+export const inariLiveSaves = pgTable(
+  "inari_live_saves",
+  {
+    id:                  uuid("id").primaryKey().defaultRandom(),
+    userId:              uuid("user_id")
+                           .notNull()
+                           .references(() => users.id, { onDelete: "cascade" }),
+    projectId:           uuid("project_id")
+                           .references(() => projects.id, { onDelete: "set null" }),
+    watchDir:            text("watch_dir"),
+    recordingId:         text("recording_id"),
+    priorState:          text("prior_state"),
+    newState:            text("new_state").notNull(),
+    throwsBefore:        integer("throws_before"),
+    throwsAfter:         integer("throws_after").notNull().default(0),
+    valueSavedUsdCents:  integer("value_saved_usd_cents").notNull().default(20000),
+    createdAt:           timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("inari_live_saves_user_created_idx").on(table.userId, table.createdAt),
+    index("inari_live_saves_project_idx").on(table.projectId),
+  ],
+);
+
+export type InariLiveSave    = typeof inariLiveSaves.$inferSelect;
+export type NewInariLiveSave = typeof inariLiveSaves.$inferInsert;
+
+export const inariLiveSessions = pgTable(
+  "inari_live_sessions",
+  {
+    id:                        uuid("id").primaryKey().defaultRandom(),
+    userId:                    uuid("user_id")
+                                 .notNull()
+                                 .references(() => users.id, { onDelete: "cascade" }),
+    projectId:                 uuid("project_id")
+                                 .references(() => projects.id, { onDelete: "set null" }),
+    watchDir:                  text("watch_dir").notNull(),
+    totalSaves:                integer("total_saves").notNull().default(0),
+    // BIGINT in SQL — matches Drizzle's bigint("...", { mode: "number" }).
+    totalValueSavedUsdCents:   bigint("total_value_saved_usd_cents", { mode: "number" })
+                                 .notNull()
+                                 .default(0),
+    firstActiveAt:             timestamp("first_active_at", { withTimezone: true }).defaultNow().notNull(),
+    lastActiveAt:              timestamp("last_active_at",  { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("inari_live_sessions_user_path_idx").on(table.userId, table.watchDir),
+    index("inari_live_sessions_last_active_idx").on(table.lastActiveAt),
+  ],
+);
+
+export type InariLiveSession    = typeof inariLiveSessions.$inferSelect;
+export type NewInariLiveSession = typeof inariLiveSessions.$inferInsert;
+
+// ── Zero-install integrations (migration 0075) ──────────────────────────────
+//
+// GitHub App backs the "monitoring that doesn't touch your codebase" flow.
+// On install, our App opens a one-PR setup — instrumentation.ts +
+// next.config wrap + package.json — on every authorized repo. User
+// merges, sets INARIWATCH_DSN in their hosting provider's env vars,
+// next deploy is monitored.
+
+export const githubAppInstallations = pgTable(
+  "github_app_installations",
+  {
+    id:                uuid("id").primaryKey().defaultRandom(),
+    organizationId:    uuid("organization_id")
+                         .references(() => organizations.id, { onDelete: "cascade" })
+                         .notNull(),
+    /** GitHub installation_id (numeric, fits in BIGINT). */
+    installationId:    bigint("installation_id", { mode: "number" }).notNull().unique(),
+    accountLogin:      text("account_login").notNull(),
+    /** "User" or "Organization". */
+    accountType:       text("account_type").notNull(),
+    accountId:         bigint("account_id", { mode: "number" }).notNull(),
+    /** URL of the auto-PR we opened post-install (if any). */
+    setupPrUrl:        text("setup_pr_url"),
+    setupPrOwner:      text("setup_pr_owner"),
+    setupPrRepo:       text("setup_pr_repo"),
+    setupPrNumber:     integer("setup_pr_number"),
+    installedBy:       uuid("installed_by")
+                         .references(() => users.id, { onDelete: "set null" }),
+    createdAt:         timestamp("created_at").defaultNow().notNull(),
+    updatedAt:         timestamp("updated_at").defaultNow().notNull(),
+    uninstalledAt:     timestamp("uninstalled_at"),
+  },
+  (table) => [
+    index("github_app_installations_org_idx").on(table.organizationId),
+  ],
+);
+
+export type GithubAppInstallation = typeof githubAppInstallations.$inferSelect;
