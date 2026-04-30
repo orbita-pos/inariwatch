@@ -9,7 +9,7 @@ pub mod writer;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::daemon::{DaemonEvent, DaemonHandle};
+use crate::daemon::{DaemonEvent, DaemonHandle, MemoryKind};
 use crate::store::{queries, Store};
 
 use super::error::{MemoryError, Result};
@@ -109,7 +109,20 @@ pub fn record_memory_version(
 }
 
 pub fn latest_memory_version(store: &Store, repo_id: &str) -> Result<Option<String>> {
+    queries::latest_memory_md_version(store, repo_id)
+        .map(|opt| opt.map(|v| v.content))
+        .map_err(MemoryError::from)
+}
+
+pub fn latest_memory_version_row(
+    store: &Store,
+    repo_id: &str,
+) -> Result<Option<queries::MemoryMdVersion>> {
     queries::latest_memory_md_version(store, repo_id).map_err(MemoryError::from)
+}
+
+pub fn wipe_memory_versions(store: &Store, repo_id: &str) -> Result<usize> {
+    queries::wipe_memory_md_versions(store, repo_id).map_err(MemoryError::from)
 }
 
 fn unix_now_ms() -> i64 {
@@ -187,7 +200,7 @@ fn handle_repo_indexed(bus: &crate::daemon::EventBus, store: &Arc<Store>, repo_i
         }
         bus.publish(DaemonEvent::MemoryReviewRequested {
             repo_id: repo_id.to_string(),
-            review: "initial".to_string(),
+            kind:    MemoryKind::Initial,
         });
         tracing::info!(repo_id, "memory watcher: wrote initial memory.md template");
     } else {

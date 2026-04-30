@@ -108,6 +108,12 @@ pub fn run() {
             ipc::mcp::install_mcp_for,
             ipc::mcp::uninstall_mcp_for,
             ipc::mcp::list_mcp_clients_status,
+            // Session 11 — declarative memory (memory.md lifecycle)
+            ipc::memory::read_memory_md,
+            ipc::memory::propose_memory_md_update,
+            ipc::memory::commit_memory_md,
+            ipc::memory::get_context_stack,
+            ipc::memory::wipe_memory,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -190,6 +196,17 @@ pub fn run() {
                 indexer::set_cache_dir(local_dir.join("inari-live").join("models"));
             }
             let _indexer_handle = indexer::spawn_indexer(
+                daemon_handle.clone(),
+                store.clone(),
+            );
+
+            // Session 11 — declarative memory watcher. Subscribes to the
+            // daemon bus for `RepoIndexed` (writes initial template) and
+            // `MemoryReviewApproved` (records merge versions). The
+            // returned handle is intentionally dropped here — the
+            // watcher thread keeps itself alive via a channel
+            // subscription and exits on `DaemonEvent::Shutdown`.
+            let _memory_watcher = memory::declarative::spawn_memory_watcher(
                 daemon_handle.clone(),
                 store.clone(),
             );
