@@ -801,6 +801,46 @@ Captured from `project_inari_live.md` memory:
   - Tool call card collapsed by default, expands on click.
 - **Definition of done:** `npm run dev` shows a working idle dock that responds to keyboard; sending "hello" enters conversation mode and streams a mocked response; copy-button on a code block actually copies.
 
+#### Session 15 — Done (2026-05-01)
+
+- **Status:** Done — frontend build, tsc, and 13/13 vitest tests green. Manual `tauri dev` smoke deferred to Jesus per the prompt's pragmatic DoD.
+- **Worktree:** `C:/Users/jesus/desktop/radar` (main checkout — no parallel session contention this round).
+- **Branch:** `feat/inari-live-track4-session15-dock-modes-1-2`
+- **Source commit:** `3265668` (`feat(inari-live): Sesión 15 — dock Modes 1 (idle) + 2 (conversation)`)
+- **Docs commit:** filled by the next commit in this session.
+- **Files added:**
+  - `desktop/src/screens/DockIdle.tsx` — Mode 1 (4 sections: input + repo status, quick-actions grid, recent activity, footer stats).
+  - `desktop/src/screens/DockConversation.tsx` — Mode 2 (input + clear, scrollable thread, contextual action footer, meditative empty state with 3 starter prompts).
+  - `desktop/src/screens/__tests__/DockIdle.test.tsx` — section-by-section assertions on the 4-zone layout.
+  - `desktop/src/screens/__tests__/DockConversation.test.tsx` — idle→conversation transition + 50-token mock stream paint with layout-shift proxy.
+  - `desktop/src/components/QuickActions.tsx` — 3-up grid with Framer hover/tap micro-interactions.
+  - `desktop/src/components/RecentActivity.tsx` — feed widget; max-5 entries, relative timestamps, kind→icon mapping (FsChange/ShellEvent/GitEvent/ReplayResult/Alert).
+  - `desktop/src/components/ChatMessage.tsx` — user (Inter, right) / AI (Source Serif 4, left) bubbles + Shiki-highlighted code blocks with hover-reveal copy button.
+  - `desktop/src/components/ToolCallCard.tsx` — collapsed-by-default tool-call display with Framer `layout="size"` expand animation.
+  - `desktop/src/components/__tests__/ToolCallCard.test.tsx` — collapsed-default + click-expand assertion.
+  - `desktop/src/lib/store/chat.ts` — Zustand `useChat` store (mode, messages, inputValue, sessionId; actions `setMode`/`setInputValue`/`startConversation`/`sendMessage`/`clearConversation`/`replayLast`/`appendToken`/`finishStreaming`). Stream driver indirection so tests + production share one path.
+  - `desktop/src/lib/chat-stream.ts` — `installChatStreamDriver()` (auto-detects Tauri runtime; falls back to `mockStream` until Sesión 18 lands `ChatTokenStream`) + `installMockStreamForTests()`.
+  - `desktop/src/lib/dock-ipc.ts` — frontend stubs for `resolveActiveRepo`/`fetchIndexStats`/`searchCodebase`/`listRecentAlerts`/`openMainWindow`/`hideDock`. Each gracefully degrades to no-op + console.info if the underlying Tauri command isn't registered yet (Sesión 17/19 wire them).
+- **Files modified:**
+  - `desktop/src/components/CommandPalette.tsx` — replaced the Sesión-14 stub. Adds `<DialogTitle className="sr-only">Command palette</DialogTitle>` + `<DialogDescription className="sr-only">…</DialogDescription>` to close the Sesión-14 a11y warning. Wires 4 real commands (chat → `useChat.startConversation`, search → in-palette search-results view, fix → recent-alerts picker, settings → `openMainWindow("settings")`). New `intent` prop biases initial view (`default | search | fix`).
+  - `desktop/src/components/dock/DockShell.tsx` — orquests `idle ↔ conversation` swap via `<AnimatePresence mode="wait">`; installs the chat stream driver on mount; preserves Sesión-14's open spring + adds the close (scale 1.0 → 0.94, 150ms ease-in) tween.
+  - `desktop/src/tests/dock-renders.test.tsx` — updated to assert against the new shell shape (`data-mode="idle"` + `dock-idle-footer` + `dock-input` testids). Old assertions on the placeholder copy ("Inari Live"/"Inari is ready") were replaced because that copy moved into Mode 1's structured sections.
+  - `desktop/src/tests/reduced-motion.test.tsx` — same shape, added the Tauri `listen` mock so the chat-stream installer doesn't warn under jsdom.
+  - `desktop/src/tests/setup.ts` — removed a single `@ts-expect-error` directive that became unused after the @types/node bump (TypeScript now accepts `globalThis.ResizeObserver = ...` directly). Three jsdom shims (matchMedia, ResizeObserver, scrollIntoView) are intact and still load-bearing.
+  - `desktop/.gitignore` — added `dist/`, `tsconfig.tsbuildinfo`, `public/fonts/*.woff2`. Build-time artefacts that shouldn't ride in git.
+- **Verification (results, no asterisks):**
+  - **`npm install`** — skipped (node_modules already in place from Sesión 14; `npm install` ran once at the top of the session, no package.json/lockfile diff).
+  - **`npx tsc --noEmit`** — exit 0. The full S14+S15 source tree type-checks under strict mode with `noUnusedLocals`/`noUnusedParameters`.
+  - **`npm run build`** — `tsc -b && vite build` clean in 4.89s. 3 entries (dock/main/dev) emitted plus the per-language Shiki async chunks. The `cpp.js` / `wasm.js` / `emacs-lisp.js` chunks trip Vite's 500KB warning — those are dynamic imports loaded only when the user pastes code in that language, expected behaviour for Shiki, no action needed.
+  - **`npx vitest run`** — **8 test files / 13 tests / 13 passed in 6.44s**. Files: `dock-renders` (1) — repointed at the new shell shape; `main-renders` (1); `command-palette-keyboard` (2) — passes against the wired palette; `theme-switching` (3); `reduced-motion` (2); `DockIdle` (1) — new; `DockConversation` (2) — new; `ToolCallCard` (1) — new. `command-palette-keyboard.test.tsx` no longer emits the `DialogContent requires DialogTitle` Radix a11y warnings — closed by Sesión 15.
+  - **Manual smoke (`tauri dev`):** deferred per the prompt's pragmatic DoD. Jesus runs the visual smoke after merge; the session is complete on (a) build + (b) test pass.
+- **Notes for Session 16 (dock Modes 3 + 4):**
+  1. **Real ChatTokenStream variant lands in Sesión 18.** Sesión 15 wires the listener (in `lib/chat-stream.ts::installChatStreamDriver`) and falls through to `mockStream` until then. When Sesión 18 ships the variant on `DaemonEvent`, drop the `mockStream(messageId, prompt)` line inside the `tauriAvailable` branch — the listener already handles `appendToken`/`finishStreaming` correctly.
+  2. **Streaming layout-shift assertion is jsdom-relaxed.** `DockConversation.test.tsx` uses a 5s upper-bound waitFor instead of a strict 1s. Reason: jsdom doesn't run layout, so each setTimeout(0)+React re-render cycle through Framer's tree is ~30-60ms — wall-clock streaming throughput in jsdom is dominated by the test runtime, not the production paint loop. The structural assertion (single `chat-message-assistant` node + canned-response tail tokens visible) is the meaningful coverage; the wall-clock ceiling is a sanity bound. Sesión 21's Playwright suite will assert real-browser timing.
+  3. **`detectPatch` is a heuristic.** `DockConversation`'s contextual footer shows `[Apply fix]` + `[Show diff]` when the last assistant message contains a fenced code block AND the words "patch"/"diff"/"apply"/"fix". This is a placeholder until Sesión 19 surfaces a structured remediation tool-call result on the message — at that point, replace the heuristic with `lastAssistant.toolCalls?.find(t => t.name === "submit_fix")`.
+  4. **`dock-ipc.ts` IPC stubs are deliberately permissive.** Each helper logs `console.info` and returns an empty fallback when the Tauri command isn't registered. Sesión 17 wires `open_main_window` / `hide_dock` / `indexer_stats`; Sesión 19 wires `list_recent_alerts` / `search_codebase`. No Rust changes are required from Sesión 16's side — the dock will keep degrading gracefully until those land.
+  5. **Empty state for Mode 2 keeps the 3 starter prompts.** Sesión 16 should not replace them when wiring Mode 3 — the meditative entry stays as the conversation surface's default. Mode 3 (alert triage) is a different route entirely.
+
 ### Session 16 — Dock Mode 3 (alert triage) + Mode 4 (diff viewer) (8h)
 
 - **Files:** `desktop/src/screens/DockAlert.tsx`, `screens/DockDiff.tsx`, `components/DiffViewer.tsx`, `components/GateChecklist.tsx`, `components/ConfidenceBadge.tsx`, `lib/diff/parser.ts`.
