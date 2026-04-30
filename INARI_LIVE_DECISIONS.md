@@ -64,3 +64,23 @@ Impact:   Every PR is reviewed against this rule. Exceptions require an `INARI_L
 Decision: Drop `src/onboarding.rs`'s frontend usage at end of Session 17, but leave the Tauri commands reachable until then.
 Reason:   Session 17 ships a multi-step onboarding (drag-repo → power-ups → ready). The current 1-step "pick a folder" onboarding is functional and unblocks dogfood through Sessions 2-16. Removing it pre-Session-17 would force Sessions 2-16 to ship without any onboarding flow at all.
 Impact:   `ipc/onboarding.rs` (renamed in Session 4) ships unchanged. Session 17 deletes the file at end of session after the React-side replacement is verified.
+
+## 2026-04-29 — Sesión 2
+Decision: Event bus uses `Arc<Mutex<VecDeque<DaemonEvent>>>` per subscriber + `flume::Sender<()>` notifier — NOT raw `flume` mpmc and NOT `tokio::sync::broadcast`.
+Reason:   The spec said "flume-based broadcast channel". flume's mpmc primitive is *not* a broadcast — Receiver clones COMPETE for events, so each subscriber would only see a subset. tokio::sync::broadcast has the right semantics but couples sensors to a tokio runtime and complicates non-async sensor receive paths. The hand-rolled VecDeque + flume notifier gives true broadcast (each subscriber owns its queue), drop-oldest at the producer in O(1), and sync/async/timeout receive support without a tokio dependency.
+Impact:   `daemon/bus.rs` is the canonical implementation. Sensors that need async receive call `Receiver::recv_async`; sync sensors call `Receiver::recv`/`recv_timeout`. Spec-compliant in semantics; flume is still in the dep tree (used for the notifier and as the spec-named primitive).
+
+## 2026-04-29 — Sesión 2
+Decision: `daemon` is the only Session-2 module declared `pub` in `lib.rs`. `cloud`, `sensors`, `memory`, `ai`, `ipc`, `store`, `gates`, `updater`, `telemetry`, `cli`, `indexer`, `window` stay private (default).
+Reason:   Integration tests in `tests/` link against the `inariwatch_desktop_lib` crate and need to reach `daemon::lifecycle::run` to drive it under `#[tokio::test(start_paused = true)]`. Going through the production `start_daemon()` spawn path would couple to a tokio runtime separate from the test's. No other Session-2 module has callers outside the binary yet.
+Impact:   When future sessions add tests that need to reach into other modules, flip the `mod foo;` to `pub mod foo;` at the same time. Session 3 will likely flip `store` to `pub`.
+
+## 2026-04-29 — Sesión 2
+Decision: Tray menu kept backward-compatible — existing 6 items preserved, new `Pause sensors` item ADDED as a stub.
+Reason:   Session 2 spec listed a simplified 4-item menu (`Open Inari Live` / `Pause sensors` / `Settings…` / `Quit`). The existing scaffold ships 6 items (`Open InariWatch` / `Open Inari Live` / `Open dashboard…` / `Pause watch` / `Settings…` / `Quit`) with working dogfood behaviors (alert-poller toggle via `Pause watch`, dashboard quick-open). Per global feedback `feedback_no_breaking_changes`, removing items mid-flight would regress dogfood. Adding `Pause sensors` between `Pause watch` and `Settings` lets Session 5+ migrate the legacy `Pause watch` into the daemon-aware bus pause without a window where neither works.
+Impact:   `lib.rs::setup_tray` ships 7 items (the 6 legacy + 1 new). Session 5+ unifies — at that point `Pause watch` is removed and `Pause sensors` becomes the single source of truth.
+
+## 2026-04-29 — Sesión 2
+Decision: `inari-live-dock` window label is the canonical Session-2-onwards dock identifier. Existing `inari` label retained for the visual prototype.
+Reason:   The existing `inari` window (480×640, decorations on, taskbar visible — Session-0 visual prototype) has different chrome than the spec-locked dock (720×480, transparent + vibrancy, Accessory policy). Reusing the label would force Session 2 to either break the prototype or ship a misconfigured dock. New label avoids both.
+Impact:   `capabilities/default.json` includes both `inari` and `inari-live-dock`. Session 14 retires `inari` (per `ARCHITECTURE.md` decision 6) and the React+Vite shell ships against `inari-live-dock`. Cmd/Ctrl+Space toggles the new label, not the prototype.

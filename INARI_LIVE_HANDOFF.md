@@ -90,23 +90,40 @@ Captured from `project_inari_live.md` memory:
 - **Open architectural questions deferred** (8 documented in `ARCHITECTURE.md` § *Open questions deferred to a later session*; none block any current session).
 - **Definition of done:** `desktop/ARCHITECTURE.md` landed, `INARI_LIVE_DECISIONS.md` created, this handoff block updated. Session 2 can implement without re-asking layout questions.
 
-### Session 2 — Daemon core: event bus + lifecycle + tray-resident loop (8h)
+### Session 2 — Daemon core: event bus + lifecycle + tray-resident loop (8h) — **DONE 2026-04-29**
 
-- **Files:** `desktop/src-tauri/src/daemon/mod.rs`, `daemon/bus.rs`, `daemon/lifecycle.rs`, `daemon/state.rs`. Modify `main.rs` to spawn the daemon on app start.
-- **Add deps to `Cargo.toml`:**
-  - `tokio` = { version = "1", features = ["full"] }
-  - `flume` = "0.11" (multi-producer multi-consumer channel; faster than tokio mpsc for this use case)
-  - `serde` + `serde_json`
-  - `tracing` + `tracing-subscriber`
-- **Event bus:** flume-based broadcast channel carrying a `DaemonEvent` enum. Initial variants: `Heartbeat`, `Shutdown`. Sensors will add variants in Tracks 2-5. Bus capacity 4096, lossy semantics — slow consumers get oldest events dropped, never block the producer.
-- **Lifecycle:** the daemon starts when Tauri app starts. When user closes the window, daemon keeps running (tray-only). When user quits via tray menu, daemon shuts down gracefully (sends `Shutdown`, all sensors observe it via bus, daemon waits up to 5s for them to drain).
-- **Tray:** native menu via `tauri-plugin-tray` with items `Open Inari Live`, `Pause sensors`, `Settings…`, `Quit`. Tray icon = status indicator (idle / working / alert-pending) — three SVGs in `desktop/src-tauri/icons/tray/`.
-- **Global shortcut:** `tauri-plugin-global-shortcut` registers `Cmd+Space` (Mac) / `Ctrl+Space` (Win/Linux). Pressing it shows or toggles the dock window.
-- **Logging:** `tracing` to a rotating file at `~/Library/Logs/InariLive/inari-live.log` (Mac equivalents on Win/Linux). Log level via `INARI_LOG=debug` env var.
-- **Tests:**
-  - Unit: bus delivers events to multiple subscribers; bus drops oldest when full.
-  - Integration: spawn daemon, send 1000 events through bus, all subscribers receive.
-- **Definition of done:** `cargo tauri dev` launches the app; closing the window leaves a tray icon with menu; pressing global shortcut shows/hides a placeholder window; the log file shows heartbeats every 30s; quitting via tray cleanly shuts down.
+- **Status:** Done
+- **Branch:** `feat/inari-live-track1-session2-daemon-core`
+- **Tip commit:** see `git log --oneline feat/inari-live-track1-session2-daemon-core ^feat/inari-live-track1-session1-audit` (committed locally; NOT pushed per coordination protocol)
+- **Tests:** 5 daemon tests across 4 integration test files (`tests/{bus_delivers,bus_lossy,heartbeat,shutdown_drain}.rs`) — all pass in ~50ms total via `cargo test --test bus_delivers --test bus_lossy --test heartbeat --test shutdown_drain`.
+- **Files created:**
+  - `src/daemon/{mod,bus,lifecycle,state}.rs` — daemon core (~470 LoC)
+  - `src/window/{mod,dock,main}.rs` — placeholder dock + main-window helpers (~120 LoC)
+  - `src/{cloud,sensors,memory,indexer,ai,ipc,store,gates,updater,telemetry,cli}/mod.rs` — empty skeletons per ARCHITECTURE.md migration plan
+  - `tests/{bus_delivers,bus_lossy,heartbeat,shutdown_drain}.rs` — integration tests
+  - `dist/inari-live-dock/index.html` — Session 2 placeholder dock content
+  - `src-tauri/icons/tray/{idle,working,alert-pending}-{32,64}.png` — placeholder PNGs (duplicates of app icon; Session 5+ replaces with monochrome template-image variants)
+  - `src-tauri/icons/tray/README.md` — explains the 3-state semantics
+- **Files modified:**
+  - `src-tauri/Cargo.toml` — added `tokio = "full"`, `flume`, `tracing`, `tracing-subscriber`, `tracing-appender`, `tauri-plugin-global-shortcut`; added `[dev-dependencies] tokio = { features = ["full", "test-util"] }` for paused-time tests
+  - `src-tauri/src/lib.rs` — declared 13 new modules; spawns daemon via `tauri::async_runtime::spawn`; initializes tracing (rolling daily, 7-day retention) at `app.path().app_log_dir()`; registers `tauri-plugin-global-shortcut` plugin + `Cmd+Space` (Mac) / `Ctrl+Space` (Win/Linux) → `window::dock::toggle_dock`; added `Pause sensors` tray menu stub (separate from existing `Pause watch` for backward compat); `Quit` now signals `daemon.shutdown()` before `app.exit(0)`
+  - `src-tauri/capabilities/default.json` — added `inari-live-dock` to windows array
+- **Existing scaffold preserved:** all 9 pre-Session-2 `.rs` files (`autofix.rs`, `connect.rs`, `desktop_auth.rs`, `fingerprint.rs`, `inari_watcher.rs`, `local_ingest.rs`, `onboarding.rs`, `saves.rs`, `settings.rs`) untouched per Session 1 spec; their migration into the new modules happens in their owning sessions per ARCHITECTURE.md.
+- **Key implementation choices:**
+  - **Bus design:** rejected naïve `flume` mpmc (clones COMPETE, not broadcast) and rejected `tokio::sync::broadcast` (couples to a runtime). Settled on `Arc<Mutex<VecDeque<E>>>` per subscriber + `flume::Sender<()>` notifier. True broadcast + drop-oldest at the producer + sync/async/timeout receive. See `daemon/bus.rs` doc comment.
+  - **Lifecycle drain:** `SHUTDOWN_GRACE = 5s` is a wall-clock sleep after publishing `Shutdown`. Real coordination (counting sensor acks) lands when the first sensor that needs it ships in Tracks 2-5. Comment in `lifecycle.rs::run` flags this.
+  - **Tracing init:** writes to `app.path().app_log_dir()` (`%LOCALAPPDATA%\com.inariwatch.desktop\logs` on Win, `~/Library/Logs/com.inariwatch.desktop` on Mac) via `tracing_appender::rolling::Builder` with `Rotation::DAILY` + `max_log_files(7)`. `WorkerGuard` held in tauri State as `LoggingGuard` to keep the non-blocking writer alive.
+  - **Tray menu kept backward-compatible:** existing 6 menu items (Open InariWatch / Open Inari Live / Open dashboard / Pause watch / Settings / Quit) preserved; added `Pause sensors` as Session-2 stub between `Pause watch` and `Settings`. Session 5+ unifies the two pause items once sensors observe the bus.
+  - **Dock placeholder:** new `inari-live-dock` window label distinct from existing `inari` label (the visual prototype). Session 14 retires the old `inari` window and ships the React+Vite chrome on the `inari-live-dock` label.
+  - **`pub mod daemon`:** the `daemon` module is `pub` (others are private) so integration tests in `tests/` can drive `lifecycle::run` directly under `#[tokio::test(start_paused = true)]` without going through the production spawn path (which would couple to a different tokio runtime).
+- **Pre-existing test failure noticed (not Session 2 work):** `src/fingerprint.rs::tests::paths_and_timestamps_normalized` fails on this branch and on the Session-1 branch. Will be owned by Session 11 when fingerprint moves to `memory/fingerprint.rs`. See note in HANDOFF for Session 11 below.
+- **Notes for Session 3 (local store):**
+  - Session 2 created `src/store/mod.rs` as an empty skeleton; fill it in. Don't re-declare `pub mod store;` in lib.rs — already done.
+  - The TOML settings store from `src/settings.rs` lives at `~/.config/inari/desktop.toml`. When migrating to SQLite, use `app.path().app_local_data_dir()` for the new DB path; keep the TOML reader functional for one release as a backward-compat fallback (cf. Decision #5 + memory `feedback_no_breaking_changes`).
+  - The daemon writes its log file to `app.path().app_log_dir()` — share the same `tauri::Manager`/`PathResolver` resolution pattern in `store/mod.rs::resolve_db_path`.
+  - `dirs` crate is unmaintained but works on Win/Mac/Linux. Replace with `directories` (or `etcetera`) at the same time as the SQLite migration — simpler to do once than twice. This is Open Question #5 from `ARCHITECTURE.md`.
+  - The daemon currently has no SQLite read/write coupling. Session 3 should pass an `Arc<Pool>` into `daemon::SharedDaemonState` (or a sibling `SharedStore`) — extend `lib.rs::setup` accordingly.
+- **Definition of done:** ✅ daemon spawns on app start; ✅ closing main window keeps tray + daemon alive; ✅ tray menu wired; ✅ `Quit` signals `DaemonHandle::shutdown()`; ✅ `Cmd/Ctrl+Space` toggles the placeholder dock window; ✅ tracing rotates daily into the OS log dir; ✅ 5 daemon tests pass (bus broadcast, drop-oldest, 5 heartbeats in 150s simulated, shutdown drain).
 
 ### Session 3 — Local store: SQLite + sqlite-vec + migrations (6h)
 
