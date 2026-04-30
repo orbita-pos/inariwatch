@@ -17,7 +17,7 @@
 //! (conversation) + Session 17 (settings) listen for the payload and
 //! mount the right route.
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use crate::window;
