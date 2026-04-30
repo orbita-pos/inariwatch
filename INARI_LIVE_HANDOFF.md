@@ -456,6 +456,19 @@ Captured from `project_inari_live.md` memory:
   - Targeted test execution (`cargo test --test ...`) deferred because the working tree was concurrently overwritten by parallel S11 + S14 agent sessions running on the same checkout (memory/mod.rs, lib.rs, Cargo.toml repeatedly reverted under the build). Session 9 (or whoever next pulls this branch into a quiet checkout) should run the 7 tests as the first task.
   - The pre-existing `src/fingerprint.rs::tests::paths_and_timestamps_normalized` failure (S11's territory) was not touched.
 
+- **Tests run 2026-05-01 (Sesión 8-tests-finish, worktree `radar-s8` from `2f90d6c`):**
+  - Worktree was quiet (parallel S11/S14 isolated to their own worktrees per `feedback_parallel_sessions_need_worktrees.md`), so the contention blocker no longer applies.
+  - Baseline fix re-applied and committed as `c5c206a` (mirror of S11's `eb45c64`): orphan `mod fingerprint;` / `mod local_ingest;` removed from `lib.rs`, `local_ingest::start(...)` boot-up call dropped, fingerprint relocated to `memory/fingerprint.rs` with re-export at `crate::fingerprint` for `inari_watcher.rs`.
+  - **`cargo check --lib`:** clean — 7m 03s (cold build on freshly-rebuilt `target/`; the 22GB main-worktree `target/` was deleted by the human upstream of this session to recover disk).
+  - **`cargo check --lib --tests`:** clean — 34.34s incremental.
+  - **`cargo test --test git_hooks_install`:** **LINK FAILED** with the same MSVC blocker Sesión 6 documented (`libort_sys-…rlib(...)` 24 LNK2019/LNK2001 unresolved externals against `__std_max_element_*` / `__std_find_trivial_*` / `__std_DOUBLE_POW5_*` / `_General_precision_tables_2<*>`). Confirmed install: Visual Studio 2019 (no `cl.exe`/`VCToolsInstallDir`/`VSINSTALLDIR` on PATH; only `Program Files (x86)/Microsoft Visual Studio/2019` exists). `ort 2.0.0-rc.9` requires VS 2022 17.5+ MSVC STL.
+  - **Tests #2-#7 not attempted** — every integration test under `desktop/src-tauri/tests/git_hook*.rs` and `git_hooks_*.rs` links the same `inariwatch_desktop_lib.dll` (lib has fastembed → ort), so they would all fail at the same link step. Running them in series would only burn build time.
+  - **Status:** code unchanged, baseline fix committed. No test results are recorded as pass/fail because none were able to execute.
+  - **Unblock paths (unchanged from Sesión 6 recommendation):**
+    1. **Install VS 2022 Build Tools** with the "Desktop development with C++" workload (or equivalent ≥ 17.5). One-time host setup, benefits every subsequent Rust build. **Recommended.**
+    2. Pin `fastembed = "3"` (resolves to `ort 1.x` → links on VS 2019). Requires ~20 LoC of API churn in `desktop/src-tauri/src/indexer/embeddings.rs::ensure_loaded`.
+  - After unblock, the resume command set is: `cd desktop/src-tauri && cargo test --test git_hooks_install --test git_hooks_uninstall --test git_hooks_token --test git_hook_event_pre_push_blocks --test git_hook_event_auth --test git_hook_event_post_merge_publishes_reindex --test git_hooks_router_merge -- --test-threads=1`. All 7 are tempfile-only (no shared-state coupling), so `--test-threads=1` is for log readability, not correctness.
+
 ### Session 9 — Sensor 2: shell hooks (opt-in) over Unix socket (6h)
 
 - **Files:** `desktop/src-tauri/src/sensors/shell/mod.rs`, `sensors/shell/socket.rs`, `sensors/shell/installer.rs`. Hook templates in `desktop/src-tauri/resources/shell/inari.zsh`, `inari.bash`, `inari.fish`.
