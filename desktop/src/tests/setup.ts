@@ -32,7 +32,9 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     unobserve() {}
     disconnect() {}
   }
-  // @ts-expect-error — assigning a minimal shim to a DOM global.
+  // Assigning a minimal shim to a DOM global. TypeScript now tolerates
+  // this directly via `globalThis.ResizeObserver` — Sesión 14's
+  // `@ts-expect-error` became unused after the @types/node bump.
   globalThis.ResizeObserver = ResizeObserverStub;
 }
 

@@ -1,3 +1,12 @@
 node_modules/
 src-tauri/target/
 src-tauri/gen/
+
+# Vite + tsc build artifacts.
+dist/
+tsconfig.tsbuildinfo
+
+# Bundled fonts download target — sourcing instructions in
+# `public/fonts/README.md`. The .woff2 payloads stay out of git per
+# the Sesión 14 font-sourcing decision.
+public/fonts/*.woff2

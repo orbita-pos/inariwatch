@@ -1,27 +1,45 @@
-import { motion, useReducedMotion } from "framer-motion";
-import { Sparkles } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useEffect } from "react";
 
-import { CommandPalette } from "@/components/CommandPalette";
-import { KbdHint } from "@/components/ui";
+import { DockConversation } from "@/screens/DockConversation";
+import { DockIdle } from "@/screens/DockIdle";
+import { installChatStreamDriver } from "@/lib/chat-stream";
+import { useChat } from "@/lib/store/chat";
 
 /**
- * Dock shell — Session 14 lays out the chrome only. Modes 2/3/4
- * (conversation, alert, diff) ship in Sessions 15/16. The visible body
- * here is the empty/idle hint + the palette trigger; everything else
- * is a placeholder hook point.
+ * Dock shell — Sesión 15 lights up the real Modes 1 (idle) and 2
+ * (conversation). The shell is the outer card + open/close motion;
+ * the active mode swaps in via Framer's `<AnimatePresence>` keyed off
+ * `useChat.mode` so the cross-fade plays once per transition.
  *
- * The motion treatment locks the spec recap microinteraction:
- *   `scale: 0.96 → 1.0 + opacity: 0 → 1, 200ms spring`
+ * Microinteractions (per spec recap):
+ *   - Open dock:  scale 0.96 → 1.0 + opacity 0 → 1, ~200ms spring.
+ *   - Close dock: scale 1.0 → 0.94 + opacity 1 → 0, ~150ms ease-in.
+ * Reduced-motion users get an opacity-only fade for both.
  *
- * Reduced-motion users get a fade-only fallback so we never animate
- * scale/translate against their preference.
+ * Streaming driver: installed once on mount. The driver emits tokens
+ * to the chat store as the daemon publishes ChatTokenStream events
+ * (Sesión 18); until that variant exists we fall through to a mock
+ * stream so the conversation surface visibly responds to user input.
  */
 export function DockShell() {
+  const mode = useChat((s) => s.mode);
   const reduce = useReducedMotion();
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    installChatStreamDriver().then((u) => {
+      unlisten = u;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   return (
     <div
       data-testid="dock-shell"
+      data-mode={mode}
       className="h-full w-full flex items-center justify-center p-4"
     >
       <motion.section
@@ -33,41 +51,47 @@ export function DockShell() {
         ].join(" ")}
         initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
         animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+        exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.94 }}
         transition={
           reduce
             ? { duration: 0.15 }
             : { type: "spring", stiffness: 320, damping: 24, mass: 0.6 }
         }
       >
-        <header className="flex items-center justify-between px-4 h-12 border-b border-[var(--border)]">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Sparkles className="h-4 w-4 text-[var(--color-ai)]" aria-hidden />
-            <span>Inari Live</span>
-          </div>
-          <KbdHint>⌘ K</KbdHint>
-        </header>
-
-        <main className="flex-1 flex flex-col items-center justify-center text-center p-6">
-          <h1 className="font-[var(--font-serif)] text-xl text-[var(--text)] mb-1">
-            Inari is ready
-          </h1>
-          <p className="text-sm text-[var(--muted)] max-w-[40ch]">
-            Press <KbdHint>⌘ K</KbdHint> to chat, search this repo, or fix the latest error.
-          </p>
-        </main>
-
-        <footer
-          className="flex items-center justify-between px-4 h-9 border-t border-[var(--border)] text-xs text-[var(--muted)]"
-          data-testid="dock-footer"
-        >
-          <span>idle</span>
-          <span>
-            <KbdHint>ESC</KbdHint> to close
-          </span>
-        </footer>
+        <AnimatePresence mode="wait" initial={false}>
+          {mode === "idle" ? (
+            <motion.div
+              key="idle"
+              className="h-full"
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
+              transition={
+                reduce
+                  ? { duration: 0 }
+                  : { duration: 0.18, ease: "easeOut" }
+              }
+            >
+              <DockIdle />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="conversation"
+              className="h-full"
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
+              transition={
+                reduce
+                  ? { duration: 0 }
+                  : { duration: 0.18, ease: "easeOut" }
+              }
+            >
+              <DockConversation />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.section>
-
-      <CommandPalette />
     </div>
   );
 }

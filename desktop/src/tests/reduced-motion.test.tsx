@@ -1,7 +1,14 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DockShell } from "@/components/dock/DockShell";
+import { __resetChatStoreForTests } from "@/lib/store/chat";
+
+// Tauri event subscription is a no-op in jsdom — the chat-stream driver
+// would otherwise emit a warning about the missing runtime.
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => {}),
+}));
 
 /**
  * Stub matchMedia to claim `(prefers-reduced-motion: reduce)` is true. The
@@ -26,6 +33,10 @@ function stubReducedMotion(reduce: boolean) {
 }
 
 describe("reduced-motion", () => {
+  afterEach(() => {
+    __resetChatStoreForTests();
+  });
+
   it("DockShell renders cleanly when prefers-reduced-motion is set", () => {
     stubReducedMotion(true);
     const { getByTestId } = render(<DockShell />);
