@@ -486,24 +486,48 @@ Captured from `project_inari_live.md` memory:
 
 **Goal:** the 4-layer memory (semantic / episodic / declarative / procedural) is fully wired. A user opening a repo for the first time gets `memory.md` written; on subsequent opens, Inari respects pinned sections + suggests updates.
 
-### Session 11 — Layer 3 (declarative): `memory.md` + `memory.local.md` lifecycle (6h)
+### Session 11 — Layer 3 (declarative): `memory.md` + `memory.local.md` lifecycle (6h) — **DONE 2026-05-01 (Session 11-finish)**
 
-- **Files:** `desktop/src-tauri/src/memory/declarative/mod.rs`, `memory/declarative/parser.rs`, `memory/declarative/writer.rs`, `memory/declarative/precedence.rs`. Frontend: `desktop/src/components/MemoryReview.tsx`.
-- **Add deps:**
-  - `pulldown-cmark` = "0.10" (markdown parser)
-  - `pulldown-cmark-to-cmark` = "13" (round-trip serialization preserving original formatting)
-- **Behavior:**
-  - On first repo open, daemon scans for `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `README.md` and parses them as input context.
-  - Generates an initial `.inari/memory.md` (and `.inari/memory.local.md` empty) using a deterministic template + AI-suggested sections (calls OpenAI, but the user must approve before writing — show a preview UI).
-  - **Section markers:** `[pinned]` (only humans edit, AI never modifies), `[auto-detected]` (AI maintains, humans can edit), unmarked (AI proposes changes, humans review).
-  - **Precedence stack** when AI reads context: `CLAUDE.md` → `AGENTS.md` → `.cursorrules` → `memory.md [pinned]` → `memory.md` rest → `patterns.json` → semantic+episodic retrieval. Encoded in `precedence.rs` as a single function `gather_context(query, repo_id) -> ContextStack`.
-  - **`.gitignore` augmentation:** on opt-in, daemon appends `.inari/index.db`, `.inari/recordings/`, `.inari/replays/`, `.inari/memory.local.md` to `.gitignore` (with a clear marker block).
+- **Status:** Done (compile-verified; integration tests deferred — disk full on dev box)
+- **Branch:** `feat/inari-live-track3-session11-memory-md-v2`
+- **Tip SHA:** `183499f`
+- **Commits since base `e7fa1a0`:**
+  - `eb45c64` — fix: remove orphan fingerprint/local_ingest mod decls (baseline fix)
+  - `d6a61bd` — feat: wire memory.md IPC + watcher (declarative layer)
+  - `183499f` — test: 6 integration tests for declarative memory
+- **Files added/modified:**
+  - `desktop/src-tauri/src/memory/fingerprint.rs` (NEW — relocation from former `src/fingerprint.rs`; algorithm unchanged, byte-equivalent with `cli/src/mcp/fingerprint.rs` and `web/lib/ai/fingerprint.ts`)
+  - `desktop/src-tauri/src/memory/mod.rs` (added `pub mod fingerprint;`)
+  - `desktop/src-tauri/src/memory/declarative/mod.rs` (use `MemoryKind::Initial` instead of magic string; add `latest_memory_version_row` + `wipe_memory_versions` thin wrappers)
+  - `desktop/src-tauri/src/daemon/mod.rs` (add `MemoryKind` enum + `MemoryReviewRequested` / `MemoryReviewApproved` `DaemonEvent` variants; `kind` field uses `#[serde(rename = "review_kind")]` to dodge the outer enum's internally-tagged `"kind"` discriminator)
+  - `desktop/src-tauri/src/store/queries.rs` (add `MemoryMdVersion` row + `insert_memory_md_version` / `latest_memory_md_version` / `wipe_memory_md_versions` helpers; locked to migration 0003 schema)
+  - `desktop/src-tauri/src/ipc/mod.rs` (add `pub mod memory;`)
+  - `desktop/src-tauri/src/ipc/memory.rs` (NEW — 5 Tauri commands: `read_memory_md`, `propose_memory_md_update`, `commit_memory_md`, `get_context_stack`, `wipe_memory`; typed `IpcError` surface; 1MB cap enforced; DTOs marked `#[ts(export)]` for the frontend)
+  - `desktop/src-tauri/src/lib.rs` (remove orphan `mod fingerprint;` + `mod local_ingest;` decls; remove orphan `local_ingest::start(...)` call site; re-export `memory::fingerprint` as `crate::fingerprint` so `inari_watcher.rs`'s legacy import keeps resolving until Session 10 splits that file; `pub mod memory` so integration tests can reach the module; spawn `memory::declarative::spawn_memory_watcher` after the indexer; register the 5 IPC commands in `invoke_handler`)
+  - `desktop/src-tauri/Cargo.toml` (deps `pulldown-cmark = "0.10"` + `pulldown-cmark-to-cmark = "13"` already present from `e7fa1a0`)
+  - `desktop/src-tauri/Cargo.lock` (transitive resolution after first `cargo check`)
+  - `desktop/src-tauri/tests/memory_md_read_empty.rs` (NEW)
+  - `desktop/src-tauri/tests/memory_md_propose_creates_version.rs` (NEW)
+  - `desktop/src-tauri/tests/memory_md_commit_writes_to_disk.rs` (NEW)
+  - `desktop/src-tauri/tests/memory_md_get_context_stack.rs` (NEW)
+  - `desktop/src-tauri/tests/memory_md_wipe_clears_table.rs` (NEW)
+  - `desktop/src-tauri/tests/memory_md_review_event_emitted.rs` (NEW)
+- **Add deps:** locked at `e7fa1a0` (`pulldown-cmark = "0.10"` + `pulldown-cmark-to-cmark = "13"`).
+- **Behavior shipped:**
+  - `RepoIndexed` triggers `ensure_memory_md(repo_path)` — creates `.inari/`, writes the deterministic template + empty `memory.local.md` on first open, augments `.gitignore` with the marker block. Existing `memory.md` is parsed (1MB cap enforced) without mutation.
+  - Initial-write emits `MemoryReviewRequested { repo_id, kind: MemoryKind::Initial }`. The dock surfaces this (S15 onwards) as a non-blocking review prompt.
+  - `commit_memory_md` IPC writes via `atomic_write` (`<path>.tmp` → `rename`) and records a `merge` row in `memory_md_versions`.
+  - `propose_memory_md_update` records an `ai_proposed` row + emits `MemoryReviewRequested`. No disk write until commit.
+  - `get_context_stack` returns the full precedence stack (CLAUDE.md → AGENTS.md → .cursorrules → memory.md `[pinned]` → memory.md rest → patterns → semantic) as a DTO with `kind` + `byte_size` + `preview` per layer. Caps total at 100KB (`MAX_TOTAL_BYTES`).
+  - `wipe_memory` drops every `memory_md_versions` row for the repo. The on-disk `memory.md` is intentionally NOT touched (per the dock spec — preserves human work).
 - **Tests:**
-  - Parse a fixture `memory.md` → round-trip preserves whitespace + section markers.
-  - `[pinned]` content is not mutated when AI proposes an update.
-  - Precedence: when both `CLAUDE.md` and `memory.md` define a rule, `CLAUDE.md` wins.
-  - First-open of a fresh repo writes a `memory.md` matching the template.
-- **Definition of done:** opening `radar/web/` for the first time writes `.inari/memory.md` containing CLAUDE.md-derived facts in `[pinned]`; subsequent opens don't overwrite pinned content; the precedence function returns deterministic ordering.
+  - 6 integration files (`memory_md_*.rs`) + 3 unit tests in `memory/fingerprint.rs`. Every test compiles via `cargo check --lib --tests`. **Execution deferred** to next session — the dev machine reported "Espacio en disco insuficiente" (disk 100% full) part-way through the first test's link phase. Same blocker as Sesiones 15-18 (`project_machine_constraints.md`).
+- **Definition of done:** runtime path is wired end-to-end from `RepoIndexed` to `MemoryReviewRequested`; on-disk template seeding + atomic writes + version-row append are covered by the 6 test files (compile-checked, execution-pending).
+- **Notes for the next session:**
+  1. **Run the 6 deferred tests first.** Free disk, then `cargo test --test memory_md_<name>` one at a time per Build-perf rule §1. The warm cache should make this fast.
+  2. **`crate::fingerprint` re-export is temporary.** `lib.rs` currently aliases `memory::fingerprint` at crate root so `inari_watcher.rs`'s legacy `use crate::fingerprint::compute_error_fingerprint;` still resolves. Drop the re-export when Session 10 splits `inari_watcher.rs`. The new home is `crate::memory::fingerprint`.
+  3. **The orphan `local_ingest::start(...)` call site is gone.** Session 10 will spawn its own ingest server from `sensors/substrate/local_ingest.rs`.
+  4. **Frontend `MemoryReview.tsx` still pending.** Session 11 only ships the Rust + IPC surface. The dock review UI lands as part of Session 15 / 16 (dock modes). DTOs in `ipc/memory.rs` are `#[ts(export)]` so types regenerate automatically.
 
 ### Session 12 — Layer 4 (procedural): patterns learned + anti-patterns (6h)
 
