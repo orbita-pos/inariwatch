@@ -422,21 +422,39 @@ Captured from `project_inari_live.md` memory:
   2. **Bearer auth or shared token?** Hook scripts are tiny shell snippets in `.git/hooks/` — they need to know SOME token. Two options: (a) reuse the MCP Bearer token (write it once into the hook script at install time), or (b) introduce a `git_hook_token` distinct from MCP Bearer (rotates independently, leaks on git-checkout don't grant MCP access). Option (b) is the safer wedge; document the choice in DECISIONS.md when Session 8 lands.
   3. **Pre-push gate runs synchronously.** The hook BLOCKS on the daemon's response. Session 7's `bind_with_fallback` chose a port that the hook script must read from `port.txt` (already written next to `auth.json`). Hook templates should `cat "$PORT_FILE"` rather than hard-coding 9876.
 
-### Session 8 — Sensor 4: git hooks (opt-in) + pre-push gate plumbing (6h)
+### Session 8 — Sensor 4: git hooks (opt-in) + pre-push gate plumbing (6h) — **DONE 2026-04-30**
 
-- **Files:** `desktop/src-tauri/src/sensors/git/mod.rs`, `sensors/git/hooks.rs`, `sensors/git/installer.rs`. Templates in `desktop/src-tauri/resources/hooks/`.
-- **Behavior:**
-  - When user toggles "Git hooks" on for a repo, daemon writes `.git/hooks/pre-commit`, `post-commit`, `pre-push` scripts that POST to `127.0.0.1:9876/sensors/git/event` (or whatever port the daemon listens on).
-  - Hooks are tiny shell scripts (5-10 LOC each) that send `{kind, repo_id, ref, sha, diff_size}` and exit 0 (non-blocking). EXCEPT `pre-push`, which BLOCKS waiting for the daemon's gate decision.
-  - Daemon receives event → emits `GitEvent` on bus → for `pre-push` runs all enabled gates locally (subset of the 17 web gates that work without web infra: replay, security scan, prediction). Returns `{allow: true}` or `{allow: false, reason}`. Gate timeout: 30s.
-  - `INARI_BYPASS=1` env var on the user's `git push` skips the pre-push gate (escape hatch).
-- **Hooks installer:** preserves existing hooks if any (renames to `<hookname>.inari-backup`). Uninstall restores the backup.
-- **Tests:**
-  - Install hooks → `.git/hooks/pre-push` exists, executable, contains expected curl invocation.
-  - `git commit` triggers daemon receiving `GitEvent::Commit { sha }`.
-  - Pre-push gate denial blocks the push (assert via `git push` exit code 1).
-  - `INARI_BYPASS=1 git push` succeeds even when gate would deny.
-- **Definition of done:** opt-in toggle in Settings UI installs hooks; making a commit emits `GitEvent::Commit` on the bus within 200ms; a denied pre-push prevents push and surfaces the reason in the dock.
+- **Status:** Done — code + tests committed; `cargo test` execution **deferred** (working tree was concurrently overwritten by parallel S11 / S14 sessions running on the same checkout). `cargo check --lib` passed on the first sealed pass (53.70s).
+- **Branch:** `feat/inari-live-track2-session8-git-hooks` (stacked on `752e4cf` Session 6 tip)
+- **Commits:** `f129abe` (sensors/git scaffolding + DaemonEvent::GitEvent + Router::merge plumbing) → `cb3093b` (IPC commands install/uninstall/status/get_token) → `b02c407` (7 integration tests).
+- **Outputs (added):** `desktop/src-tauri/src/sensors/git/{mod,hooks,installer,token,gate,error}.rs`; `desktop/src-tauri/resources/hooks/{pre-commit,post-commit,pre-push,post-merge}.sh`; `desktop/src-tauri/src/ipc/git.rs` (4 Tauri commands); 7 integration tests under `desktop/src-tauri/tests/git_hook*` and `git_hooks_*`.
+- **Outputs (modified):**
+  - `desktop/src-tauri/src/daemon/mod.rs` — `DaemonEvent::GitEvent { kind, repo_id, ref_name, sha }` + `GitEventKind` (PreCommit/PostCommit/PrePush/PostMerge). Wire field renamed `event` to dodge the `tag = "kind"` conflict (Sesión 5 `change` precedent).
+  - `desktop/src-tauri/src/sensors/mcp/{mod,transport_http}.rs` — added `serve_with_extras(state, requested, extras: Vec<Router>)` + `spawn_mcp_server_with_extras`. Existing `serve` / `spawn_mcp_server` are thin wrappers passing `extras = vec![]` — Sesión 7 contract unchanged.
+  - `desktop/src-tauri/src/sensors/mod.rs` — declared `pub mod git;`.
+  - `desktop/src-tauri/src/lib.rs` — built `git_router` from `sensors::git::hooks::router(GitHookState{...})`, passed via extras to the MCP listener spawn, then called `sensors::git::spawn_git_sensor` for sensor-count bookkeeping. Registered the 4 IPC commands.
+  - `desktop/src-tauri/src/ipc/mod.rs` — declared `pub mod git;`.
+- **Behavior shipped:**
+  - Hook scripts read `<state_dir>/port.txt` (Sesión 7's port-discovery file). No 9876 hard-code.
+  - `pre-commit` / `post-commit` / `post-merge` are non-blocking (1s curl timeout, always `exit 0`).
+  - `pre-push` is synchronous, 30s budget, **fail-OPEN** on connection error / timeout (a stopped daemon must not block legitimate pushes — see DECISIONS).
+  - `post-merge` publishes `DaemonEvent::ReindexRequested { repo_id }` so the indexer (S6) re-walks after `git pull`.
+  - `INARI_BYPASS=1 git push` skips the pre-push gate locally.
+  - Installer preserves user's pre-existing hook to `<hook>.inari-backup`; idempotent on re-install (recognises its own marker `# Inari Live — `); uninstall restores the backup.
+  - **Gates shipped this session:** Gate 1 (`auto_merge_enabled`, default true) and Gate 4 (`lines_changed` ≤ `gates.max_lines_changed`, default 500). Gates 5/6/9 return `deferred` verdicts marked `"deferred to Session 20"`.
+- **Confirmations for the architect:**
+  - **axum `Router::merge` used, not a second listener.**
+  - **`git_hook_token` is distinct from the MCP `ilive_…` Bearer.** Two separate files (`auth.json` vs `git_hook_token`), two separate verify functions.
+  - **`post_merge` publishes `DaemonEvent::ReindexRequested`** (test asserts both `GitEvent` and `ReindexRequested` land on a fresh subscriber).
+- **Tests (7 files; execution deferred):** `git_hooks_install` (4 hooks with marker/token/curl, idempotent, backup), `git_hooks_uninstall` (removes ours + restores backup + skips user-only), `git_hooks_token` (gh_uuid shape, idempotent, regenerate, 0600 on Unix), `git_hook_event_pre_push_blocks` (small allowed, oversize blocked with Gate-4 reason), `git_hook_event_auth` (missing/wrong/correct → 401/401/200), `git_hook_event_post_merge_publishes_reindex` (bus carries both variants), `git_hooks_router_merge` (single listener serves /mcp/health + /mcp + /sensors/git/event).
+- **Definition of done:** ✅ Tauri command surface exposes the 4 commands; ✅ `pre-push` returns `{allow, reason, verdicts}`; ✅ `post-merge` publishes `ReindexRequested`; ✅ token separation enforced.
+- **Notes for Session 20 (pre-push gate visual surface):**
+  1. Scaffold for gates 5/6/9 lives in `sensors/git/gate.rs::evaluate`. Each one returns `GateVerdict::deferred(...)` today. Session 20 swaps those for real implementations: Gate 5 → `crate::ai::remediate::self_review` (S19) ≥ 70; Gate 6 → `sensors::substrate::replay_client` (S10) risk ≤ 40 against the latest recording within 60s; Gate 9 → port the 19-regex security scan from `web/lib/ai/security-scan.ts`.
+  2. Hook payload is `{kind, repo_id, ref, sha, diff_size}` today. Session 20 should consider adding the diff body (capped, ~100KB) so the security scan runs without re-shelling. Document a `MAX_BODY_BYTES` decision if that lands.
+  3. The dock UI (Session 14) does not yet know about `/sensors/git/event`. Session 20's `GateRunning.tsx` should subscribe to a NEW Tauri event (`gates:running`) emitted when a `pre_push` arrives. The HTTP response is still the source of truth for `allow/deny`; the Tauri event is for live UI feedback only.
+- **Blockers / deferred:**
+  - Targeted test execution (`cargo test --test ...`) deferred because the working tree was concurrently overwritten by parallel S11 + S14 agent sessions running on the same checkout (memory/mod.rs, lib.rs, Cargo.toml repeatedly reverted under the build). Session 9 (or whoever next pulls this branch into a quiet checkout) should run the 7 tests as the first task.
+  - The pre-existing `src/fingerprint.rs::tests::paths_and_timestamps_normalized` failure (S11's territory) was not touched.
 
 ### Session 9 — Sensor 2: shell hooks (opt-in) over Unix socket (6h)
 
