@@ -259,6 +259,19 @@ pub fn run() {
                 store.clone(),
             );
 
+            // Session 9 — Sensor 2 (shell hooks). Opens the per-platform
+            // local socket (`~/.inari/sock/shell.sock` on Unix,
+            // `\\.\pipe\inari-live-shell` on Windows). The listener is
+            // harmless when no hooks are installed — no clients connect
+            // and the bus gets no `ShellEvent`s. Bind failure (no
+            // `$HOME`, permission denied, stale socket the
+            // `try_overwrite` couldn't reclaim) logs at `warn` and
+            // decrements `sensor_count`; rest of startup proceeds.
+            let _shell_handle = sensors::shell::spawn(
+                daemon_handle.clone(),
+                store.clone(),
+            );
+
             setup_window(app)?;
             setup_tray(app, daemon_handle.clone())?;
 

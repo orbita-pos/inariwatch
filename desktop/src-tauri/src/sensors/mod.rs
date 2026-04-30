@@ -4,7 +4,10 @@
 //! Session 7 ships `mcp` (local JSON-RPC server over HTTP + stdio sidecar).
 //! Session 8 ships `git` (opt-in hooks + pre-push gate plumbing); the HTTP
 //! handler is mounted onto the MCP listener via `axum::Router::merge`.
+//! Session 9 ships `shell` (opt-in zsh/bash/fish hooks over a per-platform
+//! local socket — Unix domain socket / Windows named pipe — via `interprocess`).
 
 pub mod fs;
 pub mod git;
 pub mod mcp;
+pub mod shell;

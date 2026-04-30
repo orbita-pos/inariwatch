@@ -166,6 +166,25 @@ pub enum DaemonEvent {
         ref_name: String,
         sha:      String,
     },
+    /// Shell command observed by Sensor 2 (Session 9). The hook script
+    /// running in the user's shell (`zsh`/`bash`/`fish`) sends one
+    /// JSON message per command over the per-platform local socket
+    /// (`~/.inari/sock/shell.sock` on Unix, `\\.\pipe\inari-live-shell`
+    /// on Windows). `session_id` is server-assigned per connection so
+    /// downstream consumers can group events by shell session without
+    /// trusting the script.
+    ///
+    /// The hook script SCRUBS env-var-shaped secrets (regex on
+    /// `*KEY*`/`*SECRET*`/`*TOKEN*`/`*PASSWORD*`/`*PASSWD*`/`*PWD*`)
+    /// BEFORE sending — see `desktop/src-tauri/resources/shell/README.md`.
+    ShellEvent {
+        session_id:  String,
+        cmd:         String,
+        cwd:         PathBuf,
+        exit_code:   i32,
+        duration_ms: u64,
+        timestamp:   u64,
+    },
 }
 
 pub use bus::EventBus;

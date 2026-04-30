@@ -125,6 +125,14 @@ pulldown-cmark-to-cmark  = "13"
 # macOS, Acrylic on Windows). On Linux it is a no-op fallback.
 window-vibrancy          = "0.5"
 
+# Session 9 — shell sensor (Sensor 2).
+# `interprocess` exposes the same `LocalSocket{Listener,Stream}` API on
+# Unix domain sockets and Windows named pipes — no `#[cfg]` branching
+# at the call site. We use the tokio integration so the listener loop
+# yields cleanly on the existing daemon runtime. Only the `tokio` and
+# `local-socket` features are enabled to keep the dep tree slim.
+interprocess             = { version = "2", features = ["tokio"] }
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
