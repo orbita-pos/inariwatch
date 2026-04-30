@@ -109,3 +109,33 @@ Impact:   `src/store/migrations/0001_initial.sql` defines the `settings(key, val
 Decision: `pub mod store;` (mirroring `pub mod daemon;` from Session 2). Other Session-2 module skeletons (`cloud`, `sensors`, `memory`, `ai`, `ipc`, `gates`, `updater`, `telemetry`, `cli`, `indexer`, `window`) stay private until they need integration tests.
 Reason:   Five integration test files in `tests/store_*.rs` need to reach `Store::open_at`, `migrations::applied_count`, and `pool::POOL_SIZE` directly. The Session-2 precedent (`pub mod daemon;`) and decision log both establish that flipping a module to `pub` at the same time tests are added is the canonical path.
 Impact:   Sessions 5+ flip their owning module to `pub` when they add integration tests. `inariwatch_desktop_lib::store::*` is now part of the integration-test surface; future schema additions append migrations rather than touching shipped ones.
+
+## 2026-04-29 — Sesión 4
+Decision: Legacy TOML→SQL settings migration is **non-destructive** — the TOML file is NOT renamed to `.migrated`. Idempotency tracked by a marker row (`__legacy_toml_migrated_at`) in the `settings` table.
+Reason:   The Session-4 spec body said "rename TOML → .migrated" but `inari_watcher.rs` is locked (Session 5/10/12 owns it) and STILL reads the legacy TOML directly via `dirs::config_dir()`. Renaming the file would silently make the watcher go dormant on the next boot — a regression of the live dogfood path. Per global feedback `feedback_no_breaking_changes`, every change must be backward-compatible. A SQL marker row gives identical idempotency without touching files the watcher depends on.
+Impact:   `store::legacy_settings_migration::migrate_at` upserts each TOML key into `settings(key, value, updated_at)`, stores the full file as a `legacy_settings` JSON blob, and writes the marker row. Re-runs return `MigrationOutcome::AlreadyMigrated`. When Session 5 rewrites the watcher, it reads from SQL settings and the legacy TOML can be retired at that point.
+
+## 2026-04-29 — Sesión 4
+Decision: `dirs` crate STAYS in `Cargo.toml` after Session 4. Two callers remain: `inari_watcher.rs` (locked — Session 5/10 owns) and `store/legacy_settings_migration.rs` (deliberate — must read the legacy `~/.config/inari/desktop.toml` path).
+Reason:   Session 4 migrated the 6 callers it owned (`autofix.rs`, `connect.rs`, `desktop_auth.rs`, `onboarding.rs`, `saves.rs`, `settings.rs`, plus `lib.rs::read_desktop_config` + `start_alert_poller`) off `dirs` and onto either `tauri::AppHandle::path()` or the SQL settings store. Removing the `dirs` crate would break the two remaining callers. Per Session 1's "no pre-emptive moves" principle, `inari_watcher.rs` belongs to Session 5/10 — Session 4 is not allowed to touch it.
+Impact:   Session 5 (FS watcher) drops `dirs` from `Cargo.toml` after rewriting the watcher to subscribe to settings via SQL. Until then, `cargo tree | grep dirs` shows it as a direct dep with two callers. The `cloud::api::read_dashboard_creds` helper exists so future callers don't reinstate `dirs` via copy-paste.
+
+## 2026-04-29 — Sesión 4
+Decision: `IpcError` is a typed enum with 8 variants (`Migration`, `Connection`, `ExtensionLoad`, `Io`, `Query`, `InvalidPath`, `RepoNotFound`, `Internal`) — NOT a stringly-typed error.
+Reason:   The Session-4 spec called for "discriminate the 5 most actionable variants of `StoreError`". An enum with `#[serde(tag = "kind")]` lets the dock pattern-match in TS via the auto-generated tagged union and surface variant-specific UX (e.g. "DB is from a newer build — please update" only on `Migration`). Going through `String` would force the frontend to regex-parse error messages.
+Impact:   `From<StoreError> for IpcError` discriminates the 5 spec-listed variants and collapses `PathResolution` into `Internal`. ts-rs generates `desktop/src/lib/types/IpcError.ts` as a tagged union; the frontend wrapper exposes `isIpcError(err)` as a type guard.
+
+## 2026-04-29 — Sesión 4
+Decision: Pick `ts-rs = "8"` over hand-rolled or `serde-reflection`. ts-rs's auto-generated `export_bindings_*` lib tests refresh the `.ts` files on every `cargo test --lib`.
+Reason:   Track 5 will end with ~30 DTOs. Hand-rolling would diverge silently the first time a Rust struct gains a field. ts-rs piggybacks on existing `#[derive(Serialize)]` annotations with one extra `#[derive(TS)]` and `#[ts(export)]`; output lands in the directory the frontend imports from. ts-rs v8 emits one `export_bindings_<type>` test per `#[ts(export)]` annotation, so no manual entry-point test is needed — the bindings stay in sync with zero contributor friction.
+Impact:   The four Session-4 DTOs (`DaemonStatusDto`, `RepoDto`, `LogEntryDto`, `IpcError`) land at `desktop/src/lib/types/*.ts`. Generated files are committed alongside the Rust source. CI can rely on `cargo test --lib` to fail if a contributor forgets to commit a regenerated binding.
+
+## 2026-04-29 — Sesión 4
+Decision: `started_at` ISO is computed once via `OnceLock` in `snapshot_to_dto`, then cached for the rest of the process lifetime.
+Reason:   Without caching, `started_at = now() - uptime_secs` drifts whenever wall-clock advances faster than the heartbeat-driven `uptime_secs` — between heartbeats the difference would slide by up to 30 s. The PartialEq dedup in `daemon:status_changed` would then fire spuriously on every bus event.
+Impact:   First call to `snapshot_to_dto` captures `now() - uptime` at that instant; subsequent calls return the cached value. Stable `started_at` makes the debouncer's PartialEq actually suppress duplicates.
+
+## 2026-04-29 — Sesión 4
+Decision: `cloud/api.rs` exposes `DEFAULT_API_URL = "https://app.inariwatch.com"` and `read_dashboard_creds(store)` as the single source of truth for cloud-API base URL + token.
+Reason:   The pre-Session-4 scaffold had **four** copies of the same TOML-parsing helper (`desktop_auth.rs::read_desktop_toml`, `saves.rs::read_dashboard_creds`, `autofix.rs::read_dashboard_cfg`, `lib.rs::read_desktop_config`). Each parsed `desktop.toml` with slightly different defaults and field handling. After moving everything to SQL, the same risk applied: 4 modules each calling `settings::get` for the same keys. Centralizing in one place stops drift before it starts.
+Impact:   `cloud/auth.rs`, `cloud/saves.rs`, `cloud/alert_poller.rs`, and `ai/remediate/cloud_proxy.rs` all consume `read_dashboard_creds`. Future sessions adding cloud features import from here too.

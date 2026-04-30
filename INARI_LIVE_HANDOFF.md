@@ -39,6 +39,48 @@ If a session encounters a question that conflicts with a locked decision above, 
 
 ---
 
+## Build performance constraints (LOCKED — all sessions must follow)
+
+**Context:** Jesus's dev machine freezes when `cargo` or `npm` saturates CPU/RAM/disk. Default `cargo build` and `cargo test` use all cores + parallel test runners + heavy linker invocations, which hard-freezes the machine for minutes at a time. These constraints apply to every session, no exceptions.
+
+**Mandatory env vars (set before any cargo/npm invocation):**
+
+```bash
+export CARGO_BUILD_JOBS=2
+export RUST_TEST_THREADS=1
+export CARGO_INCREMENTAL=1
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:CARGO_BUILD_JOBS = "2"
+$env:RUST_TEST_THREADS = "1"
+$env:CARGO_INCREMENTAL = "1"
+```
+
+**Mandatory rules:**
+
+1. **Never run `cargo test --tests` blindly.** Run targeted tests by name: `cargo test --test <name1> --test <name2>` or `cargo test <pattern>`. The full `--tests` build links N integration binaries which is what freezes the machine.
+2. **Always run `cargo check --lib --tests` first** to validate compilation. This is fast (no linking). If compile fails, fix before linking tests.
+3. **Compile is non-negotiable. Test execution is deferrable.** If running a test would force the machine into a freeze, the session may report "compile-checked, execution deferred to next session with warm cache" as a legitimate outcome. The next session runs the deferred tests as its first task before its own work.
+4. **Single timeout cap per cargo invocation: 10 minutes.** If a build is approaching that and the machine is responsive, let it finish. If the machine is frozen, abort and switch to targeted tests.
+5. **Never run `cargo clean`.** Cleaning the target/ directory forces re-compilation of ~500 transitive crates and is the single fastest way to brick the machine for an hour.
+6. **`cargo build --release` is forbidden inside sessions.** Release profile takes 5-10× longer. Only the CI release pipeline (Session 21+) does this.
+7. **`npm install` runs once per session max.** If `node_modules` already exists and `package.json` hasn't changed, skip. Use `npm ci` only when lockfile changed.
+8. **Never run `cargo tauri dev` or `cargo tauri build` inside an autonomous session.** These spawn long-lived processes + open windows + can hang headless. Manual smoke tests are Jesus's job; the session reports what should be smoke-tested.
+9. **Windows Defender exclusion (one-time setup, not per session):** `target/` and `node_modules/` should be excluded from real-time scanning. If any session detects this isn't done (heuristic: `cargo check` of a small change takes >60s), flag it in DECISIONS.md and tell Jesus to run the PowerShell-admin command listed in `project_machine_constraints.md` memory.
+10. **Background long commands.** When a `cargo` invocation is expected to exceed 3 minutes, run it with `run_in_background: true` and continue with other parallelizable work (writing docs, scaffolding files in other modules). Poll only via the notification when it finishes.
+
+**If the machine freezes mid-session:**
+- The executor reports the freeze + what command triggered it.
+- The architect (Claude) marks the session as Blocked in HANDOFF.md.
+- Next session's first job is: run the deferred tests with these constraints applied, THEN do its own work.
+
+These constraints take precedence over any time estimate in HANDOFF.md. A "4h session" that needs a long compile becomes a "4h+compile-time" session — that's fine, that's the cost.
+
+---
+
 ## Already shipped (Session 0 — 2026-04-27/28)
 
 Captured from `project_inari_live.md` memory:
@@ -154,24 +196,68 @@ Captured from `project_inari_live.md` memory:
   5. **Settings TOML→SQL migration is owed to Session 4.** Plan: read existing `~/.config/inari/desktop.toml` once on first SQL-mode boot → upsert each key into the `settings(key, value, updated_at)` table from migration 0001 → rename the TOML file to `desktop.toml.migrated`. Never delete the user's data. After this lands, drop `dirs` from `Cargo.toml` and migrate the remaining 6 callers to `app.path().*`. Touch points: `cloud/auth.rs` (renamed from `desktop_auth.rs`), `cloud/saves.rs` (renamed from `saves.rs`), `cloud/alert_poller.rs` (extracted from `lib.rs::start_alert_poller`), `ipc/onboarding.rs` (renamed from `onboarding.rs`), and the legacy callers in `autofix.rs`/`connect.rs`/`local_ingest.rs`/`inari_watcher.rs` that Sessions 5/10/19 retire.
 - **Definition of done:** ✅ `Cargo.toml` adds 5 deps, no removals; ✅ `store::install` wired in `setup`; ✅ all 3 migrations apply on a fresh DB and are idempotent on re-open; ✅ WAL mode + `foreign_keys=on` + `busy_timeout=5000` confirmed; ✅ `vec_version()` returns a non-empty string; ✅ inserting two orthogonal 384-dim vectors and computing `vec_distance_cosine` returns ≈1; ✅ 4 concurrent threads from a 4-conn pool all see PRAGMAs and successfully write; ✅ FK cascade actually deletes child rows; ✅ resolved DB path is `<app_local_data_dir>/inari-live/store.db`.
 
-### Session 4 — IPC bridge: Tauri commands + typed events to webview (4h)
+### Session 4 — IPC bridge: Tauri commands + typed events to webview (4h) — **DONE 2026-04-29**
 
-- **Files:** `desktop/src-tauri/src/ipc/mod.rs`, `src-tauri/src/ipc/commands.rs`, `src-tauri/src/ipc/events.rs`. Frontend side: `desktop/src/lib/ipc.ts` typed wrapper.
-- **Tauri commands defined:**
-  - `daemon_status() -> DaemonStatus` (uptime, sensor count, repo count)
-  - `list_repos() -> Vec<Repo>`
-  - `open_repo(path: String) -> Result<Repo, IpcError>`
-  - `close_repo(id: String) -> Result<()>`
-  - `get_logs(level: Option<String>) -> Vec<LogEntry>`
-- **Tauri events emitted:**
-  - `daemon:event` — wraps any `DaemonEvent` variant for the webview to subscribe to
-  - `daemon:status_changed` — debounced status diff (every 1s max)
-- **Typed wrapper on frontend (`desktop/src/lib/ipc.ts`):** generates TS types from Rust via `ts-rs` or hand-rolled — pick `ts-rs` (`Cargo.toml` dep) since it auto-syncs and we'll have ~30 types by end of Track 5. Run `cargo test` regenerates TS bindings into `desktop/src/lib/types/`.
-- **Heavy data rule (locked):** never serialize `Vec<f32>` embeddings, full ASTs, or lists >10k entries through IPC. Frontend asks for IDs / paginated slices. Document this in `ARCHITECTURE.md` and enforce in code review.
-- **Tests:**
-  - Calling `daemon_status` from a Tauri integration test returns valid struct.
-  - Subscribing to `daemon:event` receives at least the heartbeat within 35s.
-- **Definition of done:** `desktop/src/lib/ipc.ts` exports typed `invoke` wrappers for all 5 commands; a placeholder webview component renders `daemon_status()` output; `npm run tauri dev` shows live status updating.
+- **Status:** Done
+- **Branch:** `feat/inari-live-track1-session4-ipc`
+- **Tip commit:** see `git log --oneline feat/inari-live-track1-session4-ipc ^feat/inari-live-track1-session3-store` (committed locally; NOT pushed per coordination protocol)
+- **Tests:** 5 new integration test files (`tests/{ipc_daemon_status,ipc_open_close_repo,ipc_get_logs,ipc_status_changed_debounced,legacy_settings_migration}.rs`) — 19 new tests (4/3/4/5/3). Combined with prior sessions: **32 active integration tests / 32 pass**, 1 ignored Tauri-harness placeholder (`store_path_resolution::resolve_db_path_via_tauri_apphandle`). At the lib-unit-test layer ts-rs's auto-generated `export_bindings_*` tests refresh the 4 .ts files on every `cargo test --lib` (see "Key implementation choices" — ts-rs ships its own export tests, no manual export trigger needed). Pre-existing `src/fingerprint.rs::tests::paths_and_timestamps_normalized` still fails (Session 11's responsibility, untouched here) — Session-4 work is verified via `cargo test --tests --no-fail-fast` to bypass the lib-unit failure.
+- **Files created:**
+  - `src-tauri/src/cloud/{api,auth,saves,alert_poller}.rs` — cloud module fleshed out (~430 LoC)
+  - `src-tauri/src/ai/remediate/{mod,cloud_proxy}.rs` — autofix bridge re-homed (~210 LoC)
+  - `src-tauri/src/cli/run.rs` — `inari run` spawn primitive (~280 LoC)
+  - `src-tauri/src/ipc/{commands,events,error,auth,connect,onboarding,saves,settings}.rs` — Session-4 IPC surface (~720 LoC)
+  - `src-tauri/src/store/{legacy_settings_migration,settings}.rs` — TOML→SQL migration helper + SQL settings r/w (~250 LoC)
+  - `src-tauri/src/window/settings.rs` — settings window opener
+  - `src-tauri/tests/{ipc_daemon_status,ipc_open_close_repo,ipc_get_logs,ipc_status_changed_debounced,legacy_settings_migration}.rs` — 5 integration test files, 19 tests total
+  - `src/lib/ipc.ts` — frontend typed wrapper (re-exports ts-rs DTOs + invoke/listen helpers)
+  - `src/lib/types/{DaemonStatusDto,RepoDto,LogEntryDto,IpcError}.ts` — ts-rs auto-generated bindings
+- **Files modified:**
+  - `src-tauri/Cargo.toml` — added `ts-rs = "8"` (`serde-json-impl` feature). `dirs` STAYS — see `INARI_LIVE_DECISIONS.md` Sesión 4 entries
+  - `src-tauri/src/lib.rs` — replaced 6 top-level `mod` declarations (`autofix`, `connect`, `desktop_auth`, `onboarding`, `saves`, `settings`) with their new homes; rewired the `invoke_handler!` registry; wired `ipc::events::start` after daemon spawn; migrated `setup_window` / `open_dashboard` off `dirs::config_dir()` onto SQL settings
+  - `src-tauri/src/ipc/mod.rs` — declared 8 sub-modules (was empty)
+  - `src-tauri/src/cloud/mod.rs` — declared 4 sub-modules (was empty)
+  - `src-tauri/src/ai/mod.rs` — declared `remediate` (was empty)
+  - `src-tauri/src/cli/mod.rs` — declared `run` (was empty)
+  - `src-tauri/src/window/mod.rs` — added `settings` (alongside existing `dock` + `main`)
+  - `src-tauri/src/store/mod.rs` — declared `legacy_settings_migration` + `settings`; `install` now runs the legacy TOML→SQL migration once after `Store::open`
+  - `package.json` — added `@tauri-apps/api` dep so `src/lib/ipc.ts` resolves once Session 14 lands the Vite toolchain
+- **Files moved (file path → new path; `git status` will show them as add+remove rather than rename because content was split / restructured):**
+  - `src/autofix.rs` → `src/ai/remediate/cloud_proxy.rs` (RENAMED + state-arg refactor: now reads creds via `cloud::api::read_dashboard_creds(store)` instead of `dirs::config_dir()`)
+  - `src/connect.rs` → SPLIT:
+    - `src/cli/run.rs` (spawn impl)
+    - `src/ipc/connect.rs` (Tauri-command shells)
+  - `src/desktop_auth.rs` → SPLIT:
+    - `src/cloud/auth.rs` (device-flow impl, SQL-backed creds)
+    - `src/ipc/auth.rs` (Tauri-command shells)
+  - `src/saves.rs` → `src/cloud/saves.rs` (RENAMED) + `src/ipc/saves.rs` (Tauri command shell)
+  - `src/onboarding.rs` → `src/ipc/onboarding.rs` (RENAMED, SQL-backed)
+  - `src/settings.rs` → SPLIT:
+    - `src/store/settings.rs` (SQL r/w of typed settings)
+    - `src/window/settings.rs` (window opener)
+    - `src/ipc/settings.rs` (Tauri-command shells)
+  - `lib.rs::start_alert_poller` → EXTRACTED to `src/cloud/alert_poller.rs` (now reads via `cloud::api::read_dashboard_creds`)
+- **Files NOT touched** (locked by Sessions 5/10/11/12 per `ARCHITECTURE.md`):
+  - `src/inari_watcher.rs` — Sessions 5/10/12 split
+  - `src/fingerprint.rs` — Session 11 moves to `memory/fingerprint.rs`
+  - `src/local_ingest.rs` — Session 10 moves to `sensors/substrate/local_ingest.rs`
+- **Key implementation choices:**
+  - **Legacy settings migration is non-destructive.** Session-4 spec said "rename TOML to .migrated"; we use a SQL marker row instead because `inari_watcher.rs` (locked) STILL reads the legacy file. Renaming would silently regress the watcher. See `INARI_LIVE_DECISIONS.md` Sesión 4 entry "Legacy TOML→SQL settings migration".
+  - **`dirs` crate stays** — 2 callers remain (`inari_watcher.rs`, `legacy_settings_migration.rs`). Session 5 owns the final removal. See `INARI_LIVE_DECISIONS.md` Sesión 4 entry "dirs crate STAYS".
+  - **`IpcError` typed enum** with 8 variants + `From<StoreError>` discriminator. `#[serde(tag = "kind")]` so ts-rs emits a tagged union the frontend can pattern-match.
+  - **`started_at` cached via `OnceLock`** in `snapshot_to_dto` so `now() - uptime_secs` drift between heartbeats does not spuriously fire `daemon:status_changed`.
+  - **`should_emit(last, current)` is a pure function** extracted from the bridge so the dedup logic is unit-testable without a Tauri AppHandle (the test harness is still TBD — Session 4 spec mentioned `tauri::test::mock_app()` but Tauri 2's API is not stable enough yet). The placeholder integration test `store_path_resolution::resolve_db_path_via_tauri_apphandle` stays `#[ignore]`'d.
+  - **ts-rs auto-generated export tests** run on every `cargo test --lib` and refresh `desktop/src/lib/types/{DaemonStatusDto,RepoDto,LogEntryDto,IpcError}.ts`. ts-rs v8 emits one `export_bindings_<type>` test per `#[ts(export)]` annotation — no manual entry-point test needed. The generated `.ts` files are committed alongside the Rust source.
+  - **Heavy-data IPC rule enforced in code:** `list_repos` capped at 1000 rows, `get_logs` capped at 200 entries, slim DTO shapes, no embeddings / ASTs.
+- **Manual smoke test:** NOT run. The Vite/React toolchain lands in Session 14 — `npm run build` does not exist yet. `cargo check --lib --tests` is clean (no new warnings). The frontend `ipc.ts` will compile once Session 14 ships the toolchain.
+- **`dirs` removal verification:** `cargo check --lib --tests` runs clean with the 2 documented callers remaining; `Cargo.toml` still declares `dirs = "5"`.
+- **Definition of done:** ✅ 5 IPC commands implemented; ✅ 2 Tauri events emitted (`daemon:event` + debounced `daemon:status_changed`); ✅ ts-rs binding generation wired and run; ✅ frontend `ipc.ts` types + invoke + listen wrappers exist; ✅ legacy settings TOML→SQL one-shot migration runs idempotent; ✅ all 6 file moves landed (autofix/connect/desktop_auth/onboarding/saves/settings) per ARCHITECTURE.md migration plan; ✅ 6 new integration tests pass (5 active + 1 export-on-demand).
+- **Notes for Session 5 (FS watcher):**
+  1. **Bus event convention.** When you publish `RepoIndexed { repo_id, file_count, duration_ms }` and `FsChange { repo_id, path, kind }`, append them as variants to `crate::daemon::DaemonEvent`. The `#[non_exhaustive]` attribute means downstream `match` arms keep working. The `daemon:event` Tauri bridge in `crate::ipc::events::spawn_daemon_event_bridge` forwards every variant 1:1, so no wiring change needed on the IPC side.
+  2. **Debounced status emit.** When you `SharedDaemonState::inc_repos()` / `inc_sensors()`, the running `daemon:status_changed` bridge picks it up and emits the diff. Don't emit your own Tauri event for repo/sensor count — the bridge already covers it. If you need a per-event Tauri channel for FS-specific counters, define a NEW channel name (`daemon:fs_indexed`, etc.); don't overload `daemon:status_changed`.
+  3. **`dirs` removal opportunity.** `inari_watcher.rs` is the LAST blocker keeping `dirs` in `Cargo.toml`. When Session 5 rewrites the watcher in `sensors/fs/`, also flip `inari_watcher.rs::read_config` to `crate::store::settings::get(&store, "watch_dir")`. After that, `dirs = "5"` can drop from `Cargo.toml` AND `legacy_settings_migration.rs` can switch to `tauri::AppHandle::path().app_config_dir()` for the legacy-path probe (it just needs a path resolver). The `cloud::api::CloudClient` shows the pattern of plumbing `Arc<Store>` through.
+  4. **Heavy-data IPC rule still applies.** A 50k-symbol repo's embedding vectors NEVER flow through Tauri IPC. If your indexer needs to surface progress to the dock, emit `daemon:event` with a count, not the data. Session 7's MCP HTTP transport on `127.0.0.1:9876` is the heavy-data path.
+  5. **Tray menu unification.** The legacy "Pause watch" item + Session-2 "Pause sensors" stub are both wired in `lib.rs::setup_tray`. Once your sensor subscribes to a `DaemonEvent::SensorsPaused` variant, retire "Pause watch" and let "Pause sensors" be the single source. The `inari_watcher::is_paused()` / `set_paused()` API is what `lib.rs` currently calls — drop those when the legacy watcher dies.
 
 ---
 

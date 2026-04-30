@@ -17,9 +17,11 @@
 //! The pool itself holds 4 connections (see `pool::POOL_SIZE`).
 
 pub mod error;
+pub mod legacy_settings_migration;
 pub mod migrations;
 pub mod pool;
 pub mod queries;
+pub mod settings;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -104,6 +106,10 @@ impl Store {
 /// with the Tauri app so subsequent commands can reach it via
 /// `tauri::State<Arc<Store>>`. Returns the `Arc<Store>` for callers
 /// (the Session-2-style `setup` hook) that want their own handle.
+///
+/// Also runs the one-shot legacy TOML → SQL migration so any settings
+/// the user already has on disk are visible to the new SQL-backed
+/// command surface from the very first boot post-Session-4.
 pub fn install(app: &AppHandle) -> Result<Arc<Store>> {
     let store = Arc::new(Store::open(app)?);
     app.manage(store.clone());
@@ -111,5 +117,11 @@ pub fn install(app: &AppHandle) -> Result<Arc<Store>> {
         db_path = %store.db_path().display(),
         "store opened"
     );
+
+    match legacy_settings_migration::migrate_toml_settings_once(app, &store) {
+        Ok(outcome)  => tracing::info!(?outcome, "legacy settings migration"),
+        Err(err)     => tracing::warn!(error = %err, "legacy settings migration failed (continuing)"),
+    }
+
     Ok(store)
 }

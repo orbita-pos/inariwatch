@@ -7,3 +7,4 @@
 
 pub mod dock;
 pub mod main;
+pub mod settings;

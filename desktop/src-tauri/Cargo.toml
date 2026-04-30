@@ -47,6 +47,14 @@ r2d2_sqlite              = { version = "0.24", features = ["bundled"] }
 sqlite-vec               = "0.1"
 thiserror                = "1"
 
+# Session 4 — IPC bridge. ts-rs auto-generates TypeScript types for the
+# DTOs returned by Tauri commands so the frontend wrapper at
+# desktop/src/lib/types/ stays in sync at compile time. The `serde-json-impl`
+# feature enables `serde_json::Value` mapping. ts-rs's own `export_bindings_*`
+# lib tests refresh the .ts files on every `cargo test --lib` — no manual
+# regenerator test needed.
+ts-rs                    = { version = "8", features = ["serde-json-impl"] }
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
