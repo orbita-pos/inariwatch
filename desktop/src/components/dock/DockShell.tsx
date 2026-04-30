@@ -1,7 +1,9 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 
+import { DockAlert } from "@/screens/DockAlert";
 import { DockConversation } from "@/screens/DockConversation";
+import { DockDiff } from "@/screens/DockDiff";
 import { DockIdle } from "@/screens/DockIdle";
 import { installChatStreamDriver } from "@/lib/chat-stream";
 import { useChat } from "@/lib/store/chat";
@@ -59,39 +61,40 @@ export function DockShell() {
         }
       >
         <AnimatePresence mode="wait" initial={false}>
-          {mode === "idle" ? (
-            <motion.div
-              key="idle"
-              className="h-full"
-              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4 }}
-              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
-              transition={
-                reduce
-                  ? { duration: 0 }
-                  : { duration: 0.18, ease: "easeOut" }
-              }
-            >
-              <DockIdle />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="conversation"
-              className="h-full"
-              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4 }}
-              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
-              transition={
-                reduce
-                  ? { duration: 0 }
-                  : { duration: 0.18, ease: "easeOut" }
-              }
-            >
-              <DockConversation />
-            </motion.div>
-          )}
+          {renderModePanel(mode, reduce)}
         </AnimatePresence>
       </motion.section>
     </div>
+  );
+}
+
+function renderModePanel(
+  mode: ReturnType<typeof useChat.getState>["mode"],
+  reduce: boolean | null,
+): ReactNode {
+  const initial = reduce ? { opacity: 0 } : { opacity: 0, y: 4 };
+  const animate = reduce ? { opacity: 1 } : { opacity: 1, y: 0 };
+  const exit = reduce ? { opacity: 0 } : { opacity: 0, y: -4 };
+  const transition = reduce
+    ? { duration: 0 }
+    : { duration: 0.18, ease: "easeOut" };
+
+  let content: ReactNode = null;
+  if (mode === "idle") content = <DockIdle />;
+  else if (mode === "conversation") content = <DockConversation />;
+  else if (mode === "alert") content = <DockAlert />;
+  else if (mode === "diff") content = <DockDiff />;
+
+  return (
+    <motion.div
+      key={mode}
+      className="h-full"
+      initial={initial}
+      animate={animate}
+      exit={exit}
+      transition={transition}
+    >
+      {content}
+    </motion.div>
   );
 }

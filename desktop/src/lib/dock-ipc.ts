@@ -19,6 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { listRepos, type DaemonStatusDto, type RepoDto } from "@/lib/ipc";
 import { useAppState } from "@/lib/store/useAppState";
+import type { Alert, Fix } from "@/types/alert";
 
 export interface ActiveRepoSummary {
   id: string;
@@ -143,5 +144,130 @@ export async function listRecentAlerts(): Promise<RecentAlert[]> {
     return await invoke<RecentAlert[]>("list_recent_alerts");
   } catch {
     return [];
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Sesión 16 — alert triage (Mode 3) + diff viewer (Mode 4) IPC stubs
+//
+// These six commands are NOT registered on the Rust side yet — they
+// land alongside the remediation pipeline (Sesión 17 + 19). Each
+// degrades gracefully: the Tauri-less path returns either a benign
+// fallback (success: false, mock data) or a console.info breadcrumb so
+// the dock surface stays interactive while the backend catches up.
+// ──────────────────────────────────────────────────────────────────────
+
+export interface ApplyFixResult {
+  success: boolean;
+  /** Optional Vercel/staging deployment URL when the apply triggers a deploy. */
+  deploymentUrl?: string;
+  /** Surface-formatted error for the failure UI ("Network unavailable", …). */
+  message?: string;
+}
+
+export async function applyFix(
+  alertId: string,
+  fixId: string,
+): Promise<ApplyFixResult> {
+  try {
+    return await invoke<ApplyFixResult>("apply_fix", { alertId, fixId });
+  } catch {
+    console.info(
+      "[dock-ipc] apply_fix not registered — deferred to Sesión 17/19. " +
+        `(alertId=${alertId}, fixId=${fixId})`,
+    );
+    return { success: false, message: "Backend not available in dev build" };
+  }
+}
+
+export interface RejectFixResult {
+  success: boolean;
+}
+
+export async function rejectFix(
+  fixId: string,
+  reason?: string,
+): Promise<RejectFixResult> {
+  try {
+    return await invoke<RejectFixResult>("reject_fix", {
+      fixId,
+      reason: reason ?? null,
+    });
+  } catch {
+    console.info(
+      `[dock-ipc] reject_fix not registered — deferred to Sesión 19. (fixId=${fixId})`,
+    );
+    return { success: false };
+  }
+}
+
+export async function openInEditor(
+  filePath: string,
+  lineNumber?: number,
+): Promise<void> {
+  try {
+    await invoke("open_in_editor", {
+      filePath,
+      lineNumber: lineNumber ?? null,
+    });
+  } catch {
+    console.info(
+      `[dock-ipc] open_in_editor not registered — deferred to Sesión 17. (file=${filePath}, line=${lineNumber ?? "?"})`,
+    );
+  }
+}
+
+export interface ModifyWithAiResult {
+  success: boolean;
+  /** Replacement diff string when the modification produced a new patch. */
+  newDiff?: string;
+  message?: string;
+}
+
+export async function modifyWithAi(
+  fixId: string,
+  instruction: string,
+): Promise<ModifyWithAiResult> {
+  try {
+    return await invoke<ModifyWithAiResult>("modify_with_ai", {
+      fixId,
+      instruction,
+    });
+  } catch {
+    console.info(
+      `[dock-ipc] modify_with_ai not registered — deferred to Sesión 19. (fixId=${fixId})`,
+    );
+    return { success: false, message: "Modify-with-AI ships in Sesión 19" };
+  }
+}
+
+export async function getAlertById(alertId: string): Promise<Alert | null> {
+  try {
+    return await invoke<Alert | null>("get_alert_by_id", { alertId });
+  } catch {
+    return null;
+  }
+}
+
+export async function getFixById(fixId: string): Promise<Fix | null> {
+  try {
+    return await invoke<Fix | null>("get_fix_by_id", { fixId });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Open the EAP receipt detail surface for a given signature. Sesión 17
+ * lands the main-window receipt route; until then we log the request
+ * so testers can confirm the click reached the IPC layer.
+ */
+export async function openEapReceipt(signature: string): Promise<void> {
+  try {
+    await invoke("open_eap_receipt", { signature });
+  } catch {
+    console.info(
+      `[dock-ipc] open_eap_receipt not registered — deferred to Sesión 17. (sig=${signature.slice(0, 12)}…)`,
+    );
   }
 }

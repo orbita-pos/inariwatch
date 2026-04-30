@@ -15,7 +15,15 @@
 
 import { create } from "zustand";
 
-export type ChatMode = "idle" | "conversation";
+import type { Alert, DiffPayload, Fix } from "@/types/alert";
+
+/**
+ * `alert` and `diff` are the Mode-3 / Mode-4 surfaces added in Sesión 16.
+ * They share the same store so transitions (idle → conversation, idle →
+ * alert → diff, alert ↔ diff) all live behind a single `mode` enum that
+ * `DockShell.tsx` keys its `<AnimatePresence>` swap off.
+ */
+export type ChatMode = "idle" | "conversation" | "alert" | "diff";
 
 export interface ToolCall {
   id: string;
@@ -44,12 +52,43 @@ export interface ChatStore {
   inputValue: string;
   sessionId: string | null;
 
+  /**
+   * Sesión 16 — alert triage slot. Set by `openAlert(alert)` when the
+   * dock transitions into Mode 3 (e.g. from a CommandPalette action,
+   * tray click, or `daemon:event` push). Cleared back to null on
+   * `clearConversation` so the next idle entry starts fresh.
+   */
+  currentAlert: Alert | null;
+  /**
+   * Sesión 16 — diff viewer slot. Set by `openDiff(payload)`. The
+   * Mode-4 screen resolves the full Fix payload from `currentFix` (or
+   * fetches it via `get_fix_by_id` if `currentFix === null` and only
+   * the lookup id is known).
+   */
+  currentFix: Fix | null;
+  /**
+   * Last known `DiffPayload` request — kept so the diff screen can
+   * re-fetch on remount without losing the alert correlation.
+   */
+  pendingDiff: DiffPayload | null;
+
   setMode: (mode: ChatMode) => void;
   setInputValue: (value: string) => void;
   startConversation: () => void;
   sendMessage: (text: string) => void;
   clearConversation: () => void;
   replayLast: () => void;
+
+  /** Open Mode 3 (alert triage) with the given alert payload. */
+  openAlert: (alert: Alert) => void;
+  /**
+   * Open Mode 4 (diff viewer). Pass either a full `Fix` (test fixtures
+   * + most production paths once the IPC lands) or just a `DiffPayload`
+   * lookup; the screen handles the loading state itself.
+   */
+  openDiff: (input: Fix | DiffPayload) => void;
+  /** Mode 4 → Mode 3 backwards transition (the "← back" button). */
+  backToAlert: () => void;
 
   // ── streaming hooks (called by the streaming pipeline) ─────────────
   /** Append the next token to the assistant message with the given id. */
@@ -87,11 +126,22 @@ export function setStreamDriver(
   streamDriver = driver;
 }
 
+function isFix(input: Fix | DiffPayload): input is Fix {
+  return (
+    typeof (input as Fix).filePath === "string" &&
+    typeof (input as Fix).diff === "string"
+  );
+}
+
 export const useChat = create<ChatStore>((set, get) => ({
   mode: "idle",
   messages: [],
   inputValue: "",
   sessionId: null,
+
+  currentAlert: null,
+  currentFix: null,
+  pendingDiff: null,
 
   setMode: (mode) => set({ mode }),
   setInputValue: (value) => set({ inputValue: value }),
@@ -150,6 +200,9 @@ export const useChat = create<ChatStore>((set, get) => ({
       messages: [],
       sessionId: null,
       inputValue: "",
+      currentAlert: null,
+      currentFix: null,
+      pendingDiff: null,
     });
   },
 
@@ -157,6 +210,48 @@ export const useChat = create<ChatStore>((set, get) => ({
     const { messages, sendMessage } = get();
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (lastUser) sendMessage(lastUser.content);
+  },
+
+  openAlert: (alert) => {
+    set({
+      mode: "alert",
+      currentAlert: alert,
+      // Clear any stale diff state from a previous Mode-4 visit so the
+      // back button on a re-entered Mode-3 doesn't bounce to a phantom
+      // diff. Tests rely on this.
+      currentFix: null,
+      pendingDiff: null,
+    });
+  },
+
+  openDiff: (input) => {
+    if (isFix(input)) {
+      set({
+        mode: "diff",
+        currentFix: input,
+        pendingDiff: { alertId: input.alertId, fixId: input.id },
+      });
+    } else {
+      set({
+        mode: "diff",
+        currentFix: null,
+        pendingDiff: input,
+      });
+    }
+  },
+
+  backToAlert: () => {
+    const { currentAlert } = get();
+    if (currentAlert) {
+      // Don't drop currentFix — going forward to Mode 4 again should be
+      // free of a re-fetch. The diff stays cached until clearConversation.
+      set({ mode: "alert" });
+    } else {
+      // No alert in flight (edge case: user landed on Mode 4 directly
+      // and hits back). Fall through to idle so the dock has somewhere
+      // sensible to land.
+      set({ mode: "idle" });
+    }
   },
 
   appendToken: (messageId, token) => {
@@ -186,6 +281,9 @@ export function __resetChatStoreForTests(): void {
     messages: [],
     inputValue: "",
     sessionId: null,
+    currentAlert: null,
+    currentFix: null,
+    pendingDiff: null,
   });
   setStreamDriver(null);
 }
