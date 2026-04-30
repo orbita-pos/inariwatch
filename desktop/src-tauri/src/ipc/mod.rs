@@ -28,6 +28,7 @@ pub mod commands;
 pub mod connect;
 pub mod error;
 pub mod events;
+pub mod mcp;
 pub mod onboarding;
 pub mod saves;
 pub mod settings;
