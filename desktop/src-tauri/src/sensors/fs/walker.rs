@@ -11,7 +11,7 @@
 //! repository — anything bigger almost certainly indicates a missing
 //! `.gitignore` rule and we'd rather warn than OOM.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ignore::WalkBuilder;
@@ -30,6 +30,11 @@ pub struct WalkResult {
     pub duration_ms:   u64,
     /// True iff the walk hit [`MAX_FILES_HARD_CAP`] and stopped early.
     pub truncated:     bool,
+    /// Absolute paths of the files counted. Populated for the indexer
+    /// (Session 6) so it doesn't pay the IO twice. Length matches
+    /// `file_count` (cap 50_000 = ~4MB worst-case). Consumers that
+    /// only need the count can read `file_count` and ignore this.
+    pub paths:         Vec<PathBuf>,
 }
 
 /// Walk `path` and count regular files the gitignore stack didn't
@@ -48,6 +53,7 @@ pub fn walk_repo(path: &Path) -> WalkResult {
 
     let mut count: u64 = 0;
     let mut truncated = false;
+    let mut paths: Vec<PathBuf> = Vec::new();
 
     for entry in walker {
         let entry = match entry {
@@ -72,6 +78,7 @@ pub fn walk_repo(path: &Path) -> WalkResult {
         }
 
         count += 1;
+        paths.push(entry.path().to_path_buf());
         if count >= MAX_FILES_HARD_CAP {
             tracing::warn!(
                 path  = %path.display(),
@@ -87,5 +94,6 @@ pub fn walk_repo(path: &Path) -> WalkResult {
         file_count:  count,
         duration_ms: started.elapsed().as_millis() as u64,
         truncated,
+        paths,
     }
 }

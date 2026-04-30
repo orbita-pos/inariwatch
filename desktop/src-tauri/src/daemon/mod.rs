@@ -84,6 +84,20 @@ pub enum DaemonEvent {
         sensor:  String,
         message: String,
     },
+    /// Manual reindex request. Published by the MCP `reindex_codebase`
+    /// tool (Session 7) and consumed by the indexer (Session 6). The
+    /// indexer re-walks the repo, re-parses, and re-embeds — see
+    /// `crate::indexer::spawn_indexer` for the consumer side.
+    ReindexRequested { repo_id: String },
+    /// Indexer finished a batch (initial bootstrap or manual reindex).
+    /// `symbol_count` is the number of `code_symbols` rows that exist
+    /// for this repo after the run; `duration_ms` is wall-clock for
+    /// the entire bootstrap (including parse + embed + DB upsert).
+    SymbolsIndexed {
+        repo_id:      String,
+        symbol_count: u64,
+        duration_ms:  u64,
+    },
 }
 
 pub use bus::EventBus;

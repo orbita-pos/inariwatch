@@ -219,7 +219,7 @@ fn handle_attach(
 /// responsive to commands.
 fn spawn_initial_walk(bus: EventBus, repo_id: String, path: PathBuf) {
     rayon::spawn(move || {
-        let WalkResult { file_count, duration_ms, truncated } = walk_repo(&path);
+        let WalkResult { file_count, duration_ms, truncated, .. } = walk_repo(&path);
         if truncated {
             bus.publish(DaemonEvent::SensorWarning {
                 sensor:  SENSOR_NAME.to_string(),
@@ -334,6 +334,16 @@ pub fn walk_and_publish(bus: EventBus, repo_id: String, path: PathBuf) {
         file_count,
         duration_ms,
     });
+}
+
+/// Re-export of [`walk_repo`] specifically for the indexer (Session 6).
+/// Lives behind a doc(hidden) function so the indexer can re-walk a
+/// repo on bootstrap / `ReindexRequested` without having to depend on
+/// `super::walker` directly. Keeps the FS sensor's public surface
+/// (`spawn_fs_sensor`/`FsSensorHandle`) frozen.
+#[doc(hidden)]
+pub fn walk_for_indexer(path: &Path) -> WalkResult {
+    walk_repo(path)
 }
 
 // Silence "unused" warnings for `Arc` etc on Windows where some cfgs
