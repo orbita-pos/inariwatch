@@ -23,7 +23,11 @@ mod inari_watcher;
 
 // Session 2 — daemon core + window helpers.
 pub mod daemon;
-mod window;
+// `pub` so the Session 14 integration tests in `tests/window_*` can
+// reach `crate::window::dock::*` / `window::main::*` /
+// `window::shortcuts::{resolve, ShortcutAction}`. Same precedent as
+// `daemon` (S2), `store` (S3), `sensors` (S5/S7), `indexer` (S6).
+pub mod window;
 
 // Session 3 — local store. `pub` for the same reason as `daemon`:
 // integration tests in `tests/` exercise migrations/PRAGMAs/sqlite-vec.
