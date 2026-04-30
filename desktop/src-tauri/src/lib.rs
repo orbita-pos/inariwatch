@@ -11,12 +11,15 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use tauri_plugin_notification::NotificationExt;
 
 // Pre-Session-2 modules still owned by their named sessions:
-// - `fingerprint` moves to `memory/fingerprint.rs` (Session 11)
-// - `inari_watcher` is split across Sessions 5/10/12; deleted end of S10
-// - `local_ingest` moves to `sensors/substrate/local_ingest.rs` (Session 10)
-mod fingerprint;
+// - `fingerprint` HAS MOVED to `memory/fingerprint.rs` (Session 11). Kept
+//   exposed at `crate::fingerprint` via the re-export below so legacy
+//   call-sites in `inari_watcher.rs` keep resolving until Session 10 splits
+//   that file. Once the split lands, drop the re-export and move callers.
+// - `inari_watcher` is split across Sessions 5/10/12; deleted end of S10.
+// - `local_ingest` HAS MOVED to `sensors/substrate/local_ingest.rs`
+//   (Session 10). Its previous `start()` boot-up call from this file is
+//   removed; the new home owns its own spawn site.
 mod inari_watcher;
-mod local_ingest;
 
 // Session 2 — daemon core + window helpers.
 pub mod daemon;
@@ -38,13 +41,22 @@ mod gates;
 // `crate::indexer::{parser, semantic, Lang, ...}`. Same precedent as
 // `daemon` (S2), `store` (S3), `sensors` (S5/S7).
 pub mod indexer;
-mod memory;
+// `pub` so integration tests in `tests/memory_md_*` (Session 11) can
+// reach `crate::memory::declarative::{ensure_memory_md, ...}`. Same
+// precedent as `daemon` (S2), `store` (S3), `indexer` (S6),
+// `sensors` (S5/S7).
+pub mod memory;
 // `pub` so integration tests in `tests/fs_*` and `tests/mcp_*` can drive
 // the FS sensor actor and mount the MCP axum router. Same precedent as
 // `daemon` (Sesión 2) and `store` (Sesión 3).
 pub mod sensors;
 mod telemetry;
 mod updater;
+
+// Re-export of the relocated fingerprint module so the literal path
+// `crate::fingerprint::*` keeps resolving for `inari_watcher.rs` (out of
+// scope for Session 11's edits). Drop after Session 10 splits the watcher.
+pub use memory::fingerprint;
 
 const INARI_WINDOW_LABEL: &str = "inari";
 
@@ -100,6 +112,12 @@ pub fn run() {
             ipc::mcp::install_mcp_for,
             ipc::mcp::uninstall_mcp_for,
             ipc::mcp::list_mcp_clients_status,
+            // Session 11 — declarative memory (memory.md lifecycle)
+            ipc::memory::read_memory_md,
+            ipc::memory::propose_memory_md_update,
+            ipc::memory::commit_memory_md,
+            ipc::memory::get_context_stack,
+            ipc::memory::wipe_memory,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -186,6 +204,17 @@ pub fn run() {
                 store.clone(),
             );
 
+            // Session 11 — declarative memory watcher. Subscribes to the
+            // daemon bus for `RepoIndexed` (writes initial template) and
+            // `MemoryReviewApproved` (records merge versions). The
+            // returned handle is intentionally dropped here — the
+            // watcher thread keeps itself alive via a channel
+            // subscription and exits on `DaemonEvent::Shutdown`.
+            let _memory_watcher = memory::declarative::spawn_memory_watcher(
+                daemon_handle.clone(),
+                store.clone(),
+            );
+
             setup_window(app)?;
             setup_tray(app, daemon_handle.clone())?;
 
@@ -207,11 +236,9 @@ pub fn run() {
             // FS watcher + replay dispatcher. Session 5/10 owns the rewrite.
             inari_watcher::start(app.handle().clone());
 
-            // Local Capture ingest server on 127.0.0.1:9111. Receives
-            // events from the user's spawned dev server (Method 5
-            // zero-install dev mode) and forwards them as
-            // `inari:live-error` to the dock.
-            local_ingest::start(app.handle().clone());
+            // Local Capture ingest server (was `local_ingest::start`)
+            // moves to `sensors/substrate/local_ingest.rs` (Session 10).
+            // No spawn site here until that owner ships.
             Ok(())
         })
         .on_window_event(|window, event| {

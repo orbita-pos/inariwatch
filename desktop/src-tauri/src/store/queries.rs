@@ -369,3 +369,98 @@ fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
     }
     out
 }
+
+// ── memory.md versions (Session 11 — declarative memory) ─────────────────────
+//
+// `memory_md_versions` (defined in migration 0003) is append-only. The
+// declarative watcher writes a new row every time `memory.md` is created
+// or merged, so the dock's "history" view can offer audit / rollback
+// without depending on git. Schema:
+//   id          INTEGER PRIMARY KEY AUTOINCREMENT
+//   repo_id     TEXT    NOT NULL  → repos(id) ON DELETE CASCADE
+//   content     TEXT    NOT NULL
+//   written_by  TEXT    NOT NULL  ('ai' | 'merge' | 'human')
+//   written_at  INTEGER NOT NULL  (unix epoch milliseconds)
+
+/// One row from `memory_md_versions`. Returned by the `latest_*` query
+/// so callers can render full provenance (who wrote it, when) instead
+/// of just the bytes.
+#[derive(Debug, Clone)]
+pub struct MemoryMdVersion {
+    pub id:         i64,
+    pub repo_id:    String,
+    pub content:    String,
+    pub written_by: String,
+    pub written_at: i64,
+}
+
+/// Append a new `memory.md` version. Returns the autoincrement rowid so
+/// the caller can correlate with downstream events. `written_by` is a
+/// short label — currently `"ai"` for the initial template, `"merge"`
+/// for an approved review, `"human"` for direct user edits captured
+/// from the file watcher.
+pub fn insert_memory_md_version(
+    store: &Store,
+    repo_id: &str,
+    content: &str,
+    written_by: &str,
+    written_at_ms: i64,
+) -> Result<i64> {
+    let conn = store.conn()?;
+    conn.execute(
+        "INSERT INTO memory_md_versions (repo_id, content, written_by, written_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![repo_id, content, written_by, written_at_ms],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Read the latest version row for a repo. Returns `None` when nothing
+/// has been written yet (fresh repo or post-wipe). The index
+/// `memory_md_repo_ts_idx (repo_id, written_at DESC)` makes this a
+/// 1-row lookup.
+pub fn latest_memory_md_version(
+    store: &Store,
+    repo_id: &str,
+) -> Result<Option<MemoryMdVersion>> {
+    let conn = store.conn()?;
+    let row = conn
+        .query_row(
+            "SELECT id, repo_id, content, written_by, written_at
+             FROM memory_md_versions
+             WHERE repo_id = ?1
+             ORDER BY written_at DESC
+             LIMIT 1",
+            params![repo_id],
+            |r| {
+                Ok(MemoryMdVersion {
+                    id:         r.get(0)?,
+                    repo_id:    r.get(1)?,
+                    content:    r.get(2)?,
+                    written_by: r.get(3)?,
+                    written_at: r.get(4)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+/// Delete every `memory_md_versions` row for a repo. Used by the
+/// "Wipe memory" affordance (Session 11 / dock spec § Wipe). Returns
+/// the row count actually removed so the IPC surface can echo it back
+/// for audit.
+///
+/// Note: the spec calls out that wiping the local `index.db` does NOT
+/// touch the on-disk `memory.md` (preserves human work). This helper
+/// matches that contract — it only wipes the SQL audit trail, not the
+/// markdown file. The caller is responsible for `memory.md` deletion
+/// (or preservation) policy.
+pub fn wipe_memory_md_versions(store: &Store, repo_id: &str) -> Result<usize> {
+    let conn = store.conn()?;
+    let rows = conn.execute(
+        "DELETE FROM memory_md_versions WHERE repo_id = ?1",
+        params![repo_id],
+    )?;
+    Ok(rows)
+}

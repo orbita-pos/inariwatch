@@ -234,3 +234,43 @@ Impact:   `crate::indexer::batcher::PendingBatch` flushes inline when it hits 64
 Decision: Session 6 reports MSVC toolchain mismatch as a Session-8-blocker rather than downgrading fastembed in this session.
 Reason:   `cargo check --lib --tests` is clean — the indexer code is correct. The blocker is environmental: `ort 2.0.0-rc.9` (fastembed v4's native dep) emits modern STL intrinsics (`__std_min_element_*`, `__std_max_element_*`, `__std_find_trivial_*`, etc.) that older MSVC C++ runtimes lack. 24 LNK2019/LNK2001 unresolved externals at link time. Downgrading fastembed to the v3 line works around this but requires API-churn in `embeddings.rs` (different `TextEmbedding::try_new` shape) — and would silently lock us out of v4-only model upgrades. Updating MSVC (the OTHER fix) is a one-time host setup that benefits every future Rust build. Per the prompt's "report blocker concreto antes de continuar" guidance, the right move was to ship the code with the recommended path documented and let the next session pick the unblock strategy.
 Impact:   Session 8's first action is one of: (a) install VS 2022 17.5+ "Desktop development with C++" workload + re-run deferred tests, or (b) pin `fastembed = "3"` and rewrite `embeddings.rs::ensure_loaded` against the v3 API. Path (a) is recommended. The HANDOFF block for Session 6 enumerates the deferred test list so Session 8 can run them as a precondition before its own work.
+
+## 2026-04-30 — Sesión 8
+Decision: The git-hook callback channel uses a SEPARATE `git_hook_token` (`gh_<uuid hex>`, 35 chars) — NOT the MCP Bearer (`ilive_…`).
+Reason:   A leak via `git checkout` of a colleague's branch (which embeds the token in `.git/hooks/*` scripts) must NOT also grant MCP-tool access. Two tokens = two blast radii. Rotating `git_hook_token` invalidates hooks across all opted-in repos in one shot without touching editor agents (Claude Code / Codex / Cursor / Zed) that hold the MCP Bearer.
+Impact:   `desktop/src-tauri/src/sensors/git/token.rs` owns the lifecycle; persisted at `<state_dir>/git_hook_token` with mode 0600 on Unix. `sensors/mcp/auth.rs` (`AuthState`/`McpAuth`) is untouched. Two separate verify functions (`hooks::verify_bearer` for the hook token; `transport_http::verify_bearer` for `auth.validate(...)`).
+
+## 2026-04-30 — Sesión 8
+Decision: Pre-push hook is **fail-OPEN** on daemon unreachable / 30s timeout — `exit 0` so the push proceeds.
+Reason:   A stopped daemon (laptop sleep, dock killed, port shifted) must not strand the user mid-push. The cost of a missed gate run on a single push is much smaller than the cost of "Inari Live broke my git push" complaints. Real-world shape mirrors how `husky`/`lefthook` handle daemon-mode failures.
+Impact:   `resources/hooks/pre-push.sh` checks `HTTP_STATUS == "000"` (curl exit on connection failure) and exits 0 silently. Only an explicit `{"allow": false}` from a reachable daemon blocks the push. `INARI_BYPASS=1` remains the documented manual override.
+
+## 2026-04-30 — Sesión 8
+Decision: Local pre-push gate runner ships a SUBSET of the 17 web gates this session — Gate 1 (`auto_merge_enabled`) and Gate 4 (`lines_changed ≤ max`) are real; Gates 5 / 6 / 9 are scaffolded but return `deferred` verdicts.
+Reason:   Gate 1 is a SQL settings read; Gate 4 is one integer comparison from the hook payload (`diff_size`). Gate 5 needs the AI self-review (S19), Gate 6 needs Substrate replay (S10), Gate 9 needs the regex security scanner (S20). Wiring them today would either ship dead code or partial behaviour. Returning structured `deferred` verdicts gives Session 20 a clean attach point.
+Impact:   `sensors/git/gate.rs::GateVerdict { name, passed, deferred, reason }` carries a `deferred: bool` flag for advisory-style UI rendering. Gate 5/6/9 implementations are one-function swaps in `gate.rs::evaluate` — see HANDOFF block "Notes for Session 20".
+
+## 2026-04-30 — Sesión 8
+Decision: A pre-existing user hook at `.git/hooks/<name>` is moved to `.git/hooks/<name>.inari-backup` (single fixed suffix) — never timestamped, never deleted.
+Reason:   Only ONE backup ever lives next to a hook. If the user re-installs Inari Live, we recognise our own marker line `# Inari Live — ` and overwrite without backup; if they install AGAIN over a backup that already exists, we keep the existing backup (the user's pre-Inari content) and just refresh the live hook. Uninstall restores the backup. Shell scripts cannot be merged like JSON, so a fixed suffix avoids `<hook>.inari-backup-1`/`-2`/`-3` debris.
+Impact:   `installer.rs::BACKUP_SUFFIX = "inari-backup"`. `INARI_MARKER` is the heuristic for "this hook is ours" — present only inside templates we generate. User hooks without the marker are safe.
+
+## 2026-04-30 — Sesión 8
+Decision: The git sensor uses `axum::Router::merge` to mount `/sensors/git/event` onto Sesión 7's listener — NOT a second listener on a different port.
+Reason:   Two listeners means port-fallback logic duplicated, two Bearer-tree behaviours to teach the user, two firewall holes to punch on Windows Defender. `Router::merge` is the supported axum path to share a listener across modules.
+Impact:   `transport_http::serve_with_extras(state, requested, extras: Vec<Router>)` is the new entry point; the existing `serve` delegates with `extras = vec![]` so the Sesión 7 contract is unchanged. `spawn_mcp_server_with_extras` does the same upstream. `lib.rs::setup` builds the git router synchronously (token + state dir resolution is fast) and passes it as the only extra.
+
+## 2026-05-01 — Sesión 11-finish
+Decision: `MemoryKind` is a `daemon`-level enum with three variants (`Initial`, `Append`, `Replace`), and the `kind` field of `DaemonEvent::MemoryReviewRequested` uses `#[serde(rename = "review_kind")]` on the wire.
+Reason:   The architect prompt specified `{ Append, Replace }` but the existing memory watcher emits an "initial" case for the first-write of `memory.md` that doesn't fit either bucket — modeling it as `Append` would erase the distinction the dock UI needs (initial seed vs. ongoing edit). Adding `Initial` keeps the spec-suggested vocabulary while honestly describing the watcher's behaviour. The serde rename mirrors the workaround `FsChange::kind`/`change` already established (Sesión 5) — `DaemonEvent` is internally-tagged on `"kind"`, so a variant field of the same name is rejected at compile time.
+Impact:   `daemon/mod.rs` exposes `MemoryKind` at crate root via the existing `pub use` block; the JSON wire shape is `{"kind":"memory_review_requested","repo_id":"...","review_kind":"initial"}`. Locked in `memory_md_review_event_emitted.rs` so a future serde refactor can't silently break the dock.
+
+## 2026-05-01 — Sesión 11-finish
+Decision: `src/fingerprint.rs` is relocated to `src/memory/fingerprint.rs` and re-exposed at `crate::fingerprint` via `pub use memory::fingerprint;` in `lib.rs` (NOT moved with import-site updates).
+Reason:   The original orphan `mod fingerprint;` in `lib.rs` referenced a file that was never present on this branch (build was broken at `e7fa1a0`). The Sesión 1 plan calls for the move into `memory/`, and `inari_watcher.rs` (out of scope for this session per the executor prompt's allowed-files list) still uses `crate::fingerprint::compute_error_fingerprint`. Re-exporting under the legacy crate-root name keeps that consumer building until Sesión 10 splits the watcher, with zero algorithm change.
+Impact:   `memory/fingerprint.rs` is the canonical home; `crate::fingerprint::*` is a temporary alias. Drop the re-export at the end of Sesión 10 along with the `mod inari_watcher;` line, after the watcher is split into `sensors/fs/` + `sensors/substrate/` + `memory/procedural/`. Algorithm verified byte-equivalent with `cli/src/mcp/fingerprint.rs` and `web/lib/ai/fingerprint.ts` (tests in `memory/fingerprint.rs::tests`).
+
+## 2026-05-01 — Sesión 11-finish
+Decision: `wipe_memory` deletes only the SQL audit trail (`memory_md_versions`); the on-disk `memory.md` is preserved.
+Reason:   Per the dock spec ("Wipe memory") — humans authored the markdown content, so the wipe affordance must not nuke their work. The audit trail is Inari's internal history; if the user wants to start over, they can delete `.inari/memory.md` themselves with their editor.
+Impact:   `queries::wipe_memory_md_versions` returns the row count actually removed. The IPC `wipe_memory` command is a thin pass-through. Locked in `memory_md_wipe_clears_table.rs::wipe_does_not_touch_memory_md_on_disk`.

@@ -1,2 +1,10 @@
-// 4-layer memory: semantic / episodic / declarative / procedural.
-// Filled in by Sessions 11-13. fingerprint module migrates here in Session 11.
+//! 4-layer memory: semantic / episodic / declarative / procedural.
+
+pub mod declarative;
+pub mod episodic;
+pub mod error;
+pub mod fingerprint;
+pub mod procedural;
+pub mod semantic;
+
+pub use error::MemoryError;

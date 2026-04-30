@@ -37,6 +37,24 @@ pub enum FsChangeKind {
     Renamed { from: PathBuf },
 }
 
+/// Classification of a `memory.md` review event published by the
+/// declarative-memory watcher (Session 11).
+///
+/// `Initial` — repo was just opened and Inari wrote the template
+/// `memory.md` for the first time; the user should review the seed.
+/// `Append`  — Inari wants to add a NEW heading-level section to an
+/// existing `memory.md` (no existing section is mutated).
+/// `Replace` — Inari wants to replace the body of an EXISTING
+/// non-`[pinned]` section. `[pinned]` sections are immutable and never
+/// trigger `Replace`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryKind {
+    Initial,
+    Append,
+    Replace,
+}
+
 /// Cross-sensor event broadcast on [`bus::EventBus`].
 ///
 /// Initial variants are minimal by design — each sensor session adds its
@@ -98,8 +116,33 @@ pub enum DaemonEvent {
         symbol_count: u64,
         duration_ms:  u64,
     },
+    /// Declarative-memory watcher (Session 11) flagged a `memory.md`
+    /// proposal for human review. Carries the repo and a [`MemoryKind`]
+    /// classifying the change (initial template / append / replace).
+    /// The dock surfaces this as a non-blocking review prompt; nothing
+    /// hits disk until the user calls `commit_memory_md`.
+    ///
+    /// Same `#[serde(rename = ...)]` workaround `FsChange` uses: the
+    /// outer enum is internally-tagged on `"kind"`, and serde rejects a
+    /// variant field of the same name. The Rust field stays `kind` per
+    /// the Session-11 prompt; the JSON wire field is `review_kind`.
+    MemoryReviewRequested {
+        repo_id: String,
+        #[serde(rename = "review_kind")]
+        kind:    MemoryKind,
+    },
+    /// User accepted a `memory.md` proposal in the dock. Carries the
+    /// approved content; the watcher persists a new version row.
+    MemoryReviewApproved {
+        repo_id: String,
+        content: String,
+    },
 }
 
 pub use bus::EventBus;
 pub use lifecycle::{start_daemon, DaemonHandle};
 pub use state::{DaemonStatus, SharedDaemonState};
+
+// `MemoryKind` is part of the public daemon event taxonomy — re-export at
+// crate root so consumers (Session 11 watcher, IPC commands, future dock
+// UI) can pattern-match without reaching into the inner module.
