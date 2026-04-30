@@ -36,7 +36,7 @@ mod cli;
 mod gates;
 mod indexer;
 mod memory;
-mod sensors;
+pub mod sensors;
 mod telemetry;
 mod updater;
 
@@ -118,6 +118,16 @@ pub fn run() {
             // forwards every bus event 1:1; `daemon:status_changed` is
             // debounced to a 1s cadence with PartialEq dedup.
             ipc::events::start(app.handle().clone(), daemon_handle.clone());
+
+            // Session 5 — Sensor 1 (FS watcher). The actor increments
+            // `sensor_count` on spawn and decrements on Shutdown drain.
+            // The handle is kept in tauri State so `open_repo` /
+            // `close_repo` IPC commands attach/detach watchers per repo.
+            let fs_sensor = sensors::fs::spawn_fs_sensor(
+                daemon_handle.bus.clone(),
+                daemon_handle.state.clone(),
+            );
+            app.manage(fs_sensor);
 
             setup_window(app)?;
             setup_tray(app, daemon_handle.clone())?;

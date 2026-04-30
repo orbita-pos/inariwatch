@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::params;
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use super::error::{Result, StoreError};
 use super::Store;
@@ -44,12 +44,15 @@ pub enum MigrationOutcome {
 /// `desktop_auth.rs` / `settings.rs` historically used:
 /// `<config_dir>/inari/desktop.toml`.
 ///
-/// We deliberately keep using the platform config dir (NOT the Tauri
-/// `app_config_dir`) so existing user files are picked up. Once
-/// Session 5 migrates `inari_watcher.rs` away from `dirs`, this helper
-/// can be retired.
-fn legacy_toml_path() -> Option<PathBuf> {
-    let cfg = dirs::config_dir()?;
+/// Session 5 — switched from `dirs::config_dir()` to Tauri's
+/// `PathResolver::config_dir()`. The two are byte-identical on every
+/// supported platform (Tauri's PathResolver uses `dirs` internally on
+/// Linux / macOS / Windows for this lookup), so existing user files
+/// continue to be picked up. The migration off `dirs` exists so the
+/// crate can be dropped from the desktop direct-deps; the lookup
+/// semantics are unchanged.
+fn legacy_toml_path(app: &AppHandle) -> Option<PathBuf> {
+    let cfg = app.path().config_dir().ok()?;
     Some(cfg.join("inari").join("desktop.toml"))
 }
 
@@ -58,8 +61,8 @@ fn legacy_toml_path() -> Option<PathBuf> {
 ///
 /// On error, the SQL transaction rolls back so partial state cannot
 /// leak into the new schema.
-pub fn migrate_toml_settings_once(_app: &AppHandle, store: &Store) -> Result<MigrationOutcome> {
-    let path = match legacy_toml_path() {
+pub fn migrate_toml_settings_once(app: &AppHandle, store: &Store) -> Result<MigrationOutcome> {
+    let path = match legacy_toml_path(app) {
         Some(p) => p,
         None    => return Ok(MigrationOutcome::NoLegacyFile),
     };

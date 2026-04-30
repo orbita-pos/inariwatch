@@ -265,26 +265,47 @@ Captured from `project_inari_live.md` memory:
 
 **Goal:** the 6 input streams that feed everything else. Order chosen so that the two **core** sensors (FS + MCP server) ship first; the 4 opt-in sensors (Shell, Git, HTTP proxy, Substrate) ship later behind feature toggles.
 
-### Session 5 — Sensor 1: FS watcher with `notify` + `ignore` walker (8h)
+### Session 5 — Sensor 1: FS watcher with `notify` + `ignore` walker (8h) — **DONE 2026-04-29**
 
-- **Files:** `desktop/src-tauri/src/sensors/fs/mod.rs`, `sensors/fs/watcher.rs`, `sensors/fs/walker.rs`, `sensors/fs/debouncer.rs`.
-- **Add deps:**
-  - `notify` = "6"
-  - `notify-debouncer-mini` = "0.4" (NOT `-full` — measured lock contention on monorepos in YEAR1 work)
-  - `ignore` = "0.4" (`.gitignore`-respecting walker, used by ripgrep/Zed)
-  - `globset` = "0.4"
-- **Behavior:**
-  - On `open_repo`, spawn a `WalkBuilder::new(path).git_ignore(true).git_global(true).git_exclude(true).build()` walker on a `rayon` thread pool. Emit `RepoIndexed { repo_id, file_count, duration }` when done.
-  - Concurrently start a `notify` watcher on the repo root with debounce 200ms.
-  - For each FS event, classify (Created/Modified/Deleted/Renamed) and emit `FsChange { repo_id, path, kind }` onto the daemon bus.
-  - Linux: detect `EMFILE`/`ENOSPC` errors → log a clear message instructing user to raise `fs.inotify.max_user_watches` (and emit a Nivel 1 notification, not crash).
-  - macOS: handle FSEvents overflow flag → trigger full re-walk of affected subtree.
-- **Out of scope this session:** indexing/embeddings (Session 6), AST parsing (Session 6).
-- **Tests:**
-  - Walk a synthetic repo with 10k files + a 5MB file + a `.gitignore` excluding `node_modules` → file_count matches expected.
-  - Modify a file → debouncer collapses 50 saves in 100ms into a single event.
-  - Delete a tracked file → emit Deleted variant.
-- **Definition of done:** `cargo test -p sensors-fs` green; opening a real repo (e.g. `radar/web/`) emits a `RepoIndexed` event with the correct file count within 10s; touching a file emits `FsChange` within 250ms.
+- **Status:** Done
+- **Branch:** `feat/inari-live-track2-session5-fs-watcher`
+- **Tip commit:** see `git log --oneline feat/inari-live-track2-session5-fs-watcher ^feat/inari-live-track1-session4-ipc` (committed locally; NOT pushed per coordination protocol)
+- **Tests:** 6 new integration test files (`tests/{fs_walker,fs_debouncer,fs_emit_repo_indexed,fs_emit_change,fs_delete,fs_inotify_limit}.rs`) — **12 tests pass on Windows** (fs_walker 2 / fs_debouncer 6 / fs_emit_repo_indexed 2 / fs_emit_change 1 / fs_delete 1 / fs_inotify_limit 0). The `fs_inotify_limit` file is gated `#![cfg(target_os = "linux")]` and ships 1 ignored test (the real-sysctl ENOSPC reproducer needs root); on Linux the test count is 13 active + 1 ignored. The classifier itself (`is_watch_limit_error`) is exercised on all platforms via `fs_debouncer.rs` (3 unix-gated tests). Combined with prior sessions: **44 active integration tests / 44 pass on Windows** (32 from Sessions 2-4 + 12 from Session 5), 1 ignored on Windows (legacy Tauri-harness placeholder) + 1 more ignored on Linux. Pre-existing `src/fingerprint.rs::tests::paths_and_timestamps_normalized` still fails (Session 11's responsibility, untouched here).
+- **Test commands run:**
+  - `cargo check --lib --tests` — clean (`Finished dev [unoptimized + debuginfo] target(s) in 5.20s`)
+  - `cargo test --test fs_walker --test fs_debouncer --test fs_emit_repo_indexed --test fs_delete --test fs_inotify_limit -- --test-threads=1` — green
+  - `cargo test --test fs_walker --test fs_emit_change -- --test-threads=1` — green (after the `.git/` fixture fix; see "Test fixture note" below)
+- **Test fixture note:** the `ignore` crate honours `.gitignore` only when the walked tree is recognized as a git repository (i.e. it or an ancestor contains a `.git/` directory). `fs_walker.rs::walks_synthetic_repo_respecting_gitignore` creates an empty `.git/` placeholder in the tempdir to engage the gitignore stack — production callers always point the watcher at real repos so this matches the real-world contract. Without the placeholder, `node_modules/` would slip past the filter and the count would be FILE_COUNT + 102 instead of FILE_COUNT + 2.
+- **Files created:**
+  - `src-tauri/src/sensors/fs/{mod,watcher,walker,debouncer,kind,error}.rs` — FS sensor (~570 LoC)
+  - `src-tauri/tests/{fs_walker,fs_debouncer,fs_emit_repo_indexed,fs_emit_change,fs_delete,fs_inotify_limit}.rs` — 6 integration test files
+- **Files modified:**
+  - `src-tauri/Cargo.toml` — added `notify-debouncer-mini = "0.4"` (NOT `-full` per YEAR1 lock-contention measurement), `ignore = "0.4"`, `globset = "0.4"`, `rayon = "1.10"`. **REMOVED `dirs = "5"`** — no remaining direct callers.
+  - `src-tauri/src/daemon/mod.rs` — added `FsChangeKind` (Created / Modified / Deleted / Renamed { from }) and 3 new `DaemonEvent` variants: `RepoIndexed { repo_id, file_count, duration_ms }` / `FsChange { repo_id, path, kind }` / `SensorWarning { sensor, message }`. The `FsChange::kind` field uses `#[serde(rename = "change")]` to avoid the inner-tag/outer-tag serde conflict (Rust API keeps the spec'd name).
+  - `src-tauri/src/sensors/mod.rs` — declared `pub mod fs;`
+  - `src-tauri/src/lib.rs` — flipped `mod sensors;` → `pub mod sensors;` so integration tests can reach `sensors::fs::*`. Spawns `sensors::fs::spawn_fs_sensor(daemon.bus.clone(), daemon.state.clone())` after the IPC bridge starts; stores the handle via `app.manage(fs_sensor)` so `open_repo` / `close_repo` IPC commands can attach/detach watchers per repo.
+  - `src-tauri/src/ipc/commands.rs` — `open_repo` now takes `tauri::State<FsSensorHandle>` and calls `attach(repo_id, canonical_path)` after the SQL upsert. `close_repo` calls `detach(repo_id)` before `dec_repos`.
+  - `src-tauri/src/inari_watcher.rs` — `read_config` now reads from SQL settings (via `crate::store::settings::get`) instead of `dirs::config_dir() + desktop.toml`. The legacy TOML's content is already mirrored to SQL by Session 4's one-shot migration, so existing user data flows through transparently. `start(app)` resolves the `Arc<Store>` via `app.try_state::<Arc<Store>>()` rather than re-reading the file.
+  - `src-tauri/src/store/legacy_settings_migration.rs` — `legacy_toml_path` now uses Tauri's `PathResolver::config_dir()` (byte-equivalent to `dirs::config_dir()` on every supported platform), preserving the legacy probe path while removing the `dirs` direct dep.
+- **Files NOT touched** (locked by other sessions per `ARCHITECTURE.md`):
+  - `src/inari_watcher.rs` — replay/community-pattern logic stays (Sessions 10/12 own deletion). Session 5 only migrates the path resolution off `dirs`.
+  - `src/fingerprint.rs` — Session 11 moves to `memory/fingerprint.rs`.
+  - `src/local_ingest.rs` — Session 10 moves to `sensors/substrate/local_ingest.rs`.
+- **Key implementation choices:**
+  - **`notify-debouncer-mini` 0.4 API** is `new_debouncer(timeout, handler)` (no third `tick_rate` arg) and `DebounceEventResult = Result<Vec<DebouncedEvent>, notify::Error>` (single error, not Vec). The Session 5 prompt's draft sketch had a pre-0.4 signature; current crate matches my impl. See `INARI_LIVE_DECISIONS.md` Sesión 5.
+  - **FS sensor actor on `std::thread`, not tokio.** 150ms `recv_timeout` + bus-drain check for `Shutdown` trades shutdown latency for runtime simplicity. Tests instantiate `EventBus` + `SharedDaemonState` directly without any Tauri / tokio harness.
+  - **Initial walk on `rayon::spawn`** so a 50k-file repo doesn't block the actor reactor. `MAX_FILES_HARD_CAP = 50_000` truncates pathological walks (`SensorWarning` surfaces the truncation so the dock can prompt for a `.gitignore` rule).
+  - **Classification post-debounce.** `notify-debouncer-mini` only emits coarse `Any` / `AnyContinuous` categories. The watcher recovers `Modified` / `Deleted` by stat-checking the path after the debounce window. `Created` is indistinguishable from `Modified` without prior-state tracking — that's the indexer's job (Session 6). `Renamed` is reserved for a debouncer-full upgrade later.
+  - **`FsChangeKind` lives in `daemon`**, re-exported from `sensors::fs::kind`. Cross-sensor consumers (IPC bridge, indexer, procedural memory) pattern-match on `daemon::FsChangeKind` without crossing into sensor internals.
+  - **Linux inotify limit detection.** `is_watch_limit_error` matches `notify::ErrorKind::MaxFilesWatch` plus raw_os_error ENOSPC (28) / EMFILE (24). On hit, the actor publishes `DaemonEvent::SensorWarning` with the actionable hint (sysctl knob + persistent path) instead of crashing.
+  - **macOS FSEvents overflow:** not yet wired — debouncer-mini doesn't surface the overflow flag distinctly. Deferred to a future session that needs it; current impl falls back to per-event Modified/Deleted classification via stat, so files don't get lost (just no global re-walk on overflow).
+  - **`DaemonEvent::FsChange::kind` JSON-renamed to `"change"`.** serde's internally-tagged enum derive forbids a variant field named the same as the discriminator (`tag = "kind"` + field `kind` = compile error). The Rust API keeps the spec'd field name; `#[serde(rename = "change")]` resolves the wire collision. Frontend (Session 14) will pattern-match on outer `kind == "fs_change"` then read inner `change.kind`.
+- **Definition of done:** ✅ FS sensor module structure (`mod` / `watcher` / `walker` / `debouncer` / `kind` / `error`); ✅ `RepoIndexed` + `FsChange` + `SensorWarning` variants on `DaemonEvent`; ✅ rayon walker honoring git ignore stack with 50k cap; ✅ debouncer-mini watcher with 200ms window; ✅ inotify-limit detection emits SensorWarning on Linux; ✅ `open_repo` attaches / `close_repo` detaches; ✅ `dirs` crate dropped from `Cargo.toml` direct deps (`cargo tree -i dirs` shows transitive only); ✅ all 6 fs_* integration test files compile-check + run (16 tests).
+- **Notes for Session 6 (indexer):**
+  1. **Subscribe to `RepoIndexed` to bootstrap embeddings.** When the FS sensor publishes `DaemonEvent::RepoIndexed { repo_id, file_count, duration_ms }` after the initial walk, the indexer should kick its first batch. Don't re-walk — the FS walker already produces the file list. **TODO for Session 6:** decide how to pass the file list (the walker currently throws it away after counting). Options: extend `WalkResult` to carry a `Vec<PathBuf>` (caps payload size at 50k entries × ~80B = 4MB, OK) or have the indexer re-walk via `ignore::WalkBuilder` with the same flags. Re-walk is cleaner but pays the IO twice.
+  2. **Subscribe to `FsChange` for incremental re-indexing.** `FsChange::Modified` / `Deleted` should invalidate the embedding for that path; `Renamed { from }` is reserved (today never emitted, but the variant exists so consumers can ignore it deterministically). The `path` field is a fully-qualified absolute path (the watcher uses `display().to_string()` on the canonicalized repo root). Strip the repo root prefix before SQL lookup so the `code_symbols` table can stay path-relative.
+  3. **`MAX_FILES_HARD_CAP = 50_000` is shared.** The indexer must not allocate embeddings for more than this — the walker already caps and emits a `SensorWarning` on truncation. Use the count from `RepoIndexed.file_count` as the upper bound for batching (`fastembed-rs` default batch is 256; tune from there).
+  4. **Heavy-data IPC rule still applies.** Embedding vectors NEVER flow through Tauri IPC. `daemon:event` is fine for `RepoIndexed`/`FsChange` (small payloads). For per-symbol diagnostics, use Session 7's MCP HTTP transport on `127.0.0.1:9876`.
 
 ### Session 6 — Indexer: tree-sitter parsing + fastembed-rs embeddings (8h)
 

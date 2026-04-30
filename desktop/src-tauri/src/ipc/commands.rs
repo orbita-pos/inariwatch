@@ -19,6 +19,7 @@ use tauri::{AppHandle, Manager};
 use ts_rs::TS;
 
 use crate::daemon::{state::DaemonStatus, DaemonHandle};
+use crate::sensors::fs::FsSensorHandle;
 use crate::store::{queries, Store};
 
 use super::error::IpcError;
@@ -155,9 +156,10 @@ pub fn list_repos(
 
 #[tauri::command]
 pub fn open_repo(
-    daemon: tauri::State<'_, Arc<DaemonHandle>>,
-    store:  tauri::State<'_, Arc<Store>>,
-    path:   String,
+    daemon:    tauri::State<'_, Arc<DaemonHandle>>,
+    store:     tauri::State<'_, Arc<Store>>,
+    fs_sensor: tauri::State<'_, FsSensorHandle>,
+    path:      String,
 ) -> Result<RepoDto, IpcError> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -186,6 +188,17 @@ pub fn open_repo(
         daemon.state.inc_repos();
     }
 
+    // Session 5 — attach the FS sensor for this repo. Re-attach on a
+    // pre-existing repo is intentional: the actor drops any prior
+    // watcher under the same id, so reopening recovers from a stale
+    // handle (e.g. after directory renames).
+    if let Err(e) = fs_sensor.attach(final_id.clone(), canonical.clone()) {
+        // Sensor down → degrade silently. Repo row still exists; the
+        // user can reopen later. This avoids surfacing a
+        // shutdown-related failure on app exit.
+        tracing::warn!(repo_id = %final_id, error = %e, "fs sensor attach failed");
+    }
+
     let conn = store.conn()?;
     let row = conn
         .query_row(
@@ -209,9 +222,10 @@ pub fn open_repo(
 
 #[tauri::command]
 pub fn close_repo(
-    daemon: tauri::State<'_, Arc<DaemonHandle>>,
-    store:  tauri::State<'_, Arc<Store>>,
-    id:     String,
+    daemon:    tauri::State<'_, Arc<DaemonHandle>>,
+    store:     tauri::State<'_, Arc<Store>>,
+    fs_sensor: tauri::State<'_, FsSensorHandle>,
+    id:        String,
 ) -> Result<(), IpcError> {
     let conn = store.conn()?;
     let n = conn
@@ -219,6 +233,13 @@ pub fn close_repo(
         .map_err(|e| IpcError::Query { message: e.to_string() })?;
     if n == 0 {
         return Err(IpcError::RepoNotFound { id });
+    }
+    // Detach the watcher BEFORE the daemon's repo counter goes down so
+    // a status_changed emit doesn't fire mid-detach. Errors here are
+    // non-fatal — the repo row is already gone, and the sensor will
+    // garbage-collect on its next shutdown drain anyway.
+    if let Err(e) = fs_sensor.detach(id.clone()) {
+        tracing::warn!(repo_id = %id, error = %e, "fs sensor detach failed");
     }
     daemon.state.dec_repos();
     Ok(())
