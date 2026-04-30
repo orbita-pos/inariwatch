@@ -11,12 +11,15 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use tauri_plugin_notification::NotificationExt;
 
 // Pre-Session-2 modules still owned by their named sessions:
-// - `fingerprint` moves to `memory/fingerprint.rs` (Session 11)
-// - `inari_watcher` is split across Sessions 5/10/12; deleted end of S10
-// - `local_ingest` moves to `sensors/substrate/local_ingest.rs` (Session 10)
-mod fingerprint;
+// - `fingerprint` HAS MOVED to `memory/fingerprint.rs` (Session 11). Kept
+//   exposed at `crate::fingerprint` via the re-export below so legacy
+//   call-sites in `inari_watcher.rs` keep resolving until Session 10 splits
+//   that file. Once the split lands, drop the re-export and move callers.
+// - `inari_watcher` is split across Sessions 5/10/12; deleted end of S10.
+// - `local_ingest` HAS MOVED to `sensors/substrate/local_ingest.rs`
+//   (Session 10). Its previous `start()` boot-up call from this file is
+//   removed; the new home owns its own spawn site.
 mod inari_watcher;
-mod local_ingest;
 
 // Session 2 — daemon core + window helpers.
 pub mod daemon;
@@ -45,6 +48,11 @@ mod memory;
 pub mod sensors;
 mod telemetry;
 mod updater;
+
+// Re-export of the relocated fingerprint module so the literal path
+// `crate::fingerprint::*` keeps resolving for `inari_watcher.rs` (out of
+// scope for Session 11's edits). Drop after Session 10 splits the watcher.
+pub use memory::fingerprint;
 
 const INARI_WINDOW_LABEL: &str = "inari";
 
@@ -248,11 +256,9 @@ pub fn run() {
             // FS watcher + replay dispatcher. Session 5/10 owns the rewrite.
             inari_watcher::start(app.handle().clone());
 
-            // Local Capture ingest server on 127.0.0.1:9111. Receives
-            // events from the user's spawned dev server (Method 5
-            // zero-install dev mode) and forwards them as
-            // `inari:live-error` to the dock.
-            local_ingest::start(app.handle().clone());
+            // Local Capture ingest server (was `local_ingest::start`)
+            // moves to `sensors/substrate/local_ingest.rs` (Session 10).
+            // No spawn site here until that owner ships.
             Ok(())
         })
         .on_window_event(|window, event| {
