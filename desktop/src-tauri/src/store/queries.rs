@@ -65,6 +65,35 @@ pub fn insert_event(
     Ok(conn.last_insert_rowid())
 }
 
+/// Read the per-repo `replay_enabled` flag (migration 0004). Returns
+/// `false` for unknown ids — the substrate sensor (Session 10) treats
+/// "no row" identically to "row says off" so `FsChange` events for
+/// repos that haven't been opened in the dock are ignored without an
+/// error path.
+pub fn find_repo_replay_enabled(store: &Store, id: &str) -> Result<bool> {
+    let conn = store.conn()?;
+    let enabled: Option<bool> = conn
+        .query_row(
+            "SELECT replay_enabled FROM repos WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?;
+    Ok(enabled.unwrap_or(false))
+}
+
+/// Toggle the per-repo `replay_enabled` flag (migration 0004). Public
+/// for the dock IPC surface (Session 17) and integration tests; the
+/// substrate sensor itself only reads the flag, never writes it.
+pub fn set_repo_replay_enabled(store: &Store, id: &str, enabled: bool) -> Result<()> {
+    let conn = store.conn()?;
+    conn.execute(
+        "UPDATE repos SET replay_enabled = ?2 WHERE id = ?1",
+        params![id, enabled],
+    )?;
+    Ok(())
+}
+
 /// Lookup the canonical filesystem path of an opened repo. Returns
 /// `None` when the id has not been registered. Used by the indexer
 /// (Session 6) when it sees `RepoIndexed` / `ReindexRequested` and

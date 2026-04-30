@@ -258,3 +258,120 @@ async fn node_supports_import() -> Option<bool> {
     let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
     Some(major > 20 || (major == 20 && minor >= 6))
 }
+
+// ── Sesión 10: `inari run <script>` ─────────────────────────────────
+//
+// Invoked from the CLI binary surface (Sesión A wires the parser).
+// Runs the user's existing `npm run <script>` with `NODE_OPTIONS`
+// injecting `--import @inariwatch/capture/auto` +
+// `--import @inariwatch/substrate-agent`. The `--import` flags only
+// fire on Node ≥ 20.6; on older Node we fall back to `--require`
+// against the same packages.
+//
+// Why NODE_OPTIONS and not direct `node --import …`: the user's
+// `scripts.dev` may be `next dev` / `tsx server.ts` / `vite` etc, none
+// of which are runnable as `node <file>`. NODE_OPTIONS gets inherited
+// by every Node subprocess npm spawns, so the imports propagate
+// without us having to rewrite the script. See `wrapper::compose_wrapped_dev`
+// for the same compromise on the package-json-mutating path.
+//
+// Both packages MUST exist in the user's `node_modules/` for `--import`
+// to resolve; this module makes no attempt to install them. The dock
+// (Sesión 17) shows an "install @inariwatch/substrate-agent" prompt
+// when the toggle is flipped on a repo that lacks it.
+
+/// Plan captured for the `inari run` invocation. Public so integration
+/// tests can assert the composed command surface without spawning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InariRunPlan {
+    /// Process to spawn. On Windows we route through `cmd /C` because
+    /// `npm` is a `.cmd` shim (same as `connect_project`).
+    pub program:  String,
+    /// Argv to pass to `program`.
+    pub args:     Vec<String>,
+    /// Resolved `cwd` (the user's repo root).
+    pub cwd:      PathBuf,
+    /// Env vars to set on the child. Currently a single
+    /// `NODE_OPTIONS` entry.
+    pub env:      Vec<(String, String)>,
+    /// Script name resolved from `package.json` (`dev` by default).
+    pub script:   String,
+}
+
+/// Compose an [`InariRunPlan`] without spawning. Public for tests +
+/// for the dock so it can render a "what will run" preview before
+/// the user clicks.
+pub fn prepare_inari_run(repo: &Path, script_override: Option<&str>) -> Result<InariRunPlan, String> {
+    if !repo.is_dir() {
+        return Err(format!("not a directory: {}", repo.display()));
+    }
+    let pkg_path = repo.join("package.json");
+    if !pkg_path.exists() {
+        return Err("no package.json — point at the root of a Node project".to_string());
+    }
+    let pkg_text = std::fs::read_to_string(&pkg_path)
+        .map_err(|e| format!("read package.json: {e}"))?;
+    let pkg: Value = serde_json::from_str(&pkg_text)
+        .map_err(|e| format!("parse package.json: {e}"))?;
+
+    // Pick the script: explicit override wins, else first match in
+    // dev → start → serve.
+    let script = match script_override {
+        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => pick_dev_script(&pkg),
+    };
+    // Confirm the script actually exists. The dock surfaces this to
+    // the user as "no `<script>` script — pick another".
+    let scripts = pkg.get("scripts").and_then(|s| s.as_object());
+    let script_known = scripts.map(|s| s.contains_key(&script)).unwrap_or(false);
+    if !script_known {
+        return Err(format!("package.json has no scripts.{script}"));
+    }
+
+    let node_options = compose_node_options();
+
+    // npm command shape — same routing connect_project uses, kept in
+    // step on purpose.
+    let (program, args) = if cfg!(windows) {
+        (
+            "cmd".to_string(),
+            vec!["/C".to_string(), "npm".to_string(), "run".to_string(), script.clone()],
+        )
+    } else {
+        (
+            "npm".to_string(),
+            vec!["run".to_string(), script.clone()],
+        )
+    };
+
+    Ok(InariRunPlan {
+        program,
+        args,
+        cwd: repo.to_path_buf(),
+        env: vec![("NODE_OPTIONS".to_string(), node_options)],
+        script,
+    })
+}
+
+/// Compose the `NODE_OPTIONS` value the wrapper + CLI both share.
+/// Returns the bare value (no key=) — callers set the key themselves
+/// via `cmd.env(...)` / wrapper string formatting.
+pub fn compose_node_options() -> String {
+    "--import @inariwatch/capture/auto --import @inariwatch/substrate-agent".to_string()
+}
+
+/// Spawn the plan and return the child handle. The child inherits the
+/// current process's stdin/stdout/stderr so the user sees real dev
+/// server output. Production CLI surface; tests use [`prepare_inari_run`].
+pub fn spawn_inari_run(plan: &InariRunPlan) -> std::io::Result<std::process::Child> {
+    let mut cmd = std::process::Command::new(&plan.program);
+    cmd.args(&plan.args);
+    cmd.current_dir(&plan.cwd);
+    for (k, v) in &plan.env {
+        cmd.env(k, v);
+    }
+    cmd.stdin(std::process::Stdio::inherit());
+    cmd.stdout(std::process::Stdio::inherit());
+    cmd.stderr(std::process::Stdio::inherit());
+    cmd.spawn()
+}

@@ -133,6 +133,14 @@ window-vibrancy          = "0.5"
 # `local-socket` features are enabled to keep the dep tree slim.
 interprocess             = { version = "2", features = ["tokio"] }
 
+# Session 10 — substrate sensor (Sensor 6).
+# `which` resolves `node` / `npm` / `substrate-v2-replay` against the
+# user's PATH at run time. We never bundle these binaries — the wrapper
+# (`sensors::substrate::wrapper`) and the `inari run` CLI subcommand
+# both depend on whatever the user already has installed. `which = "6"`
+# pulls in zero extra deps beyond `cfg-if`.
+which                    = "6"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"

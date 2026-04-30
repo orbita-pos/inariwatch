@@ -69,6 +69,52 @@ pub enum GitEventKind {
     PostMerge,
 }
 
+/// Class of substrate replay divergence reported by Sensor 6 (Sesión
+/// 10). Mirrors `web/lib/ai/substrate-replay.ts` so the Rust + web
+/// consumers can share dock UI shapes without translation. The variants
+/// are a closed set on purpose — adding a new class requires a coupled
+/// update to the dock copy + the AI replay analyst prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DivergenceKind {
+    /// Recorded I/O (HTTP body, DB query, file op) differs from the
+    /// replayed I/O. Always graded `Medium` or `High`.
+    IoMismatch,
+    /// Replay finished but the wall-clock duration differs by enough
+    /// that downstream timing assertions (timeouts, debounce windows)
+    /// could fail in production. Graded `Low` by default.
+    Timing,
+    /// Replay process exited with a different code than the recording.
+    /// Graded `High` regardless of the exit code value.
+    ExitCode,
+}
+
+/// Severity bucket for a [`DivergenceSummary`]. The dock surfaces this
+/// as a colour band; the security gate (Sesión 20 Gate 6) treats `High`
+/// as a hard fail and `Medium` as a soft warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DivergenceSeverity {
+    Low,
+    Medium,
+    High,
+}
+
+/// Summary of a substrate replay divergence. Crucially does NOT carry
+/// the user's source content or recorded payloads — the full payload is
+/// persisted to `.inari/replays/<id>.json` for the dock (Sesión 17) to
+/// load on demand. Only metadata travels on the bus so a downstream
+/// subscriber that logs every event can't accidentally exfiltrate
+/// recorded body data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DivergenceSummary {
+    pub kind:            DivergenceKind,
+    /// Module name (Node-style) the divergence was detected in. NEVER
+    /// a filesystem path — keeps absolute paths off the bus.
+    pub affected_module: String,
+    pub severity:        DivergenceSeverity,
+}
+
 /// Cross-sensor event broadcast on [`bus::EventBus`].
 ///
 /// Initial variants are minimal by design — each sensor session adds its
@@ -184,6 +230,30 @@ pub enum DaemonEvent {
         exit_code:   i32,
         duration_ms: u64,
         timestamp:   u64,
+    },
+    /// Substrate replay correlation result emitted by Sensor 6
+    /// (Sesión 10). Published whenever an `FsChange::Modified` of a
+    /// source file is reconciled against the most-recent recording in
+    /// `.inari/recordings/<repo>/`. `matched=true` means the replay
+    /// drained without behavioural divergence; `matched=false` carries
+    /// a [`DivergenceSummary`] describing the class + severity.
+    ///
+    /// Same `#[serde(rename = ...)]` workaround [`FsChange`] +
+    /// [`MemoryReviewRequested`] use: `match` is a Rust keyword, so
+    /// the Rust API uses `matched` while the JSON wire field is
+    /// `match` per the Sesión-10 spec.
+    ///
+    /// Privacy: the variant carries the recording id (UUID v4) and the
+    /// optional summary metadata only. The full divergence payload
+    /// lives in `.inari/replays/<id>.json` on disk for the dock UI
+    /// (Sesión 17) to read on demand — recorded bodies, source
+    /// snippets, and raw timings never travel on the bus.
+    ReplayResult {
+        repo_id:      String,
+        recording_id: String,
+        #[serde(rename = "match")]
+        matched:      bool,
+        divergence:   Option<DivergenceSummary>,
     },
 }
 

@@ -37,7 +37,10 @@ pub mod store;
 pub mod cloud;
 pub mod ipc;
 mod ai;
-mod cli;
+// `pub` so integration tests in `tests/substrate_*` can reach
+// `crate::cli::run::{prepare_inari_run, ...}` for Sesión 10. Same
+// precedent as `daemon` (S2), `store` (S3), `sensors` (S5/S7/S10).
+pub mod cli;
 
 // Empty skeletons created in Session 2; filled in by their owning sessions.
 mod gates;
@@ -268,6 +271,22 @@ pub fn run() {
             // `try_overwrite` couldn't reclaim) logs at `warn` and
             // decrements `sensor_count`; rest of startup proceeds.
             let _shell_handle = sensors::shell::spawn(
+                daemon_handle.clone(),
+                store.clone(),
+            );
+
+            // Session 10 — Sensor 6 (Substrate replay correlation).
+            // Subscribes to `FsChange::Modified` and asks the resolved
+            // backend (local binary preferred, remote `/v2/replay`
+            // fallback) whether the change preserves the recorded
+            // behaviour of the most-recent `.inari/recordings/<id>/`.
+            // The actor runs INERT when no backend is reachable — the
+            // bus subscription stays alive (so `sensor_count` reports
+            // honestly) but never publishes a `ReplayResult`. Per-repo
+            // opt-in via the `replay_enabled` flag (migration 0004,
+            // default OFF) means this sensor is silent for every repo
+            // already in the user's store on upgrade. Track 2 closer.
+            let _substrate_handle = sensors::substrate::spawn(
                 daemon_handle.clone(),
                 store.clone(),
             );
