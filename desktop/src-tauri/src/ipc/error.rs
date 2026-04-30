@@ -89,6 +89,7 @@ impl From<StoreError> for IpcError {
             StoreError::Io(e) => IpcError::Io { message: e.to_string() },
             StoreError::Sqlite(e) => IpcError::Query { message: e.to_string() },
             StoreError::PathResolution(msg) => IpcError::Internal { message: msg },
+            StoreError::Internal(msg) => IpcError::Internal { message: msg },
         }
     }
 }

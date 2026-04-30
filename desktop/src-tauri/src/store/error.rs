@@ -31,6 +31,13 @@ pub enum StoreError {
 
     #[error("could not resolve store path: {0}")]
     PathResolution(String),
+
+    /// Catch-all for invariant violations (dimension mismatches,
+    /// unexpected NULLs, etc) that aren't IO/SQL errors. The string
+    /// payload is logged + surfaced to IPC; callers should prefer a
+    /// typed variant when adding new error paths.
+    #[error("internal: {0}")]
+    Internal(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
