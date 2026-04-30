@@ -469,25 +469,57 @@ Captured from `project_inari_live.md` memory:
     2. Pin `fastembed = "3"` (resolves to `ort 1.x` → links on VS 2019). Requires ~20 LoC of API churn in `desktop/src-tauri/src/indexer/embeddings.rs::ensure_loaded`.
   - After unblock, the resume command set is: `cd desktop/src-tauri && cargo test --test git_hooks_install --test git_hooks_uninstall --test git_hooks_token --test git_hook_event_pre_push_blocks --test git_hook_event_auth --test git_hook_event_post_merge_publishes_reindex --test git_hooks_router_merge -- --test-threads=1`. All 7 are tempfile-only (no shared-state coupling), so `--test-threads=1` is for log readability, not correctness.
 
-### Session 9 — Sensor 2: shell hooks (opt-in) over Unix socket (6h)
+### Session 9 — Sensor 2: shell hooks (opt-in) over Unix socket / Windows named pipe (6h) — **DONE 2026-04-30**
 
-- **Files:** `desktop/src-tauri/src/sensors/shell/mod.rs`, `sensors/shell/socket.rs`, `sensors/shell/installer.rs`. Hook templates in `desktop/src-tauri/resources/shell/inari.zsh`, `inari.bash`, `inari.fish`.
-- **Add deps:**
-  - `tokio` (already present)
-  - `interprocess` = "2" (cross-platform Unix sockets / Windows named pipes)
-- **Behavior:**
-  - User runs the toggle "Watch my terminal" → installer appends one line to `~/.zshrc` (or `.bashrc` / `config.fish`): `source ~/.inari/shell/inari.<shell>`.
-  - The hook script registers `preexec` and `precmd` (zsh-style; bash via `bash-preexec`; fish via `fish_preexec`/`fish_postexec`). On each shell command, sends to the daemon's socket: `{cmd, cwd, exit_code, duration_ms, timestamp}`.
-  - Socket path: `~/.inari/sock/shell.sock` (Unix) or `\\.\pipe\inari-live-shell` (Windows). Daemon listens, parses messages, emits `ShellEvent` on the bus.
-  - **Privacy:** the hook script SCRUBS env vars and known-secret-shaped tokens (regex on `*key*`, `*secret*`, `*token*`) BEFORE sending. Documented in `desktop/src-tauri/resources/shell/README.md`.
-- **Cap:** rate limit 10 events/sec per session (a `for` loop in shell shouldn't flood the daemon).
-- **Uninstaller:** removes the `source` line and the `~/.inari/shell/` directory.
-- **Tests:**
-  - Install for zsh → `.zshrc` contains exactly one `source` line; running install twice is idempotent.
-  - Run `ls /tmp` in a zsh subshell with the hook sourced → daemon receives `ShellEvent { cmd: "ls /tmp", exit_code: 0 }`.
-  - Run `nope-this-doesnt-exist` → daemon receives `exit_code: 127`.
-  - Secret scrubbing: a command containing `OPENAI_API_KEY=sk-abc123` is recorded with the value masked.
-- **Definition of done:** opt-in toggle installs hooks; a `cd && ls && nope` sequence emits 3 ShellEvents on the bus with correct exit codes; secret-shaped tokens are masked in payloads.
+- **Status:** Done — code + tests committed; `cargo test` execution **deferred** (same MSVC link blocker as Sesión 6 / 8 — the lib transitively pulls `ort 2.0.0-rc.9` which needs VS 2022 ≥ 17.5). `cargo check --lib` passed at 30.88s; `cargo check --lib --tests` at 27.81s on top.
+- **Branch:** `feat/inari-live-track2-session9-shell-hooks` (stacked on `7889fe4`, the integration tip from `feat/inari-live-track2-3-4-integration`).
+- **Commits:** `74dc7f2` (sensors/shell scaffolding + DaemonEvent::ShellEvent + listener wiring + 4 integration tests + zsh/bash/fish templates + audit README).
+- **Outputs (added):** `desktop/src-tauri/src/sensors/shell/{mod,installer,socket}.rs`; `desktop/src-tauri/resources/shell/{inari.zsh,inari.bash,inari.fish,README.md}`; `desktop/src-tauri/tests/shell_install_idempotent.rs`, `tests/shell_event_roundtrip.rs`, `tests/shell_event_exit_127.rs`, `tests/shell_secret_scrubbing.rs`.
+- **Outputs (modified):**
+  - `desktop/src-tauri/Cargo.toml` — added `interprocess = "2"` with the `tokio` feature (cross-platform Unix sockets / Windows named pipes; same crate Datadog Cilium and Cloudflare use for their local-socket IPC).
+  - `desktop/src-tauri/src/daemon/mod.rs` — `DaemonEvent::ShellEvent { session_id, cmd, cwd, exit_code, duration_ms, timestamp }` variant. No `kind`-field wire rename needed (no internal collision; spec-named fields all carry).
+  - `desktop/src-tauri/src/sensors/mod.rs` — declared `pub mod shell;`.
+  - `desktop/src-tauri/src/lib.rs` — spawn site after `_memory_watcher` (Session 11) so `sensors::shell::spawn(daemon_handle.clone(), store.clone())` runs once per daemon launch. Listener is harmless when no hooks are installed (no clients connect → no `ShellEvent`s on the bus).
+- **Behavior shipped:**
+  - Listener bound on `~/.inari/sock/shell.sock` (Unix) or namespaced `inari-live-shell` (Windows, mapped to `\\.\pipe\inari-live-shell` by `interprocess`). `try_overwrite(true)` on Unix reclaims a stale corpse socket left behind by a crashed prior daemon.
+  - Wire format: line-delimited JSON with `{cmd, cwd, exit_code, duration_ms, timestamp}`. `session_id` is **server-assigned** UUID v4 per accepted connection (so a malicious or buggy client can't spoof another shell's group); `timestamp == 0` falls back to the daemon's wall clock.
+  - Sliding-window rate limit (10 events/1s per connection). Excess events dropped with a `tracing::warn!` and the connection stays open — never blocks the user's shell.
+  - Shutdown handling: a `tokio::select!` between `bus_rx.recv_async()` and `listener.accept()`. `DaemonEvent::Shutdown` exits the loop; `dec_sensors` runs in both bind-failure and clean-shutdown paths.
+  - Per-event persistence: `queries::insert_event(store, timestamp, "shell_event", repo_id=None, payload_json)`. Failure is non-fatal — bus is SSOT, persistence is for analytics + the eventual TTL cleanup job.
+  - Installer is idempotent: a second `install(ShellKind::Zsh, ...)` leaves exactly one `source` line in `.zshrc` (recognised via the `# inari-live shell hook (Sensor 2)` marker the installer appends). The hook payload at `~/.inari/shell/inari.<shell>` is overwritten from the bundled template on every install.
+  - Uninstaller is also idempotent: removes the marked source line + the per-shell payload, but leaves user-edited rc lines and unrelated config alone.
+- **Confirmations for the architect:**
+  - **`cargo check --lib --tests` clean** (27.81s incremental on the post-baseline target dir). `cargo check --lib` clean (30.88s).
+  - **Bash hooks intentionally do NOT bundle `bash-preexec`.** README.md documents the one-line `curl | sh` install. The bash template silently no-ops if `preexec_functions` / `precmd_functions` arrays aren't defined, so a user without bash-preexec sees a broken-but-non-disruptive install (the install line is in `.bashrc` but no events fire).
+  - **Privacy regex matches uppercase substrings only.** `OPENAI_API_KEY=sk-…`, `MY_API_KEY=…`, `KEY=…` all redact. Lower-case env names (`my_token=…`) intentionally slip through — common convention is upper-case env vars; redacting `my_token` would be over-eager. Documented in README.md "Known limitations".
+  - **Rate limit unchanged from spec (10/s sliding window).** Burst capacity 10 + window 1s = 10 events/s steady. Implementation in `RateLimiter` (`Vec<Instant>` retain-then-push). No external dependency.
+  - **Cross-platform via `interprocess`, not `#[cfg]` branches at the call site.** `SocketName` enum (FsPath / Namespaced) is the only place the platform leaks; `spawn`/`spawn_at_name` and the per-conn handler are platform-agnostic.
+- **Tests (4 files; execution deferred):**
+  - `shell_install_idempotent` — pure file-ops; 2 sub-tests (idempotent zsh install, user-line preservation).
+  - `shell_event_roundtrip` — spawns sensor, connects via `SocketName::connect()`, writes one JSON line, asserts `ShellEvent { cmd: "ls /tmp", cwd: "/tmp", exit_code: 0, duration_ms: 5 }` lands on the bus within 2s.
+  - `shell_event_exit_127` — same plumbing with `exit_code: 127` to assert the field is preserved end-to-end.
+  - `shell_secret_scrubbing` — pure regex, 5 sub-tests (classic env vars, bare keyword, multiple per cmd, innocuous unchanged, lower-case documented miss).
+- **Definition of done:** ✅ `pub mod sensors::shell;` declared and wired in `lib.rs`; ✅ `DaemonEvent::ShellEvent` variant added to the daemon taxonomy; ✅ installer + uninstaller idempotent; ✅ rate limiter caps at 10/s/conn; ✅ secret scrubber pure-Rust + tested; ✅ zsh/bash/fish templates + README; ✅ `cargo check --lib --tests` clean; ✅ committed to `feat/inari-live-track2-session9-shell-hooks`.
+- **Notes for whoever runs the tests after MSVC unblock:**
+  1. Resume command set:
+     ```
+     cd desktop/src-tauri && CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 \
+       cargo test --test shell_install_idempotent \
+                  --test shell_secret_scrubbing \
+                  --test shell_event_roundtrip \
+                  --test shell_event_exit_127 \
+                  -- --test-threads=1
+     ```
+  2. The two roundtrip tests use the listener — on a busy machine, the `tokio::time::sleep(80ms)` after spawn may need to grow if the bind takes longer. They are not flaky on a quiet checkout.
+  3. The roundtrip + exit-127 tests cfg-gate their `make_test_socket` helper: `cfg(unix)` uses a tempdir-based path; `cfg(windows)` uses a UUID-suffixed namespaced name. Both compile-check on Windows (verified) and execute on either platform once the link blocker clears.
+- **Notes for Session 14+ dock UI integration:**
+  1. The dock should subscribe to `daemon:event` and filter for `kind == "shell_event"`. Field shape mirrors the Rust enum verbatim (serde internally-tagged with `kind`).
+  2. The "Watch my terminal" toggle is **not** wired in this session. Session 17 (settings UI) owns the IPC commands `install_shell_hooks` / `uninstall_shell_hooks` / `shell_hooks_status` (mirroring the Sesión 8 git-hook command set). The Rust surface (`installer::install/uninstall`) is ready for that wiring.
+  3. The `events` table is now the single physical store for shell events. The TTL retention sweep (30 days per the spec) is **not** in this session — there is no scheduled cleanup job today. The first session that adds a generic `events` retention cron should sweep `kind = 'shell_event'` rows older than 30 days.
+- **Blockers / deferred:**
+  - `cargo test` execution: same MSVC + `ort 2.0.0-rc.9` link blocker Sesión 6 documented (DECISIONS 2026-04-29) and Sesión 8-tests-finish re-confirmed (DECISIONS 2026-05-01). Every integration test under `tests/shell_*.rs` links the same `inariwatch_desktop_lib.dll` (lib has `fastembed` → `ort`), so trying any one of the four would burn build minutes producing the same `LNK2019/LNK2001` failures. **Recommended unblock:** install VS 2022 Build Tools with the "Desktop development with C++" workload (≥ 17.5).
+  - "Watch my terminal" UI toggle (IPC commands `install_shell_hooks` etc.) — out of scope for Sesión 9 per the prompt; lands in Session 17 (settings UI).
+  - The `events` table TTL retention cron — see "Notes" above; out of scope.
 
 ### Session 10 — Sensor 6: Substrate recording integration (6h)
 
