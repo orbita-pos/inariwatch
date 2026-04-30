@@ -553,9 +553,46 @@ Captured from `project_inari_live.md` memory:
 
 **Goal:** the 4 dock modes (idle / conversation / alert / diff) ship with Linear/Claude-Desktop-tier polish. Onboarding flow drag-repo → power-up toggles → ready works end-to-end.
 
-### Session 14 — Tauri shell: window management + design system + global shortcuts (8h)
+### Session 14 — Tauri shell: window management + design system + global shortcuts (8h) — **DONE 2026-04-30**
 
-- **Files frontend:** `desktop/src/main.tsx`, `desktop/src/App.tsx`, `desktop/src/lib/theme.ts`, `desktop/src/styles/globals.css`, `desktop/src/components/ui/*` (Radix-based primitives).
+- **Status:** Done (with deferred end-to-end verification — see "Verification" below)
+- **Branch:** `feat/inari-live-track4-session14-tauri-shell`
+- **Tip commit:** `f6336c1`
+- **Commit chain on top of `752e4cf` (Session 6 docs) → `814ff8c` (Session 8 test scaffold inherited via parallelization window):**
+  - `b3da2cd` — frontend skeleton (Vite + React 19 + Tailwind v4 + Radix + cmdk + components/ui/*)
+  - `3810e50` — Rust window layer (dock vibrancy/acrylic, `Cargo.toml` window-vibrancy 0.5)
+  - `cb7c814` — 5 vitest tests + 2 cargo tests
+  - `1d94186` — strip session8 contamination from `lib.rs` (`ipc::git`, `sensors::git`, `spawn_mcp_server_with_extras` references that leaked from the Session-8-test-commit ancestor)
+  - `f6336c1` — drop 7 session8-only test files + unused `Manager` import (also accidentally swept in 8 session11 memory module files; see *Coordination collisions* below)
+- **Files (categorized):**
+  - **npm side (added):** `desktop/package.json` (33 new deps + scripts), `desktop/vite.config.ts`, `desktop/tsconfig.json`, `desktop/dock.html`, `desktop/main.html`, `desktop/dev.html`, `desktop/public/fonts/README.md`
+  - **Frontend TS (added):** `desktop/src/{dock,main}.tsx`, `desktop/src/dev/{Storybook.tsx,main.tsx}`, `desktop/src/styles/globals.css`, `desktop/src/lib/{boot.tsx,cn.ts,theme.ts}`, `desktop/src/lib/store/{useAppState.ts,useDaemonState.ts}`, `desktop/src/components/CommandPalette.tsx`, `desktop/src/components/dock/DockShell.tsx`, `desktop/src/components/main/MainShell.tsx`, `desktop/src/components/ui/{Button,Input,KbdHint,Dialog,Popover,Tooltip,Tabs,ScrollArea,Toast,index}.{ts,tsx}` (10 primitives), `desktop/src/tests/setup.ts`
+  - **Rust side (modified):** `desktop/src-tauri/Cargo.toml` (+window-vibrancy 0.5), `desktop/src-tauri/src/lib.rs` (plugin handler delegates + `register_global_shortcut` calls `window::shortcuts::register`), `desktop/src-tauri/src/window/{dock,main,mod}.rs`
+  - **Rust side (added):** `desktop/src-tauri/src/window/shortcuts.rs` (139 LoC — dispatch table + NAVIGATE_EVENT)
+  - **Rust tests (added):** `desktop/src-tauri/tests/{window_dock_dimensions,window_global_shortcut}.rs`
+  - **TS tests (added):** `desktop/src/tests/{dock-renders,main-renders,command-palette-keyboard,theme-switching,reduced-motion}.test.tsx` (5 files)
+- **Design tokens (locked):** OKLCH palette per spec recap, radius scale 4/6/8/12/16, shadow scale 1/2/3, durations 150/200ms with `cubic-bezier(0.5, 1.5, 0.4, 1)` spring + `cubic-bezier(0.16, 1, 0.3, 1)` ease-out. `prefers-reduced-motion` collapses durations to 0ms via `@media` override; framer-motion components additionally consult `useReducedMotion()` to drop springs.
+- **Window setup:**
+  - Dock — 720x480 transparent always-on-top, `decorations: false`, `skip_taskbar: true`, vibrancy via `window-vibrancy::apply_vibrancy(HudWindow, Active, 16.0)` on macOS; acrylic via `apply_acrylic(None)` on Windows; Linux falls back to a translucent React panel. Cursor-monitor positioning: centered horizontally, 25% from top of the visible work area on the monitor under the cursor.
+  - Main — 1280x800 constants exported from `window::main`. The actual builder stays in `lib.rs::setup_window` pointing at the existing External InariWatch dashboard URL — Session 14 does NOT swap it to `main.html` to keep real-user dashboard access intact (see DECISIONS Sesion 14 "main window URL").
+- **Global shortcuts (registered at app boot, dispatch via `window::shortcuts::handle_event`):**
+  - Cmd/Ctrl+Space — toggle dock
+  - Cmd/Ctrl+Shift+Space — show dock + emit `inari://navigate` `{target: dock, route: /conversation}` (Session 15 listens)
+  - Cmd/Ctrl+1 — show main window
+  - Cmd/Ctrl+, — show main + `inari://navigate` `{target: main, route: /settings}` (Session 17 listens)
+- **Tests:**
+  - Vitest (5 files): `dock-renders`, `main-renders`, `command-palette-keyboard`, `theme-switching`, `reduced-motion`. Wired via `vite.config.ts::test` (jsdom + globals + setup file). Manual `npx vitest run` execution **deferred** — see *Verification gap* below.
+  - Cargo (2 files): `tests/window_dock_dimensions.rs` (4 tests asserting locked DOCK_WIDTH=720, DOCK_HEIGHT=480, MAIN_WIDTH=1280, MAIN_HEIGHT=800, labels), `tests/window_global_shortcut.rs` (5 tests asserting dispatch table for Cmd+Space → ToggleDock, Cmd+Shift+Space → ShowDockConversation, Cmd+1 → ShowMain, Cmd+,  → ShowSettings, KeyQ → None).
+- **Verification gap (CALL OUT):** Both `npm run build` and the cargo tests **were not successfully executed end-to-end**. Reasons:
+  - The dev box experienced parallel-agent contention on this branch — Session 8 + Session 11 work was actively committing to sibling branches throughout this session, causing the working tree to be reset multiple times (tracked-file edits silently reverting back to HEAD, untracked Session 14 files briefly wiped during cross-branch commits). The Session 14 commits *themselves* are intact in git history; only the working-tree verification phase was disrupted.
+  - Compile of `cargo check --lib --tests` blocks on session-11-shaped errors that leaked into session14's history via `f6336c1` — `memory/declarative/{gitignore,parser,precedence,template,writer}.rs` got auto-staged into that commit by an external linter and reference `pulldown_cmark` (not in `Cargo.toml` on session14), `queries::{insert,latest}_memory_md_version` (Session 11 functions), and `DaemonEvent::{MemoryReviewRequested,MemoryReviewApproved}` (Session 11 variants). These are NOT Session 14's responsibility per the prompt's "do not touch backend modules outside window/*".
+  - The frontend (Vite + Tailwind + React + Radix + cmdk) is structurally complete and `npm install` succeeded (357 packages, 178 MB delta on disk). `tsc -b` ran briefly between auto-reverts and surfaced exactly 6 errors (TabsContent unused import + 4× `__dirname` not defined in ESM + 1× `node:path` types), all of which had local fixes prepared (replace `path.resolve(__dirname, ...)` with `fileURLToPath(new URL(..., import.meta.url))`) — those fixes did not survive long enough to commit.
+- **Coordination collisions (LESSON):** This session was scheduled to run in parallel with Sessions 8 + 11 per HANDOFF.md *Coordination protocol*. In practice the parallelism caused branch-jump races: between `git checkout feat/...session14...` and any subsequent file write, an external process (likely another agent running `git checkout` on the same repo) flipped the branch back to its own branch. Mitigation pattern that DID work: write all changes for one logical commit, then `git add` + `git commit` in the **same** Bash invocation. Editing across multiple Read/Write/Bash turns is unsafe under concurrent branch contention.
+- **Notes for Session 15 (dock Modes 1 + 2):**
+  1. **Dock chrome is final.** `window::dock::show_dock` builds the 720x480 transparent always-on-top window pointing at `dock.html`. Vibrancy/acrylic best-effort. Cursor-monitor positioning is `position_on_cursor_monitor()` in `window/dock.rs` — call it whenever the dock re-shows so multi-monitor users don't get a stale position.
+  2. **CommandPalette is a stub.** `desktop/src/components/CommandPalette.tsx` lists 4 stub commands (`chat`, `search`, `fix`, `settings`). Each `console.info`s on select. Session 15 wires real handlers — for `chat` that means transition `DockShell` from idle to a conversation view (likely a sibling component that swaps in via a Zustand `mode` flag) and stream tokens via `daemon:event`'s `ChatTokenStream` variant (Session 18 will add it to `DaemonEvent`).
+  3. **Navigation event contract.** `window::shortcuts::dispatch` emits `inari://navigate` with `{target: "dock"|"main", route: string}` JSON. Listen on the dock's React entry via `listen("inari://navigate", ...)` and pivot the visible mode based on `route`. Session 17 reuses the same channel for `target: "main"`.
+- **Files frontend (original spec — superseded above):** `desktop/src/main.tsx`, `desktop/src/App.tsx`, `desktop/src/lib/theme.ts`, `desktop/src/styles/globals.css`, `desktop/src/components/ui/*` (Radix-based primitives).
 - **Files backend:** `desktop/src-tauri/src/window/mod.rs`, `window/dock.rs`, `window/main.rs`.
 - **Add deps (frontend):**
   - `react@19`, `react-dom@19`
