@@ -41,7 +41,11 @@ mod gates;
 // `crate::indexer::{parser, semantic, Lang, ...}`. Same precedent as
 // `daemon` (S2), `store` (S3), `sensors` (S5/S7).
 pub mod indexer;
-mod memory;
+// `pub` so integration tests in `tests/memory_md_*` (Session 11) can
+// reach `crate::memory::declarative::{ensure_memory_md, ...}`. Same
+// precedent as `daemon` (S2), `store` (S3), `indexer` (S6),
+// `sensors` (S5/S7).
+pub mod memory;
 // `pub` so integration tests in `tests/fs_*` and `tests/mcp_*` can drive
 // the FS sensor actor and mount the MCP axum router. Same precedent as
 // `daemon` (Sesión 2) and `store` (Sesión 3).
