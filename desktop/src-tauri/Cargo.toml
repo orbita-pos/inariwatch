@@ -113,6 +113,13 @@ tree-sitter-rust         = "0.21"
 tree-sitter-go           = "0.21"
 fastembed                = "4"
 
+# Session 11 — declarative memory layer. memory.md parsing/rewriting is
+# done with pulldown-cmark (CommonMark parser) and pulldown-cmark-to-cmark
+# (round-trip serializer that preserves source positions on unchanged
+# sections). Both are pure-Rust, no external deps.
+pulldown-cmark           = "0.10"
+pulldown-cmark-to-cmark  = "13"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
