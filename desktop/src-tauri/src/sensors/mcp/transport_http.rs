@@ -140,9 +140,26 @@ pub async fn serve(
     state: HttpState,
     requested: Option<u16>,
 ) -> std::io::Result<u16> {
+    serve_with_extras(state, requested, Vec::new()).await
+}
+
+/// Same as [`serve`] but merges additional `Router`s into the MCP one
+/// before binding. Sesión 8's git sensor uses this to mount
+/// `/sensors/git/event` on the same port — `axum::Router::merge` is
+/// the supported way to share a listener across modules without a
+/// second `tokio::spawn`. Each router in `extras` must have its state
+/// already applied (`Router<()>`).
+pub async fn serve_with_extras(
+    state: HttpState,
+    requested: Option<u16>,
+    extras: Vec<Router>,
+) -> std::io::Result<u16> {
     let (std_listener, port) = bind_with_fallback(requested)?;
     let listener = tokio::net::TcpListener::from_std(std_listener)?;
-    let app = router(state);
+    let mut app = router(state);
+    for r in extras {
+        app = app.merge(r);
+    }
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {

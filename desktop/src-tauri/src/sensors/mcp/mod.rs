@@ -74,6 +74,19 @@ pub async fn spawn_mcp_server(
     daemon: Arc<DaemonHandle>,
     store:  Arc<Store>,
 ) -> Result<McpServerHandle, String> {
+    spawn_mcp_server_with_extras(app, daemon, store, Vec::new()).await
+}
+
+/// Same as [`spawn_mcp_server`] but merges additional axum routers into
+/// the MCP HTTP listener before binding. Session 8's git sensor uses
+/// this to mount `/sensors/git/event` on the same port (no second
+/// listener, no port conflict, no double Bearer-trees).
+pub async fn spawn_mcp_server_with_extras(
+    app:    &AppHandle,
+    daemon: Arc<DaemonHandle>,
+    store:  Arc<Store>,
+    extras: Vec<axum::Router>,
+) -> Result<McpServerHandle, String> {
     let state_dir = resolve_state_dir(app)?;
     let auth = AuthState::from_dir(state_dir).map_err(|e| {
         format!("mcp auth init failed: {e}")
@@ -94,7 +107,7 @@ pub async fn spawn_mcp_server(
         auth: auth.clone(),
     };
 
-    let port = transport_http::serve(state, requested).await.map_err(|e| {
+    let port = transport_http::serve_with_extras(state, requested, extras).await.map_err(|e| {
         format!("mcp http listener failed to bind: {e}")
     })?;
 

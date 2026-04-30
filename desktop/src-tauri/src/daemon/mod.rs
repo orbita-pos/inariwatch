@@ -37,6 +37,20 @@ pub enum FsChangeKind {
     Renamed { from: PathBuf },
 }
 
+/// Which git lifecycle event was observed by Sensor 4 (Session 8).
+///
+/// Lives under `daemon` for the same reason as [`FsChangeKind`] — every
+/// downstream consumer (memory layer, dock UI, indexer hint) can pattern
+/// match without crossing a `sensors::*` boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitEventKind {
+    PreCommit,
+    PostCommit,
+    PrePush,
+    PostMerge,
+}
+
 /// Cross-sensor event broadcast on [`bus::EventBus`].
 ///
 /// Initial variants are minimal by design — each sensor session adds its
@@ -97,6 +111,21 @@ pub enum DaemonEvent {
         repo_id:      String,
         symbol_count: u64,
         duration_ms:  u64,
+    },
+    /// Git hook fired (Session 8). `pre_push` is the only synchronous
+    /// kind — it consumes a verdict from the local gate runner before
+    /// the push proceeds. The other three are fire-and-forget and
+    /// surface in the dock + memory layers as commit/merge milestones.
+    ///
+    /// Field name `kind` would clash with the internally-tagged outer
+    /// enum, so the wire field is `event` (matching the Sesión-5
+    /// `change` precedent on [`FsChange`]).
+    GitEvent {
+        #[serde(rename = "event")]
+        kind:     GitEventKind,
+        repo_id:  String,
+        ref_name: String,
+        sha:      String,
     },
 }
 
