@@ -37,5 +37,16 @@ regex                    = "1"
 once_cell                = "1"
 futures-util             = "0.3"
 
+# Session 3 — local store. rusqlite over sqlx because sqlx does not expose
+# LOAD EXTENSION (we need it for sqlite-vec). r2d2 + r2d2_sqlite for the
+# pool — rusqlite::Connection is !Sync. sqlite-vec ships its FFI as static
+# C source; loaded via auto_extension at pool init (see store/pool.rs).
+rusqlite                 = { version = "0.31", features = ["bundled", "load_extension"] }
+r2d2                     = "0.8"
+r2d2_sqlite              = { version = "0.24", features = ["bundled"] }
+sqlite-vec               = "0.1"
+thiserror                = "1"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
+tempfile                 = "3"

@@ -125,26 +125,34 @@ Captured from `project_inari_live.md` memory:
   - The daemon currently has no SQLite read/write coupling. Session 3 should pass an `Arc<Pool>` into `daemon::SharedDaemonState` (or a sibling `SharedStore`) — extend `lib.rs::setup` accordingly.
 - **Definition of done:** ✅ daemon spawns on app start; ✅ closing main window keeps tray + daemon alive; ✅ tray menu wired; ✅ `Quit` signals `DaemonHandle::shutdown()`; ✅ `Cmd/Ctrl+Space` toggles the placeholder dock window; ✅ tracing rotates daily into the OS log dir; ✅ 5 daemon tests pass (bus broadcast, drop-oldest, 5 heartbeats in 150s simulated, shutdown drain).
 
-### Session 3 — Local store: SQLite + sqlite-vec + migrations (6h)
+### Session 3 — Local store: SQLite + sqlite-vec + migrations (6h) — **DONE 2026-04-29**
 
-- **Files:** `desktop/src-tauri/src/store/mod.rs`, `store/migrations/`, `store/queries.rs`. New crate dependencies handled below.
-- **Add deps:**
-  - `rusqlite` = { version = "0.31", features = ["bundled", "load_extension"] } — bundled SQLite, load extension capability
-  - `sqlite-vec` = "0.1" — vector extension (statically linked C source)
-  - `refinery` = "0.8" or hand-rolled migration runner (3 migrations is small; refinery is overkill but it's industry standard)
-- **Why not `tauri-plugin-sql`:** uses sqlx, which doesn't expose `LOAD EXTENSION`. We need extension loading for sqlite-vec. Use rusqlite directly.
-- **DB location:** `<app_local_data_dir>/inari-live/store.db` — Tauri's `path::app_local_data_dir` resolver handles cross-platform.
-- **Initial migrations:**
-  - `0001_initial.sql` — `events` table (id, timestamp, kind, repo_id, payload JSON), `repos` table (id, path, name, opened_at, last_indexed_at)
-  - `0002_embeddings.sql` — `code_symbols` table (id, repo_id, file_path, symbol_name, kind, line_start, line_end, ast_hash) + `code_embeddings` virtual table using sqlite-vec (1024-dim vectors keyed by symbol_id)
-  - `0003_memory.sql` — `memory_md_versions` (id, repo_id, content, written_by, written_at), `patterns` (id, repo_id, pattern_kind, fingerprint, evidence JSON, success_count, failure_count)
-- **Connection pooling:** rusqlite's `Connection` is not thread-safe; use a `r2d2` + `r2d2-sqlite` pool with WAL mode + `synchronous=NORMAL`. Pool size 4 (read-mostly workload).
-- **Tests:**
-  - Migrations apply cleanly to a fresh DB.
-  - Idempotency: running migrations twice is a no-op.
-  - sqlite-vec extension loads + a `vec_cosine_distance` query works against a 4-dim test vector.
-  - WAL mode is enabled (assert via `PRAGMA journal_mode`).
-- **Definition of done:** on first launch, the daemon creates `store.db` at the resolved path, all 3 migrations apply, a smoke-test query returns expected results, `journal_mode=wal` confirmed.
+- **Status:** Done
+- **Branch:** `feat/inari-live-track1-session3-store`
+- **Tip commit:** see `git log --oneline feat/inari-live-track1-session3-store ^feat/inari-live-track1-session2-daemon-core` (committed locally; NOT pushed per coordination protocol)
+- **Tests:** 9 new integration tests across 5 new files (`tests/store_{migrations_apply,wal_mode,sqlite_vec_loaded,pool_connections,path_resolution}.rs`) + 1 ignored placeholder for the Tauri AppHandle harness Session 4 will introduce. All store tests pass in ~3s total. Combined with Session 2's 5 daemon tests = **14 active integration tests / 14 pass / 1 ignored**. Pre-existing `src/fingerprint.rs::tests::paths_and_timestamps_normalized` still fails (Session 11's responsibility — see Session 11 block).
+- **Files created:**
+  - `src/store/{mod,error,pool,queries,migrations}.rs` — store core (~360 LoC)
+  - `src/store/migrations/{0001_initial,0002_embeddings,0003_memory}.sql` — locked schema per HANDOFF.md spec
+  - `tests/store_{migrations_apply,wal_mode,sqlite_vec_loaded,pool_connections,path_resolution}.rs` — 9 tests + 1 ignored
+- **Files modified:**
+  - `src-tauri/Cargo.toml` — added `rusqlite = "0.31"` (`bundled`+`load_extension`), `r2d2 = "0.8"`, `r2d2_sqlite = "0.24"` (`bundled`), `sqlite-vec = "0.1"`, `thiserror = "1"`, `tempfile = "3"` (dev-dep)
+  - `src-tauri/src/lib.rs` — flipped `mod store;` → `pub mod store;` (mirrors `pub mod daemon;` so integration tests can reach in); added `store::install(&app.handle())?` call in `setup` between tracing init and daemon spawn — fail-fast if migrations error before any tokio task spawns against a broken DB
+- **Existing scaffold preserved:** all 9 pre-Session-2 `.rs` files (`autofix.rs`, `connect.rs`, `desktop_auth.rs`, `fingerprint.rs`, `inari_watcher.rs`, `local_ingest.rs`, `onboarding.rs`, `saves.rs`, `settings.rs`) untouched. The `dirs` crate stays in `Cargo.toml` — its 7 callers (everything except `lib.rs::read_desktop_config`) live in pre-Session-2 files that Session 1 marked intocable. Their migration to `app.path().*` lands in their owning sessions per `ARCHITECTURE.md`.
+- **Key implementation choices:**
+  - **Hand-rolled migration runner** (`store/migrations.rs`, ~80 LoC) over refinery: only 3 migrations, no rollback story needed. SQL is `include_str!`-baked into the binary; each migration runs in its own transaction; `schema_versions(version,name,applied_at)` provides idempotency. Adding a new migration = append a new entry to `MIGRATIONS`, never re-order.
+  - **sqlite-vec via `sqlite3_auto_extension`** registered exactly once via `std::sync::Once` (`store/pool.rs`). Every connection produced by `r2d2_sqlite::SqliteConnectionManager` then auto-loads the vec0 module with no per-acquire FFI calls. Per-acquire PRAGMAs (`journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`, `mmap_size=256MB`, `busy_timeout=5s`) come from a `r2d2::CustomizeConnection` impl — applied to **every** pooled connection, not only the first.
+  - **Embedding dimension = 384** (MiniLM-L6-v2). HANDOFF.md said 1024 in the Session 3 spec body but Session 6's spec says 384 and `fastembed-rs` ships MiniLM-L6-v2 as the default model — 384 is correct. See `INARI_LIVE_DECISIONS.md` "Sesión 3 — embedding dimension".
+  - **Settings TOML→SQL cutover DEFERRED to Session 4.** The current TOML-backed `settings.rs` works; cutting over now would require touching `settings.rs` (allowed by user) but more importantly it would orphan the 6 *other* `dirs::config_dir()`-using files (`autofix.rs`, `connect.rs`, `desktop_auth.rs`, `inari_watcher.rs`, `local_ingest.rs`, `saves.rs`, `onboarding.rs`) which Session 1 marked intocable. Session 4 owns the `cloud/auth.rs` + `ipc/settings.rs` + `cloud/saves.rs` renames per ARCHITECTURE.md migration plan — that's the natural boundary to migrate the path resolver and drop `dirs`. See `INARI_LIVE_DECISIONS.md` "Sesión 3 — settings cutover deferred".
+- **Pool sizing:** `pool::POOL_SIZE = 4` (read-mostly workload, matches the spec recap perf budget of <120MB RAM idle).
+- **Pre-existing test failure (NOT touched):** `src/fingerprint.rs::tests::paths_and_timestamps_normalized` still fails. Session 11 owns the move + fix when fingerprint relocates to `memory/fingerprint.rs`.
+- **Notes for Session 4 (IPC bridge):**
+  1. **`Arc<Store>` is already in `tauri::State`.** Tauri commands reach it with `state: tauri::State<'_, Arc<inariwatch_desktop_lib::store::Store>>`. No extra wiring needed in Session 4 — just declare it as a parameter on the relevant `#[tauri::command]` fns. The `Arc<DaemonHandle>` is registered the same way; the two cohabit cleanly.
+  2. **Heavy-data IPC rule still applies.** `Vec<f32>` embeddings, full ASTs, > 10k-entry repo lists, > 100KB diffs — none of these flow through Tauri IPC. Session 7's MCP HTTP transport (`127.0.0.1:9876`) is the heavy-data path. Session 4's `daemon_status` / `list_repos` / `open_repo` / `close_repo` / `get_logs` are all light-payload and OK.
+  3. **`StoreError` wraps `rusqlite`/`r2d2`/`io` plus a per-migration variant + `PathResolution` + `ExtensionLoad`.** When Session 4 maps store errors into `IpcError`, prefer matching on the variant rather than stringifying — the `Migration { version, name, .. }` variant in particular is useful for surfacing "DB is from a newer build" messages once we ship updates.
+  4. **Bonus / Session 4 setup work**: when Session 4 introduces a Tauri test harness (`tauri::test::mock_app()` or `MockBuilder`), un-`#[ignore]` `tests/store_path_resolution.rs::resolve_db_path_via_tauri_apphandle` — the test body is already written as a stub.
+  5. **Settings TOML→SQL migration is owed to Session 4.** Plan: read existing `~/.config/inari/desktop.toml` once on first SQL-mode boot → upsert each key into the `settings(key, value, updated_at)` table from migration 0001 → rename the TOML file to `desktop.toml.migrated`. Never delete the user's data. After this lands, drop `dirs` from `Cargo.toml` and migrate the remaining 6 callers to `app.path().*`. Touch points: `cloud/auth.rs` (renamed from `desktop_auth.rs`), `cloud/saves.rs` (renamed from `saves.rs`), `cloud/alert_poller.rs` (extracted from `lib.rs::start_alert_poller`), `ipc/onboarding.rs` (renamed from `onboarding.rs`), and the legacy callers in `autofix.rs`/`connect.rs`/`local_ingest.rs`/`inari_watcher.rs` that Sessions 5/10/19 retire.
+- **Definition of done:** ✅ `Cargo.toml` adds 5 deps, no removals; ✅ `store::install` wired in `setup`; ✅ all 3 migrations apply on a fresh DB and are idempotent on re-open; ✅ WAL mode + `foreign_keys=on` + `busy_timeout=5000` confirmed; ✅ `vec_version()` returns a non-empty string; ✅ inserting two orthogonal 384-dim vectors and computing `vec_distance_cosine` returns ≈1; ✅ 4 concurrent threads from a 4-conn pool all see PRAGMAs and successfully write; ✅ FK cascade actually deletes child rows; ✅ resolved DB path is `<app_local_data_dir>/inari-live/store.db`.
 
 ### Session 4 — IPC bridge: Tauri commands + typed events to webview (4h)
 

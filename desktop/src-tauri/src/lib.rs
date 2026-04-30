@@ -29,6 +29,10 @@ mod settings;
 pub mod daemon;
 mod window;
 
+// Session 3 — local store. `pub` for the same reason as `daemon`:
+// integration tests in `tests/` exercise migrations/PRAGMAs/sqlite-vec.
+pub mod store;
+
 // Empty skeletons created in Session 2; filled in by their owning sessions.
 mod ai;
 mod cli;
@@ -38,7 +42,6 @@ mod indexer;
 mod ipc;
 mod memory;
 mod sensors;
-mod store;
 mod telemetry;
 mod updater;
 
@@ -85,6 +88,19 @@ pub fn run() {
             // long as the app (drop = lose tail-end logs).
             if let Some(guard) = init_tracing(&app.handle()) {
                 app.manage(LoggingGuard(guard));
+            }
+
+            // Session 3 — local SQLite store (rusqlite + r2d2 + sqlite-vec).
+            // Resolved under app_local_data_dir so dev / installed /
+            // CI builds all stay isolated. Migrations run synchronously
+            // here — failure aborts setup before the daemon spawns so
+            // we don't leak a runtime task against a broken DB.
+            match store::install(&app.handle()) {
+                Ok(_)  => {}
+                Err(e) => {
+                    tracing::error!(error = %e, "store init failed");
+                    return Err(Box::new(e) as Box<dyn std::error::Error>);
+                }
             }
 
             // Daemon: heartbeat every 30s, graceful shutdown drain 5s.
