@@ -34,7 +34,10 @@ mod cli;
 
 // Empty skeletons created in Session 2; filled in by their owning sessions.
 mod gates;
-mod indexer;
+// `pub` so integration tests in `tests/indexer_*` can reach
+// `crate::indexer::{parser, semantic, Lang, ...}`. Same precedent as
+// `daemon` (S2), `store` (S3), `sensors` (S5/S7).
+pub mod indexer;
 mod memory;
 // `pub` so integration tests in `tests/fs_*` and `tests/mcp_*` can drive
 // the FS sensor actor and mount the MCP axum router. Same precedent as
@@ -168,6 +171,20 @@ pub fn run() {
                     }
                 });
             }
+
+            // Session 6 — indexer. Subscribes to the daemon bus and
+            // bootstraps embeddings on `RepoIndexed`, re-indexes on
+            // `FsChange`, full re-walk on `ReindexRequested`. The
+            // fastembed model cache lives under the same
+            // `<app_local_data_dir>/inari-live/` tree the store + auth
+            // files live under, so a clean uninstall removes it.
+            if let Ok(local_dir) = app.path().app_local_data_dir() {
+                indexer::set_cache_dir(local_dir.join("inari-live").join("models"));
+            }
+            let _indexer_handle = indexer::spawn_indexer(
+                daemon_handle.clone(),
+                store.clone(),
+            );
 
             setup_window(app)?;
             setup_tray(app, daemon_handle.clone())?;
