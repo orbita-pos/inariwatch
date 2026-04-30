@@ -11,6 +11,15 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "inariwatch-desktop"
 path = "src/main.rs"
 
+# Session 7 — sidecar binary that Claude Code / Codex / Cursor / Zed
+# spawn over stdio. It is a CLIENT of the daemon's local HTTP MCP
+# transport, not a second instance of the server. Reads JSON-RPC frames
+# from stdin, forwards over `127.0.0.1:<mcp_port>` (HTTP + Bearer), and
+# writes responses back to stdout.
+[[bin]]
+name = "inari-mcp-stdio"
+path = "src/bin/inari_mcp_stdio.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -28,7 +37,7 @@ flume                    = "0.11"
 tracing                  = "0.1"
 tracing-subscriber       = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender         = "0.2"
-reqwest                  = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+reqwest                  = { version = "0.12", features = ["json", "rustls-tls", "stream", "blocking"], default-features = false }
 dirs                     = "5"
 toml                     = "0.8"
 notify                   = "6"
@@ -55,6 +64,19 @@ thiserror                = "1"
 # regenerator test needed.
 ts-rs                    = { version = "8", features = ["serde-json-impl"] }
 
+# Session 7 — local MCP server. axum hosts JSON-RPC 2.0 over HTTP on
+# 127.0.0.1:<mcp_port>. tower / tower-http are already transitive
+# (reqwest pulls them) but Cargo recommends declaring them explicitly
+# when we use axum's middleware. uuid is used to generate the Bearer
+# token persisted at first launch.
+axum                     = { version = "0.7", features = ["json", "tokio"] }
+tower                    = "0.5"
+tower-http               = { version = "0.5", features = ["trace", "cors"] }
+uuid                     = { version = "1", features = ["v4"] }
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
+# Session 7 — integration tests fire HTTP requests at the running
+# axum router. reqwest already declared as a runtime dep above; the
+# JSON feature is enough.

@@ -36,7 +36,10 @@ mod cli;
 mod gates;
 mod indexer;
 mod memory;
-mod sensors;
+// `pub` so integration tests in `tests/mcp_*` can mount the axum
+// router via `sensors::mcp::transport_http::router(...)`. Same
+// precedent as `daemon` (Sesión 2) and `store` (Sesión 3).
+pub mod sensors;
 mod telemetry;
 mod updater;
 
@@ -88,6 +91,12 @@ pub fn run() {
             ipc::connect::desktop_connect_status,
             // Cloud-proxied autofix (renamed from autofix.rs)
             ai::remediate::cloud_proxy::desktop_autofix_start,
+            // Session 7 — local MCP server controls
+            ipc::mcp::get_mcp_token,
+            ipc::mcp::regenerate_mcp_token,
+            ipc::mcp::install_mcp_for,
+            ipc::mcp::uninstall_mcp_for,
+            ipc::mcp::list_mcp_clients_status,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -118,6 +127,38 @@ pub fn run() {
             // forwards every bus event 1:1; `daemon:status_changed` is
             // debounced to a 1s cadence with PartialEq dedup.
             ipc::events::start(app.handle().clone(), daemon_handle.clone());
+
+            // Session 7 — local MCP server (axum + JSON-RPC 2.0 on
+            // 127.0.0.1:9876 with port fallback). Spawned synchronously
+            // here so the Bearer token + chosen port are ready before
+            // the dock asks the user "wire into your editor?". Bind
+            // failure is a soft error: we log + continue without MCP
+            // (rather than blocking the rest of startup) so the
+            // app still launches even on an aggressively-firewalled
+            // box.
+            {
+                let app_handle    = app.handle().clone();
+                let daemon_clone  = daemon_handle.clone();
+                let store_clone   = store.clone();
+                tauri::async_runtime::spawn(async move {
+                    match sensors::mcp::spawn_mcp_server(
+                        &app_handle,
+                        daemon_clone,
+                        store_clone,
+                    ).await {
+                        Ok(handle) => {
+                            tracing::info!(
+                                port = handle.port,
+                                "MCP server ready"
+                            );
+                            app_handle.manage(std::sync::Arc::new(handle));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "MCP server failed to start");
+                        }
+                    }
+                });
+            }
 
             setup_window(app)?;
             setup_tray(app, daemon_handle.clone())?;

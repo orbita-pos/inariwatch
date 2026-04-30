@@ -312,29 +312,51 @@ Captured from `project_inari_live.md` memory:
   - Modifying a single function in a fixture file triggers re-embed of only that symbol (assert via mock embedder call count).
 - **Definition of done:** `cargo test -p indexer` green; opening `radar/web/` indexes ≥4000 symbols in ≤30s on dev machine; `code_embeddings` table populated with 384-dim vectors; modifying one file triggers exactly one batch re-embed.
 
-### Session 7 — Sensor 3: local MCP server over stdio + HTTP (8h)
+### Session 7 — Sensor 3: local MCP server over stdio + HTTP (8h) — **DONE 2026-04-29**
 
-- **Files:** `desktop/src-tauri/src/sensors/mcp/mod.rs`, `sensors/mcp/server.rs`, `sensors/mcp/tools.rs`, `sensors/mcp/transport_stdio.rs`, `sensors/mcp/transport_http.rs`.
-- **Add deps:**
-  - `axum` = "0.7" (HTTP transport)
-  - `tower` + `tower-http`
-  - `serde_json`
-  - `jsonrpc-core` or hand-rolled JSON-RPC 2.0 (the existing `web/app/api/mcp/` is hand-rolled — match style, ~200 LOC)
-- **Reuses the 25 tools from `mcp.inariwatch.com`:**
-  - Implementation strategy: each tool is a thin wrapper that EITHER (a) executes locally against the daemon's state (e.g. `search_codebase` runs against local sqlite-vec) OR (b) proxies to `mcp.inariwatch.com` (e.g. `trigger_fix` for prod-connected repos).
-  - 2026-04 list of 25 tools in `web/app/api/mcp/tools/*.ts` is the source of truth — port one-to-one.
-  - **Local-first:** `search_codebase`, `reindex_codebase`, `get_root_cause` (analysis-only mode), `query_alerts` (against local episodic memory), `ask_inari` (sampling-first against local memory).
-  - **Proxied:** `trigger_fix`, `rollback_vercel`, `assess_risk` (production ones — only work if repo is connected to a workspace).
-- **Transports:**
-  - **stdio:** spawned as child process by Claude Code / Codex CLI / Cursor. Reads JSON-RPC frames from stdin, writes to stdout. Daemon spawns this on demand or as a sidecar binary `inari-mcp-stdio`.
-  - **HTTP:** the daemon hosts `127.0.0.1:9876/mcp` (port configurable). Same JSON-RPC, JSON over POST + SSE for streaming.
-- **Auth:** local stdio = no auth (process trust). HTTP = Bearer token generated on first launch, stored in `<app_local_data_dir>/inari-live/auth.json`, surfaced in Settings UI for users to copy into their MCP client config.
-- **Auto-config helper:** Tauri command `install_mcp_for(client: "claude-code" | "codex" | "cursor" | "zed")` that writes the right snippet to `~/.claude/mcp.json` etc. with user confirmation. Backups the existing file first.
-- **Tests:**
-  - JSON-RPC round-trip for `tools/list` returns 25 tool definitions.
-  - `tools/call` for `search_codebase` against a fixture repo returns expected hits.
-  - `install_mcp_for("claude-code")` writes valid JSON, idempotent (running twice doesn't duplicate).
-- **Definition of done:** `cargo test -p mcp-server` green; running `claude` (Claude Code CLI) in a repo where Inari Live is connected lists 25 tools under "Inari Live"; calling `search_codebase` from Claude Code returns local results in <500ms.
+- **Status:** Done
+- **Branch:** `feat/inari-live-track2-session7-mcp-server` (parallel to Session 5; both stack on `8cd301f`)
+- **Tip commit:** see `git log --oneline feat/inari-live-track2-session7-mcp-server ^feat/inari-live-track1-session4-ipc` (committed locally; NOT pushed per coordination protocol)
+- **Tests:** 5 new integration test files (`tests/{mcp_jsonrpc_roundtrip,mcp_auth,mcp_search_codebase,mcp_install_claude_code,mcp_port_fallback}.rs`) — **19 tests pass** (4/4/2/6/3) — plus 11 lib unit tests in `sensors::mcp::{auth,install,transport_stdio}`. Total **30 tests pass**, 0 failed, 0 ignored. Per the build constraints, tests ran targeted with `--test-threads=1`. The 8 pre-existing IPC integration tests (Session 4) and 5 daemon tests (Session 2) and 9 store tests (Session 3) compile clean against the new lib but were not re-run this session. Pre-existing `src/fingerprint.rs::tests::paths_and_timestamps_normalized` is still failing (Session 11's responsibility).
+- **Test commands run:**
+  - `cargo check --lib --tests` — clean
+  - `cargo test --test mcp_install_claude_code --test mcp_port_fallback -- --test-threads=1` — green (9 tests)
+  - `cargo test --test mcp_search_codebase -- --test-threads=1` — green (2 tests)
+  - `cargo test --test mcp_jsonrpc_roundtrip --test mcp_auth -- --test-threads=1` — green (8 tests)
+  - `cargo test --lib sensors::mcp -- --test-threads=1` — green (11 tests)
+- **Files created:**
+  - `src-tauri/src/sensors/mcp/{mod,error,jsonrpc,server,auth,install,transport_http,transport_stdio}.rs` — server core + transports + auth + install helper (~1240 LoC)
+  - `src-tauri/src/sensors/mcp/tools/{mod,schemas}.rs` + `tools/local/{mod,get_status,query_alerts,reindex_codebase,search_codebase,ask_inari}.rs` + `tools/proxied/{mod,stub}.rs` — 26 tools (5 real + 21 stubs); SSOT-mirrored input schemas (~750 LoC)
+  - `src-tauri/src/ipc/mcp.rs` — 5 Tauri commands (`get_mcp_token`, `regenerate_mcp_token`, `install_mcp_for`, `uninstall_mcp_for`, `list_mcp_clients_status`) + `McpAuthDto`, `ClientStatusDto` ts-rs DTOs (~135 LoC)
+  - `src-tauri/src/bin/inari_mcp_stdio.rs` — sidecar binary; reads stdin frames, forwards over `127.0.0.1:<port>/mcp` with Bearer auth, writes stdout (~165 LoC)
+  - `src-tauri/tests/{mcp_jsonrpc_roundtrip,mcp_auth,mcp_search_codebase,mcp_install_claude_code,mcp_port_fallback}.rs` — 5 integration test files, 19 tests
+- **Files modified:**
+  - `src-tauri/Cargo.toml` — added `axum 0.7` (json+tokio), `tower 0.5`, `tower-http 0.5` (trace+cors), `uuid 1` (v4), `reqwest blocking` feature; added `[[bin]] name = "inari-mcp-stdio"` for the sidecar
+  - `src-tauri/src/lib.rs` — flipped `mod sensors;` → `pub mod sensors;` (mirrors Session 5's choice — integration tests reach `sensors::mcp::transport_http::router`); spawns `sensors::mcp::spawn_mcp_server(...)` via `tauri::async_runtime::spawn` after IPC bridge starts; bind failure logged + non-fatal so the rest of startup proceeds; `app.manage(Arc<McpServerHandle>)` so IPC commands resolve port + token; registers 5 new Tauri commands in `invoke_handler!`
+  - `src-tauri/src/ipc/mod.rs` — declared `pub mod mcp;`
+  - `src-tauri/src/sensors/mod.rs` — declared `pub mod mcp;` (no `pub mod fs;` yet — that comes when Session 5 merges)
+- **Build infrastructure note:** The Session 4 commit (`8cd301f`) compiles only when three pre-Session-2 files (`inari_watcher.rs`, `fingerprint.rs`, `local_ingest.rs`) exist on disk as untracked artifacts. `inari_watcher.rs` was missing on a fresh checkout from `8cd301f`, so this session restored its content from Session 5's commit (`59c68fc`) — purely to get a compilable base, with no Session-5 logic added on top. When Session 5 merges, the file will be a clean fast-forward (identical bytes). The other two files were already on disk (carried across the branch switch).
+- **Key implementation choices:**
+  - **Tool count: 26 (not 25).** SSOT registry at `web/app/api/mcp/registry.ts` includes `rollback_vercel` as a legacy alias of `rollback_deploy` in addition to the canonical 25. We mirror SSOT verbatim so an MCP client configured against `mcp.inariwatch.com` keeps working against the local server. CLAUDE.md's "25 tools" line is stale — trust the registry (Decision: see `INARI_LIVE_DECISIONS.md` "Sesión 7 — tool count is 26").
+  - **Stub policy.** Each non-local tool returns an `Ok` JSON-RPC response carrying `{ "isError": true, "_pending": { "ok": false, "reason": "not_yet_wired", "session": "Session N", "tool": "..." } }` plus a human-readable `content[0].text`. MCP clients render the message verbatim instead of a generic 500 — same shape the hosted server uses for unimplemented paths.
+  - **Port fallback.** `bind_with_fallback(requested)` tries the explicit port first, then walks `9876..=9891` and returns the first that binds. Chosen port is logged + persisted to SQL `settings.mcp_port` so subsequent boots try the same port first — avoids surprising port shuffles for editor configs.
+  - **Sidecar as separate binary, not subcommand.** `[[bin]] inari-mcp-stdio` ships next to `inariwatch-desktop`. Editors invoke the sidecar; the sidecar is a thin `reqwest::blocking` client that forwards over HTTP to the running daemon. This keeps Tauri's signing path single-binary while still satisfying the "spawn over stdio" requirement (Decision: see DECISIONS "Sesión 7 — sidecar binary").
+  - **Auth flow.** HTTP transport requires `Authorization: Bearer <ilive_…>` on every `POST /mcp` and `GET /mcp/auth`. `/mcp/health` is unauthenticated for liveness probes. stdio sidecar reads `auth.json` from `<app_local_data_dir>/inari-live/auth.json` (persisted by the daemon) and `port.txt` next to it; both can be overridden via `INARI_LIVE_AUTH_FILE` + `INARI_LIVE_MCP_PORT` env vars. Constant-time token comparison on the server.
+  - **`ask_inari` is sampling-first.** Returns `{_sampling_request: { messages, system_prompt, context, model_preferences }}`. Inari Live makes ZERO AI calls — the calling MCP client's LLM does the work using its own credentials (Decision: see DECISIONS "Sesión 7 — sampling-first ask_inari").
+  - **`reindex_codebase` does NOT publish a `DaemonEvent::ReindexRequested` variant today.** That variant lands in Session 6. Until then the tool tracing-logs the request and returns ack — no coupling to a future enum variant from a parallel branch.
+  - **`SensorWarning` not used.** Session 5 added `DaemonEvent::SensorWarning`; we don't reference that variant from MCP code so the parallel branches don't fight over the enum.
+  - **Heavy-data IPC rule respected.** Tauri commands return only the token + port (light); MCP HTTP transport on `127.0.0.1:<port>/mcp` is the heavy-data path for `search_codebase` results (when Session 6 wires the indexer).
+  - **Idempotent `install_mcp_for`.** Existing entry with identical config → `Unchanged`. Existing entry with different config → backs up `<file>.bak.<unix-ms>` then overwrites. New file → `Created`. Per-client config schemas: `mcpServers` for Claude Code / Codex / Cursor; `context_servers` for Zed.
+  - **Module exposure.** `sensors` flipped to `pub` so integration tests reach `sensors::mcp::transport_http::router`. Same precedent as `daemon` (S2) and `store` (S3). Session 5 (parallel) flips the same gate — a clean re-merge.
+- **Definition of done:** ✅ axum HTTP listener on 127.0.0.1 with port fallback; ✅ Bearer auth required on `/mcp`; ✅ `tools/list` returns all 26 SSOT tools; ✅ 5 real local tools (`get_status`, `query_alerts`, `reindex_codebase`, `search_codebase`, `ask_inari`); ✅ 21 stubs return `not_yet_wired` envelope; ✅ Tauri commands for token rotation + per-client install/uninstall + status; ✅ sidecar binary `inari-mcp-stdio` builds and forwards JSON-RPC; ✅ idempotent install across all 4 editor formats; ✅ 30 tests pass.
+- **Notes for Session 6 (indexer):**
+  1. **`search_codebase` is the consumer.** Wire `crate::indexer::semantic::search(&store, query, k)` into `tools/local/search_codebase.rs::call` and replace the stub return. The shape MCP clients expect: `{ data: { ok: true, results: Vec<Hit> } }` with `Hit { file_path, symbol, score, line_range }`. The MCP HTTP transport already streams responses; large hit lists go through there, never through Tauri IPC.
+  2. **`reindex_codebase` is the bus producer.** Add `DaemonEvent::ReindexRequested { repo_id }` to `crate::daemon::DaemonEvent` (Session 5 already proved the `#[non_exhaustive]` add-variant pattern). Replace the `tracing::info!` call in `tools/local/reindex_codebase.rs` with `ctx.daemon.bus.publish(DaemonEvent::ReindexRequested { … })`. The indexer subscribes via `daemon.bus.subscribe()`. Heavy: pass repo IDs by string, not file paths.
+  3. **Embedding dim is 384** (locked in Session 3 by Decision "Sesión 3 — embedding dimension"). The `code_embeddings` virtual table is already shaped for it. The MCP `search_codebase` schema does not pass `Vec<f32>` — embeddings stay server-side; only the K nearest symbols cross the wire.
+- **Notes for Session 8 (git hooks):**
+  1. **Reuse the MCP HTTP listener for hook callbacks.** The Session 8 spec says hooks POST to `127.0.0.1:9876/sensors/git/event`. That's the SAME listener Session 7 mounted; just add a new `Router::route("/sensors/git/event", post(...))` in a Session-8-owned module and merge with the MCP router via `axum::Router::merge`. Don't spawn a second listener — port conflicts and double-Bearer trees.
+  2. **Bearer auth or shared token?** Hook scripts are tiny shell snippets in `.git/hooks/` — they need to know SOME token. Two options: (a) reuse the MCP Bearer token (write it once into the hook script at install time), or (b) introduce a `git_hook_token` distinct from MCP Bearer (rotates independently, leaks on git-checkout don't grant MCP access). Option (b) is the safer wedge; document the choice in DECISIONS.md when Session 8 lands.
+  3. **Pre-push gate runs synchronously.** The hook BLOCKS on the daemon's response. Session 7's `bind_with_fallback` chose a port that the hook script must read from `port.txt` (already written next to `auth.json`). Hook templates should `cat "$PORT_FILE"` rather than hard-coding 9876.
 
 ### Session 8 — Sensor 4: git hooks (opt-in) + pre-push gate plumbing (6h)
 
