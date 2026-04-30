@@ -120,6 +120,11 @@ fastembed                = "4"
 pulldown-cmark           = "0.10"
 pulldown-cmark-to-cmark  = "13"
 
+# Session 14 — dock chrome.
+# `window-vibrancy` exposes the OS-native blur APIs (NSVisualEffect on
+# macOS, Acrylic on Windows). On Linux it is a no-op fallback.
+window-vibrancy          = "0.5"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"

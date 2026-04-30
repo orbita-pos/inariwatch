@@ -1,10 +1,13 @@
-//! Window glue. Skeleton for Session 14 (full dock + main + settings + tray).
-//! This session ships:
-//!   * `dock::{show, hide, toggle}` — placeholder transparent webview
-//!   * `main::show_main` — re-show the existing 1280×820 main window
-//! Real dock chrome (vibrancy, Accessory policy, 720×480 transparent)
-//! lands in Session 14 along with the React+Vite shell.
+//! Window glue. Session 14 fleshes this out into the full dock + main +
+//! tray + settings + shortcut surface.
+//!
+//! Modules:
+//!   * `dock`      — 720x480 transparent vibrancy/acrylic always-on-top window
+//!   * `main`      — 1280x800 main React shell window helpers
+//!   * `settings`  — settings window opener (Session 17 swaps the URL)
+//!   * `shortcuts` — global shortcut dispatch table (Session 14)
 
 pub mod dock;
 pub mod main;
 pub mod settings;
+pub mod shortcuts;

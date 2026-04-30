@@ -1,0 +1,181 @@
+/*
+ * Inari Live — global styles. Loaded by every Vite entry (dock / main / dev).
+ *
+ * Design tokens are LOCKED per HANDOFF spec recap. Mods to the OKLCH palette,
+ * radius scale, shadow scale, durations, or font stacks require an entry in
+ * INARI_LIVE_DECISIONS.md before being merged.
+ *
+ * Tailwind v4: tokens declared inside `@theme {}` become both CSS vars and
+ * utility classes (e.g. `bg-primary`, `text-text`, `rounded-md`). The fallback
+ * dark-mode tokens reuse the same names so `data-theme="dark"` switches them
+ * cleanly without per-component overrides.
+ */
+
+@import "tailwindcss";
+
+/* ───── Bundled fonts (offline-first) ───────────────────────────────────────
+ *
+ * The actual `.woff2` payloads are NOT shipped in this commit — see
+ * `desktop/public/fonts/README.md` for sourcing instructions and the
+ * `font_sourcing` decision in INARI_LIVE_DECISIONS.md (Sesión 14). Until
+ * the files land, browsers fall back through the @font-face stack to the
+ * platform `system-ui`, `Georgia`, and `ui-monospace` fonts — visually
+ * acceptable for tests and CI.
+ */
+@font-face {
+  font-family: "Inter Variable";
+  src: url("/fonts/Inter-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  src: url("/fonts/JetBrainsMono-Variable.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("/fonts/SourceSerif4-Variable.woff2") format("woff2-variations");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  /* OKLCH palette — locked per Spec recap (HANDOFF.md). */
+  --color-bg: oklch(0.99 0 0);
+  --color-bg-dark: oklch(0.1 0 0);
+  --color-surface: oklch(0.97 0 0);
+  --color-surface-dark: oklch(0.13 0 0);
+  --color-border: oklch(0.92 0 0);
+  --color-border-dark: oklch(0.18 0 0);
+  --color-text: oklch(0.2 0 0);
+  --color-text-dark: oklch(0.95 0 0);
+  --color-muted: oklch(0.5 0 0);
+  --color-muted-dark: oklch(0.65 0 0);
+  --color-primary: oklch(0.62 0.18 240);
+  --color-success: oklch(0.65 0.18 145);
+  --color-warning: oklch(0.78 0.16 75);
+  --color-danger: oklch(0.62 0.21 25);
+  --color-ai: oklch(0.65 0.2 285);
+
+  /* Radius scale */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+
+  /* Shadow scale — soft, layered, no hard edges. */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-2: 0 4px 12px rgb(0 0 0 / 0.1);
+  --shadow-3: 0 12px 24px rgb(0 0 0 / 0.15);
+
+  /* Motion. The spring easing is used for "reveal" interactions (open dock,
+   * apply fix). Reduced-motion swaps to fade-only via the override below. */
+  --duration-fast: 150ms;
+  --duration-medium: 200ms;
+  --easing-spring: cubic-bezier(0.5, 1.5, 0.4, 1);
+  --easing-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Typography */
+  --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
+  --font-serif: "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Mono", monospace;
+}
+
+/* Resolved tokens that the rest of the app reads via `var()`.
+ *
+ * Tailwind v4 does NOT auto-emit dark variants for arbitrary CSS vars; we
+ * manage the swap by hand here so utilities like `bg-[var(--bg)]` keep
+ * working in both themes. */
+:root {
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --muted: var(--color-muted);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"],
+:root[data-theme="auto"]:where([data-system-theme="dark"]) {
+  --bg: var(--color-bg-dark);
+  --surface: var(--color-surface-dark);
+  --border: var(--color-border-dark);
+  --text: var(--color-text-dark);
+  --muted: var(--color-muted-dark);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]),
+  :root[data-theme="auto"]:not([data-system-theme="light"]) {
+    --bg: var(--color-bg-dark);
+    --surface: var(--color-surface-dark);
+    --border: var(--color-border-dark);
+    --text: var(--color-text-dark);
+    --muted: var(--color-muted-dark);
+    color-scheme: dark;
+  }
+}
+
+/* Reduced-motion: collapse motion tokens. Components that read these vars
+ * (everything that uses `transition: var(--duration-fast)`) automatically
+ * become near-instant; Framer Motion components separately consult the
+ * `useReducedMotion()` hook to drop springs. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-medium: 0ms;
+    --easing-spring: linear;
+    --easing-out: linear;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ───── Base ───────────────────────────────────────────────────────────── */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body.dock-window {
+  /* Dock is transparent — chrome (vibrancy/acrylic) lives at the OS layer,
+   * not the body. We render the visible "card" inside the React tree so the
+   * OS-level effect shows through the gaps. */
+  background: transparent;
+}
+
+/* Remove the focus outline on mouse clicks but keep it for keyboard users.
+ * Standard accessibility pattern; works in all evergreen browsers. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

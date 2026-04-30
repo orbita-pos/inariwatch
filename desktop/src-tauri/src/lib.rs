@@ -7,7 +7,7 @@ use tauri::{
     WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_plugin_notification::NotificationExt;
 
 // Pre-Session-2 modules still owned by their named sessions:
@@ -23,7 +23,11 @@ mod inari_watcher;
 
 // Session 2 — daemon core + window helpers.
 pub mod daemon;
-mod window;
+// `pub` so the Session 14 integration tests in `tests/window_*` can
+// reach `crate::window::dock::*` / `window::main::*` /
+// `window::shortcuts::{resolve, ShortcutAction}`. Same precedent as
+// `daemon` (S2), `store` (S3), `sensors` (S5/S7), `indexer` (S6).
+pub mod window;
 
 // Session 3 — local store. `pub` for the same reason as `daemon`:
 // integration tests in `tests/` exercise migrations/PRAGMAs/sqlite-vec.
@@ -70,10 +74,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        window::dock::toggle_dock(app);
-                    }
+                // Session 14 — fan out fired shortcuts via window::shortcuts::handle_event.
+                .with_handler(|app, shortcut, event| {
+                    window::shortcuts::handle_event(app, shortcut, event.state());
                 })
                 .build(),
         )
@@ -472,18 +475,15 @@ fn init_tracing(app: &AppHandle) -> Option<tracing_appender::non_blocking::Worke
 // ── Global shortcut ───────────────────────────────────────────────────────────
 
 fn register_global_shortcut(app: &AppHandle) {
-    #[cfg(target_os = "macos")]
-    let modifier = Modifiers::SUPER;
-    #[cfg(not(target_os = "macos"))]
-    let modifier = Modifiers::CONTROL;
+    // Session 14 — dispatch table lives in window::shortcuts::register.
+    let count = window::shortcuts::register(app);
+    tracing::info!(count, "registered global shortcuts");
+}
 
-    let shortcut = Shortcut::new(Some(modifier), Code::Space);
-
-    if let Err(e) = app.global_shortcut().register(shortcut) {
-        tracing::warn!(error = %e, "failed to register global shortcut Cmd/Ctrl+Space");
-    } else {
-        tracing::info!("registered global shortcut Cmd/Ctrl+Space → toggle dock");
-    }
+#[allow(dead_code)]
+fn _silence_unused_shortcut_state() {
+    // Keep ShortcutState in scope for the plugin handler.
+    let _ = ShortcutState::Pressed;
 }
 
 fn toggle_main_window(app: &AppHandle) {

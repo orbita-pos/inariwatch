@@ -1,26 +1,34 @@
-//! Main window opener. The window itself is created in `lib.rs::setup_window`
-//! during `setup`; this helper just brings it back to focus when the user
-//! re-opens via tray menu.
+//! Main window helpers (Session 14).
 //!
-//! Session 14 will move `setup_window` here and replace the inline URL
-//! resolution with a typed enum.
+//! `lib.rs::setup_window` builds the `main` window pointing at the
+//! production InariWatch dashboard. Session 14 leaves that wiring
+//! untouched (real users on it) and adds these helpers so the dock +
+//! tray + global shortcut share a single re-show entry point.
+//!
+//! Session 17 will swap the URL to `main.html` from the Vite output
+//! and start hidden by default.
 
-// Public API skeleton for Session 14 (`window::setup_window` will move
-// here, plus the `show_main` / `toggle_main` helpers will replace the
-// inline `show_main_window` / `toggle_main_window` in `lib.rs`).
 #![allow(dead_code)]
 
 use tauri::{AppHandle, Manager};
 
+pub const MAIN_LABEL: &str = "main";
+
+/// Locked dimensions per Session 14 spec — exposed as constants so
+/// `tests/window_dock_dimensions.rs` and a future `window_main_dimensions`
+/// can assert against them.
+pub const MAIN_WIDTH: f64 = 1280.0;
+pub const MAIN_HEIGHT: f64 = 800.0;
+
 pub fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(MAIN_LABEL) {
         let _ = w.show();
         let _ = w.set_focus();
     }
 }
 
 pub fn toggle_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(MAIN_LABEL) {
         if w.is_visible().unwrap_or(false) {
             let _ = w.hide();
         } else {
