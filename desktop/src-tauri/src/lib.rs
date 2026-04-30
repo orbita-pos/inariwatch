@@ -7,7 +7,7 @@ use tauri::{
     WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_plugin_notification::NotificationExt;
 
 // Pre-Session-2 modules still owned by their named sessions:
@@ -58,10 +58,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        window::dock::toggle_dock(app);
-                    }
+                // Session 14 — fan out fired shortcuts via window::shortcuts::handle_event.
+                .with_handler(|app, shortcut, event| {
+                    window::shortcuts::handle_event(app, shortcut, event.state());
                 })
                 .build(),
         )
@@ -100,6 +99,11 @@ pub fn run() {
             ipc::mcp::install_mcp_for,
             ipc::mcp::uninstall_mcp_for,
             ipc::mcp::list_mcp_clients_status,
+            // Session 8 — git hook installer + status
+            ipc::git::install_git_hooks,
+            ipc::git::uninstall_git_hooks,
+            ipc::git::git_hooks_status,
+            ipc::git::get_git_hook_token,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -148,15 +152,43 @@ pub fn run() {
             // error: we log + continue without MCP (rather than blocking
             // the rest of startup) so the app still launches even on an
             // aggressively-firewalled box.
+            //
+            // Session 8 — git sensor mounts `/sensors/git/event` on the
+            // same listener via `axum::Router::merge`. Token is loaded
+            // from `<state_dir>/git_hook_token` (separate from the MCP
+            // Bearer per the Session-8 token-separation decision).
             {
                 let app_handle   = app.handle().clone();
                 let daemon_clone = daemon_handle.clone();
                 let store_clone  = store.clone();
                 tauri::async_runtime::spawn(async move {
-                    match sensors::mcp::spawn_mcp_server(
+                    let git_router = match sensors::git::resolve_state_dir(&app_handle) {
+                        Ok(state_dir) => match sensors::git::token::ensure_token(&state_dir) {
+                            Ok(token) => {
+                                let hook_state = sensors::git::hooks::GitHookState {
+                                    daemon: daemon_clone.clone(),
+                                    store:  store_clone.clone(),
+                                    token,
+                                };
+                                Some(sensors::git::hooks::router(hook_state))
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "git_hook_token init failed");
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            tracing::warn!(error = %e, "git sensor state dir resolution failed");
+                            None
+                        }
+                    };
+                    let extras: Vec<axum::Router> = git_router.into_iter().collect();
+
+                    match sensors::mcp::spawn_mcp_server_with_extras(
                         &app_handle,
-                        daemon_clone,
-                        store_clone,
+                        daemon_clone.clone(),
+                        store_clone.clone(),
+                        extras,
                     ).await {
                         Ok(handle) => {
                             tracing::info!(
@@ -164,6 +196,14 @@ pub fn run() {
                                 "MCP server ready"
                             );
                             app_handle.manage(std::sync::Arc::new(handle));
+                            // Session 8 — bookkeeping task for the git
+                            // sensor. The HTTP work runs on the MCP
+                            // listener; this task only owns inc/dec
+                            // sensor count + shutdown drain.
+                            let _git_handle = sensors::git::spawn_git_sensor(
+                                daemon_clone,
+                                store_clone,
+                            );
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "MCP server failed to start");
@@ -404,18 +444,14 @@ fn init_tracing(app: &AppHandle) -> Option<tracing_appender::non_blocking::Worke
 // ── Global shortcut ───────────────────────────────────────────────────────────
 
 fn register_global_shortcut(app: &AppHandle) {
-    #[cfg(target_os = "macos")]
-    let modifier = Modifiers::SUPER;
-    #[cfg(not(target_os = "macos"))]
-    let modifier = Modifiers::CONTROL;
+    // Session 14 — dispatch table lives in window::shortcuts::register.
+    let count = window::shortcuts::register(app);
+    tracing::info!(count, "registered global shortcuts");
+}
 
-    let shortcut = Shortcut::new(Some(modifier), Code::Space);
-
-    if let Err(e) = app.global_shortcut().register(shortcut) {
-        tracing::warn!(error = %e, "failed to register global shortcut Cmd/Ctrl+Space");
-    } else {
-        tracing::info!("registered global shortcut Cmd/Ctrl+Space → toggle dock");
-    }
+#[allow(dead_code)]
+fn _silence_unused_shortcut_state() {
+    let _ = ShortcutState::Pressed;
 }
 
 fn toggle_main_window(app: &AppHandle) {
