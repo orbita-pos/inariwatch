@@ -93,6 +93,26 @@ tower                    = "0.5"
 tower-http               = { version = "0.5", features = ["trace", "cors"] }
 uuid                     = { version = "1", features = ["v4"] }
 
+# Session 6 — indexer.
+# tree-sitter parsers for the 5 languages Inari Live indexes today.
+# Versions are pinned to the 0.21/0.22 line because the upstream
+# `tree-sitter` API broke in 0.23 (the grammar crates haven't followed
+# yet). `tree-sitter-typescript` exposes both the TypeScript and TSX
+# grammars from a single crate.
+#
+# `fastembed` ships the ONNX runtime + lazy-downloads MiniLM-L6-v2 from
+# Hugging Face on first use. The model cache lives at
+# `<app_local_data_dir>/inari-live/models/` (resolved by the indexer at
+# spawn). A cargo build on Windows compiles the bundled ORT C++ source —
+# no external libonnxruntime install is required.
+tree-sitter              = "0.22"
+tree-sitter-typescript   = "0.21"
+tree-sitter-javascript   = "0.21"
+tree-sitter-python       = "0.21"
+tree-sitter-rust         = "0.21"
+tree-sitter-go           = "0.21"
+fastembed                = "4"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
