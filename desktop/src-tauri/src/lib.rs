@@ -99,11 +99,6 @@ pub fn run() {
             ipc::mcp::install_mcp_for,
             ipc::mcp::uninstall_mcp_for,
             ipc::mcp::list_mcp_clients_status,
-            // Session 8 — git hook installer + status
-            ipc::git::install_git_hooks,
-            ipc::git::uninstall_git_hooks,
-            ipc::git::git_hooks_status,
-            ipc::git::get_git_hook_token,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -152,43 +147,15 @@ pub fn run() {
             // error: we log + continue without MCP (rather than blocking
             // the rest of startup) so the app still launches even on an
             // aggressively-firewalled box.
-            //
-            // Session 8 — git sensor mounts `/sensors/git/event` on the
-            // same listener via `axum::Router::merge`. Token is loaded
-            // from `<state_dir>/git_hook_token` (separate from the MCP
-            // Bearer per the Session-8 token-separation decision).
             {
                 let app_handle   = app.handle().clone();
                 let daemon_clone = daemon_handle.clone();
                 let store_clone  = store.clone();
                 tauri::async_runtime::spawn(async move {
-                    let git_router = match sensors::git::resolve_state_dir(&app_handle) {
-                        Ok(state_dir) => match sensors::git::token::ensure_token(&state_dir) {
-                            Ok(token) => {
-                                let hook_state = sensors::git::hooks::GitHookState {
-                                    daemon: daemon_clone.clone(),
-                                    store:  store_clone.clone(),
-                                    token,
-                                };
-                                Some(sensors::git::hooks::router(hook_state))
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "git_hook_token init failed");
-                                None
-                            }
-                        },
-                        Err(e) => {
-                            tracing::warn!(error = %e, "git sensor state dir resolution failed");
-                            None
-                        }
-                    };
-                    let extras: Vec<axum::Router> = git_router.into_iter().collect();
-
-                    match sensors::mcp::spawn_mcp_server_with_extras(
+                    match sensors::mcp::spawn_mcp_server(
                         &app_handle,
-                        daemon_clone.clone(),
-                        store_clone.clone(),
-                        extras,
+                        daemon_clone,
+                        store_clone,
                     ).await {
                         Ok(handle) => {
                             tracing::info!(
@@ -196,14 +163,6 @@ pub fn run() {
                                 "MCP server ready"
                             );
                             app_handle.manage(std::sync::Arc::new(handle));
-                            // Session 8 — bookkeeping task for the git
-                            // sensor. The HTTP work runs on the MCP
-                            // listener; this task only owns inc/dec
-                            // sensor count + shutdown drain.
-                            let _git_handle = sensors::git::spawn_git_sensor(
-                                daemon_clone,
-                                store_clone,
-                            );
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "MCP server failed to start");
@@ -451,6 +410,7 @@ fn register_global_shortcut(app: &AppHandle) {
 
 #[allow(dead_code)]
 fn _silence_unused_shortcut_state() {
+    // Keep ShortcutState in scope for the plugin handler.
     let _ = ShortcutState::Pressed;
 }
 
