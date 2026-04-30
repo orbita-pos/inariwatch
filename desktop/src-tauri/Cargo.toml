@@ -29,9 +29,25 @@ tracing                  = "0.1"
 tracing-subscriber       = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender         = "0.2"
 reqwest                  = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
-dirs                     = "5"
 toml                     = "0.8"
 notify                   = "6"
+# Session 5 — FS sensor.
+# `notify-debouncer-mini` (NOT -full) collapses bursts of save events into
+# one delivery within a 200ms window. Mini was chosen over -full because
+# YEAR1 work measured lower lock contention on monorepo workloads where
+# tens of thousands of paths churn per second; -full's per-path event
+# buffering pays for renames we don't surface in v0.1.
+#
+# `ignore` is the same .gitignore-respecting walker ripgrep / Zed use —
+# git_ignore + git_global + git_exclude in one builder. `globset` is
+# pulled in as a peer for future per-repo allow/deny rules.
+#
+# `rayon` parallelizes the initial walk so a 50k-symbol monorepo doesn't
+# block the daemon reactor.
+notify-debouncer-mini    = "0.4"
+ignore                   = "0.4"
+globset                  = "0.4"
+rayon                    = "1.10"
 sha2                     = "0.10"
 regex                    = "1"
 once_cell                = "1"
