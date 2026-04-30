@@ -1,5 +1,5 @@
 import { CommandPalette } from "@/components/CommandPalette";
-import { Button, Dialog, Input, KbdHint, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
+import { Button, Dialog, Input, KbdHint, Tabs, TabsList, TabsTrigger } from "@/components/ui";
 import { useAppState } from "@/lib/store/useAppState";
 
 /**
