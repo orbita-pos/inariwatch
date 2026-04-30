@@ -870,6 +870,43 @@ Captured from `project_inari_live.md` memory:
   - Reduced-motion: stagger animations are removed but final state is correct.
 - **Definition of done:** `npm run dev` can navigate to a fixture alert + diff via dev shortcuts; the diff for a real fixture file (~50 lines, 2 hunks) renders identically in inline and side-by-side; copying a code line works.
 
+#### Session 16 — Done (2026-05-01)
+
+- **Status:** Done — frontend `tsc --noEmit` exit 0, `npm run build` clean (3.95s), 13 vitest files / **28 tests** / 28 passed (≈7.6s wall). Manual `tauri dev` smoke deferred to Jesus per the prompt's pragmatic DoD.
+- **Worktree:** `C:/Users/jesus/desktop/radar` (main checkout — no parallel session contention this round).
+- **Branch:** `feat/inari-live-track4-session16-dock-modes-3-4` (forked from S15 tip `fb2df6b`).
+- **Source commit:** `9112276` (`feat(inari-live): Sesión 16 — dock Modes 3 (alert) + 4 (diff viewer)`).
+- **Docs commit:** filled by the next commit in this session.
+- **Files added:**
+  - `desktop/src/types/alert.ts` — `Alert` / `Fix` / `GateResult` / `Severity` / `AlertSource` / `DiffPayload` shapes; `GATE_NAMES` 17-tuple aligned with `web/lib/ai/auto-merge-gates.ts`.
+  - `desktop/src/lib/diff/parser.ts` — permissive unified-diff parser. Tracks old/new line-numbers per hunk, detects `Binary files differ` sentinel, degrades to `{ hunks: [], binary: false }` on malformed input.
+  - `desktop/src/lib/diff/__tests__/parser.test.ts` — 3 unit tests (simple 1-hunk, multi-hunk with header + cross-hunk line tracking, binary).
+  - `desktop/src/components/ConfidenceBadge.tsx` — counter animation 0 → value over 600ms via Framer `useMotionValue` + `animate`. Tone (success / warning / danger) keyed off `classifyConfidence`.
+  - `desktop/src/components/GateChecklist.tsx` — vertical list with Framer container/item variants for stagger reveal (50ms default). `data-stagger="off"` exposed for the reduced-motion path.
+  - `desktop/src/components/__tests__/GateChecklist.test.tsx` — 2 tests using `vi.hoisted` + `vi.mock("framer-motion", …)` to swap `useReducedMotion`. Note: matchMedia toggling at the test level doesn't reach Framer's singleton subscription, so direct hook mocking is the canonical pattern (see Decisions).
+  - `desktop/src/components/DiffViewer.tsx` — custom-on-Shiki diff renderer (~430 LOC). Inline + side-by-side via `react-resizable-panels`; persisted split (`inari.diff.split`); hunk collapse via Framer layout; "Show more context" stub between hunks; pure-add and pure-del rows pair adjacent del+add as edits in side-by-side.
+  - `desktop/src/components/__tests__/DiffViewer.test.tsx` — 4 tests (50-line+2-hunk inline, inline↔split toggle + persistence, hunk collapse, binary sentinel). Uses `vi.mock("shiki", …)` to short-circuit the WASM import in jsdom.
+  - `desktop/src/screens/DockAlert.tsx` — Mode 3. Severity-tinted header, body with stack-trace pre + diagnosis serif block + 3 metadata chips (`ConfidenceBadge`, risk, lines), 3-button footer. Hosts the `ApplyButton` morph component (idle → progress → ✓/✗) reused by Mode 4.
+  - `desktop/src/screens/__tests__/DockAlert.test.tsx` — 3 tests (structural, [View diff] → store mode flip, empty state).
+  - `desktop/src/screens/DockDiff.tsx` — Mode 4 (the money-shot). Header (back + filename + view toggle + confidence), body (DiffViewer + replay/EAP indicators + 17-gate checklist), footer ([Reject] reason dialog + [Modify with AI] dialog + [Apply & commit] microinteraction). Scroll-position preservation across view toggle via `useLayoutEffect` + `requestAnimationFrame`.
+  - `desktop/src/screens/__tests__/DockDiff.test.tsx` — 3 tests (apply IPC + success state, reject dialog flow + IPC call, view toggle persists). Uses `vi.hoisted` to inject IPC mocks so the apply microinteraction lands deterministically.
+- **Files modified:**
+  - `desktop/src/lib/store/chat.ts` — extended `ChatMode` to `idle | conversation | alert | diff`; added `currentAlert: Alert | null`, `currentFix: Fix | null`, `pendingDiff: DiffPayload | null` slots and `openAlert(alert)` / `openDiff(Fix | DiffPayload)` / `backToAlert()` actions. `clearConversation` resets the four new slots. `__resetChatStoreForTests` cleans them too. No breaking change to S15: the existing `idle ↔ conversation` actions (`setMode`, `startConversation`, `sendMessage`, `clearConversation`, `replayLast`, `appendToken`, `finishStreaming`) are untouched.
+  - `desktop/src/components/dock/DockShell.tsx` — collapsed the 2-branch ternary into a `renderModePanel(mode, reduce)` switch over all 4 modes. Same Framer transitions as S15 (`opacity` + `y` + 0.18s `easeOut`); `<motion.div key={mode}>` plus `<AnimatePresence mode="wait">` keeps the cross-fade behaviour identical between every pair of modes.
+  - `desktop/src/lib/dock-ipc.ts` — added 7 stubs (`applyFix`, `rejectFix`, `openInEditor`, `modifyWithAi`, `getAlertById`, `getFixById`, `openEapReceipt`). Each calls `invoke()` and degrades to `console.info` + benign fallback when the Tauri command isn't registered (Sesión 17/19 wires them).
+- **Verification (results, no asterisks):**
+  - **`npm install`** — skipped (node_modules already present from S14/S15; package.json/lockfile unchanged).
+  - **`npx tsc --noEmit`** — exit 0. Strict mode + `noUnusedLocals` + `noUnusedParameters` pass across the S14+S15+S16 source.
+  - **`npm run build`** — `tsc -b && vite build` clean in 3.95s. Same per-language Shiki dynamic chunks as S15; `cpp.js` / `wasm.js` / `emacs-lisp.js` continue to trip the 500KB warning (lazy-loaded only on language match — expected).
+  - **`npx vitest run`** — **13 test files / 28 tests / 28 passed in 7.62s.** Files (count): 8 from S14+S15 (13) plus the 5 new S16 files (15): `parser.test.ts` (3), `GateChecklist.test.tsx` (2), `DiffViewer.test.tsx` (4), `DockAlert.test.tsx` (3), `DockDiff.test.tsx` (3). Note: act-warnings emit from the Framer counter inside `ConfidenceBadge` because `vi.fakeTimers()` would be the alternative; tests pass and the structural assertions are definitive — see Decisions for why we accept the warning.
+  - **Manual smoke (`tauri dev`):** deferred. Track 4 is now 75% complete (S14 + S15 + S16 of 4 sessions); S17 (Onboarding + Settings + multi-window plumbing) is the only remaining session in this track.
+- **Notes for Session 17 (Onboarding + Settings + multi-window):**
+  1. **`apply_fix` / `reject_fix` / `open_in_editor` / `modify_with_ai` IPC stubs** are the canonical contract. When Sesión 19 wires the Rust side, drop the `console.info` fallback in `dock-ipc.ts` only after the Tauri command is registered AND the contract matches the stub signature. Tests inject mocks via `vi.mock("@/lib/dock-ipc", …)` — keep that pattern; future session-19 IPC tests should mock at the same boundary, not at `@tauri-apps/api/core::invoke`.
+  2. **`openMainWindow` is what Mode 4's "view receipt" route should call** — Sesión 17 lands the receipt sub-route under main-window navigation. The current `openEapReceipt(signature)` stub is a placeholder; once the receipt route exists, switch the click handler to `openMainWindow("/eap/receipt/" + signature)` (or a dedicated tab argument).
+  3. **DiffViewer virtualization deferred.** No `@tanstack/react-virtual` was added — the side-by-side path renders all rows. For the 50-line / 2-hunk fixture this is a non-issue; a 5,000-line diff would feel sluggish. Flagged as a Sesión 21+ perf optimization once Playwright (real layout) measures the actual cost. The decision is in `INARI_LIVE_DECISIONS.md` under "DiffViewer virtualization deferred".
+  4. **Side-by-side row pairing pairs adjacent del+add as a single edit row.** Standalone adds get a phantom-blank old-side row; standalone dels get a phantom new-side. This produces the visually-correct "left says X, right says Y" alignment in the common edit case without a more sophisticated alignment algorithm. Edge case: 5 dels followed by 5 adds will pair them 1-1 (potentially wrong if reordering happened). Sesión 21's word-level diff plan addresses this.
+  5. **`react-resizable-panels` ResizeObserver** is satisfied by the existing `tests/setup.ts` shim — no new shim needed for S16.
+
 ### Session 17 — Onboarding flow + Settings + multi-window plumbing (6h)
 
 - **Files:** `desktop/src/screens/Onboarding.tsx`, `screens/Settings.tsx`, `screens/MainWindow.tsx`, `components/RepoDropzone.tsx`, `components/PowerUpToggles.tsx`.
