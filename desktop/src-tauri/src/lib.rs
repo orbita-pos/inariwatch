@@ -100,6 +100,11 @@ pub fn run() {
             ipc::mcp::install_mcp_for,
             ipc::mcp::uninstall_mcp_for,
             ipc::mcp::list_mcp_clients_status,
+            // Session 8 — git hook installer + status
+            ipc::git::install_git_hooks,
+            ipc::git::uninstall_git_hooks,
+            ipc::git::git_hooks_status,
+            ipc::git::get_git_hook_token,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
