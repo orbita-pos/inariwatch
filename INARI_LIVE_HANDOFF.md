@@ -521,27 +521,61 @@ Captured from `project_inari_live.md` memory:
   - "Watch my terminal" UI toggle (IPC commands `install_shell_hooks` etc.) — out of scope for Sesión 9 per the prompt; lands in Session 17 (settings UI).
   - The `events` table TTL retention cron — see "Notes" above; out of scope.
 
-### Session 10 — Sensor 6: Substrate recording integration (6h)
+### Session 10 — Sensor 6: Substrate recording integration (6h) — **DONE 2026-05-01** ✨ Track 2 closed
 
-- **Files:** `desktop/src-tauri/src/sensors/substrate/mod.rs`, `sensors/substrate/wrapper.rs`, `sensors/substrate/replay_client.rs`.
-- **Behavior:**
-  - When user toggles "Replay-as-you-code" for a repo, the daemon offers to wrap the user's `npm run dev` (or `pnpm dev` / `yarn dev`) by replacing the package.json `dev` script — OR by exposing a CLI: `inari run dev` which spawns `node --import @inariwatch/capture/auto --import @inariwatch/substrate-agent <user-script>`.
-  - User picks: wrap permanently (modifies package.json with backup) or use `inari run` ad-hoc.
-  - When the wrapped process starts, Substrate recordings land in `.inari/recordings/<session-id>/` (existing Substrate v0.1.2 default behavior).
-  - On every `FsChange::Modified` for source files, the daemon: (a) finds the most recent recording within 60s window, (b) calls the local replay engine OR the staging `/v2/replay` endpoint, (c) emits `ReplayResult { match: bool, divergence?: ... }` on the bus.
-  - Recordings rotate at 7-day retention (job runs hourly).
-- **Sources of truth this session reuses:**
-  - `Substrate/` repo for the recording library (already at v0.1.2 per `project_substrate.md`)
-  - `web/lib/ai/substrate-replay.ts` for the AI-mode replay logic to mirror locally
-  - `inari-staging` for the deterministic-replay sandbox (already deployed per `project_replay_as_a_service.md`)
-- **Out of scope this session:**
-  - The diff visualization in the dock (Session 17).
-  - Auto-fix from a divergence (Session 21).
-- **Tests:**
-  - `inari run dev` in a fixture Express app produces a `.inari/recordings/<id>/` with at least one event.
-  - A trivial source change → ReplayResult emitted with `match: true`.
-  - Inserting an intentional bug → ReplayResult with `match: false` + a non-empty divergence.
-- **Definition of done:** dogfooded against `radar/web/` — running `inari run dev`, hitting `/api/health`, then editing the handler emits a ReplayResult on the bus within 5s.
+- **Status:** Done — code + 18 inline + 5 integration tests committed and **all passing** (MSVC blocker from Sesiones 6/8/9 is resolved by VS 2022 17.14 Build Tools, so tests executed cleanly this session). `cargo check --lib --tests` clean (38.00s) on the fresh shared target dir.
+- **Branch:** `feat/inari-live-track2-session10-substrate-recording` (stacked on Sesión 9 tip `ecd4864`).
+- **Outputs (added):**
+  - `desktop/src-tauri/src/sensors/substrate/mod.rs` — actor (subscribe `FsChange::Modified`, find recent recording, dispatch to backend, publish `ReplayResult` + persist `events` row) + retention task (hourly, 7-day window).
+  - `desktop/src-tauri/src/sensors/substrate/replay_client.rs` — `ReplayBackend` trait + `LocalReplayBackend` (exec `substrate-v2-replay`) + `RemoteReplayBackend` (POST `${INARI_STAGING_URL}/v2/replay`) + `auto_backend()` resolver + 6 inline DTO/serialization unit tests + a hand-rolled base64 encoder so we don't pull a crate.
+  - `desktop/src-tauri/src/sensors/substrate/wrapper.rs` — `package.json` wrap/unwrap (idempotent w/ `.inari.bak`), `offer_wrap_or_cli`, 7 inline unit tests.
+  - `desktop/src-tauri/src/store/migrations/0004_replay_enabled.sql` — adds `replay_enabled INTEGER NOT NULL DEFAULT 0` to `repos`.
+  - `desktop/src-tauri/tests/substrate_inari_run_produces_recording.rs` — 3 sub-tests (CLI plan composition, missing-script error, recording layout discovery).
+  - `desktop/src-tauri/tests/substrate_replay_match_on_trivial_change.rs` — actor end-to-end with mock backend → `ReplayResult { matched: true }`.
+  - `desktop/src-tauri/tests/substrate_replay_divergence_on_real_bug.rs` — actor end-to-end with mock backend → `ReplayResult { matched: false, severity: High }`.
+- **Outputs (modified):**
+  - `desktop/src-tauri/src/daemon/mod.rs` — `DivergenceKind` + `DivergenceSeverity` + `DivergenceSummary` types; `DaemonEvent::ReplayResult { repo_id, recording_id, matched, divergence }` variant (`#[serde(rename = "match")]` on `matched` because `match` is a Rust keyword — same trick `MemoryReviewRequested::review_kind` uses).
+  - `desktop/src-tauri/src/sensors/mod.rs` — `pub mod substrate;` declaration + module-doc reference to Sesión 10.
+  - `desktop/src-tauri/src/lib.rs` — `pub mod cli;` (was private; integration tests need to reach `cli::run::prepare_inari_run`); spawn `sensors::substrate::spawn(daemon, store)` after the shell sensor.
+  - `desktop/src-tauri/src/cli/run.rs` — added `InariRunPlan`, `prepare_inari_run`, `compose_node_options`, `spawn_inari_run` for `inari run <script>`.
+  - `desktop/src-tauri/src/store/migrations.rs` — registered migration 0004.
+  - `desktop/src-tauri/src/store/queries.rs` — `find_repo_replay_enabled` + `set_repo_replay_enabled` helpers.
+  - `desktop/src-tauri/Cargo.toml` — added `which = "6"`.
+- **Behavior shipped:**
+  - **Per-repo opt-in:** migration 0004 adds `replay_enabled` (default OFF). Sensor silently skips every event whose repo doesn't have the flag set, so existing users see zero behavioural change post-upgrade until they flip the toggle (UI lands in Sesión 17).
+  - **Backend cascade:** `auto_backend()` tries local `substrate-v2-replay` first (`INARI_REPLAY_BINARY` override, then `which`), then remote `/v2/replay` if `INARI_STAGING_URL` + `INARI_STAGING_TOKEN` are both set, then runs INERT (sensor counts as 1 but never publishes). All three paths are covered by the trait-based `ReplayBackend` abstraction the integration tests inject mocks into.
+  - **Filter contract:** only `FsChange::Modified` for source-file extensions (`.ts/.tsx/.js/.jsx/.mjs/.cjs/.rs/.go/.py`) + recording exists in last 60s. All other events are silent no-ops.
+  - **Privacy:** the bus `ReplayResult` carries only metadata. `DivergenceSummary.affected_module` is a Node-style module name (`express/router`), NEVER a file path. Full divergence payload (incl. recorded body data) is destined for `<repo>/.inari/replays/<id>.json`; the actor plumbs the path via `replays_root()` but **doesn't write the file yet** — Sesión 17 (dock) is the first consumer that needs it. Integration test 3 asserts `affected_module` doesn't leak the repo path.
+  - **Wrap/unwrap:** idempotent `package.json.inari.bak` backup; second-wrap-after-edit is a no-op (preserves user tweaks). The wrap inserts `NODE_OPTIONS="..."` prefix, NOT the literal `node --import` shape (works for non-`node`-prefixed scripts like `next dev`; see DECISIONS).
+  - **Retention:** hourly tokio task scoped to repos seen via `FsChange`. `prune_old_recordings` deletes `<repo>/.inari/recordings/<id>/` directories older than 7 days. Skipped first-fire (`tick.tick()` then `await`) so test runs don't trip on pruning side effects.
+- **Tests run 2026-05-01:**
+  - `cargo check --lib`: clean — 42.23s after `which` dep pulled in.
+  - `cargo check --lib --tests`: clean — 38.00s.
+  - `cargo test --lib substrate -- --test-threads=1`: **18 / 18 pass** in 0.09s after a 5m21s test-profile build (cold).
+  - `cargo test --test substrate_inari_run_produces_recording -- --test-threads=1`: **3 / 3 pass** in 0.01s after 1m44s link.
+  - `cargo test --test substrate_replay_match_on_trivial_change -- --test-threads=1`: **1 / 1 pass** in 0.11s after 9.71s incremental link.
+  - `cargo test --test substrate_replay_divergence_on_real_bug -- --test-threads=1`: **1 / 1 pass** in 0.50s after 6.39s incremental link.
+  - One inline test (`wrap_then_unwrap_roundtrip_is_byte_identical`) failed on first run because it `contains()`-checked the raw on-disk text against the marker — `serde_json::to_string_pretty` escapes inner double quotes (`"` → `\"`), so the literal marker can't match the serialized form. Fixed by parsing the JSON in the assertion (the production `is_wrapped` already does this correctly via the JSON value lookup). One commit, immediate green.
+- **Confirmations for the architect:**
+  - **Track 2 is closed** — Sensors 1/2/3/4/6 (FS, shell, MCP, git, substrate) are all wired. Sensor 5 was renumbered into the FS sensor's MCP `reindex_codebase` path during Sesión 7; there is no separate Sensor 5 deliverable.
+  - **`replays_root` is reserved but unwritten.** First write site is Sesión 17 (dock UI). The actor only emits the metadata-only `DivergenceSummary` to the bus + records a payload-shaped `events` row.
+  - **Sesión 11's temporary `crate::fingerprint` re-export is NOT yet dropped.** That re-export drops when `inari_watcher.rs` is fully decommissioned — out of scope for this session per the executor prompt's allowed-files list. The watcher still calls `crate::fingerprint::compute_error_fingerprint` and we did not touch that file.
+  - **`mod inari_watcher;` is also still in `lib.rs`** for the same reason. Sesión 12 / dedicated cleanup session can drop it after the substrate replay path is dogfooded.
+- **Definition of done:** the prompt's pragmatic DoD ("3 integration tests pass + cargo check clean") ✅ achieved. The literal DoD ("dogfooded against `radar/web/` — running `inari run dev`, hitting `/api/health`, editing handler emits ReplayResult within 5s") is **deferred to Jesus's manual verification or Sesión 17's UI-in-the-loop** — the primitives are all wired and unit-tested but the dogfooding requires a real `substrate-v2-replay` binary on PATH (or a configured staging endpoint) that is not present in this dev box's PATH today.
+- **Notes for Sesión 17 (dock UI):**
+  1. **Toggle UI for `replay_enabled`.** The store helpers are `queries::set_repo_replay_enabled(&store, repo_id, bool)` + `queries::find_repo_replay_enabled`. Add a Tauri command pair (`get_replay_enabled` / `set_replay_enabled`) following the Sesión-8 git-hook command shape.
+  2. **Wrap toggle calls into `wrapper::offer_wrap_or_cli`.** The function returns `WrapOption::HasDevScript { original_dev, already_wrapped }` (offer both buttons), `NoDevScript` (CLI only), or `NoPackageJson` (skip). On the dock the `Wrap` button calls `wrap_dev_script(repo_path)`; the CLI option just passes the user a copy of `inari run dev`.
+  3. **Divergence panel reads `<repo>/.inari/replays/<recording_id>.json`** — but that file is NOT written yet. Either teach the substrate sensor to persist the full backend response (one-line addition in `handle_fs_change` after `publish_replay_result`) OR have the panel call back through to the backend on demand. Recommend the former — the recording itself may be retention-pruned but the replay payload should outlive it.
+  4. **Subscribe to `daemon:event` and filter for `kind == "replay_result"`.** Wire shape: `{kind:"replay_result", repo_id, recording_id, match: bool, divergence?: {kind, affected_module, severity}}`.
+  5. **The Windows-cmd wrap caveat.** When a Windows user is on the wrap path AND their dev script ISN'T `node X`, the wrapped script will fail with "NODE_OPTIONS is not recognized". The dock should detect this (parse `original_dev`, see if it starts with `node`) and gray out the wrap button on Windows for non-node scripts.
+- **Notes for Sesión 20 (pre-push gate plumbing — Gate 6 enables here):**
+  1. Sesión 8's `sensors/git/gate.rs::evaluate` returns `GateVerdict::deferred` for Gate 6 today. Sesión 20 swaps that for: pull the latest recording dir from `<repo>/.inari/recordings/` (60s window, same as the actor), call `auto_backend()?.replay(recording_dir, &diff_overlay_file)`, fail the gate when `severity == High`, warn on `Medium`, pass on `Low`/matched.
+  2. `evaluate` runs synchronously inside the pre-push HTTP handler (S8). To avoid stalling the user's push for 30s on a remote backend, S20 should put the gate on a deadline via `tokio::time::timeout` and emit a "skipped — backend timeout" verdict when it expires (matching Sesión-8's fail-OPEN posture).
+- **Blockers / deferred:**
+  - **Manual dogfood verification** against `radar/web/` per the literal DoD — deferred to Jesus or Sesión 17's UI-driven flow.
+  - **Full divergence payload persistence to `.inari/replays/<id>.json`** — out of scope; deferred to Sesión 17's first read consumer.
+  - **`inari_watcher.rs` still wired in `lib.rs::run` setup** — out of scope per executor prompt's allowed-files list. Sesión 12 / dedicated cleanup will retire it once the FS sensor + substrate sensor cover its full call surface.
+  - **Cross-platform wrap on Windows-cmd for non-`node`-prefixed dev scripts** — documented limitation; dock UI in Sesión 17 should gate the affordance accordingly.
 
 ---
 
