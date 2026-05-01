@@ -919,6 +919,153 @@ pub fn get_remediation_session(
     Ok(row)
 }
 
+// ── Gate runs (Sesión 20) ────────────────────────────────────────────
+//
+// `gate_runs` (migration 0008) is the audit trail for every pre-push
+// gate evaluation. The HTTP handler in `sensors::git::hooks` inserts
+// one row per `pre_push` event after the runner completes (or
+// immediately with `override_used = 1` when the hook bypassed via the
+// `X-Inari-Bypass: 1` header). Append-only: rows are never updated,
+// so a run that times out shows up as `allowed = 0` with the timeout
+// reason in `blocking_gates`.
+
+/// Initial-insert payload for a new gate run row. The runner already
+/// owns the verdict shape; this helper just persists it.
+#[derive(Debug, Clone)]
+pub struct NewGateRun<'a> {
+    pub run_id:              &'a str,
+    pub repo_id:             &'a str,
+    pub sha:                 &'a str,
+    pub ref_:                &'a str,
+    pub allowed:             bool,
+    pub blocking_gates:      &'a [String],
+    pub individual_verdicts: &'a str,
+    pub total_latency_ms:    u64,
+    pub created_at_ms:       i64,
+    pub override_used:       bool,
+    pub override_reason:     Option<&'a str>,
+}
+
+/// Read-back row for a single gate run.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GateRunRow {
+    pub run_id:              String,
+    pub repo_id:             String,
+    pub sha:                 String,
+    pub ref_:                String,
+    pub allowed:             bool,
+    pub blocking_gates:      Vec<String>,
+    pub individual_verdicts: String,
+    pub total_latency_ms:    u64,
+    pub created_at_ms:       i64,
+    pub override_used:       bool,
+    pub override_reason:     Option<String>,
+}
+
+pub fn insert_gate_run(store: &Store, new: &NewGateRun<'_>) -> Result<()> {
+    let blocking_json = serde_json::to_string(new.blocking_gates).unwrap_or_else(|_| "[]".into());
+    let conn = store.conn()?;
+    conn.execute(
+        "INSERT INTO gate_runs
+            (run_id, repo_id, sha, ref_, allowed, blocking_gates,
+             individual_verdicts, total_latency_ms, created_at,
+             override_used, override_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            new.run_id,
+            new.repo_id,
+            new.sha,
+            new.ref_,
+            new.allowed as i64,
+            blocking_json,
+            new.individual_verdicts,
+            new.total_latency_ms as i64,
+            new.created_at_ms,
+            new.override_used as i64,
+            new.override_reason,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_gate_run(store: &Store, run_id: &str) -> Result<Option<GateRunRow>> {
+    let conn = store.conn()?;
+    let row = conn
+        .query_row(
+            "SELECT run_id, repo_id, sha, ref_, allowed, blocking_gates,
+                    individual_verdicts, total_latency_ms, created_at,
+                    override_used, override_reason
+             FROM gate_runs
+             WHERE run_id = ?1",
+            params![run_id],
+            |r| {
+                let blocking_json: String = r.get(5)?;
+                let blocking: Vec<String> =
+                    serde_json::from_str(&blocking_json).unwrap_or_default();
+                let allowed_i: i64       = r.get(4)?;
+                let override_i: i64      = r.get(9)?;
+                let latency_i: i64       = r.get(7)?;
+                Ok(GateRunRow {
+                    run_id:              r.get(0)?,
+                    repo_id:             r.get(1)?,
+                    sha:                 r.get(2)?,
+                    ref_:                r.get(3)?,
+                    allowed:             allowed_i != 0,
+                    blocking_gates:      blocking,
+                    individual_verdicts: r.get(6)?,
+                    total_latency_ms:    latency_i.max(0) as u64,
+                    created_at_ms:       r.get(8)?,
+                    override_used:       override_i != 0,
+                    override_reason:     r.get(10)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+pub fn recent_gate_runs(
+    store: &Store,
+    repo_id: &str,
+    limit: u32,
+) -> Result<Vec<GateRunRow>> {
+    let conn = store.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT run_id, repo_id, sha, ref_, allowed, blocking_gates,
+                individual_verdicts, total_latency_ms, created_at,
+                override_used, override_reason
+         FROM gate_runs
+         WHERE repo_id = ?1
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+    let limit = limit.clamp(1, 1_000) as i64;
+    let rows = stmt.query_map(params![repo_id, limit], |r| {
+        let blocking_json: String = r.get(5)?;
+        let blocking: Vec<String> =
+            serde_json::from_str(&blocking_json).unwrap_or_default();
+        let allowed_i: i64  = r.get(4)?;
+        let override_i: i64 = r.get(9)?;
+        let latency_i: i64  = r.get(7)?;
+        Ok(GateRunRow {
+            run_id:              r.get(0)?,
+            repo_id:             r.get(1)?,
+            sha:                 r.get(2)?,
+            ref_:                r.get(3)?,
+            allowed:             allowed_i != 0,
+            blocking_gates:      blocking,
+            individual_verdicts: r.get(6)?,
+            total_latency_ms:    latency_i.max(0) as u64,
+            created_at_ms:       r.get(8)?,
+            override_used:       override_i != 0,
+            override_reason:     r.get(10)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows { out.push(r?); }
+    Ok(out)
+}
+
 /// Resolve the cloud workspace id this repo is linked to. Sesión 19
 /// keeps the wiring deliberately simple: there's no per-repo workspace
 /// column today (and onboarding doesn't ask the user to pick one

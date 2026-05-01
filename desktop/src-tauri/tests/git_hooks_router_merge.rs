@@ -39,6 +39,7 @@ async fn merged_router_serves_both_endpoints() {
         daemon: daemon.clone(),
         store:  store.clone(),
         token:  HOOK_TOKEN.to_string(),
+        openai: None,
     });
     let merged = mcp.merge(git);
 

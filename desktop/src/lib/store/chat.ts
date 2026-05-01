@@ -23,7 +23,12 @@ import type { Alert, DiffPayload, Fix } from "@/types/alert";
  * alert → diff, alert ↔ diff) all live behind a single `mode` enum that
  * `DockShell.tsx` keys its `<AnimatePresence>` swap off.
  */
-export type ChatMode = "idle" | "conversation" | "alert" | "diff";
+/**
+ * `gates` is the Mode-5 surface added in Sesión 20. It mounts when
+ * the daemon emits `GateRunStarted` (auto-trigger from the dock-event
+ * listener) and unmounts when the user dismisses the verdict.
+ */
+export type ChatMode = "idle" | "conversation" | "alert" | "diff" | "gates";
 
 export interface ToolCall {
   id: string;

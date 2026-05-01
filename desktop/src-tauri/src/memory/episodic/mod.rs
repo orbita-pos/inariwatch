@@ -95,6 +95,14 @@ fn kind_tag(ev: &DaemonEvent) -> Option<&'static str> {
         // audit value (the `RemediationStarted` + `RemediationCompleted`
         // pair frames the session).
         DaemonEvent::RemediationProgress { .. }   => None,
+        // Sesión 20 — gate audit trail. Start / completed / bypass
+        // persist (security-relevant: who tried, who passed, who
+        // bypassed). Per-gate progress chatter is dropped, same
+        // policy as RemediationProgress + ChatTokenStream.
+        DaemonEvent::GateRunStarted { .. }        => Some("gate_run_started"),
+        DaemonEvent::GateRunCompleted { .. }      => Some("gate_run_completed"),
+        DaemonEvent::GateBypassUsed { .. }        => Some("gate_bypass_used"),
+        DaemonEvent::GateProgress { .. }          => None,
         // `DaemonEvent` is `#[non_exhaustive]`; from within the crate
         // every variant must be enumerated above. Adding a new variant
         // upstream will surface as a compile error here, forcing an

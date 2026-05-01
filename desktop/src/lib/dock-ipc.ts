@@ -452,6 +452,81 @@ export async function getRemediationSession(
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Sesión 20 — pre-push gate runner UI surface
+//
+// Mode 5 (`GateRunning`) consumes these two reads. Both degrade
+// gracefully under jsdom / older daemon builds — invoke rejects with
+// "command <name> not found" → fallback returns a no-op shape so the
+// dock surface stays interactive.
+// ──────────────────────────────────────────────────────────────────────
+
+export interface GateRunSummaryDto {
+  runId: string;
+  repoId: string;
+  sha: string;
+  ref: string;
+  allowed: boolean;
+  blockingGates: string[];
+  totalLatencyMs: number;
+  createdAtMs: number;
+  overrideUsed: boolean;
+  overrideReason: string | null;
+}
+
+export async function getRecentGateRuns(
+  repoId: string,
+  limit: number = 20,
+): Promise<GateRunSummaryDto[]> {
+  try {
+    const raw = await invoke<
+      {
+        run_id: string;
+        repo_id: string;
+        sha: string;
+        ref_: string;
+        allowed: boolean;
+        blocking_gates: string[];
+        total_latency_ms: number;
+        created_at_ms: number;
+        override_used: boolean;
+        override_reason: string | null;
+      }[]
+    >("get_recent_gate_runs", { args: { repo_id: repoId, limit } });
+    return raw.map((r) => ({
+      runId: r.run_id,
+      repoId: r.repo_id,
+      sha: r.sha,
+      ref: r.ref_,
+      allowed: r.allowed,
+      blockingGates: r.blocking_gates ?? [],
+      totalLatencyMs: r.total_latency_ms,
+      createdAtMs: r.created_at_ms,
+      overrideUsed: r.override_used,
+      overrideReason: r.override_reason,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function requestBypass(
+  runId: string,
+  reason?: string,
+): Promise<{ success: boolean }> {
+  try {
+    await invoke("request_bypass", {
+      args: { run_id: runId, reason: reason ?? null },
+    });
+    return { success: true };
+  } catch (e) {
+    console.info(
+      `[dock-ipc] request_bypass rejected (${e instanceof Error ? e.message : "?"})`,
+    );
+    return { success: false };
+  }
+}
+
 /**
  * Open the EAP receipt detail surface for a given signature. Sesión 17
  * lands the main-window receipt route; until then we log the request

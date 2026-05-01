@@ -309,6 +309,51 @@ pub enum DaemonEvent {
         session_id: String,
         reason:     Option<String>,
     },
+    /// Sesión 20 — pre-push gate runner spawned for a `pre_push`
+    /// hook event. `gates` lists the gate names the runner will
+    /// evaluate in parallel ("self_review" / "substrate_simulate" /
+    /// "security_scan" — the local subset that isn't already evaluated
+    /// inline by `sensors::git::gate::evaluate`). Persisted to the
+    /// `events` table as audit trail (gates are security-relevant).
+    GateRunStarted {
+        run_id:  String,
+        repo_id: String,
+        gates:   Vec<String>,
+    },
+    /// Sesión 20 — per-gate progress tick from the runner. NOT
+    /// persisted (chatter, same posture as `ChatTokenStream` /
+    /// `RemediationProgress`); the dock subscribes to drive Mode 5
+    /// transitions but the audit trail relies on the start / completed
+    /// pair instead. `state` ∈ {"running", "passed", "failed"};
+    /// `reason` is `Some(_)` only on the failure tick.
+    GateProgress {
+        run_id:     String,
+        gate:       String,
+        state:      String,
+        reason:     Option<String>,
+        latency_ms: u64,
+    },
+    /// Sesión 20 — terminal verdict for a runner invocation. `allowed`
+    /// is the boolean the HTTP handler returns to the hook script;
+    /// `blocking_gates` enumerates the gate names that voted false
+    /// (empty when allowed). Persisted to the `events` table.
+    GateRunCompleted {
+        run_id:           String,
+        allowed:          bool,
+        blocking_gates:   Vec<String>,
+        total_latency_ms: u64,
+    },
+    /// Sesión 20 — the user invoked the bypass affordance (HTTP
+    /// header `X-Inari-Bypass: 1` on the pre_push request, or the
+    /// `request_bypass` IPC after a verdict landed). `reason` is the
+    /// optional free-text label from the IPC path; the header path
+    /// emits `None`. Persisted to audit who explicitly chose to push
+    /// against a blocking verdict.
+    GateBypassUsed {
+        run_id:  String,
+        repo_id: String,
+        reason:  Option<String>,
+    },
 }
 
 pub use bus::EventBus;

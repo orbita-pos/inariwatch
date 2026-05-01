@@ -21,6 +21,10 @@ async fn boot_router() -> (SocketAddr, Arc<DaemonHandle>, Arc<Store>, tempfile::
         daemon: daemon.clone(),
         store:  store.clone(),
         token:  HOOK_TOKEN.to_string(),
+        // Sesión 20 — `openai = None` keeps Gate 5 deferred so this
+        // S8 contract test stays focused on Gates 1 + 4 (the inline
+        // ones) without needing a mock OpenAI server.
+        openai: None,
     };
     let app  = router(state);
     let l    = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await.unwrap();

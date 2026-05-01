@@ -46,8 +46,10 @@ pub mod ai;
 // precedent as `daemon` (S2), `store` (S3), `sensors` (S5/S7/S10).
 pub mod cli;
 
-// Empty skeletons created in Session 2; filled in by their owning sessions.
-mod gates;
+// Sesión 20 — local-subset gate runner (Gates 5, 6, 9). `pub` so the
+// integration tests in `tests/gate_runner_*` and `tests/pre_push_*`
+// can reach `crate::gates::{run_local_subset, GateRunInput, ...}`.
+pub mod gates;
 // `pub` so integration tests in `tests/indexer_*` can reach
 // `crate::indexer::{parser, semantic, Lang, ...}`. Same precedent as
 // `daemon` (S2), `store` (S3), `sensors` (S5/S7).
@@ -164,6 +166,9 @@ pub fn run() {
             ipc::remediation::apply_remediation,
             ipc::remediation::reject_remediation,
             ipc::remediation::get_remediation_session_cmd,
+            // Sesión 20 — pre-push gate runner UI surface
+            ipc::gates::get_recent_gate_runs,
+            ipc::gates::request_bypass,
             // Sesión 17 — sensor toggles + power-up stubs
             ipc::sensors::get_sensors_state,
             ipc::sensors::set_sensor_enabled,
@@ -235,10 +240,19 @@ pub fn run() {
                     let git_router = match sensors::git::resolve_state_dir(&app_handle) {
                         Ok(state_dir) => match sensors::git::token::ensure_token(&state_dir) {
                             Ok(token) => {
+                                // Sesión 20 — wire an OpenAI client into the
+                                // hook state so Gate 5 (self-review) can run
+                                // when the user has a key configured. Falls
+                                // back to None silently when there's no key,
+                                // making Gate 5 surface as `deferred`
+                                // (push proceeds — the user can configure
+                                // a key from Settings).
+                                let openai = ai::openai::OpenAIClient::from_store(&store_clone).ok();
                                 let hook_state = sensors::git::hooks::GitHookState {
                                     daemon: daemon_clone.clone(),
                                     store:  store_clone.clone(),
                                     token,
+                                    openai,
                                 };
                                 Some(sensors::git::hooks::router(hook_state))
                             }

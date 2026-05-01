@@ -5,7 +5,9 @@ import { DockAlert } from "@/screens/DockAlert";
 import { DockConversation } from "@/screens/DockConversation";
 import { DockDiff } from "@/screens/DockDiff";
 import { DockIdle } from "@/screens/DockIdle";
+import { GateRunning } from "@/screens/GateRunning";
 import { installChatStreamDriver } from "@/lib/chat-stream";
+import { installGateRunListener } from "@/lib/gate-events";
 import { useChat } from "@/lib/store/chat";
 
 /**
@@ -29,12 +31,19 @@ export function DockShell() {
   const reduce = useReducedMotion();
 
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    let unlistenChat: (() => void) | null = null;
+    let unlistenGate: (() => void) | null = null;
     installChatStreamDriver().then((u) => {
-      unlisten = u;
+      unlistenChat = u;
+    });
+    // Sesión 20 — auto-trigger Mode 5 when GateRunStarted lands. The
+    // listener also drives the in-flight verdict updates.
+    installGateRunListener().then((u) => {
+      unlistenGate = u;
     });
     return () => {
-      if (unlisten) unlisten();
+      if (unlistenChat) unlistenChat();
+      if (unlistenGate) unlistenGate();
     };
   }, []);
 
@@ -84,6 +93,7 @@ function renderModePanel(
   else if (mode === "conversation") content = <DockConversation />;
   else if (mode === "alert") content = <DockAlert />;
   else if (mode === "diff") content = <DockDiff />;
+  else if (mode === "gates") content = <GateRunning />;
 
   return (
     <motion.div

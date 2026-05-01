@@ -20,6 +20,7 @@ async fn boot() -> SocketAddr {
         daemon,
         store,
         token: HOOK_TOKEN.to_string(),
+        openai: None,
     };
     let app  = router(state);
     let l    = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await.unwrap();

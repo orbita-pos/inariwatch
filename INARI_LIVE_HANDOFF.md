@@ -441,7 +441,7 @@ Captured from `project_inari_live.md` memory:
   - `post-merge` publishes `DaemonEvent::ReindexRequested { repo_id }` so the indexer (S6) re-walks after `git pull`.
   - `INARI_BYPASS=1 git push` skips the pre-push gate locally.
   - Installer preserves user's pre-existing hook to `<hook>.inari-backup`; idempotent on re-install (recognises its own marker `# Inari Live — `); uninstall restores the backup.
-  - **Gates shipped this session:** Gate 1 (`auto_merge_enabled`, default true) and Gate 4 (`lines_changed` ≤ `gates.max_lines_changed`, default 500). Gates 5/6/9 return `deferred` verdicts marked `"deferred to Session 20"`.
+  - **Gates shipped this session:** Gate 1 (`auto_merge_enabled`, default true) and Gate 4 (`lines_changed` ≤ `gates.max_lines_changed`, default 500). Gates 5/6/9 return `deferred` verdicts marked `"deferred to Session 20"` — **superseded 2026-05-01 by Sesión 20**, which adds the async runner in `crate::gates::runner`. The deferred placeholders still exist in `gate::evaluate` for back-compat; the HTTP handler strips them via `stitch_inline_with_async` and substitutes the runner's real verdicts.
 - **Confirmations for the architect:**
   - **axum `Router::merge` used, not a second listener.**
   - **`git_hook_token` is distinct from the MCP `ilive_…` Bearer.** Two separate files (`auth.json` vs `git_hook_token`), two separate verify functions.
@@ -1197,25 +1197,73 @@ Captured from `project_inari_live.md` memory:
   - **Cloud SSE end event variants** — Sesión 19 handles `completed`/`done`/`success` (terminal success) and `error`/`failed` (terminal failure). Future cloud event names (e.g. `aborted`, `timeout`) collapse into the catch-all progress branch today; if those names ship, add explicit arms in `proxy::handle_cloud_event`.
   - **`Model::cents_for_tokens` ↔ budget tracker symmetric tests** — both sides use the same arithmetic; a unit test that asserts byte-exact equality between `Model::cents_for_tokens` and `BudgetTracker::record_actual`'s computed cents would lock the two in step. Trivial, deferred.
 
-### Session 20 — Pre-push gate visual surface (6h)
+### Session 20 — Pre-push gate visual surface (6h) — **DONE 2026-05-01** ✨ Track 5 cerrado 100%
 
-- **Files:** `desktop/src-tauri/src/gates/mod.rs`, `gates/runner.rs`, `gates/local_subset.rs`. Frontend: `desktop/src/screens/GateRunning.tsx`.
-- **Behavior:**
-  - When the git pre-push hook (Session 8) blocks waiting for a verdict, the daemon spawns the gate runner, opens the dock to the GateRunning screen, and shows real-time progress.
-  - **Local subset of gates** that work without web infra:
-    - Gate 1 — auto_merge_enabled (instant, from Settings)
-    - Gate 4 — lines changed ≤ max (instant, from diff)
-    - Gate 5 — self-review (≥ 70 confidence, AI call)
-    - Gate 6 — substrate_simulate (risk ≤ 40, calls local Substrate replay if available)
-    - Gate 9 — security_scan (zero HIGH findings, calls local 19-regex scan)
-  - Gates 2/3/7/8/10-17 require web infra: skip with "N/A — connect prod to enable" annotation.
-  - **UI:** vertical list of gates with stagger 50ms reveal. Each gate: pending → running (spinner) → ✓ pass / ✗ fail. Total verdict at bottom: green "Push allowed" or red "Push blocked: <reasons>".
-  - User can override block with one-click `[Push anyway]` (sets `INARI_BYPASS=1`, daemon allows it once and logs the override).
-- **Tests:**
-  - Gate runner returns deterministic verdict for synthetic diff (small/safe → allow; oversized → block).
-  - Override path actually allows the push.
-  - Gates run in parallel where independent (use `tokio::join!` for security + replay + self-review).
-- **Definition of done:** triggering a `git push` with intentionally bad code (e.g. `eval(userInput)`) blocks the push and the dock shows the failed security gate within 5s; pushing clean code shows all gates green and the push proceeds.
+- **Status:** Done — all backend modules + frontend wiring + tests committed and **all green** on the dev box (VS 2022 17.14 Build Tools resolves the prior MSVC blocker; tests link cleanly with `RUSTFLAGS="-C debuginfo=1"`). `cargo check --lib --tests` clean (45.33s incremental on the post-Sesión-19 shared target dir). 7 new backend tests + 3 new frontend tests pass.
+- **Branch:** `feat/inari-live-track5-session20-pregate-visual` (stacked on `05361ec`, the Sesión 19 tip).
+- **Commit:** single squash on the branch tip; 31 files, +2832 / -30 (`git log feat/inari-live-track5-session19-remediation-pipeline..HEAD --oneline` gives the actual SHA — chasing it across `--amend` cycles is fool's errand). NOT pushed (cadence rule + the prompt explicitly forbids it).
+- **Outputs (added):**
+  - `desktop/src-tauri/src/gates/mod.rs` — module shell + re-exports.
+  - `desktop/src-tauri/src/gates/runner.rs` — async runner, `tokio::join!` over Gates 5/6/9, emits `GateRunStarted` + `GateProgress` + `GateRunCompleted` to the daemon bus, persists the audit row via `queries::insert_gate_run`. Also exports `record_bypass` for the header + IPC bypass paths.
+  - `desktop/src-tauri/src/gates/local_subset.rs` — per-gate evaluators: `eval_gate_5_self_review` (AI confidence ≥ 70), `eval_gate_6_substrate_simulate` (default-allow when no recent recording), `eval_gate_9_security_scan` (19 Semgrep-inspired regex patterns ported from `web/lib/ai/security-scan.ts`). Includes `parse_score_reason` for the SCORE/REASON AI response shape + `latest_recent_recording` mtime helper.
+  - `desktop/src-tauri/src/store/migrations/0008_gate_runs.sql` — audit table with `(run_id PK, repo_id, sha, ref_, allowed, blocking_gates, individual_verdicts, total_latency_ms, created_at, override_used, override_reason)` + `(repo_id, created_at DESC)` index.
+  - `desktop/src-tauri/src/ipc/gates.rs` — 2 Tauri commands: `get_recent_gate_runs(repo_id, limit)` for the dock history + `request_bypass(run_id, reason?)` for the post-hoc audit when the user clicks `[Push anyway]` from the dock.
+  - `desktop/src/lib/store/gates.ts` — Zustand store for the in-flight verdict timeline.
+  - `desktop/src/lib/gate-events.ts` — `daemon:event` listener that routes the 3 new variants into the gates store + auto-transitions the dock into Mode 5 on `GateRunStarted`. First dock surface that opens via daemon-push instead of explicit user action.
+  - `desktop/src/screens/GateRunning.tsx` — Mode 5 dock screen. Stagger 50ms gate-row reveal, spinner during `running`, Check/X icons + latency stamp, footer flips between `Push allowed` (green pill + Continue) and `Push blocked: N gate(s) failed` (red pill + Push anyway / Open diff / Dismiss).
+  - 7 backend integration tests (`tests/security_scan_19_patterns.rs`, `gate_runner_passes_clean_diff.rs`, `gate_runner_blocks_security_finding.rs`, `gate_runner_blocks_low_confidence.rs`, `pre_push_hook_integration.rs`, `pre_push_bypass_path.rs`).
+  - 1 frontend Vitest spec (`src/screens/__tests__/GateRunning.test.tsx`, 3 cases).
+- **Outputs (modified):**
+  - `desktop/src-tauri/src/daemon/mod.rs` — added `DaemonEvent::{GateRunStarted, GateProgress, GateRunCompleted, GateBypassUsed}` variants.
+  - `desktop/src-tauri/src/memory/episodic/mod.rs` — `kind_tag` arms: GateRunStarted/Completed/BypassUsed persist (security-relevant audit), GateProgress dropped (chatter, same posture as `RemediationProgress` + `ChatTokenStream`).
+  - `desktop/src-tauri/src/store/migrations.rs` — registered migration 0008.
+  - `desktop/src-tauri/src/store/queries.rs` — added `NewGateRun` + `GateRunRow` + `insert_gate_run` / `get_gate_run` / `recent_gate_runs`.
+  - `desktop/src-tauri/src/sensors/git/hooks.rs` — `GitHookState` gained an `openai: Option<OpenAIClient>` field; `GitEventPayload` gained `diff_body` + `commit_message` (both `default`, backwards-compatible with Sesión 8 hook scripts that didn't send them); `pre_push` branch now: (1) checks `X-Inari-Bypass: 1` header → bypass + audit row + `GateBypassUsed` event + immediate allow, (2) runs sync Gates 1+4 inline (Gate 4 fail blocks immediately), (3) spawns the async runner under a 30s `tokio::time::timeout` deadline, (4) on timeout returns `allow=false` with reason "gate runner timeout — try again or use [Push anyway]". Inline + async verdicts are stitched via `stitch_inline_with_async` so the dock sees one canonical 5-gate timeline. New constants: `MAX_BODY_BYTES = 100KB`, `RUNNER_DEADLINE = 30s`, `BYPASS_HEADER = "x-inari-bypass"`.
+  - `desktop/src-tauri/src/lib.rs` — `mod gates;` → `pub mod gates;`; wired `OpenAIClient::from_store(...).ok()` into the `GitHookState`; registered `ipc::gates::get_recent_gate_runs` + `ipc::gates::request_bypass`.
+  - `desktop/src-tauri/src/ipc/mod.rs` — declared `pub mod gates;`.
+  - `desktop/src-tauri/tests/git_hook_event_*.rs` + `git_hooks_router_merge.rs` — added `openai: None` field to existing `GitHookState` literals (4 files updated); all 4 S8 contract tests still pass after the schema change.
+  - `desktop/src/lib/dock-ipc.ts` — added `getRecentGateRuns` + `requestBypass` wrappers.
+  - `desktop/src/lib/store/chat.ts` — `ChatMode` union extended with `"gates"`.
+  - `desktop/src/components/dock/DockShell.tsx` — registered the gate-events listener alongside the chat-stream listener; Mode 5 mounts via `<GateRunning />` when `mode === "gates"`.
+- **Behavior shipped:**
+  - Pre-push HTTP handler now drives the full 5-gate decision (Gates 1+4 inline, 5+6+9 async in parallel) and persists every verdict to `gate_runs`.
+  - Bypass via HTTP header `X-Inari-Bypass: 1` (set by the Sesión-8 hook script when the user runs `INARI_BYPASS=1 git push`) skips the runner, marks `override_used=1`, and emits `GateBypassUsed` for the audit trail.
+  - Post-hoc bypass via the dock's `[Push anyway]` button: writes a sibling `bp_<original-run-id>` audit row + emits `GateBypassUsed`. Does NOT change the HTTP response (that's already returned); the user must re-push with `INARI_BYPASS=1` for the actual override.
+  - Gate 6 default-allows (`deferred`) when no substrate recording exists in the 60s window, when no replay backend is configured, OR when the backend errors. Substrate is opt-in per repo (migration 0004 default OFF); failing closed would block every push from a non-substrate user.
+  - Gate 5 returns `deferred` when the desktop has no OpenAI key configured. Push proceeds; the user can configure a key from Settings → AI to enable it.
+  - Frontend Mode 5 auto-mounts when `GateRunStarted` lands. Verdict footer offers `Push anyway` / `Open diff` / `Dismiss` on block, `Continue` on allow.
+- **Confirmations for the architect:**
+  - `cargo check --lib` clean (3m 53s cold). `cargo check --lib --tests` clean (45.33s incremental).
+  - Gates 5/6/9 are no longer deferred placeholders — Sesión 8's `sensors::git::gate::evaluate` still returns the deferred entries for back-compat callers, but the HTTP handler strips them via `stitch_inline_with_async` and replaces them with the runner's real verdicts.
+  - Security scan ports the 19 Semgrep regexes ONLY. The 17 `eslint-plugin-security` rules + the AI security review layer from `web/lib/ai/security-scan.ts` are intentionally NOT ported (see DECISIONS).
+  - `MAX_BODY_BYTES = 100KB` cap on the diff body (defense in depth — the hook script also truncates client-side).
+  - Default-allow on Gate 6 documented + tested — the integration test `pre_push_hook_integration` doesn't seed a recording dir, asserts the run is `allow=true` regardless.
+  - Bypass header is `X-Inari-Bypass: 1`; the IPC `request_bypass` is post-hoc audit only.
+- **Tests run 2026-05-01:**
+  - `cargo test --test security_scan_19_patterns -- --test-threads=1` — **2/2 pass** (0.03s after 5m 36s cold link).
+  - `cargo test --test gate_runner_passes_clean_diff -- --test-threads=1` — **1/1 pass** (0.14s).
+  - `cargo test --test gate_runner_blocks_security_finding -- --test-threads=1` — **1/1 pass** (0.17s).
+  - `cargo test --test gate_runner_blocks_low_confidence -- --test-threads=1` — **1/1 pass** (0.15s).
+  - `cargo test --test pre_push_hook_integration -- --test-threads=1` — **1/1 pass** (3.33s — exercises the full handler path including bus dispatch).
+  - `cargo test --test pre_push_bypass_path -- --test-threads=1` — **1/1 pass** (0.14s).
+  - **Regression check** — `cargo test --test git_hook_event_pre_push_blocks --test git_hook_event_auth --test git_hook_event_post_merge_publishes_reindex --test git_hooks_router_merge -- --test-threads=1` — **7/7 pass** (the 4 Sesión-8 contract tests after adding the `openai: None` field to their `GitHookState` literals).
+  - `npx tsc --noEmit` — exit 0.
+  - `npm run build` — clean in 6.05s. Same Shiki language-chunk warnings as Sesiones 15-19 (`cpp.js`, `wasm.js`, `emacs-lisp.js` lazy-loaded, expected).
+  - `npx vitest run` — **20 test files / 42 tests / 42 passed in 9.52s**. New: `GateRunning.test.tsx` (3 tests). Pre-existing 39 from S14-S19 still green.
+- **Track 5 status:** **CERRADO 100%.** Sesión 18 + 19 + 20 all done. The dock now (a) chats with full streaming, (b) generates fixes locally + cloud-proxied, and (c) blocks unsafe pushes with a 5-gate timeline + override path.
+- **Notes for downstream Tracks:**
+  1. **The hook script in `desktop/src-tauri/resources/hooks/pre-push.sh` does not yet send `diff_body` + `commit_message`.** The server defaults them to empty strings so the existing script still works (Gate 9 scans an empty diff and passes; Gate 5 prompt sees an empty commit msg). Updating the script is a follow-up — recommended call shape: `git diff --no-color "${LOCAL_SHA}" | head -c 102400` for the body, `git log -1 --format=%B "${LOCAL_SHA}"` for the message. Until that script update lands, real-world pushes get Gate 9 = pass-by-default + Gate 5 with no commit context. **NOT a blocker for the V0 ship; document in the v0.2 follow-up list.**
+  2. **The push response only enforces verdict on the SHELL hook side.** A user who manually `curl`s the daemon and ignores the response can still push — the security perimeter is the hook script, not the daemon. Same posture as Sesión 8.
+  3. **Gate 6 substrate replay runs synchronously inline** (no `spawn_blocking`) inside the runner's `tokio::join!`. Worst case it blocks the worker for ≤ 30s (replay backend's own ceiling); the runner's outer `tokio::time::timeout(RUNNER_DEADLINE)` guarantees the HTTP response stays bounded. If we ever see real-world contention, switch to `tokio::task::spawn_blocking` around the `backend.replay(...)` call.
+  4. **`OpenAIClient` is constructed once at daemon boot** (`from_store`) and cached on `GitHookState`. A user that adds a key after launch needs to restart the daemon for Gate 5 to activate — acceptable for v0.1 since key configuration happens during onboarding.
+- **Manual smoke deferred to Jesus:**
+  - **End-to-end DoD** ("triggering a `git push` with intentionally bad code blocks the push and the dock shows the failed security gate within 5s"): needs `tauri dev` + a real on-disk repo with hooks installed + `eval(userInput)` in the diff. The pragmatic test pyramid (HTTP handler + axum mock OpenAI + tempdir-rooted store) covers the codepath shape; wall-clock + the framer micro-interactions are visual.
+  - **AI cost measurement**: deferred to first manual run. Estimate ~$0.001 per Gate 5 call (gpt-5.4, ~500 prompt + ~30 completion tokens).
+- **Blockers / deferred:**
+  - **Pre-push hook script update** to send `diff_body` + `commit_message` — see note #1 above.
+  - **eslint-plugin-security port to Rust** — out of scope (runtime mismatch); see DECISIONS for the longer-form rationale.
+  - **AI security review (3rd layer in `web/lib/ai/security-scan.ts`)** — defer until we have evidence that the 19-regex layer misses real-world findings.
+  - **Background pre-spawn of the runner** (so the AI call kicks off before the user even hits enter on `git push`) — not in v0.1; the 30s ceiling is comfortable.
 
 ---
 

@@ -29,6 +29,7 @@ pub mod commands;
 pub mod connect;
 pub mod error;
 pub mod events;
+pub mod gates;
 pub mod git;
 pub mod mcp;
 pub mod memory;
