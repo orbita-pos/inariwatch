@@ -493,3 +493,107 @@ pub fn wipe_memory_md_versions(store: &Store, repo_id: &str) -> Result<usize> {
     )?;
     Ok(rows)
 }
+
+// ── Wipe-repo-index (Session 17 — Settings → Repos → "Wipe memory") ──────────
+//
+// Used by the dock Settings surface (Sesión 17). The naming "Wipe memory"
+// in the UI refers to the SQL index — the on-disk `memory.md` is
+// intentionally preserved (human work, see Sesión 11 decision). This
+// helper is the single entry point: code symbols + embeddings + events
+// + patterns are dropped for the repo; `memory_md_versions` is NOT.
+
+/// Counts of rows actually removed by [`wipe_repo_index`]. Returned to
+/// the IPC surface so the dock can show a confirmation toast like
+/// "Cleared 12 384 symbols + 837 events".
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct WipeRepoIndexCounts {
+    pub symbols:    usize,
+    pub embeddings: usize,
+    pub events:     usize,
+    pub patterns:   usize,
+}
+
+/// Drop every cache-shaped row tied to `repo_id`. Preserves the
+/// `memory_md_versions` history (human-authored memory) and the `repos`
+/// row itself (so the user keeps the repo registered). Per Sesión 17
+/// spec + Sesión 11 decision: never delete the on-disk `memory.md`.
+pub fn wipe_repo_index(store: &Store, repo_id: &str) -> Result<WipeRepoIndexCounts> {
+    let mut counts = WipeRepoIndexCounts::default();
+
+    let conn = store.conn()?;
+    // Embeddings first — vec0 is virtual and doesn't follow the FK
+    // cascade. Drop the BLOBs before the symbol rows so a crash between
+    // the two passes leaves orphan embeddings (unreachable) instead of
+    // dangling FKs (wrong).
+    counts.embeddings = conn.execute(
+        "DELETE FROM code_embeddings
+         WHERE symbol_id IN (SELECT id FROM code_symbols WHERE repo_id = ?1)",
+        params![repo_id],
+    )?;
+    counts.symbols = conn.execute(
+        "DELETE FROM code_symbols WHERE repo_id = ?1",
+        params![repo_id],
+    )?;
+    counts.events = conn.execute(
+        "DELETE FROM events WHERE repo_id = ?1",
+        params![repo_id],
+    )?;
+    counts.patterns = conn.execute(
+        "DELETE FROM patterns WHERE repo_id = ?1",
+        params![repo_id],
+    )?;
+
+    Ok(counts)
+}
+
+/// Slim repo summary returned by Sesión 17's Settings → Repos list.
+/// Symbol count is computed via `count_symbols_for_repo`; the other
+/// fields come straight off the `repos` row.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RepoSummary {
+    pub id:                  String,
+    pub path:                String,
+    pub name:                String,
+    pub opened_at_ms:        i64,
+    pub last_indexed_at_ms:  Option<i64>,
+    pub indexed_file_count:  i64,
+    pub symbol_count:        i64,
+    pub replay_enabled:      bool,
+}
+
+/// All registered repos with the per-repo metrics the Settings UI shows.
+/// One small JOIN — the symbol count is a `COUNT(*)` group-by so we
+/// avoid an N+1 round-trip.
+pub fn list_repos_with_metrics(store: &Store) -> Result<Vec<RepoSummary>> {
+    let conn = store.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT r.id, r.path, r.name, r.opened_at, r.last_indexed_at,
+                r.indexed_file_count, r.replay_enabled,
+                COALESCE(s.cnt, 0) as symbol_count
+         FROM   repos r
+         LEFT   JOIN (
+                    SELECT repo_id, COUNT(*) AS cnt
+                    FROM   code_symbols
+                    GROUP  BY repo_id
+                ) s ON s.repo_id = r.id
+         ORDER  BY r.opened_at DESC
+         LIMIT  1000",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(RepoSummary {
+            id:                 row.get(0)?,
+            path:               row.get(1)?,
+            name:               row.get(2)?,
+            opened_at_ms:       row.get(3)?,
+            last_indexed_at_ms: row.get(4)?,
+            indexed_file_count: row.get(5)?,
+            replay_enabled:     row.get::<_, i64>(6)? != 0,
+            symbol_count:       row.get(7)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}

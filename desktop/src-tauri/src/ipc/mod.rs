@@ -33,6 +33,8 @@ pub mod mcp;
 pub mod memory;
 pub mod onboarding;
 pub mod saves;
+pub mod sensors;
 pub mod settings;
+pub mod window;
 
 pub use error::IpcError;

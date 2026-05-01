@@ -129,6 +129,39 @@ pub fn run() {
             ipc::git::uninstall_git_hooks,
             ipc::git::git_hooks_status,
             ipc::git::get_git_hook_token,
+            // Sesión 17 — settings (general / notifications / ai / privacy / about / repos)
+            ipc::settings::get_general_settings,
+            ipc::settings::set_general_settings,
+            ipc::settings::get_notifications_settings,
+            ipc::settings::set_notifications_settings,
+            ipc::settings::get_ai_settings,
+            ipc::settings::set_ai_settings,
+            ipc::settings::get_privacy_settings,
+            ipc::settings::set_privacy_settings,
+            ipc::settings::get_about_info,
+            ipc::settings::set_release_channel,
+            ipc::settings::check_for_updates,
+            ipc::settings::get_repos_list,
+            ipc::settings::wipe_repo_memory,
+            // Sesión 17 — onboarding flow
+            ipc::onboarding::onboarding_open_repo,
+            ipc::onboarding::onboarding_progress,
+            ipc::onboarding::complete_onboarding,
+            ipc::onboarding::is_onboarded,
+            // Sesión 17 — window navigation
+            ipc::window::open_main_window,
+            ipc::window::hide_dock,
+            ipc::window::navigate,
+            // Sesión 17 — sensor toggles + power-up stubs
+            ipc::sensors::get_sensors_state,
+            ipc::sensors::set_sensor_enabled,
+            ipc::sensors::shell_hooks_status,
+            ipc::sensors::install_shell_hooks,
+            ipc::sensors::uninstall_shell_hooks,
+            ipc::sensors::get_replay_enabled,
+            ipc::sensors::set_replay_enabled,
+            ipc::sensors::install_vscode_extension,
+            ipc::sensors::configure_http_proxy,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day

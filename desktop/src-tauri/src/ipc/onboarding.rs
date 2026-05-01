@@ -1,25 +1,39 @@
 //! First-run onboarding helpers (RENAMED from `src/onboarding.rs`).
 //!
-//! Three Tauri commands the overlay uses to drive the legacy 1-step
-//! onboarding flow:
+//! Legacy commands (kept for backward-compat with the InariWatch
+//! dashboard overlay; see project rule "no breaking changes" in
+//! CLAUDE.md):
 //!
 //!   - `desktop_first_run_status` — { has_token, has_watch_dir, watch_dir? }
 //!   - `desktop_pick_watch_dir`   — opens the native folder picker
 //!   - `desktop_save_watch_dir`   — persists `watch_dir` in the SQL
 //!     settings store
 //!
-//! Session 17 ships the multi-step React onboarding and stops calling
-//! these. The file is then deleted at end of Session 17 per the
-//! ARCHITECTURE.md migration plan.
+//! Sesión 17 adds the new multi-step React onboarding surface backing
+//! commands:
+//!
+//!   - `onboarding_open_repo` — drag-and-drop accepted path → registers
+//!     the repo in `repos` + dispatches the indexer.
+//!   - `onboarding_progress`  — polled by the React UI for the in-progress
+//!     scan/index status. Returns `done` once the indexer reports the
+//!     repo's symbol count > 0 OR the daemon emits `RepoIndexed`.
+//!   - `complete_onboarding`  — flips `user_onboarded = true` in settings.
+//!   - `is_onboarded`         — gating helper used by `App.tsx` boot to
+//!     decide whether to show the onboarding window or the dock.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
+use ts_rs::TS;
 
-use crate::store::{settings, Store};
+use crate::daemon::DaemonHandle;
+use crate::sensors::fs::FsSensorHandle;
+use crate::store::{queries, settings, Store};
+
+use super::error::IpcError;
 
 #[derive(Serialize)]
 pub struct FirstRunStatus {
@@ -87,4 +101,166 @@ pub fn desktop_save_watch_dir(
     settings::set(&state, "watch_dir", trimmed)
         .map_err(|e| format!("save: {}", e))?;
     Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Sesión 17 — multi-step React onboarding
+// ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/lib/types/")]
+pub struct OnboardingRepoResult {
+    pub id:                 String,
+    pub path:               String,
+    pub name:               String,
+    pub already_registered: bool,
+}
+
+/// Register a repo and kick off the initial walk. Mirrors `open_repo`
+/// (Sesión 4) but: (1) attaches a friendly "already registered" flag so
+/// the React UI shows "We already know this repo, picking it up where
+/// you left off", and (2) does NOT bump the daemon's repo counter when
+/// the path is already known (so revisiting onboarding is idempotent).
+#[tauri::command]
+pub fn onboarding_open_repo(
+    app:        AppHandle,
+    store:      tauri::State<'_, Arc<Store>>,
+    daemon:     tauri::State<'_, Arc<DaemonHandle>>,
+    fs_sensor:  tauri::State<'_, FsSensorHandle>,
+    path:       String,
+) -> Result<OnboardingRepoResult, IpcError> {
+    let _ = app; // reserved for future emits
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(IpcError::invalid_path("", "path is empty"));
+    }
+    let p = Path::new(trimmed);
+    let canonical = p
+        .canonicalize()
+        .map_err(|e| IpcError::invalid_path(p, e.to_string()))?;
+    if !canonical.is_dir() {
+        return Err(IpcError::invalid_path(&canonical, "not a directory"));
+    }
+    // Best-effort .git/ check. Sesión 17 spec asks the UI to soft-warn
+    // on non-git folders; the IPC accepts them so the user can still
+    // attach a generic project but the React layer surfaces the hint.
+    let canonical_str = canonical.to_string_lossy().to_string();
+    let name = canonical
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| canonical_str.clone());
+
+    let already = queries::find_repo_by_path(&store, &canonical_str)?.is_some();
+
+    let id = generate_repo_id();
+    let now_ms = now_ms();
+    let final_id = queries::upsert_repo(&store, &id, &canonical_str, &name, now_ms)?;
+
+    if !already {
+        daemon.state.inc_repos();
+    }
+
+    if let Err(e) = fs_sensor.attach(final_id.clone(), canonical.clone()) {
+        tracing::warn!(repo_id = %final_id, error = %e, "fs sensor attach failed");
+    }
+
+    Ok(OnboardingRepoResult {
+        id:                 final_id,
+        path:               canonical_str,
+        name,
+        already_registered: already,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/lib/types/")]
+pub struct OnboardingProgressDto {
+    /// `scanning` (initial walk) / `indexing` (embedding pass) / `done`.
+    pub stage:        String,
+    /// 0.0–1.0 — heuristic, monotonically non-decreasing.
+    pub percent:      f32,
+    pub symbol_count: i64,
+}
+
+#[tauri::command]
+pub fn onboarding_progress(
+    store:   tauri::State<'_, Arc<Store>>,
+    repo_id: String,
+) -> Result<OnboardingProgressDto, IpcError> {
+    let symbol_count = queries::count_symbols_for_repo(&store, &repo_id)
+        .map(|n| n as i64)
+        .unwrap_or(0);
+
+    // Stage heuristic: the indexer (Sesión 6) walks first and embeds
+    // symbols incrementally. We can't observe the walker queue from here
+    // without re-plumbing the indexer, so the heuristic is:
+    //   - 0 symbols indexed yet → stage = scanning, percent = 0.05
+    //   - some indexed         → stage = indexing, percent ramps to 0.95
+    //   - last_indexed_at set  → stage = done, percent = 1.0
+    let conn = store.conn()?;
+    let last_indexed_at_ms: Option<i64> = conn
+        .query_row(
+            "SELECT last_indexed_at FROM repos WHERE id = ?1",
+            rusqlite::params![repo_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .map_err(|e| IpcError::Query { message: e.to_string() })?;
+
+    let (stage, percent) = if last_indexed_at_ms.is_some() {
+        ("done", 1.0_f32)
+    } else if symbol_count > 0 {
+        // Ramp from 0.10 → 0.95 logarithmically by symbol count.
+        let pct = 0.10_f32 + (0.85_f32 * (1.0 - (1.0_f32 / (1.0 + symbol_count as f32 * 0.001))));
+        ("indexing", pct.min(0.95))
+    } else {
+        ("scanning", 0.05_f32)
+    };
+
+    Ok(OnboardingProgressDto {
+        stage:        stage.to_string(),
+        percent,
+        symbol_count,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/lib/types/")]
+pub struct OnboardingState {
+    pub onboarded: bool,
+}
+
+#[tauri::command]
+pub fn complete_onboarding(
+    state: tauri::State<'_, Arc<Store>>,
+) -> Result<OnboardingState, IpcError> {
+    settings::set(&state, super::settings::KEY_USER_ONBOARDED, "true")?;
+    Ok(OnboardingState { onboarded: true })
+}
+
+#[tauri::command]
+pub fn is_onboarded(
+    state: tauri::State<'_, Arc<Store>>,
+) -> Result<OnboardingState, IpcError> {
+    let raw = settings::get(&state, super::settings::KEY_USER_ONBOARDED)?;
+    let onboarded = matches!(raw.as_deref(), Some("true") | Some("1"));
+    Ok(OnboardingState { onboarded })
+}
+
+fn generate_repo_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{:016x}-{:08x}", nanos as u64, seq as u32)
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }

@@ -8,4 +8,6 @@ export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from "./Popove
 export { Tooltip, TooltipProvider } from "./Tooltip";
 export { Tabs, TabsList, TabsTrigger, TabsContent } from "./Tabs";
 export { ScrollArea } from "./ScrollArea";
+export { Switch } from "./Switch";
+export type { SwitchProps } from "./Switch";
 export { Toast, ToastProvider, ToastViewport } from "./Toast";
