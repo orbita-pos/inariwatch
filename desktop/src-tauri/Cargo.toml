@@ -20,6 +20,13 @@ path = "src/main.rs"
 name = "inari-mcp-stdio"
 path = "src/bin/inari_mcp_stdio.rs"
 
+# Session 22 (v0.2) — LSP-over-stdio passthrough sidecar that editors
+# (VS Code, Neovim, Helix, JetBrains, Cursor, Zed) spawn. Pumps bytes
+# between stdin/stdout and the daemon's TCP LSP listener (default 9877).
+[[bin]]
+name = "inari-lsp-stdio"
+path = "src/bin/inari_lsp_stdio.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -41,6 +48,7 @@ tracing-appender         = "0.2"
 # which pumps JSON-RPC frames synchronously between stdin/stdout and the
 # local axum server.
 reqwest                  = { version = "0.12", features = ["json", "rustls-tls", "stream", "blocking"], default-features = false }
+dirs                     = "5"
 toml                     = "0.8"
 notify                   = "6"
 # Session 5 — FS sensor.

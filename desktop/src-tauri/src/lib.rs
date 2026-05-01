@@ -79,6 +79,12 @@ pub mod local_ai;
 // scope for Session 11's edits). Drop after Session 10 splits the watcher.
 pub use memory::fingerprint;
 
+// Sesión 22 (v0.2) — LSP server. `pub` so integration tests in
+// `tests/lsp_*` can reach `crate::lsp::{LspState, start_lsp_server_for_test, ...}`.
+pub mod lsp;
+
+pub const LSP_DEFAULT_PORT: u16 = 9877;
+
 const INARI_WINDOW_LABEL: &str = "inari";
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -413,8 +419,12 @@ pub fn run() {
             // FS watcher + replay dispatcher. Session 5/10 owns the rewrite.
             inari_watcher::start(app.handle().clone());
 
+            // Sesión 22 (v0.2) — LSP server on 127.0.0.1:9877.
+            // Fail-OPEN: bind failure logs but does NOT abort the daemon.
+            start_lsp_listener();
+
             // Local Capture ingest server (was `local_ingest::start`)
-            // moves to `sensors/substrate/local_ingest.rs` (Session 10).
+            // moves to `sensors/substrate/local_ai/local_ingest.rs` (Session 10).
             // No spawn site here until that owner ships.
             Ok(())
         })
@@ -648,6 +658,24 @@ fn open_dashboard(app: &AppHandle) {
         .unwrap_or_else(|| cloud::api::DEFAULT_API_URL.to_string());
     let url = format!("{}/dashboard", base.trim_end_matches('/'));
     let _ = open_in_browser(&url);
+}
+
+// ── LSP listener bootstrap ───────────────────────────────────────────────────
+//
+// Sesión 22 (v0.2). Spawns the LSP server on 127.0.0.1:LSP_DEFAULT_PORT (9877).
+// Distinct from the local MCP port (9876). Editors that speak stdio LSP
+// connect via the `inari-lsp-stdio` sidecar binary, which proxies stdio ↔ TCP.
+//
+// Failure to bind (e.g. another instance already running) is logged but does
+// NOT abort daemon startup — the dock + tray + alert poller stay functional.
+
+fn start_lsp_listener() {
+    tauri::async_runtime::spawn(async move {
+        match lsp::start_lsp_server(LSP_DEFAULT_PORT).await {
+            Ok(addr) => eprintln!("[lsp] listening on {addr}"),
+            Err(e)   => eprintln!("[lsp] failed to bind: {e}"),
+        }
+    });
 }
 
 fn open_in_browser(url: &str) -> std::io::Result<()> {
