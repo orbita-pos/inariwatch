@@ -668,7 +668,7 @@ Captured from `project_inari_live.md` memory:
   - VACUUM reclaims space (assert DB file size decreases after deleting + vacuuming 10MB of events).
 - **Definition of done:** `cargo test -p memory` green; running `inari memory query "auth flow"` against `radar/web/` returns a ranked list of relevant functions in <100ms; retention job clears stale events on schedule.
 
-#### Done (2026-05-01) — Sesión 13 (code-complete; tests deferred on disk-space wall)
+#### Done (2026-05-01) — Sesión 13 (code-complete; tests pass after architect-led test-fix follow-up 2026-05-01)
 
 - **Branch:** `feat/inari-live-track3-session13-semantic-episodic-retention` (off S18 tip `61a8a6d`).
 - **Files added:**
@@ -688,9 +688,10 @@ Captured from `project_inari_live.md` memory:
 - **Verification (results):**
   - `cargo check --lib` — clean in 6.18 s (sello base) and 44.26 s (cold compile after edits).
   - `cargo check --lib --tests` — clean in 40.39 s.
-  - `cargo test --test semantic_search_top_k` — **DEFERRED**, see Blockers.
-  - `cargo test --test episodic_append_and_query` — **DEFERRED**, see Blockers.
-  - `cargo test --test retention_deletes_and_vacuums` — **DEFERRED**, see Blockers.
+  - `cargo test --test semantic_search_top_k -- --test-threads=1` — **2/2 pass** (after architect test-fix, see *Test fix* below). Perf observed: **0.76 ms** cold / **4.03 ms** warm-cache, both ≪ the 100 ms target on the 50-primary + 10-noise fixture.
+  - `cargo test --test episodic_append_and_query -- --test-threads=1` — **1/1 pass** in 0.19 s.
+  - `cargo test --test retention_deletes_and_vacuums -- --test-threads=1` — **2/2 pass** in 4.79 s.
+  - All test runs used `RUSTFLAGS="-C debuginfo=1"` (line-tables-only). See *PDB workaround* below.
   - No frontend changes → no `npx tsc` / `vitest run` / `npm run build` required.
 - **Track 3 status:** Sesión 13 closes Layer 1 + Layer 2 glue + retention (3 of 4 layers wired). Layer 4 (procedural / `Sesión 12`) is the only Track 3 item still outstanding — Track 3 sits at 67% per the original spec's "Sesión 13 closes 67%" target.
 - **Notes for Sesión 19:**
@@ -698,8 +699,15 @@ Captured from `project_inari_live.md` memory:
   2. **Episodic API:** call `crate::memory::episodic::query(&store, &EventFilter { kind: Some("shell_event"), repo_id: Some(rid), since: Some(now_ms - day_ms(7)), limit: Some(50) })` to gather "what happened recently". Rows come back sorted `timestamp DESC`.
   3. **Embeddings via OpenAIClient:** `OpenAIClient::embeddings(texts)` now returns 384-dim vectors via fastembed (NOT OpenAI's 1536-dim `text-embedding-3-small`). Compatible with the existing `code_embeddings FLOAT[384]` schema. If S19 wants higher-dim semantics it requires a new table + reindex — see DECISIONS 2026-05-01.
   4. **ChatTokenStream is NOT persisted** — see episodic policy table. If you want a chat-history audit row, publish a new `DaemonEvent::ChatSessionFinished` from `streaming.rs` on the `finish_reason: Some(_)` chunk and add `chat_session` to `kind_tag` + `ttl_for` (90-day TTL was the spec target).
-- **Blockers:**
-  - **Disk-space wall (2026-05-01).** C: drive at 100% (1.8 GB free of 215 GB). Cargo `check --lib --tests` succeeds because it doesn't link, but `cargo test --test <name>` fails to write the static archive `inariwatch_desktop_lib.lib`: `Espacio en disco insuficiente. (os error 112)`. Shared cargo target dir is 17 GB; incremental cache alone is 4.6 GB. Same precedent as the S6 / S8 / S11 / S14 MSVC-toolchain wall — code is complete and `cargo check` clean; the 3 integration tests are written and will run as soon as disk has ~3 GB headroom. Resume: free disk (or `Remove-Item -Recurse -Force C:\Users\jesus\.cargo\target-shared\debug\incremental` — safe, regenerated on demand) → `cargo test --test semantic_search_top_k -- --test-threads=1 --nocapture` → repeat for `episodic_append_and_query` + `retention_deletes_and_vacuums` → record perf number for the semantic test in the HANDOFF (the test prints `[perf] semantic_search filtered ...`).
+- **Test fix (architect follow-up, 2026-05-01):**
+  - `tests/semantic_search_top_k.rs::semantic_search_returns_top_k_in_descending_similarity` originally failed on the unfiltered branch with `assertion left == right failed: noise repo should dominate without filter`. Root cause: the `code_embeddings` virtual table in `0002_embeddings.sql` does NOT specify a `distance_metric=` — sqlite-vec defaults to **L2**, not cosine (despite the prose comment in `queries.rs:459` calling it "cosine distance"). Production code happens to work because fastembed returns unit-norm vectors, where L2 ranking ≡ cosine ranking. The test fixture used un-normalised vectors (`[score, 1, 0, …]`), so the L2-nearest result was the lowest-magnitude vector (PRIMARY score=1.0, L2≈1.0) instead of the highest-cosine vector (OTHER score=2.0, L2≈1.414).
+  - Fix: `make_embedding(score)` in the test now L2-normalises before returning. Vectors are `[score / √(score²+1), 1 / √(score²+1), 0, …]` — unit-norm, mirrors fastembed's contract, ranks identically under both L2 and cosine. The implementation is unchanged; only the test fixture was wrong.
+  - Follow-up tracked separately: the `queries.rs:459` comment that says "cosine distance" should be corrected to "L2 distance (which equals cosine distance for unit-norm vectors, the contract fastembed satisfies)". A future session that decides cosine is preferable would need a new migration adding `distance_metric=cosine` to the vec0 table + a reindex.
+- **PDB workaround (architect follow-up, 2026-05-01):**
+  - Test linking initially hit `LNK1318: Unexpected PDB error; LIMIT (12)` — the MSVC linker enforces a hard 4 GB cap on PDB files, and the inariwatch-desktop test executable's PDB exceeds it under the default `debuginfo=2`.
+  - Resolution: build tests with `RUSTFLAGS="-C debuginfo=1"` (line-tables-only). PDB shrinks ~10×, well under the cap. Backtraces still show file/line; only inline variable inspection in a debugger is reduced. **Future Track-3/Track-5 sessions should export this flag for any `cargo test` invocation on this crate.** Recorded in `~/.claude/projects/.../memory/project_machine_constraints.md` (LNK1318 entry).
+- **Blockers:** none. Disk-space wall + PDB wall both worked through; the 5 deferred tests now run end-to-end.
+- **Notes for further follow-up:**
   - **100 ms time-flush window (HANDOFF line 364).** Still reserved — Sesión 13 does NOT wire it. The S6 indexer batcher's batch policy is "flush at 64"; the time-flush-fallback is a separate concern (wakes when the queue is non-empty but small). Deferred without a concrete need — observed batches saturate the size policy under typical edit bursts. Reopen if a test repo with dribbled-in saves shows symbols sitting un-indexed for >1 s.
 
 ---

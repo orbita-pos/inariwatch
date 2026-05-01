@@ -34,15 +34,22 @@ fn open_store() -> Arc<Store> {
     store
 }
 
-/// Build a 384-dim embedding aligned with the canonical query
-/// direction `[1, 0, 0, …, 0]`. `score` is written to `dim[0]`; a
-/// constant `1.0` lives in `dim[1]` so cosine similarity is well-
-/// defined (the magnitude is never zero) and strictly monotonic in
-/// `score`.
+/// Build a 384-dim **unit-norm** embedding aligned with the canonical
+/// query direction `[1, 0, 0, …, 0]`. `score` is written to `dim[0]`;
+/// a constant `1.0` lives in `dim[1]` so the magnitude is never zero
+/// and the cosine similarity is strictly monotonic in `score`. The
+/// vector is then L2-normalized so that **L2 distance and cosine
+/// distance produce the same KNN ordering** — the production
+/// `code_embeddings` virtual table does not specify a
+/// `distance_metric=` (defaults to L2), and fastembed already returns
+/// unit-norm vectors. Tests must mirror that contract.
 fn make_embedding(score: f32) -> Vec<f32> {
     let mut v = vec![0f32; EMBEDDING_DIM];
     v[0] = score;
     v[1] = 1.0;
+    let norm = (score * score + 1.0).sqrt();
+    v[0] /= norm;
+    v[1] /= norm;
     v
 }
 
