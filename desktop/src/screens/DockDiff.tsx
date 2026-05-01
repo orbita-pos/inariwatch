@@ -16,7 +16,9 @@ import {
 
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { DiffViewer, type DiffViewMode } from "@/components/DiffViewer";
+import { EAPReceiptChip } from "@/components/EAPReceiptChip";
 import { GateChecklist } from "@/components/GateChecklist";
+import { ReplayButton } from "@/components/ReplayButton";
 import { ApplyButton } from "@/screens/DockAlert";
 import { Button, Dialog, DialogClose } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -24,11 +26,13 @@ import {
   applyFix,
   applyRemediation,
   getFixById,
+  getReceiptForSession,
   modifyWithAi,
   openEapReceipt,
   rejectFix,
   rejectRemediation,
   type ApplyFixResult,
+  type EapReceiptDto,
 } from "@/lib/dock-ipc";
 import { useChat } from "@/lib/store/chat";
 import type { Fix } from "@/types/alert";
@@ -71,6 +75,11 @@ export function DockDiff({ fixOverride = null }: DockDiffProps) {
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyValue, setModifyValue] = useState("");
   const [diffString, setDiffString] = useState<string>(fix?.diff ?? "");
+  // Sesión 27 — EAP receipt mirrored from the daemon. `null` means
+  // "not attested yet" (chip falls back to its unsigned state). The
+  // dock fetches lazily once a remediation session is in scope so we
+  // don't hit the IPC on every Fix view.
+  const [receipt, setReceipt] = useState<EapReceiptDto | null>(null);
 
   // Sync resolved + diff string when the store-supplied fix changes.
   useEffect(() => {
@@ -94,6 +103,25 @@ export function DockDiff({ fixOverride = null }: DockDiffProps) {
       cancelled = true;
     };
   }, [resolved, pendingDiff]);
+
+  // Sesión 27 — load the EAP receipt for the active remediation
+  // session. Fires only when the dock entered Mode 4 via the local
+  // remediation orchestrator; legacy alert-fix flows have no session
+  // id and skip the call (chip stays in its unsigned state).
+  useEffect(() => {
+    if (!remediationSessionId) {
+      setReceipt(null);
+      return;
+    }
+    let cancelled = false;
+    getReceiptForSession(remediationSessionId).then((r) => {
+      if (cancelled) return;
+      setReceipt(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [remediationSessionId]);
 
   // Preserve scroll position across inline ↔ side-by-side toggles.
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -257,6 +285,21 @@ export function DockDiff({ fixOverride = null }: DockDiffProps) {
         data-testid="dock-diff-body"
         className="flex-1 overflow-auto px-4 py-3 flex flex-col gap-3"
       >
+        {/* Sesión 27 — EAP receipt chip + Replay button. Renders
+            above the diff so the trust signal is the first thing the
+            user sees when reviewing the patch. */}
+        <section
+          data-testid="dock-diff-attestation"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <EAPReceiptChip receipt={receipt} />
+          <ReplayButton
+            sessionId={remediationSessionId}
+            alertId={resolved.alertId}
+            hasRecording={Boolean(receipt?.recordingId)}
+          />
+        </section>
+
         <motion.div
           layout={reduce ? false : "size"}
           transition={

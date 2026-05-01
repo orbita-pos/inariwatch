@@ -541,3 +541,179 @@ export async function openEapReceipt(signature: string): Promise<void> {
     );
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Sesión 27 — EAP receipt chip + Replay-against-patch button
+//
+// Two reads:
+//   * `getReceiptForSession` — populates `EAPReceiptChip` with the
+//     mirrored EAP attestation (Merkle root, prompt hash, tools called,
+//     files read, model, signature). Heavy fields ride as JSON strings
+//     to keep the IPC schema-agnostic; the chip's popover decodes them.
+//   * `replayAgainstPatch` — POSTs to the existing `/v2/replay` Hetzner
+//     endpoint via the daemon. Returns a tagged union the dock branches
+//     on — verdict / no recording / no receipt / config missing /
+//     request failed.
+//
+// Both helpers degrade gracefully under jsdom + older daemon builds:
+// invoke rejects with "command <name> not found" → fallback returns
+// `null` (chip) or `request_failed` (button), so the surface stays
+// interactive without throwing.
+// ──────────────────────────────────────────────────────────────────────
+
+export interface EapReceiptDto {
+  receiptId: string;
+  remediationSessionId: string;
+  merkleRoot: string;
+  signature: string | null;
+  signed: boolean;
+  promptHash: string | null;
+  systemPrompt: string | null;
+  /** JSON-encoded array. Free shape — caller decodes. */
+  toolsCalledJson: string;
+  /** JSON-encoded array. Free shape — caller decodes. */
+  filesReadJson: string;
+  model: string | null;
+  recordingId: string | null;
+  attestor: string;
+  createdAtMs: number;
+}
+
+export async function getReceiptForSession(
+  sessionId: string,
+): Promise<EapReceiptDto | null> {
+  try {
+    const raw = await invoke<{
+      receipt_id: string;
+      remediation_session_id: string;
+      merkle_root: string;
+      signature: string | null;
+      signed: boolean;
+      prompt_hash: string | null;
+      system_prompt: string | null;
+      tools_called_json: string;
+      files_read_json: string;
+      model: string | null;
+      recording_id: string | null;
+      attestor: string;
+      created_at_ms: number;
+    } | null>("get_receipt_for_session", { args: { session_id: sessionId } });
+    if (!raw) return null;
+    return {
+      receiptId: raw.receipt_id,
+      remediationSessionId: raw.remediation_session_id,
+      merkleRoot: raw.merkle_root,
+      signature: raw.signature,
+      signed: raw.signed,
+      promptHash: raw.prompt_hash,
+      systemPrompt: raw.system_prompt,
+      toolsCalledJson: raw.tools_called_json,
+      filesReadJson: raw.files_read_json,
+      model: raw.model,
+      recordingId: raw.recording_id,
+      attestor: raw.attestor,
+      createdAtMs: raw.created_at_ms,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface ReplayHeadThrow {
+  exceptionName: string;
+  exceptionMessage: string;
+  topFrameFunction: string | null;
+  topFrameFile: string | null;
+  topFrameLine: number | null;
+}
+
+export type ReplayResultDto =
+  | {
+      kind: "ok";
+      throwReproduced: boolean;
+      throwsAfter: number;
+      runnerMode: string | null;
+      fixBranch: string | null;
+      durationMs: number | null;
+      headThrow: ReplayHeadThrow | null;
+    }
+  | { kind: "no_recording"; receiptId: string }
+  | { kind: "no_receipt" }
+  | { kind: "config_missing"; reason: string }
+  | { kind: "request_failed"; status: number | null; error: string };
+
+export async function replayAgainstPatch(
+  sessionId: string,
+  alertId: string,
+): Promise<ReplayResultDto> {
+  try {
+    const raw = await invoke<RawReplayResult>("replay_against_patch", {
+      args: { session_id: sessionId, alert_id: alertId },
+    });
+    return mapReplayResult(raw);
+  } catch (e) {
+    return {
+      kind: "request_failed",
+      status: null,
+      error: e instanceof Error ? e.message : "replay invocation failed",
+    };
+  }
+}
+
+// Internal: shape backend ships over the wire (snake_case + tagged
+// `kind`). Mapped to the camelCase TS shape the dock consumes.
+type RawReplayResult =
+  | {
+      kind: "ok";
+      throw_reproduced: boolean;
+      throws_after: number;
+      runner_mode: string | null;
+      fix_branch: string | null;
+      duration_ms: number | null;
+      head_throw: {
+        exception_name: string;
+        exception_message: string;
+        top_frame_function: string | null;
+        top_frame_file: string | null;
+        top_frame_line: number | null;
+      } | null;
+    }
+  | { kind: "no_recording"; receipt_id: string }
+  | { kind: "no_receipt" }
+  | { kind: "config_missing"; reason: string }
+  | { kind: "request_failed"; status: number | null; error: string };
+
+function mapReplayResult(raw: RawReplayResult): ReplayResultDto {
+  switch (raw.kind) {
+    case "ok":
+      return {
+        kind: "ok",
+        throwReproduced: raw.throw_reproduced,
+        throwsAfter: raw.throws_after,
+        runnerMode: raw.runner_mode,
+        fixBranch: raw.fix_branch,
+        durationMs: raw.duration_ms,
+        headThrow: raw.head_throw
+          ? {
+              exceptionName: raw.head_throw.exception_name,
+              exceptionMessage: raw.head_throw.exception_message,
+              topFrameFunction: raw.head_throw.top_frame_function,
+              topFrameFile: raw.head_throw.top_frame_file,
+              topFrameLine: raw.head_throw.top_frame_line,
+            }
+          : null,
+      };
+    case "no_recording":
+      return { kind: "no_recording", receiptId: raw.receipt_id };
+    case "no_receipt":
+      return { kind: "no_receipt" };
+    case "config_missing":
+      return { kind: "config_missing", reason: raw.reason };
+    case "request_failed":
+      return {
+        kind: "request_failed",
+        status: raw.status,
+        error: raw.error,
+      };
+  }
+}

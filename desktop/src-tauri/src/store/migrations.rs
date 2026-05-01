@@ -71,6 +71,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name:    "local_models",
         sql:     include_str!("migrations/0009_local_models.sql"),
     },
+    Migration {
+        version: 10,
+        name:    "eap_receipts",
+        sql:     include_str!("migrations/0010_eap_receipts.sql"),
+    },
 ];
 
 /// Apply any migrations that have not yet run on `conn`. Idempotent.
