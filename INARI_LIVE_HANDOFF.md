@@ -931,6 +931,76 @@ Captured from `project_inari_live.md` memory:
   - Multi-window: opening main from dock keeps dock visible.
 - **Definition of done:** dragging `radar/web/` into a fresh install completes onboarding in <60s; all settings persist; Wipe memory works correctly; main window navigation is keyboard-accessible.
 
+#### Session 17 — Done (2026-05-01) — **Track 4 CERRADO 100%**
+
+- **Status:** Done — `npx tsc --noEmit` exit 0, `npm run build` clean (4.84s), 17 vitest files / **34 tests** / 34 passed (≈7.7s wall), `cargo check --lib --tests` clean (19s incremental). Manual `tauri dev` smoke deferred to Jesus per the prompt's pragmatic DoD.
+- **Worktree:** `C:/Users/jesus/desktop/radar` (main checkout).
+- **Branch:** `feat/inari-live-track4-session17-onboarding-settings` (forked from S16 tip `ceb7dfe`).
+- **Source commit:** `35a6af5` (`feat(inari-live): Sesión 17 — onboarding + settings + multi-window plumbing`).
+- **Docs commit:** filled by the next commit in this session.
+
+- **Files added (Rust IPC):**
+  - `desktop/src-tauri/src/ipc/window.rs` — `open_main_window` / `hide_dock` / `navigate` (typed `NavigatePayload` mirrors Sesión 14's `inari://navigate` shape).
+  - `desktop/src-tauri/src/ipc/sensors.rs` — `get_sensors_state`, `set_sensor_enabled`, `shell_hooks_status`, `install_shell_hooks`, `uninstall_shell_hooks`, `get_replay_enabled`, `set_replay_enabled`, plus `install_vscode_extension` + `configure_http_proxy` stubs that persist user intent for Sesión 19/22 to honor.
+- **Files modified (Rust IPC):**
+  - `desktop/src-tauri/src/ipc/mod.rs` — exported the two new modules.
+  - `desktop/src-tauri/src/ipc/settings.rs` — added 13 commands: `get_general_settings` / `set_general_settings`, `get_notifications_settings` / `set_notifications_settings`, `get_ai_settings` / `set_ai_settings` (BYOK with redacted preview), `get_privacy_settings` / `set_privacy_settings`, `get_about_info` / `set_release_channel`, `check_for_updates` (stub), `get_repos_list`, `wipe_repo_memory`. The pre-existing `desktop_get_settings` / `desktop_save_settings` family is untouched (legacy-overlay compat per the "no breaking changes" rule). Exported KV-key constants (`KEY_USER_ONBOARDED` / `KEY_HTTP_PROXY_PORT` / `KEY_HTTP_PROXY_ENABLED` / `KEY_FS_SENSOR_ENABLED`) so onboarding + sensors share the same well-known names.
+  - `desktop/src-tauri/src/ipc/onboarding.rs` — added 4 commands: `onboarding_open_repo`, `onboarding_progress`, `complete_onboarding`, `is_onboarded`. Legacy 3-command surface (`desktop_first_run_status` / `desktop_pick_watch_dir` / `desktop_save_watch_dir`) preserved.
+  - `desktop/src-tauri/src/store/queries.rs` — `wipe_repo_index` (drops symbols + embeddings + events + patterns; PRESERVES `memory_md_versions`) + `WipeRepoIndexCounts` DTO + `list_repos_with_metrics` + `RepoSummary` (joins per-repo symbol count in one query — no N+1).
+  - `desktop/src-tauri/src/lib.rs` — registered the 24 new Tauri commands in `invoke_handler`.
+- **Files added (Frontend lib):**
+  - `desktop/src/lib/main-ipc.ts` — wrappers for every new IPC + DTO interfaces. Each helper degrades gracefully (returns a typed default + `console.info` breadcrumb) when the underlying Tauri command isn't registered — same posture as `dock-ipc.ts`.
+  - `desktop/src/lib/store/settings.ts` — Zustand `useSettings` (active section + 7 typed snapshots + optimistic patches + `wipeMemoryFor`).
+  - `desktop/src/lib/store/onboarding.ts` — Zustand `useOnboarding` (3-step flow state + power-up toggles + shell-kind detection).
+  - `desktop/src/lib/store/mainWindow.ts` — minimal `useMainWindow` route store. Replaces React Router DOM (see DECISIONS).
+- **Files added (Frontend screens):**
+  - `desktop/src/screens/Onboarding.tsx` — orchestrator with Framer cross-fade between the 3 steps.
+  - `desktop/src/screens/onboarding/{DropRepo,PowerUps,Ready}.tsx` — 3 sub-screens; auto-advance on `progress.stage === "done"`, Linear-style 6-particle confetti on Ready.
+  - `desktop/src/screens/Settings.tsx` — 8-tab shell.
+  - `desktop/src/screens/settings/{General,Repos,Sensors,Notifications,AI,Privacy,About,Account}.tsx` — section components.
+  - `desktop/src/screens/MainWindow.tsx` — sidebar + route-driven content area + `inari://navigate` listener for `target === "main"`.
+  - `desktop/src/screens/main/{Inbox,Activity,Memory,Patterns}.tsx` — placeholder content for the 4 sidebar items that aren't Settings.
+- **Files added (Frontend components):**
+  - `desktop/src/components/RepoDropzone.tsx` — respiring (4s ease-in-out) dropzone with drag-and-drop + click-to-browse.
+  - `desktop/src/components/PowerUpToggles.tsx` — 4 toggles with shell-aware install previews.
+  - `desktop/src/components/sidebar/Sidebar.tsx` — Cmd/Ctrl + 1..5 jumps + aria-current selection + Enter/Space activation.
+  - `desktop/src/components/ui/Switch.tsx` — minimal switch primitive (one DECISION: skipping `@radix-ui/react-switch` to avoid a new dep — see "Custom switch primitive" below).
+- **Files modified (Frontend):**
+  - `desktop/src/main.tsx` — gates the main webview on `is_onboarded` IPC: false → `<Onboarding />`, true → `<MainWindow />`. Splash placeholder while the IPC resolves.
+  - `desktop/src/components/ui/index.ts` — re-exports the new `Switch` primitive.
+- **Files added (tests):**
+  - `desktop/src-tauri/tests/settings_persistence.rs` — 3 tests (round-trip, survive reopen, empty=delete).
+  - `desktop/src-tauri/tests/wipe_repo_memory_preserves_md.rs` — 3 tests (drop+preserve, scoped to target repo, unknown id zero-count).
+  - `desktop/src-tauri/tests/onboarding_open_repo.rs` — 2 tests (idempotent upsert, replay flag in list).
+  - `desktop/src/screens/__tests__/Onboarding.test.tsx` — 3-screen end-to-end with mocked IPC.
+  - `desktop/src/screens/settings/__tests__/Sensors.test.tsx` — FS toggle calls `setSensorEnabled` + persists optimistically.
+  - `desktop/src/screens/settings/__tests__/Repos.test.tsx` — Wipe-memory dialog flow + IPC call.
+  - `desktop/src/components/__tests__/Sidebar.test.tsx` — click activation, Cmd+1..5, Enter on focused item.
+- **Verification (results, no asterisks):**
+  - **`npx tsc --noEmit`** — exit 0. Strict + `noUnusedLocals` + `noUnusedParameters` pass across the full S14+S15+S16+S17 source.
+  - **`npm run build`** — `tsc -b && vite build` clean in 4.84s. Same per-language Shiki dynamic chunks as S15/S16; `cpp.js` / `wasm.js` / `emacs-lisp.js` continue to trip the 500KB warning (lazy-loaded, expected).
+  - **`npx vitest run`** — **17 test files / 34 tests / 34 passed in 7.69s**. New: `Onboarding.test.tsx` (1), `Sensors.test.tsx` (1), `Repos.test.tsx` (1), `Sidebar.test.tsx` (3) = 6 new tests. Pre-existing 28 from S14/S15/S16 still green.
+  - **`cargo check --lib`** — clean in 1m 24s (cold) / 19s (incremental) on the dev box.
+  - **`cargo check --lib --tests`** — clean (incremental).
+  - **`cargo test --test settings_persistence`** — 3 / 3 pass in 0.53s after 1m53s link.
+  - **`cargo test --test wipe_repo_memory_preserves_md`** — 3 / 3 pass in 0.57s after 1m17s link (warm cache).
+  - **`cargo test --test onboarding_open_repo`** — 2 / 2 pass in 8.41s after 14.6s incremental link.
+  - **Manual smoke (`tauri dev` against `radar/web/`):** deferred per the prompt's pragmatic DoD. The literal DoD ("dragging `radar/web/` into a fresh install completes onboarding in <60s") needs the Vite dev server + Tauri runtime; Jesus runs that smoke after merge.
+- **Track 4 status:** **CERRADO 100%** (4/4 sessions: S14 + S15 + S16 + S17). Track 5 (AI integration / remediation / pre-push gate) is the next track.
+- **Notes for Sesión 18 (OpenAI client + chat streaming):**
+  1. **BYOK key resolution:** Sesión 17 stores the key under settings KV `openai_byok_key`. Sesión 18's `OpenAIClient` resolution order should be: `settings::get(store, "openai_byok_key")` → `PLATFORM_AI_KEY` env → fail closed. The redaction is a UI-only concern (Settings → AI returns `byok_preview`, not the raw key).
+  2. **Model routing flag:** `settings::get(store, "ai_model_routing")` returns `"auto"` / `"always_mini"` / `"always_full"`. Wire to the chat client's model picker.
+  3. **`check_for_updates` is a stub.** Sesión 17's command persists the timestamp + returns `{ status: "idle" }`. The Tauri updater plugin call (e.g. `app.updater().check()`) lands when Sesión 21 wires CI signing — the IPC contract is forward-compatible.
+  4. **`indexer_stats` IPC** is still not registered. `dock-ipc.ts::fetchIndexStats` keeps degrading via the daemon-status fallback — Sesión 19 should land the real impl alongside the alert/codebase tools.
+  5. **Power-up persistence:** `install_vscode_extension` and `configure_http_proxy` write `powerup_vscode_pending=true` and `http_proxy_enabled=true` to settings. Sesión 19 (HTTP proxy) and Sesión 22 (VS Code ext) read those flags on boot and finish the install.
+- **Blockers / deferred:**
+  - **Manual smoke against `radar/web/`** — deferred to Jesus per the pragmatic DoD.
+  - **`indexer_stats` IPC** — out of scope for S17. Sesión 19 lands the real `indexer::stats()` snapshot.
+  - **VS Code extension install** — stub returns `success: true` and persists `powerup_vscode_pending`. Sesión 22 wires the real installer.
+  - **HTTP proxy bootstrap** — stub persists port + enabled flag. Sesión 19/20 wires the real mitmproxy or Rust-native proxy.
+  - **Settings → Notifications timezone picker** — uses a free-form text field for `quiet_hours_tz`. A real IANA picker is a Sesión 21+ polish item.
+  - **Multi-window webview labeling for onboarding** — Sesión 17 hosts onboarding inside the `main` webview gated by `is_onboarded` rather than spawning a separate `onboarding` Tauri window. The decision (no breaking changes to `lib.rs::run` window setup) is documented in DECISIONS.
+
 ---
 
 ## Track 5 — AI integration + remediation (3 sessions)
