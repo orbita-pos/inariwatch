@@ -340,6 +340,21 @@ pub fn run() {
                 store.clone(),
             );
 
+            // Sesión 12 — procedural learner. Subscribes to
+            // `RemediationCompleted` + `FixRejected`, joins through
+            // `remediation_sessions` for `(repo_id, fingerprint)`, and
+            // updates `<repo_root>/.inari/patterns.json`. Emits
+            // `PatternLearned` / `PatternDemoted` for the audit
+            // trail. Spawned AFTER the episodic persister so the
+            // `PatternLearned` / `PatternDemoted` events the learner
+            // emits are picked up by the persister (subscribers see
+            // events published AFTER subscription, so out-of-order
+            // spawns risk dropped audit rows).
+            let _pattern_learner = memory::procedural::spawn_pattern_learner(
+                daemon_handle.clone(),
+                store.clone(),
+            );
+
             // Session 9 — Sensor 2 (shell hooks). Opens the per-platform
             // local socket (`~/.inari/sock/shell.sock` on Unix,
             // `\\.\pipe\inari-live-shell` on Windows). The listener is

@@ -919,6 +919,41 @@ pub fn get_remediation_session(
     Ok(row)
 }
 
+/// Sesión 12 — minimal projection of [`get_remediation_session`] used
+/// by the procedural learner. Returns `(repo_id, error_fingerprint)`
+/// or `None` when the row is absent / the fingerprint column is NULL.
+///
+/// Why a 2-column query instead of reusing `get_remediation_session`:
+/// the learner runs on every `RemediationCompleted` / `FixRejected`
+/// event (potentially many per minute on a busy repo). Pulling the
+/// 15-column row + parsing every field for two values would be
+/// wasteful. This query reads only what the learner needs.
+///
+/// `error_fingerprint` is `Option<String>` in the schema (NULLable for
+/// sessions opened before fingerprinting was wired). Callers that
+/// receive `None` from this helper should skip the event — there's
+/// nothing to learn from a session with no fingerprint to key on.
+pub fn get_remediation_session_meta(
+    store: &Store,
+    id:    &str,
+) -> Result<Option<(String, String)>> {
+    let conn = store.conn()?;
+    let row = conn
+        .query_row(
+            "SELECT repo_id, error_fingerprint
+             FROM remediation_sessions
+             WHERE id = ?1",
+            params![id],
+            |r| {
+                let repo_id:     String         = r.get(0)?;
+                let fingerprint: Option<String> = r.get(1)?;
+                Ok((repo_id, fingerprint))
+            },
+        )
+        .optional()?;
+    Ok(row.and_then(|(rid, fp)| fp.map(|f| (rid, f))))
+}
+
 // ── Gate runs (Sesión 20) ────────────────────────────────────────────
 //
 // `gate_runs` (migration 0008) is the audit trail for every pre-push

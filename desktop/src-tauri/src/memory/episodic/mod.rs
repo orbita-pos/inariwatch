@@ -103,6 +103,14 @@ fn kind_tag(ev: &DaemonEvent) -> Option<&'static str> {
         DaemonEvent::GateRunCompleted { .. }      => Some("gate_run_completed"),
         DaemonEvent::GateBypassUsed { .. }        => Some("gate_bypass_used"),
         DaemonEvent::GateProgress { .. }          => None,
+        // Sesión 12 — procedural learner audit. Both PatternLearned
+        // and PatternDemoted persist (infinite TTL — the retention
+        // runner's `ttl_for` default of `Infinite` for unknown kinds
+        // does the right thing without an explicit table entry). A
+        // user asking "why does Inari (no longer) suggest this fix?"
+        // gets answered by replaying these rows.
+        DaemonEvent::PatternLearned { .. }        => Some("pattern_learned"),
+        DaemonEvent::PatternDemoted { .. }        => Some("pattern_demoted"),
         // `DaemonEvent` is `#[non_exhaustive]`; from within the crate
         // every variant must be enumerated above. Adding a new variant
         // upstream will surface as a compile error here, forcing an
@@ -124,6 +132,9 @@ fn repo_id_tag(ev: &DaemonEvent) -> Option<&str> {
         DaemonEvent::SymbolsIndexed     { repo_id, .. } => Some(repo_id.as_str()),
         DaemonEvent::ReindexRequested   { repo_id }     => Some(repo_id.as_str()),
         DaemonEvent::RemediationStarted { repo_id, .. } => Some(repo_id.as_str()),
+        // Sesión 12 — procedural audit rows carry repo_id directly.
+        DaemonEvent::PatternLearned { repo_id, .. }     => Some(repo_id.as_str()),
+        DaemonEvent::PatternDemoted { repo_id, .. }     => Some(repo_id.as_str()),
         // RemediationCompleted / FixRejected don't carry repo_id on the
         // wire (the session_id is enough — joining via remediation_sessions
         // resolves the repo). Persist with NULL FK; the `events.repo_id`

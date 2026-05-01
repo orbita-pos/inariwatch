@@ -354,6 +354,46 @@ pub enum DaemonEvent {
         repo_id: String,
         reason:  Option<String>,
     },
+    /// Sesión 12 — procedural learner observed a `RemediationCompleted`
+    /// success (or a hit on an existing pattern) and either created or
+    /// strengthened a pattern row in `.inari/patterns.json`. Persisted
+    /// to the `events` table as audit trail (same posture as
+    /// `RemediationCompleted` — infinite TTL, "what did the system
+    /// learn from this fix?").
+    ///
+    /// `kind` is the wire string for [`crate::memory::procedural::PatternKind`]
+    /// (`"auto-detected"` or `"anti-pattern"`). Carrying it as a plain
+    /// `String` keeps the daemon module from depending on the
+    /// procedural module (no cyclic types).
+    ///
+    /// Same `#[serde(rename = ...)]` workaround the rest of the
+    /// internally-tagged variants use: the outer enum is tagged on
+    /// `"kind"`, and serde rejects a variant field of the same name.
+    /// The Rust API keeps `kind`; the JSON wire field is
+    /// `pattern_kind`.
+    PatternLearned {
+        repo_id:       String,
+        fingerprint:   String,
+        #[serde(rename = "pattern_kind")]
+        kind:          String,
+        success_count: u32,
+    },
+    /// Sesión 12 — procedural learner downgraded a previously
+    /// `auto-detected` pattern to `anti-pattern` because failures
+    /// outweighed successes (`reason = "failure_majority"`) or because
+    /// a regression was forced (`reason = "regression_forced"`,
+    /// reserved for the future regression-detector emitter — see the
+    /// DECISIONS entry "Sesión 12 — RegressionDetected variant
+    /// deferred"). Persisted to the `events` table — anti-pattern
+    /// demotions are security-relevant ("why did Inari stop suggesting
+    /// fix X?" answers from this row).
+    PatternDemoted {
+        repo_id:       String,
+        fingerprint:   String,
+        prior_success: u32,
+        new_failure:   u32,
+        reason:        String,
+    },
 }
 
 pub use bus::EventBus;

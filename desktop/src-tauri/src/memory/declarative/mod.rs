@@ -76,7 +76,16 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
         .parent()
         .ok_or_else(|| MemoryError::Internal(format!("path has no parent: {}", path.display())))?;
     std::fs::create_dir_all(parent)?;
-    let tmp_path = path.with_extension("md.tmp");
+    // Append `.tmp` to the FULL existing filename (preserving any
+    // extension) instead of `with_extension("md.tmp")` which would
+    // clobber a non-md extension. `memory.md` → `memory.md.tmp` is
+    // unchanged from the Sesión-11 behavior; `patterns.json` →
+    // `patterns.json.tmp` is the Sesión-12 generalization so the
+    // procedural learner can reuse this helper without forking it.
+    let tmp_path = match path.extension().and_then(|s| s.to_str()) {
+        Some(ext) => path.with_extension(format!("{ext}.tmp")),
+        None      => path.with_extension("tmp"),
+    };
     std::fs::write(&tmp_path, content)?;
     std::fs::rename(&tmp_path, path)?;
     Ok(())
