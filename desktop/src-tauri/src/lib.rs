@@ -10,6 +10,10 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_notification::NotificationExt;
 
+pub mod lsp;
+
+pub const LSP_DEFAULT_PORT: u16 = 9877;
+
 // ── Entry ─────────────────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -20,6 +24,7 @@ pub fn run() {
             setup_window(app)?;
             setup_tray(app)?;
             start_alert_poller(app.handle().clone());
+            start_lsp_listener();
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -107,6 +112,24 @@ fn show_main_window(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+// ── LSP listener bootstrap ───────────────────────────────────────────────────
+//
+// Spawns the LSP server on 127.0.0.1:LSP_DEFAULT_PORT (9877). Distinct from
+// the local MCP port (9876). Editors that speak stdio LSP connect via the
+// `inari-lsp-stdio` sidecar binary, which proxies stdio ↔ TCP.
+//
+// Failure to bind (e.g. another instance already running) is logged but does
+// NOT abort daemon startup — the dock + tray + alert poller stay functional.
+
+fn start_lsp_listener() {
+    tauri::async_runtime::spawn(async move {
+        match lsp::start_lsp_server(LSP_DEFAULT_PORT).await {
+            Ok(addr) => eprintln!("[lsp] listening on {addr}"),
+            Err(e)   => eprintln!("[lsp] failed to bind: {e}"),
+        }
+    });
 }
 
 // ── Background alert poller ───────────────────────────────────────────────────

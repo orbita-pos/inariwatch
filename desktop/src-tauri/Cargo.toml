@@ -11,6 +11,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "inariwatch-desktop"
 path = "src/main.rs"
 
+[[bin]]
+name = "inari-lsp-stdio"
+path = "src/bin/inari_lsp_stdio.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -20,7 +24,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-autostart   = "2"
 serde                    = { version = "1", features = ["derive"] }
 serde_json               = "1"
-tokio                    = { version = "1", features = ["time"] }
+tokio                    = { version = "1", features = ["time", "net", "io-util", "io-std", "rt-multi-thread", "macros", "sync"] }
 reqwest                  = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 dirs                     = "5"
 toml                     = "0.8"
