@@ -152,6 +152,17 @@ which                    = "6"
 chrono                   = { version = "0.4", default-features = false, features = ["clock", "std"] }
 bytes                    = "1"
 
+# Sesión 21 — local AI runtime (llama.cpp sidecar + lazy model registry).
+# `blake3` hashes downloaded GGUFs (≈4 GB/s on x86_64-v3, vs ~1 GB/s for
+# the existing `sha2` crate). The S21 spec body locked BLAKE3 — kept
+# `sha2` because the indexer still uses it for AST hashes.
+# `sysinfo` reads total RAM + logical CPU count for hardware tier
+# detection (Tier1 needs ≥ 8 GB RAM, Tier2 needs ≥ 16 GB). The
+# `system` feature is the only one we need — `disks`, `network`,
+# `users` add ~30 transitive deps for nothing we use.
+blake3                   = "1"
+sysinfo                  = { version = "0.30", default-features = false }
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
