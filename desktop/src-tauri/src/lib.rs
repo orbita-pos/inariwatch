@@ -66,6 +66,14 @@ pub mod sensors;
 mod telemetry;
 mod updater;
 
+// Sesión 21 — local AI runtime (llama.cpp sidecar + lazy model
+// registry). `pub` so the integration tests in `tests/local_ai_*.rs`
+// can reach `crate::local_ai::{LocalAI, ModelRegistry, RuntimeManager,
+// hardware}`. Same precedent as `daemon` (S2), `store` (S3),
+// `sensors` (S5/S7), `ai` (S18). No Tauri commands wired this
+// session — S22's LSP completion handler is the first IPC consumer.
+pub mod local_ai;
+
 // Re-export of the relocated fingerprint module so the literal path
 // `crate::fingerprint::*` keeps resolving for `inari_watcher.rs` (out of
 // scope for Session 11's edits). Drop after Session 10 splits the watcher.

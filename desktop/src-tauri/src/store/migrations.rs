@@ -66,6 +66,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name:    "gate_runs",
         sql:     include_str!("migrations/0008_gate_runs.sql"),
     },
+    Migration {
+        version: 9,
+        name:    "local_models",
+        sql:     include_str!("migrations/0009_local_models.sql"),
+    },
 ];
 
 /// Apply any migrations that have not yet run on `conn`. Idempotent.
