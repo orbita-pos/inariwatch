@@ -1136,6 +1136,67 @@ Captured from `project_inari_live.md` memory:
   - Reject diff → no file changes.
 - **Definition of done:** end-to-end demo: in a fresh repo with a known-broken function, dock surfaces an error → click `Fix it` → shows a streaming diff → click Apply → file is patched + committed; works for both local-only and cloud-connected modes.
 
+#### Done (2026-05-01) — Sesión 19
+
+- **Branch:** `feat/inari-live-track5-session19-remediation-pipeline` (off S13 tip `abda0da`). Tip lands once the session commit is created locally; not pushed per Jesus's controlled-cadence rule.
+- **Files added:**
+  - `desktop/src-tauri/src/ai/remediate/single_shot.rs` — `run_single_shot` (semantic seed → context-files read → episodic enrich → gpt-5.4 chat_complete → diff fence parse → `RemediationDraft`). Hand-rolled diff fence extractor (`extract_diff_fence`) + `+++ b/<path>` parser (`parse_diff_files`); 5-test `#[cfg(test)]` block.
+  - `desktop/src-tauri/src/ai/remediate/orchestrator.rs` — `route_remediation` (router + row insert + `RemediationStarted` event), `apply_diff` (path-traversal guard → `git apply --check` → `git apply` → `git add <files>` → `git commit -m`), `reject_diff` (state flip + `FixRejected` event, idempotent on terminal states). 6-test `#[cfg(test)]` block.
+  - `desktop/src-tauri/src/ipc/remediation.rs` — `start_remediation`, `apply_remediation`, `reject_remediation`, `get_remediation_session_cmd` Tauri commands. Friendly-error wrapping for the surface (`friendly_apply_error`).
+  - `desktop/src-tauri/src/store/migrations/0007_remediation_sessions.sql` — `remediation_sessions` table (TEXT mode/state with CHECK constraints) + `remediation_sessions_repo_created_idx`.
+  - `desktop/src-tauri/tests/single_shot_remediation_flow.rs` — local axum mock OpenAI server + tempdir "repo" + assertion that the draft surfaces the expected diff body + `+++ b/` parse.
+  - `desktop/src-tauri/tests/apply_diff_to_disk.rs` — real-git tempdir repo, applies a known diff, asserts file content + commit sha + commit message.
+  - `desktop/src-tauri/tests/apply_diff_rejects_path_traversal.rs` — 3 tests (parent-dir, absolute path, empty diff) — all reject before disk write.
+  - `desktop/src-tauri/tests/reject_remediation_emits_event.rs` — 2 tests: state flip + `FixRejected` event arrives; idempotent on already-rejected.
+  - `desktop/src-tauri/tests/cloud_proxy_streams_progress.rs` — local axum cloud mock with `POST /api/cli/remediation/trigger` + SSE `GET /api/remediation/stream/:id` returning 3 progress + 1 completed; asserts 3 `RemediationProgress` + 1 `RemediationCompleted` (success=true, summary contains PR URL).
+  - `desktop/src/components/dock/__tests__/DockDiffViewer-real.test.tsx` — vitest covering `DockDiff` apply / reject routing through the S19 IPC when `useChat.remediationSessionId` is set.
+- **Files modified:**
+  - `desktop/src-tauri/src/ai/remediate/mod.rs` — re-organised: `pub mod orchestrator/proxy/single_shot;` with `pub use orchestrator::{apply_diff, reject_diff, route_remediation};`.
+  - `desktop/src-tauri/src/ai/remediate/proxy.rs` — RENAMED from `cloud_proxy.rs` (git mv). Sesión 4 surface (`desktop_autofix_start`) preserved verbatim. Sesión 19 adds `run_cloud_agentic(store, daemon, CloudInput) -> Result<(), ProxyError>` + `handle_cloud_event` translator + 2 unit tests for SSE block parsing.
+  - `desktop/src-tauri/src/ai/prompts.rs` — adds `ContextFile` + `RecentEvent` types + `build_single_shot_remediation_prompt` (system constraint forces ```diff fence-only response). 2 new unit tests.
+  - `desktop/src-tauri/src/ai/budget.rs` — exposes `Model::cents_for_tokens(prompt, completion) -> i64` so single_shot stamps the `remediation_sessions.cents` column via the same pricing table as the budget tracker (no duplicate constants).
+  - `desktop/src-tauri/src/ai/mod.rs` — docstring updated to reference S19's renamed `proxy` module.
+  - `desktop/src-tauri/src/cloud/api.rs` — comment updated (`cloud_proxy` → `proxy`).
+  - `desktop/src-tauri/src/daemon/mod.rs` — adds `RemediationStarted`, `RemediationProgress`, `RemediationCompleted`, `FixRejected` to `DaemonEvent`. The 4 variants are non-breaking (the enum is `#[non_exhaustive]`).
+  - `desktop/src-tauri/src/memory/episodic/mod.rs` — `kind_tag` now persists 3 of the 4 new variants (started / completed / rejected); `RemediationProgress` is dropped on the floor (chatter, same policy as `ChatTokenStream`). `repo_id_tag` surfaces `repo_id` for `RemediationStarted`. Module docstring's policy table updated.
+  - `desktop/src-tauri/src/memory/retention.rs` — `ttl_for` returns `Infinite` for `remediation_started` / `remediation_completed` / `fix_rejected` (audit trail).
+  - `desktop/src-tauri/src/store/queries.rs` — adds `RemediationMode` / `RemediationState` enums, `NewRemediationSession`, `RemediationSessionRow`, `RemediationUpdate`, `insert_remediation_session`, `update_remediation_session`, `get_remediation_session`, `get_workspace_link_for_repo`.
+  - `desktop/src-tauri/src/store/migrations.rs` — wires migration 7 (`remediation_sessions`).
+  - `desktop/src-tauri/src/ipc/mod.rs` — adds `pub mod remediation;`.
+  - `desktop/src-tauri/src/lib.rs` — `mod cloud_proxy` callsite updated to `proxy`; registers the 4 new IPC commands in `invoke_handler!`.
+  - `desktop/.gitignore` — `src-tauri/.fastembed_cache/` added (S13 fastembed model cache; ~90 MB lazy-downloaded by tests, never committed).
+  - `desktop/src/lib/dock-ipc.ts` — adds `startRemediation`, `applyRemediation`, `rejectRemediation`, `getRemediationSession` real-IPC wrappers. Each gracefully degrades to a no-op shape under jsdom / older daemons.
+  - `desktop/src/lib/store/chat.ts` — adds `remediationSessionId` field + `openRemediationDraft` action that synthesises a `Fix` payload from the orchestrator's draft so DockDiff renders unchanged. Helper `inferLanguageFromPath` for Shiki language inference.
+  - `desktop/src/screens/DockDiff.tsx` — `onApply` and `onConfirmReject` now route through `applyRemediation` / `rejectRemediation` when `remediationSessionId` is set; legacy S16 stubs (`applyFix` / `rejectFix`) stay as the default for the existing alert-fix flow.
+  - `desktop/src/screens/DockAlert.tsx` — adds a `[Fix with AI]` (Sparkles icon) button that fires `startRemediation` when the alert has no `suggestedFixId`. On a returned local draft, transitions Mode 3 → Mode 4 via `openRemediationDraft`. The legacy `[View diff]` + `[Apply & deploy]` buttons remain for alerts that already have a suggested fix.
+- **Verification (results, no asterisks):**
+  - **`cargo check --lib`** — clean in 26.61 s after the module edits (warm shared target).
+  - **`cargo check --lib --tests`** — clean in 38.88 s on the first run; clean in 25.86 s on the post-fix re-check.
+  - **`cargo test --test apply_diff_rejects_path_traversal`** — 3/3 pass in 0.00 s after 1 m 04 s link.
+  - **`cargo test --test apply_diff_to_disk`** — 1/1 pass in 0.72 s after 4.76 s incremental link.
+  - **`cargo test --test reject_remediation_emits_event`** — 2/2 pass in 0.62 s after 4.95 s link.
+  - **`cargo test --test single_shot_remediation_flow`** — 1/1 pass in 9.78 s after 5.64 s link.
+  - **`cargo test --test cloud_proxy_streams_progress`** — 1/1 pass in 0.11 s after 1 m 06 s link (post-fix re-link).
+  - **`npx tsc --noEmit`** — exit 0.
+  - **`npm run build`** — `tsc -b && vite build` clean in 5.61 s. Same Shiki language-chunk warnings as S15-S18 (`cpp.js`, `wasm.js`, `emacs-lisp.js` lazy-loaded, expected).
+  - **`npx vitest run`** — **19 test files / 39 tests / 39 passed in 7.29 s**. New: `DockDiffViewer-real.test.tsx` (2 tests). Pre-existing 37 from S14-S18 still green.
+  - All `cargo test` runs used `RUSTFLAGS="-C debuginfo=1"` (the canonical PDB workaround from S13 follow-up).
+- **Track 5 status:** Sesión 19 lands the local single-shot + cloud-proxied agentic remediation paths + the apply / reject IPC surface. **Track 5 at 67%** (S18 + S19 done, S20 pre-push gate still outstanding).
+- **Notes for Sesión 20:**
+  1. **`apply_diff` is the seam Sesión 20 calls into.** When the gate runner (S20) decides "push allowed", the dock has already applied the fix locally. S20's job is the pre-push hook that blocks the user's `git push` until the local-subset gates pass — it does NOT replace S19's apply path.
+  2. **`remediation_sessions` is the audit table.** S20 should write a gate verdict block onto the session row (new column or sibling table — TBD) so the dock can surface "this fix's gates were green before push".
+  3. **`RemediationCompleted` carries the apply outcome.** The dock subscribes to it for the post-apply toast; S20 can layer "all gates green / 2 gates failed" on top by reading the session's `commit_sha` and re-running the local-subset gates against that commit.
+  4. **`Model::cents_for_tokens` is the shared pricing helper.** Sesión 20's self-review gate (gate 5) calls gpt-5.4 the same way single-shot does — use the same helper to populate any per-gate cost stamping you add.
+  5. **Cloud path's PR URL surfaces in `RemediationCompleted::summary`.** The summary string format is `"PR opened: <url>"` when the cloud path returned one. S20's gate runner doesn't run on cloud-mode sessions (the cloud already gated them server-side); the dock should detect mode=cloud + state=applied and render the PR link directly.
+  6. **`get_workspace_link_for_repo` is the cheap "is this repo connected?" query.** S20 reads it to decide whether to show the gate runner card (connected: yes ⇒ show; no ⇒ skip the dock surface, push proceeds with no gate).
+- **Manual smoke deferred to Jesus:**
+  - End-to-end DoD ("dock shows streaming diff → click Apply → file patched + committed") needs `tauri dev` + a real OpenAI key + a real on-disk repo. The pragmatic test pyramid (axum mock OpenAI server + axum mock cloud SSE + real git tempdir for apply) covers the codepath shape; wall-clock TTFT + the framer micro-interactions are visual.
+- **Blockers / deferred:**
+  - **Real OpenAI single-shot smoke (cost measurement)** — deferred to Jesus's manual `tauri dev` run; the prompt budget DECISIONS entry estimates ~$0.035/single-shot but real production drift would only show with live calls.
+  - **Per-repo workspace picker UI** — `repo_workspace_<id>` settings key is forward-compatible; no UI writes to it yet.
+  - **Cloud SSE end event variants** — Sesión 19 handles `completed`/`done`/`success` (terminal success) and `error`/`failed` (terminal failure). Future cloud event names (e.g. `aborted`, `timeout`) collapse into the catch-all progress branch today; if those names ship, add explicit arms in `proxy::handle_cloud_event`.
+  - **`Model::cents_for_tokens` ↔ budget tracker symmetric tests** — both sides use the same arithmetic; a unit test that asserts byte-exact equality between `Model::cents_for_tokens` and `BudgetTracker::record_actual`'s computed cents would lock the two in step. Trivial, deferred.
+
 ### Session 20 — Pre-push gate visual surface (6h)
 
 - **Files:** `desktop/src-tauri/src/gates/mod.rs`, `gates/runner.rs`, `gates/local_subset.rs`. Frontend: `desktop/src/screens/GateRunning.tsx`.

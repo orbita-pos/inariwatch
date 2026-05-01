@@ -62,6 +62,16 @@ impl Model {
         }
     }
 
+    /// Compute integer-cent cost for an exchange of `prompt_tokens`
+    /// input + `completion_tokens` output on this model. Mirrors
+    /// the internal `compute_cents` helper used by the budget tracker
+    /// — exposed so callers like `ai::remediate::single_shot` can
+    /// stamp the same denormalised cost on `remediation_sessions.cents`
+    /// without taking a dep on the tracker's mutable state.
+    pub fn cents_for_tokens(self, prompt_tokens: u32, completion_tokens: u32) -> i64 {
+        compute_cents(self, prompt_tokens, completion_tokens)
+    }
+
     /// Per-million-token pricing in milli-cents (tenths of a cent) so
     /// we can keep integer arithmetic everywhere. The conversion is
     /// `dollars × 1_000` (because 1 USD = 100 cents = 1_000 milli-cents).

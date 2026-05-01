@@ -71,6 +71,18 @@ export interface ChatStore {
    * re-fetch on remount without losing the alert correlation.
    */
   pendingDiff: DiffPayload | null;
+  /**
+   * Sesión 19 — when Mode 4 was entered via the local-remediation
+   * pipeline (NOT the legacy S16 alert-fix path), this carries the
+   * orchestrator's session id so the apply / reject buttons route
+   * through `applyRemediation` / `rejectRemediation` instead of the
+   * S16 `applyFix` / `rejectFix` stubs.
+   *
+   * Cleared on `clearConversation` and on `backToAlert` (the back
+   * button intentionally drops the active remediation session — the
+   * user re-enters S19's "Fix with AI" flow if they want to retry).
+   */
+  remediationSessionId: string | null;
 
   setMode: (mode: ChatMode) => void;
   setInputValue: (value: string) => void;
@@ -89,6 +101,20 @@ export interface ChatStore {
   openDiff: (input: Fix | DiffPayload) => void;
   /** Mode 4 → Mode 3 backwards transition (the "← back" button). */
   backToAlert: () => void;
+  /**
+   * Sesión 19 — open Mode 4 with a fresh remediation session draft.
+   * Synthesizes a Fix payload from the draft so DockDiff's existing
+   * render path stays unchanged. The orchestrator's session id is
+   * stashed on `remediationSessionId` so apply / reject route to the
+   * S19 IPC instead of the S16 stub.
+   */
+  openRemediationDraft: (input: {
+    sessionId: string;
+    repoId: string;
+    diff: string;
+    filesTouched: string[];
+    errorMessage?: string;
+  }) => void;
 
   // ── streaming hooks (called by the streaming pipeline) ─────────────
   /** Append the next token to the assistant message with the given id. */
@@ -133,6 +159,38 @@ function isFix(input: Fix | DiffPayload): input is Fix {
   );
 }
 
+/**
+ * Best-effort Shiki language inference from file extension. The
+ * synthesized Fix payload uses this so DockDiff's `<DiffViewer>` picks
+ * a sensible highlighter even when the orchestrator's draft only
+ * carries a path.
+ */
+function inferLanguageFromPath(path: string): string {
+  const dot = path.lastIndexOf(".");
+  if (dot < 0) return "text";
+  const ext = path.slice(dot + 1).toLowerCase();
+  const map: Record<string, string> = {
+    ts: "typescript",
+    tsx: "tsx",
+    js: "javascript",
+    jsx: "jsx",
+    rs: "rust",
+    py: "python",
+    go: "go",
+    java: "java",
+    c: "c",
+    h: "c",
+    cpp: "cpp",
+    md: "markdown",
+    json: "json",
+    yaml: "yaml",
+    yml: "yaml",
+    toml: "toml",
+    sh: "bash",
+  };
+  return map[ext] ?? "text";
+}
+
 export const useChat = create<ChatStore>((set, get) => ({
   mode: "idle",
   messages: [],
@@ -142,6 +200,7 @@ export const useChat = create<ChatStore>((set, get) => ({
   currentAlert: null,
   currentFix: null,
   pendingDiff: null,
+  remediationSessionId: null,
 
   setMode: (mode) => set({ mode }),
   setInputValue: (value) => set({ inputValue: value }),
@@ -203,6 +262,7 @@ export const useChat = create<ChatStore>((set, get) => ({
       currentAlert: null,
       currentFix: null,
       pendingDiff: null,
+      remediationSessionId: null,
     });
   },
 
@@ -245,13 +305,42 @@ export const useChat = create<ChatStore>((set, get) => ({
     if (currentAlert) {
       // Don't drop currentFix — going forward to Mode 4 again should be
       // free of a re-fetch. The diff stays cached until clearConversation.
-      set({ mode: "alert" });
+      // Sesión 19: drop the remediation session marker so a fresh
+      // "Fix with AI" click starts a new session instead of replaying.
+      set({ mode: "alert", remediationSessionId: null });
     } else {
       // No alert in flight (edge case: user landed on Mode 4 directly
       // and hits back). Fall through to idle so the dock has somewhere
       // sensible to land.
-      set({ mode: "idle" });
+      set({ mode: "idle", remediationSessionId: null });
     }
+  },
+
+  openRemediationDraft: ({ sessionId, repoId: _repoId, diff, filesTouched, errorMessage }) => {
+    // Synthesize a Fix payload so DockDiff's existing render path
+    // works unchanged. `gates` stays empty until Sesión 20 plumbs
+    // gate results in; `replayMatch` / `eapSignature` are null for a
+    // freshly-generated draft.
+    const filePath = filesTouched[0] ?? "(unknown)";
+    const fix: Fix = {
+      id: sessionId,
+      alertId: errorMessage ?? "",
+      filePath,
+      diff,
+      language: inferLanguageFromPath(filePath),
+      gates: [],
+      replayMatch: null,
+      eapSignature: null,
+    };
+    set({
+      mode: "diff",
+      currentFix: fix,
+      pendingDiff: { alertId: fix.alertId, fixId: fix.id },
+      remediationSessionId: sessionId,
+      // Stay correlated with whichever alert (if any) opened this
+      // session — let the user back to it via DockDiff's back arrow.
+      // currentAlert is preserved on purpose; do NOT clear it.
+    });
   },
 
   appendToken: (messageId, token) => {
@@ -284,6 +373,7 @@ export function __resetChatStoreForTests(): void {
     currentAlert: null,
     currentFix: null,
     pendingDiff: null,
+    remediationSessionId: null,
   });
   setStreamDriver(null);
 }

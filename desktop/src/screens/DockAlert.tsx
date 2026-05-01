@@ -8,6 +8,7 @@ import {
   Rocket,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import {
   useEffect,
@@ -23,8 +24,10 @@ import {
   applyFix,
   hideDock,
   openInEditor,
+  startRemediation,
   type ApplyFixResult,
 } from "@/lib/dock-ipc";
+import { useAppState } from "@/lib/store/useAppState";
 import { useChat } from "@/lib/store/chat";
 import type { Alert, Severity } from "@/types/alert";
 
@@ -95,11 +98,17 @@ interface ApplyState {
 export function DockAlert({ alertOverride = null }: DockAlertProps) {
   const storeAlert = useChat((s) => s.currentAlert);
   const openDiff = useChat((s) => s.openDiff);
+  const openRemediationDraft = useChat((s) => s.openRemediationDraft);
+  const activeRepoId = useAppState((s) => s.activeRepoId);
   const reduce = useReducedMotion();
 
   const alert = alertOverride ?? storeAlert;
 
   const [applyState, setApplyState] = useState<ApplyState>({ status: "idle" });
+  const [remediating, setRemediating] = useState<{
+    inFlight: boolean;
+    message?: string;
+  }>({ inFlight: false });
 
   // ESC closes the dock.
   useEffect(() => {
@@ -131,6 +140,42 @@ export function DockAlert({ alertOverride = null }: DockAlertProps) {
     } else {
       setApplyState({ status: "fail", message: result.message });
     }
+  };
+
+  const onFixWithAi = async () => {
+    if (!alert || !activeRepoId) return;
+    setRemediating({ inFlight: true, message: "Asking Inari…" });
+    const session = await startRemediation({
+      repoId: activeRepoId,
+      errorMessage: alert.title,
+      stackTrace: alert.stackTrace || undefined,
+    });
+    if (!session) {
+      setRemediating({ inFlight: false, message: "Remediation backend unavailable" });
+      return;
+    }
+    if (session.draft && session.draft.diffUnified) {
+      openRemediationDraft({
+        sessionId: session.sessionId,
+        repoId: activeRepoId,
+        diff: session.draft.diffUnified,
+        filesTouched: session.draft.filesTouched,
+        errorMessage: alert.title,
+      });
+      setRemediating({ inFlight: false });
+      return;
+    }
+    if (session.mode === "cloud") {
+      setRemediating({
+        inFlight: false,
+        message: "Cloud remediation in progress — watch the dock for updates.",
+      });
+      return;
+    }
+    setRemediating({
+      inFlight: false,
+      message: "Inari couldn't generate a fix for this one — try again or refine the alert.",
+    });
   };
 
   const onOpenEditor = () => {
@@ -287,23 +332,37 @@ export function DockAlert({ alertOverride = null }: DockAlertProps) {
         data-testid="dock-alert-footer"
         className="flex items-center gap-2 px-4 h-12 border-t border-[var(--border)]"
       >
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={onViewDiff}
-          disabled={!alert.suggestedFixId}
-          data-testid="dock-alert-view-diff"
-        >
-          View diff
-        </Button>
-        <ApplyButton
-          state={applyState}
-          onClick={onApply}
-          disabled={!alert.suggestedFixId}
-          reduce={reduce}
-          testid="dock-alert-apply"
-          label="Apply & deploy"
-        />
+        {alert.suggestedFixId ? (
+          <>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={onViewDiff}
+              data-testid="dock-alert-view-diff"
+            >
+              View diff
+            </Button>
+            <ApplyButton
+              state={applyState}
+              onClick={onApply}
+              disabled={false}
+              reduce={reduce}
+              testid="dock-alert-apply"
+              label="Apply & deploy"
+            />
+          </>
+        ) : (
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={onFixWithAi}
+            disabled={remediating.inFlight || !activeRepoId}
+            data-testid="dock-alert-fix-with-ai"
+          >
+            <Sparkles className="h-3 w-3" aria-hidden />
+            {remediating.inFlight ? "Fixing…" : "Fix with AI"}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -313,6 +372,15 @@ export function DockAlert({ alertOverride = null }: DockAlertProps) {
           <Pencil className="h-3 w-3" aria-hidden />
           Open in editor
         </Button>
+        {remediating.message ? (
+          <span
+            data-testid="dock-alert-remediation-msg"
+            className="ml-auto text-xs text-[var(--muted)] truncate"
+            title={remediating.message}
+          >
+            {remediating.message}
+          </span>
+        ) : null}
       </footer>
     </div>
   );

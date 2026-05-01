@@ -56,6 +56,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name:    "events_indices",
         sql:     include_str!("migrations/0006_events_indices.sql"),
     },
+    Migration {
+        version: 7,
+        name:    "remediation_sessions",
+        sql:     include_str!("migrations/0007_remediation_sessions.sql"),
+    },
 ];
 
 /// Apply any migrations that have not yet run on `conn`. Idempotent.

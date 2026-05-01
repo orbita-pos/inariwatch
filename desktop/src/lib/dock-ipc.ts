@@ -257,6 +257,201 @@ export async function getFixById(fixId: string): Promise<Fix | null> {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Sesión 19 — local remediation pipeline real wiring
+//
+// Replaces the Sesión 16 `applyFix` / `rejectFix` heuristic stubs. The
+// dock now calls the daemon's orchestrator directly:
+//   - `startRemediation` kicks off a session (local single-shot OR
+//     cloud-proxied) and returns the session row + an embedded draft
+//     when local.
+//   - `applyRemediation` writes the cached draft to disk + commits.
+//   - `rejectRemediation` persists the rejection + emits the bus event.
+//   - `getRemediationSession` re-reads current state on remount.
+//
+// Each helper degrades gracefully under jsdom / older daemon builds —
+// invoke rejects with "command <name> not found" → fallback returns a
+// no-op shape so the dock surface stays interactive.
+// ──────────────────────────────────────────────────────────────────────
+
+export interface RemediationDraftDto {
+  sessionId: string;
+  diffUnified: string;
+  filesTouched: string[];
+  modelUsed: string;
+  promptTokens: number;
+  completionTokens: number;
+  cents: number;
+}
+
+export interface RemediationSessionDto {
+  sessionId: string;
+  mode: "local" | "cloud";
+  state: "pending" | "draft" | "applied" | "rejected" | "failed";
+  draft?: RemediationDraftDto | null;
+  prUrl?: string | null;
+}
+
+export async function startRemediation(args: {
+  repoId: string;
+  errorMessage: string;
+  stackTrace?: string;
+  errorFingerprint?: string;
+  fileHint?: string;
+}): Promise<RemediationSessionDto | null> {
+  try {
+    const raw = await invoke<{
+      session_id: string;
+      mode: string;
+      state: string;
+      draft?: {
+        session_id: string;
+        diff_unified: string;
+        files_touched: string[];
+        model_used: string;
+        prompt_tokens: number;
+        completion_tokens: number;
+        cents: number;
+      } | null;
+      pr_url?: string | null;
+    }>("start_remediation", {
+      args: {
+        repo_id: args.repoId,
+        error_message: args.errorMessage,
+        stack_trace: args.stackTrace ?? null,
+        error_fingerprint: args.errorFingerprint ?? null,
+        file_hint: args.fileHint ?? null,
+      },
+    });
+    return {
+      sessionId: raw.session_id,
+      mode: raw.mode === "cloud" ? "cloud" : "local",
+      state: (raw.state as RemediationSessionDto["state"]) ?? "pending",
+      draft: raw.draft
+        ? {
+            sessionId: raw.draft.session_id,
+            diffUnified: raw.draft.diff_unified,
+            filesTouched: raw.draft.files_touched,
+            modelUsed: raw.draft.model_used,
+            promptTokens: raw.draft.prompt_tokens,
+            completionTokens: raw.draft.completion_tokens,
+            cents: raw.draft.cents,
+          }
+        : null,
+      prUrl: raw.pr_url ?? null,
+    };
+  } catch (e) {
+    console.info(
+      `[dock-ipc] start_remediation rejected (${e instanceof Error ? e.message : "?"}); ` +
+        "deferred to a daemon build that registers the command",
+    );
+    return null;
+  }
+}
+
+export interface ApplyRemediationDto {
+  success: boolean;
+  commitSha: string | null;
+  filesTouched: string[];
+  message: string;
+}
+
+export async function applyRemediation(
+  sessionId: string,
+): Promise<ApplyRemediationDto> {
+  try {
+    const raw = await invoke<{
+      success: boolean;
+      commit_sha: string | null;
+      files_touched: string[];
+      message: string;
+    }>("apply_remediation", { args: { session_id: sessionId } });
+    return {
+      success: raw.success,
+      commitSha: raw.commit_sha ?? null,
+      filesTouched: raw.files_touched ?? [],
+      message: raw.message,
+    };
+  } catch (e) {
+    console.info(
+      `[dock-ipc] apply_remediation rejected (${e instanceof Error ? e.message : "?"})`,
+    );
+    return {
+      success: false,
+      commitSha: null,
+      filesTouched: [],
+      message: "Backend not available in dev build",
+    };
+  }
+}
+
+export async function rejectRemediation(
+  sessionId: string,
+  reason?: string,
+): Promise<{ success: boolean }> {
+  try {
+    await invoke("reject_remediation", {
+      args: { session_id: sessionId, reason: reason ?? null },
+    });
+    return { success: true };
+  } catch (e) {
+    console.info(
+      `[dock-ipc] reject_remediation rejected (${e instanceof Error ? e.message : "?"})`,
+    );
+    return { success: false };
+  }
+}
+
+export interface RemediationSessionState {
+  sessionId: string;
+  repoId: string;
+  mode: string;
+  state: string;
+  draftDiff: string | null;
+  filesTouched: string[];
+  prUrl: string | null;
+  commitSha: string | null;
+  errorMessage: string | null;
+  createdAtMs: number;
+  completedAtMs: number | null;
+}
+
+export async function getRemediationSession(
+  sessionId: string,
+): Promise<RemediationSessionState | null> {
+  try {
+    const raw = await invoke<{
+      session_id: string;
+      repo_id: string;
+      mode: string;
+      state: string;
+      draft_diff: string | null;
+      files_touched: string[];
+      pr_url: string | null;
+      commit_sha: string | null;
+      error_message: string | null;
+      created_at_ms: number;
+      completed_at_ms: number | null;
+    } | null>("get_remediation_session_cmd", { args: { session_id: sessionId } });
+    if (!raw) return null;
+    return {
+      sessionId: raw.session_id,
+      repoId: raw.repo_id,
+      mode: raw.mode,
+      state: raw.state,
+      draftDiff: raw.draft_diff,
+      filesTouched: raw.files_touched ?? [],
+      prUrl: raw.pr_url,
+      commitSha: raw.commit_sha,
+      errorMessage: raw.error_message,
+      createdAtMs: raw.created_at_ms,
+      completedAtMs: raw.completed_at_ms,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Open the EAP receipt detail surface for a given signature. Sesión 17
  * lands the main-window receipt route; until then we log the request

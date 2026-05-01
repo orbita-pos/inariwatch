@@ -697,6 +697,273 @@ pub struct RepoSummary {
 
 /// All registered repos with the per-repo metrics the Settings UI shows.
 /// One small JOIN — the symbol count is a `COUNT(*)` group-by so we
+// ── Remediation sessions (Sesión 19) ─────────────────────────────────
+//
+// `remediation_sessions` is the audit trail for every fix the
+// orchestrator launches — local single-shot OR cloud-proxied. Each row
+// transitions through pending → draft (single-shot only) → applied |
+// rejected | failed. The cloud path goes pending → applied directly
+// (cloud creates its own PR; the desktop never sees the diff).
+
+/// Mode marker stored in `remediation_sessions.mode`. The CHECK
+/// constraint in the migration enforces the same string set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemediationMode {
+    Local,
+    Cloud,
+}
+
+impl RemediationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RemediationMode::Local => "local",
+            RemediationMode::Cloud => "cloud",
+        }
+    }
+}
+
+/// State of a `remediation_sessions` row. The CHECK constraint in the
+/// migration enforces the same string set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemediationState {
+    Pending,
+    Draft,
+    Applied,
+    Rejected,
+    Failed,
+}
+
+impl RemediationState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RemediationState::Pending  => "pending",
+            RemediationState::Draft    => "draft",
+            RemediationState::Applied  => "applied",
+            RemediationState::Rejected => "rejected",
+            RemediationState::Failed   => "failed",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "pending"  => RemediationState::Pending,
+            "draft"    => RemediationState::Draft,
+            "applied"  => RemediationState::Applied,
+            "rejected" => RemediationState::Rejected,
+            "failed"   => RemediationState::Failed,
+            _          => return None,
+        })
+    }
+}
+
+/// Initial-insert payload for a new remediation session row. The id is
+/// caller-generated (UUID v4) so the IPC surface can echo it back to
+/// the dock immediately.
+#[derive(Debug, Clone)]
+pub struct NewRemediationSession<'a> {
+    pub id:                &'a str,
+    pub repo_id:           &'a str,
+    pub mode:              RemediationMode,
+    pub error_fingerprint: Option<&'a str>,
+    pub error_message:     Option<&'a str>,
+    pub created_at_ms:     i64,
+}
+
+/// Read-back row for a single remediation session.
+#[derive(Debug, Clone)]
+pub struct RemediationSessionRow {
+    pub id:                String,
+    pub repo_id:           String,
+    pub mode:              String,
+    pub error_fingerprint: Option<String>,
+    pub error_message:     Option<String>,
+    pub draft_diff:        Option<String>,
+    pub files_touched:     Option<String>,
+    pub pr_url:            Option<String>,
+    pub commit_sha:        Option<String>,
+    pub state:             String,
+    pub created_at_ms:     i64,
+    pub completed_at_ms:   Option<i64>,
+    pub prompt_tokens:     i64,
+    pub completion_tokens: i64,
+    pub cents:             i64,
+}
+
+/// Insert a brand-new pending session. Returns nothing — the caller
+/// already owns the id.
+pub fn insert_remediation_session(
+    store: &Store,
+    new:   &NewRemediationSession<'_>,
+) -> Result<()> {
+    let conn = store.conn()?;
+    conn.execute(
+        "INSERT INTO remediation_sessions
+            (id, repo_id, mode, error_fingerprint, error_message, state, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6)",
+        params![
+            new.id,
+            new.repo_id,
+            new.mode.as_str(),
+            new.error_fingerprint,
+            new.error_message,
+            new.created_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Patch shape for [`update_remediation_session`]. Each field is
+/// `Some(_)` only when the orchestrator wants to change it. Skipping a
+/// field leaves the column untouched.
+#[derive(Debug, Default, Clone)]
+pub struct RemediationUpdate<'a> {
+    pub state:             Option<RemediationState>,
+    pub draft_diff:        Option<&'a str>,
+    pub files_touched:     Option<&'a str>,
+    pub pr_url:            Option<&'a str>,
+    pub commit_sha:        Option<&'a str>,
+    pub completed_at_ms:   Option<i64>,
+    pub prompt_tokens:     Option<i64>,
+    pub completion_tokens: Option<i64>,
+    pub cents:             Option<i64>,
+}
+
+/// Apply a partial update to a row. Builds a positional UPDATE with
+/// only the populated columns so no SET fragment shadows existing
+/// data with NULL.
+pub fn update_remediation_session(
+    store: &Store,
+    id:    &str,
+    patch: &RemediationUpdate<'_>,
+) -> Result<usize> {
+    let mut sets:  Vec<String>                  = Vec::new();
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut idx = 1usize;
+    macro_rules! push {
+        ($col:literal, $v:expr) => {
+            if let Some(v) = $v {
+                sets.push(format!("{} = ?{}", $col, idx));
+                binds.push(Box::new(v));
+                idx += 1;
+            }
+        };
+    }
+    if let Some(s) = patch.state {
+        sets.push(format!("state = ?{idx}"));
+        binds.push(Box::new(s.as_str().to_string()));
+        idx += 1;
+    }
+    push!("draft_diff",        patch.draft_diff.map(str::to_owned));
+    push!("files_touched",     patch.files_touched.map(str::to_owned));
+    push!("pr_url",            patch.pr_url.map(str::to_owned));
+    push!("commit_sha",        patch.commit_sha.map(str::to_owned));
+    push!("completed_at",      patch.completed_at_ms);
+    push!("prompt_tokens",     patch.prompt_tokens);
+    push!("completion_tokens", patch.completion_tokens);
+    push!("cents",             patch.cents);
+
+    if sets.is_empty() {
+        return Ok(0);
+    }
+
+    let sql = format!(
+        "UPDATE remediation_sessions SET {} WHERE id = ?{}",
+        sets.join(", "),
+        idx,
+    );
+    binds.push(Box::new(id.to_string()));
+
+    let conn = store.conn()?;
+    let mut stmt = conn.prepare(&sql)?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt.execute(rusqlite::params_from_iter(bind_refs.into_iter()))?;
+    Ok(rows)
+}
+
+/// Read one session row by id. Returns `None` when the id is unknown.
+pub fn get_remediation_session(
+    store: &Store,
+    id:    &str,
+) -> Result<Option<RemediationSessionRow>> {
+    let conn = store.conn()?;
+    let row = conn
+        .query_row(
+            "SELECT id, repo_id, mode, error_fingerprint, error_message,
+                    draft_diff, files_touched, pr_url, commit_sha,
+                    state, created_at, completed_at,
+                    prompt_tokens, completion_tokens, cents
+             FROM remediation_sessions
+             WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok(RemediationSessionRow {
+                    id:                r.get(0)?,
+                    repo_id:           r.get(1)?,
+                    mode:              r.get(2)?,
+                    error_fingerprint: r.get(3)?,
+                    error_message:     r.get(4)?,
+                    draft_diff:        r.get(5)?,
+                    files_touched:     r.get(6)?,
+                    pr_url:            r.get(7)?,
+                    commit_sha:        r.get(8)?,
+                    state:             r.get(9)?,
+                    created_at_ms:     r.get(10)?,
+                    completed_at_ms:   r.get(11)?,
+                    prompt_tokens:     r.get(12)?,
+                    completion_tokens: r.get(13)?,
+                    cents:             r.get(14)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+/// Resolve the cloud workspace id this repo is linked to. Sesión 19
+/// keeps the wiring deliberately simple: there's no per-repo workspace
+/// column today (and onboarding doesn't ask the user to pick one
+/// either). Instead, the desktop is "connected to a workspace" globally
+/// when `dashboard_token` is set in settings — so every repo answers
+/// "yes, you can route this to cloud" the moment auth completes.
+///
+/// Returns `Ok(Some("default"))` when a global token is present so the
+/// orchestrator's local-vs-cloud branch has a non-empty marker to
+/// pattern-match on. Returns `Ok(None)` when not connected. The
+/// `repo_id` is accepted (and validated against `repos`) so a future
+/// per-repo override (settings KV `repo_workspace_<id>`) can land
+/// without changing the call shape.
+pub fn get_workspace_link_for_repo(store: &Store, repo_id: &str) -> Result<Option<String>> {
+    // Validate the repo exists — callers shouldn't be able to ask for a
+    // workspace link to a stranger row.
+    let conn = store.conn()?;
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM repos WHERE id = ?1",
+            params![repo_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if exists.is_none() {
+        return Ok(None);
+    }
+    drop(conn);
+
+    // Per-repo override (settings KV) takes precedence when present.
+    let key = format!("repo_workspace_{repo_id}");
+    if let Some(per_repo) = super::settings::get(store, &key)? {
+        if !per_repo.trim().is_empty() {
+            return Ok(Some(per_repo));
+        }
+    }
+
+    // Global dashboard token = "connected to default workspace".
+    let token = super::settings::get(store, "dashboard_token")?;
+    Ok(match token {
+        Some(t) if !t.trim().is_empty() => Some("default".to_string()),
+        _ => None,
+    })
+}
+
 /// avoid an N+1 round-trip.
 pub fn list_repos_with_metrics(store: &Store) -> Result<Vec<RepoSummary>> {
     let conn = store.conn()?;

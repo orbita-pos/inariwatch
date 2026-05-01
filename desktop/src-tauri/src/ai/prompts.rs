@@ -17,7 +17,9 @@
 //! NOT ported (intentional):
 //! - Remediation prompts (`SYSTEM_REMEDIATOR`, full `buildDiagnosePrompt`
 //!   context plumbing). Those run server-side in the cloud-proxied path
-//!   (`ai::remediate::cloud_proxy`); the desktop never touches them.
+//!   (`ai::remediate::proxy`); the desktop never touches them. Sesión 19
+//!   adds [`build_single_shot_remediation_prompt`] for the
+//!   local-only `ai::remediate::single_shot` path.
 
 use serde::{Deserialize, Serialize};
 
@@ -260,6 +262,99 @@ Respond in JSON:
     vec![ChatMessage::user(prompt)]
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// build_single_shot_remediation_prompt — Sesión 19, local-only path
+// ─────────────────────────────────────────────────────────────────────
+
+/// One file the prompt should embed verbatim. The caller has already
+/// trimmed `body` to a sensible byte budget (single-shot caps each file
+/// at ~6KB; the prompt builder does NOT re-clip).
+#[derive(Debug, Clone)]
+pub struct ContextFile<'a> {
+    pub path: &'a str,
+    pub body: &'a str,
+}
+
+/// One recent shell event surfaced into the remediation context. Kept
+/// to a deliberately tiny shape — the prompt builder embeds at most the
+/// command line + exit code so the model can reason about "what
+/// happened around the error" without paging through full payloads.
+#[derive(Debug, Clone)]
+pub struct RecentEvent<'a> {
+    pub kind:        &'a str,
+    pub summary:     &'a str,
+    pub timestamp_ms: i64,
+}
+
+/// Build the local single-shot remediation prompt. The model is asked
+/// to respond with ONLY a unified diff in a fenced code block — the
+/// orchestrator parses that out before applying. We deliberately
+/// constrain the response shape so the parser doesn't have to recover
+/// from prose that wraps the patch.
+///
+/// Token budget: ~6 KB total input. The caller is responsible for
+/// truncating `context_files` (we cap at 5 entries here, but bytes are
+/// the caller's discipline) and `recent_events` (cap at 10).
+pub fn build_single_shot_remediation_prompt(
+    error:          &AlertContext<'_>,
+    context_files:  &[ContextFile<'_>],
+    recent_events:  &[RecentEvent<'_>],
+) -> Vec<ChatMessage> {
+    const SYSTEM: &str =
+        "You are Inari Live's local single-shot remediator. The user has hit an error in their \
+        repo and needs a minimal, surgical fix. You will be given the error, a small set of \
+        relevant files, and a recent activity trail. \n\
+        \n\
+        Respond with ONLY a unified diff in a single ```diff fenced code block. Do NOT include \
+        any explanation, prose, or commentary outside the fence. Do NOT touch files that aren't \
+        directly relevant. The diff must apply cleanly via `git apply` against the file contents \
+        you were shown. If you cannot produce a confident fix from the given context, return an \
+        empty ```diff fence — never invent files or paths.\n\
+        \n\
+        SECURITY: never modify paths outside the repo (no `..` traversals, no absolute paths). \
+        The frontmatter of each file in the diff MUST be `--- a/<repo-relative-path>` / \
+        `+++ b/<repo-relative-path>`.";
+
+    let body_clip = clip_chars(error.body, 1500);
+
+    let mut user = String::new();
+
+    user.push_str("<error>\n");
+    user.push_str(&format!("Title:    {}\n", error.title));
+    user.push_str(&format!("Severity: {}\n", error.severity));
+    if !error.source_integrations.is_empty() {
+        user.push_str(&format!("Source:   {}\n", error.source_integrations.join(", ")));
+    }
+    user.push_str("Details:  ");
+    user.push_str(body_clip);
+    user.push_str("\n</error>\n\n");
+
+    if !context_files.is_empty() {
+        user.push_str("<files>\n");
+        for f in context_files.iter().take(5) {
+            user.push_str(&format!("--- {} ---\n", f.path));
+            user.push_str(f.body);
+            if !f.body.ends_with('\n') { user.push('\n'); }
+        }
+        user.push_str("</files>\n\n");
+    }
+
+    if !recent_events.is_empty() {
+        user.push_str("<recent_activity>\n");
+        for e in recent_events.iter().take(10) {
+            user.push_str(&format!("[{}] {} — {}\n", e.timestamp_ms, e.kind, e.summary));
+        }
+        user.push_str("</recent_activity>\n\n");
+    }
+
+    user.push_str("Now produce the unified diff.");
+
+    vec![
+        ChatMessage::system(SYSTEM),
+        ChatMessage::user(user),
+    ]
+}
+
 /// Truncate `s` at byte-offset `max_bytes`, rounded down to a char
 /// boundary. Cheap, panic-free helper — `&str[..n]` panics on
 /// multi-byte boundaries so callers cannot use raw slicing.
@@ -355,6 +450,47 @@ mod tests {
         let messages = build_ask_inari_prompt("hi", &ctx);
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].content, "hi");
+    }
+
+    #[test]
+    fn single_shot_remediation_prompt_has_diff_constraint() {
+        let alert = alert_fixture("TypeError: cannot read .name", &[]);
+        let files = [ContextFile { path: "src/main.rs", body: "fn main() {}\n" }];
+        let events: Vec<RecentEvent<'_>> = vec![];
+        let messages = build_single_shot_remediation_prompt(&alert, &files, &events);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, Role::System);
+        assert!(messages[0].content.contains("unified diff"));
+        assert!(messages[0].content.contains("```diff"));
+        assert_eq!(messages[1].role, Role::User);
+        assert!(messages[1].content.contains("<error>"));
+        assert!(messages[1].content.contains("src/main.rs"));
+        assert!(messages[1].content.contains("Now produce the unified diff."));
+    }
+
+    #[test]
+    fn single_shot_remediation_prompt_caps_files_and_events() {
+        let alert = alert_fixture("boom", &[]);
+        let many_files: Vec<ContextFile<'_>> = (0..20)
+            .map(|i| ContextFile {
+                path: Box::leak(format!("src/file_{i}.rs").into_boxed_str()),
+                body: "x\n",
+            })
+            .collect();
+        let many_events: Vec<RecentEvent<'_>> = (0..30)
+            .map(|i| RecentEvent {
+                kind:         "shell_event",
+                summary:      Box::leak(format!("cmd {i}").into_boxed_str()),
+                timestamp_ms: i,
+            })
+            .collect();
+        let messages = build_single_shot_remediation_prompt(&alert, &many_files, &many_events);
+        // Files capped at 5 — file_5..file_19 must NOT be present.
+        assert!(messages[1].content.contains("src/file_4.rs"));
+        assert!(!messages[1].content.contains("src/file_5.rs"));
+        // Events capped at 10 — cmd 9 yes, cmd 10 no.
+        assert!(messages[1].content.contains("cmd 9"));
+        assert!(!messages[1].content.contains("cmd 10"));
     }
 
     #[test]

@@ -30,6 +30,10 @@
 //! | `RepoIndexed`            | yes        | Repo lifecycle.             |
 //! | `SymbolsIndexed`         | yes        | Repo lifecycle.             |
 //! | `ReindexRequested`       | yes        | Manual reindex audit.       |
+//! | `RemediationStarted`     | yes        | Sesión 19 — fix audit.      |
+//! | `RemediationCompleted`   | yes        | Sesión 19 — fix audit.      |
+//! | `FixRejected`            | yes        | Sesión 19 — fix audit.      |
+//! | `RemediationProgress`    | **no**     | Chatter — many per session. |
 //! | `ChatTokenStream`        | **no**     | Spam — thousands per chat.  |
 //! | `MemoryReviewRequested`  | no         | Pure UI signal.             |
 //! | `MemoryReviewApproved`   | no         | Persisted via the           |
@@ -74,6 +78,11 @@ fn kind_tag(ev: &DaemonEvent) -> Option<&'static str> {
         DaemonEvent::RepoIndexed { .. }           => Some("repo_indexed"),
         DaemonEvent::SymbolsIndexed { .. }        => Some("symbols_indexed"),
         DaemonEvent::ReindexRequested { .. }      => Some("reindex_requested"),
+        // Sesión 19 — fix audit trail (start / completed / rejected
+        // persist; in-flight progress chatter is dropped).
+        DaemonEvent::RemediationStarted { .. }    => Some("remediation_started"),
+        DaemonEvent::RemediationCompleted { .. }  => Some("remediation_completed"),
+        DaemonEvent::FixRejected { .. }           => Some("fix_rejected"),
         // Skipped on purpose — see module docs.
         DaemonEvent::ChatTokenStream { .. }       => None,
         DaemonEvent::MemoryReviewRequested { .. } => None,
@@ -81,6 +90,11 @@ fn kind_tag(ev: &DaemonEvent) -> Option<&'static str> {
         DaemonEvent::SensorWarning { .. }         => None,
         DaemonEvent::Heartbeat { .. }             => None,
         DaemonEvent::Shutdown                     => None,
+        // Sesión 19 — chatter, not persisted. Same rationale as
+        // ChatTokenStream: high-volume per-session deltas with no
+        // audit value (the `RemediationStarted` + `RemediationCompleted`
+        // pair frames the session).
+        DaemonEvent::RemediationProgress { .. }   => None,
         // `DaemonEvent` is `#[non_exhaustive]`; from within the crate
         // every variant must be enumerated above. Adding a new variant
         // upstream will surface as a compile error here, forcing an
@@ -95,12 +109,17 @@ fn kind_tag(ev: &DaemonEvent) -> Option<&'static str> {
 /// without a repo (e.g. `ShellEvent`, future user-level) write NULL.
 fn repo_id_tag(ev: &DaemonEvent) -> Option<&str> {
     match ev {
-        DaemonEvent::FsChange         { repo_id, .. } => Some(repo_id.as_str()),
-        DaemonEvent::GitEvent         { repo_id, .. } => Some(repo_id.as_str()),
-        DaemonEvent::ReplayResult     { repo_id, .. } => Some(repo_id.as_str()),
-        DaemonEvent::RepoIndexed      { repo_id, .. } => Some(repo_id.as_str()),
-        DaemonEvent::SymbolsIndexed   { repo_id, .. } => Some(repo_id.as_str()),
-        DaemonEvent::ReindexRequested { repo_id }     => Some(repo_id.as_str()),
+        DaemonEvent::FsChange           { repo_id, .. } => Some(repo_id.as_str()),
+        DaemonEvent::GitEvent           { repo_id, .. } => Some(repo_id.as_str()),
+        DaemonEvent::ReplayResult       { repo_id, .. } => Some(repo_id.as_str()),
+        DaemonEvent::RepoIndexed        { repo_id, .. } => Some(repo_id.as_str()),
+        DaemonEvent::SymbolsIndexed     { repo_id, .. } => Some(repo_id.as_str()),
+        DaemonEvent::ReindexRequested   { repo_id }     => Some(repo_id.as_str()),
+        DaemonEvent::RemediationStarted { repo_id, .. } => Some(repo_id.as_str()),
+        // RemediationCompleted / FixRejected don't carry repo_id on the
+        // wire (the session_id is enough — joining via remediation_sessions
+        // resolves the repo). Persist with NULL FK; the `events.repo_id`
+        // index still slices everything else by repo correctly.
         // ShellEvent has session_id but no repo_id; CWD is not always
         // a registered repo path so we leave the FK NULL.
         _ => None,

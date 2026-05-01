@@ -33,6 +33,7 @@ pub mod git;
 pub mod mcp;
 pub mod memory;
 pub mod onboarding;
+pub mod remediation;
 pub mod saves;
 pub mod sensors;
 pub mod settings;

@@ -272,6 +272,43 @@ pub enum DaemonEvent {
         token:         String,
         finish_reason: Option<String>,
     },
+    /// Sesión 19 — a remediation pipeline started for a repo. `mode`
+    /// is `"local"` (single-shot AI on the dock) or `"cloud"`
+    /// (cloud-proxied agentic). Persisted to the `events` table for
+    /// audit trail; the dock subscribes to render the spinner / mode-3
+    /// card.
+    RemediationStarted {
+        session_id: String,
+        repo_id:    String,
+        mode:       String,
+    },
+    /// Sesión 19 — progress signal from the remediation runner. NOT
+    /// persisted (treated like `ChatTokenStream` chatter — see episodic
+    /// policy). The dock surfaces these as transient stage labels in
+    /// the diff viewer.
+    RemediationProgress {
+        session_id: String,
+        stage:      String,
+        message:    String,
+    },
+    /// Sesión 19 — terminal signal for a remediation session. `success`
+    /// is true when the cloud path or local apply completed cleanly;
+    /// `summary` carries a one-line user-facing message ("PR #1234
+    /// created", "Fix discarded", "Apply failed: <reason>"). Persisted
+    /// to `events` so future remediation runs can answer "did this
+    /// fingerprint already get a fix attempt?".
+    RemediationCompleted {
+        session_id: String,
+        success:    bool,
+        summary:    String,
+    },
+    /// Sesión 19 — the user explicitly rejected a draft fix. Persisted
+    /// alongside `RemediationStarted` for the audit trail. `reason`
+    /// is the optional textarea content from the dock reject dialog.
+    FixRejected {
+        session_id: String,
+        reason:     Option<String>,
+    },
 }
 
 pub use bus::EventBus;

@@ -42,7 +42,7 @@ pub fn read_dashboard_creds(store: &Store) -> DashboardCreds {
 }
 
 /// Construct an HTTP client with a sensible default timeout. SSE
-/// callers (e.g. `ai::remediate::cloud_proxy`) should build their own
+/// callers (e.g. `ai::remediate::proxy`) should build their own
 /// long-timeout client — this helper is for short request/response
 /// flows (auth, saves, alert poll).
 pub fn http_client() -> reqwest::Client {

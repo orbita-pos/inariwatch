@@ -81,11 +81,17 @@ pub fn ttl_for(kind: &str) -> EventTtl {
         // Audit trail — never expire. Git milestones are cheap and
         // the remediation pipeline benefits from "what did the user
         // ship over the last quarter?" lookups.
-        "git_event"         => EventTtl::Infinite,
+        "git_event"             => EventTtl::Infinite,
+        // Sesión 19 — fix audit trail. Same rationale as `git_event`:
+        // remediation history is cheap to keep and supports the
+        // "did this fingerprint already get attempted?" lookup.
+        "remediation_started"   => EventTtl::Infinite,
+        "remediation_completed" => EventTtl::Infinite,
+        "fix_rejected"          => EventTtl::Infinite,
         // Default to never-delete for unknown kinds. Better to leak
         // a few rows than to silently drop user data because someone
         // forgot to add an arm.
-        _                   => EventTtl::Infinite,
+        _                       => EventTtl::Infinite,
     }
 }
 

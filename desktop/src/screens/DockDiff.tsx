@@ -22,10 +22,12 @@ import { Button, Dialog, DialogClose } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
   applyFix,
+  applyRemediation,
   getFixById,
   modifyWithAi,
   openEapReceipt,
   rejectFix,
+  rejectRemediation,
   type ApplyFixResult,
 } from "@/lib/dock-ipc";
 import { useChat } from "@/lib/store/chat";
@@ -55,6 +57,9 @@ export function DockDiff({ fixOverride = null }: DockDiffProps) {
   const storeFix = useChat((s) => s.currentFix);
   const pendingDiff = useChat((s) => s.pendingDiff);
   const backToAlert = useChat((s) => s.backToAlert);
+  // Sesión 19: when set, route apply / reject through the remediation
+  // orchestrator instead of the legacy S16 alert-fix stubs.
+  const remediationSessionId = useChat((s) => s.remediationSessionId);
   const reduce = useReducedMotion();
 
   const fix = fixOverride ?? storeFix;
@@ -128,6 +133,27 @@ export function DockDiff({ fixOverride = null }: DockDiffProps) {
 
   const onApply = async () => {
     setApplyState({ status: "running" });
+    // Sesión 19 path: when the dock entered Mode 4 via the local
+    // remediation orchestrator, route the apply through the
+    // `apply_remediation` IPC. The legacy S16 `applyFix` (alert-fix
+    // deploy stub) stays as the default for the existing flow.
+    if (remediationSessionId) {
+      try {
+        const r = await applyRemediation(remediationSessionId);
+        if (r.success) {
+          setApplyState({
+            status: "success",
+            message: r.commitSha ?? r.message,
+          });
+        } else {
+          setApplyState({ status: "fail", message: r.message });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "unknown error";
+        setApplyState({ status: "fail", message });
+      }
+      return;
+    }
     let result: ApplyFixResult;
     try {
       result = await applyFix(resolved.alertId, resolved.id);
@@ -144,7 +170,11 @@ export function DockDiff({ fixOverride = null }: DockDiffProps) {
   };
 
   const onConfirmReject = async () => {
-    await rejectFix(resolved.id, rejectReason || undefined);
+    if (remediationSessionId) {
+      await rejectRemediation(remediationSessionId, rejectReason || undefined);
+    } else {
+      await rejectFix(resolved.id, rejectReason || undefined);
+    }
     setRejectOpen(false);
     backToAlert();
   };

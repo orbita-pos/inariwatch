@@ -114,8 +114,9 @@ pub fn run() {
             ipc::connect::desktop_connect_project,
             ipc::connect::desktop_disconnect_project,
             ipc::connect::desktop_connect_status,
-            // Cloud-proxied autofix (renamed from autofix.rs)
-            ai::remediate::cloud_proxy::desktop_autofix_start,
+            // Cloud-proxied autofix (Sesión 4 — renamed from autofix.rs;
+            // module renamed cloud_proxy → proxy in Sesión 19)
+            ai::remediate::proxy::desktop_autofix_start,
             // Session 7 — local MCP server controls
             ipc::mcp::get_mcp_token,
             ipc::mcp::regenerate_mcp_token,
@@ -158,6 +159,11 @@ pub fn run() {
             ipc::window::navigate,
             // Sesión 18 — chat streaming
             ipc::chat::start_chat_stream,
+            // Sesión 19 — local remediation pipeline
+            ipc::remediation::start_remediation,
+            ipc::remediation::apply_remediation,
+            ipc::remediation::reject_remediation,
+            ipc::remediation::get_remediation_session_cmd,
             // Sesión 17 — sensor toggles + power-up stubs
             ipc::sensors::get_sensors_state,
             ipc::sensors::set_sensor_enabled,
