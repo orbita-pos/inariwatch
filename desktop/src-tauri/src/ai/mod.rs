@@ -4,4 +4,8 @@
 //! `src/autofix.rs`); single-shot + orchestrator are added in
 //! Session 19.
 
+pub mod budget;
+pub mod openai;
+pub mod prompts;
 pub mod remediate;
+pub mod streaming;

@@ -1,20 +1,21 @@
 /**
  * Chat streaming pipeline.
  *
- * Sesión 15 wires two paths:
- *   1. The real `daemon:event` listener for `ChatTokenStream { sessionId,
- *      messageId, token, done }`. Sesión 18 ports the OpenAI client into
- *      the daemon and starts emitting that variant.
- *   2. A `mockStream` fallback used until Sesión 18 lands. Emits a canned
- *      response token-by-token at a fixed cadence, mimicking the real
- *      stream cadence well enough that the dock UI (auto-scroll, tool
- *      call layout) gets exercised in the absence of a backend.
+ * Sesión 18 wires the real path: the desktop's `start_chat_stream`
+ * IPC command opens an OpenAI streaming connection from Rust and
+ * publishes one `ChatTokenStream { session_id, token, finish_reason }`
+ * variant of `DaemonEvent` per token. The dock subscribes to
+ * `daemon:event`, filters by the session id it dispatched, and feeds
+ * deltas into `useChat.appendToken` / `useChat.finishStreaming`.
  *
- * The component layer doesn't pick — it calls `installChatStreamDriver()`
- * once on mount and the resolver below picks the live listener if the
- * runtime supports it, else the mock.
+ * Backwards compatibility: the `mockStream` fallback stays for the
+ * jsdom/Vite-preview case where Tauri isn't available, AND for the
+ * "command not registered yet" branch (so a dev build of the dock
+ * against an older daemon binary still paints something instead of
+ * hanging the assistant message).
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { onDaemonEvent } from "@/lib/ipc";
@@ -78,15 +79,21 @@ const MOCK_RESPONSE = [
 ];
 
 /**
- * Forward-compat shape — Sesión 18 will add the matching variant to
- * `DaemonEvent` in `lib/ipc.ts`. Until then we treat it as a structural
- * read against the open variant union.
+ * Wire shape of the Sesión-18 `ChatTokenStream` daemon-event variant.
+ * `session_id` echoes the messageId the dock dispatched the IPC with;
+ * `finish_reason` is `Some(_)` only on the closing event.
+ *
+ * Older daemon builds emitted `messageId`/`done` placeholders during
+ * Sesión 15 — both shapes are accepted so rolling daemon downgrades
+ * don't strand the dock UI.
  */
 interface ChatTokenStreamEvent {
   kind: "chat_token_stream";
+  session_id?: string;
   message_id?: string;
   messageId?: string;
   token?: string;
+  finish_reason?: string | null;
   done?: boolean;
 }
 
@@ -97,10 +104,9 @@ function isChatTokenStream(value: unknown): value is ChatTokenStreamEvent {
 }
 
 /**
- * Fire-and-forget mock streamer. Tokens are emitted on a `setTimeout`
- * cadence so the UI gets a realistic visual signal. Returns the timer
- * handle for cleanup but the component doesn't need to track it — the
- * stream runs to completion in well under 3s.
+ * Fire-and-forget mock streamer. Emitted from the fallback paths
+ * (no Tauri runtime + Tauri runtime where the IPC command isn't
+ * registered yet) so the dock UX never hangs on a stale spinner.
  */
 function mockStream(
   messageId: string,
@@ -121,35 +127,62 @@ function mockStream(
 }
 
 /**
+ * Detect whether `start_chat_stream` is a registered Tauri command on
+ * the running daemon. Older builds (pre-Sesión-18) reject the invoke
+ * with a message containing "not found"; we degrade to the mock path
+ * in that case rather than hanging the assistant turn.
+ */
+function isCommandNotFoundError(err: unknown): boolean {
+  if (err == null) return false;
+  const msg = typeof err === "string" ? err : (err as { message?: string }).message ?? String(err);
+  return /command\s+(?:.*\s+)?(?:not\s+found|not\s+registered|unknown)/i.test(msg);
+}
+
+/**
  * Install the chat streaming driver. Resolution order:
- *   1. Real Tauri runtime → subscribe to `daemon:event` for
- *      `ChatTokenStream`. Token push happens in the listener.
- *   2. No Tauri runtime (jsdom in tests, Vite dev preview, web preview)
- *      → wire `mockStream` as the driver.
+ *   1. Tauri runtime + `start_chat_stream` registered → real path. The
+ *      `daemon:event` listener forwards `ChatTokenStream` deltas.
+ *   2. Tauri runtime, command rejected as "not found" → fall through
+ *      to the mock for that one message so the UI doesn't stall.
+ *   3. No Tauri runtime → mock path always.
  *
  * Returns an unlisten that components MUST call on unmount.
  */
 export async function installChatStreamDriver(): Promise<UnlistenFn> {
   const tauriAvailable = typeof window !== "undefined" && "__TAURI__" in window;
 
-  // Set the per-message driver — used both in tauri AND mock paths so
-  // `useChat.sendMessage` dispatches consistently.
   setStreamDriver((messageId, prompt) => {
-    if (tauriAvailable) {
-      // Real path: the daemon will emit ChatTokenStream events tagged
-      // with this messageId once Sesión 18 ports the OpenAI client.
-      // Sesión 15 leaves the listener installed; in the meantime the
-      // assistant message stays empty + streaming until the listener
-      // finishes it. To avoid a "stuck spinner" demo, fall through to
-      // the mock below until the variant actually shows up on the bus.
+    if (!tauriAvailable) {
       mockStream(messageId, prompt);
       return;
     }
-    mockStream(messageId, prompt);
+    // Real path. The daemon will publish ChatTokenStream events
+    // tagged with `session_id === messageId`; the listener installed
+    // below routes them into the chat store.
+    invoke<void>("start_chat_stream", {
+      args: {
+        session_id: messageId,
+        prompt,
+        repo_id: useChat.getState().sessionId,
+      },
+    }).catch((err: unknown) => {
+      if (isCommandNotFoundError(err)) {
+        // Daemon predates Sesión 18 — mock the response so the user
+        // gets *something* instead of a hung spinner.
+        mockStream(messageId, prompt);
+        return;
+      }
+      // Real backend failure (no key, budget cap, network). Append a
+      // single error sentence + close the stream.
+      useChat.getState().appendToken(
+        messageId,
+        `\n_chat error: ${err instanceof Error ? err.message : String(err)}_`,
+      );
+      useChat.getState().finishStreaming(messageId);
+    });
   });
 
   if (!tauriAvailable) {
-    // No Tauri to listen on — return a no-op unlisten.
     return () => {
       setStreamDriver(null);
     };
@@ -157,12 +190,23 @@ export async function installChatStreamDriver(): Promise<UnlistenFn> {
 
   const unlisten = await onDaemonEvent((event) => {
     if (!isChatTokenStream(event)) return;
-    const messageId = event.messageId ?? event.message_id;
+    // Match either the new wire field (`session_id`) or the
+    // pre-Sesión-18 placeholder names so older daemon builds still
+    // paint correctly.
+    const messageId =
+      event.session_id ?? event.message_id ?? event.messageId;
     if (!messageId) return;
+
     if (typeof event.token === "string" && event.token.length > 0) {
       useChat.getState().appendToken(messageId, event.token);
     }
-    if (event.done) {
+
+    // Stream end signalled either by `finish_reason` (Sesión 18) or
+    // the legacy `done: true` boolean.
+    const finished =
+      (typeof event.finish_reason === "string" && event.finish_reason.length > 0) ||
+      event.done === true;
+    if (finished) {
       useChat.getState().finishStreaming(messageId);
     }
   });

@@ -141,6 +141,17 @@ interprocess             = { version = "2", features = ["tokio"] }
 # pulls in zero extra deps beyond `cfg-if`.
 which                    = "6"
 
+# Session 18 — OpenAI client + chat streaming.
+# `chrono` for the per-day spend bucket key (UTC YYYY-MM-DD). No new HTTP
+# / SSE dep: reqwest already has `stream` enabled, OpenAI SSE framing is
+# trivial enough to hand-roll (~40 lines, see `ai::openai::sse_lines`).
+# Token counting also stays heuristic (chars / 4) — see DECISIONS for
+# why we passed on `tiktoken-rs`.
+# `bytes` is already transitive via reqwest; pinned explicitly so the
+# `bytes::Bytes` use in `ai::openai::sse_chunks` is hygienic.
+chrono                   = { version = "0.4", default-features = false, features = ["clock", "std"] }
+bytes                    = "1"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"

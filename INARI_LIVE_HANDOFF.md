@@ -1027,6 +1027,57 @@ Captured from `project_inari_live.md` memory:
   - Network failure → retries with exponential backoff (3 attempts max), then surfaces error.
 - **Definition of done:** `cargo test -p ai` green; from the dock, asking a question against a real repo streams tokens visibly within 500ms TTFT (time-to-first-token) on a typical home connection.
 
+#### Done (2026-05-01) — Sesión 18
+
+- **Branch:** `feat/inari-live-track5-session18-openai-streaming`. Tip lands once committed locally; not pushed per Jesus's controlled-cadence rule.
+- **Files added:**
+  - `desktop/src-tauri/src/ai/budget.rs` — `BudgetTracker` + `Model` enum + cents-based pricing table + `record_actual` UPSERT against `ai_spend`. Caps: global $300/day, per-user $1/day. `__set_today_for_tests` is `#[doc(hidden)]` always-compiled (NOT `#[cfg(test)]`) so integration tests can pin the day key.
+  - `desktop/src-tauri/src/ai/openai.rs` — `OpenAIClient` (`chat_stream`, `chat_complete`, `embeddings` stub). Hand-rolled SSE parser (`sse_chunks` + `next_frame` + `parse_frame`) with 8 unit tests; no `eventsource-stream` dep. Retry on 429/5xx (3 attempts, 1s/2s/4s backoff), no retry on 4xx. Key redaction in error bodies.
+  - `desktop/src-tauri/src/ai/streaming.rs` — `stream_to_bus` drains an OpenAI chunk stream and publishes `DaemonEvent::ChatTokenStream` per token. Synthesizes a closing `Some("stop")` if the upstream stream ends without one.
+  - `desktop/src-tauri/src/ai/prompts.rs` — `ChatMessage` + `Role` types; `build_analyze_prompt`, `build_ask_inari_prompt`, `build_diagnose_prompt` — ports of web SSOT prompts byte-cercanas. `SYSTEM_OPS` const matches `web/lib/services/chat.service.ts` line-by-line.
+  - `desktop/src-tauri/src/ipc/chat.rs` — `start_chat_stream` Tauri command. Resolves model routing → budget gate → spawns the streaming task → records actual spend after.
+  - `desktop/src-tauri/src/store/migrations/0005_ai_spend.sql` — per-day per-model spend counter (composite PK on `(day, model)`).
+  - `desktop/src-tauri/tests/openai_chat_stream.rs` — local axum SSE mock + assert deltas in order.
+  - `desktop/src-tauri/tests/openai_byok_overrides_platform.rs` — 3 tests: BYOK precedence, platform fallback, fail-closed-when-no-key.
+  - `desktop/src-tauri/tests/openai_retry_backoff.rs` — 2 tests: 429 retries to success at attempt 3 (>= 2.5s elapsed proves backoff), 400 fails immediately.
+  - `desktop/src-tauri/tests/budget_downgrade.rs` — 4 tests: ok-under-caps, downgrade-when-per-user, blocked-when-global, default-cap-value.
+  - `desktop/src-tauri/tests/prompts_parity.rs` — 3 tests: canonical analyze phrases, SYSTEM_OPS line-by-line vs web SSOT, ask-inari uses SYSTEM_OPS.
+  - `desktop/src/lib/__tests__/chat-stream-real.test.ts` — vitest covering: `start_chat_stream` invoke + listener routing + command-not-found mock fallback + non-ChatTokenStream payload ignored. 3 tests.
+- **Files modified:**
+  - `desktop/src-tauri/src/ai/mod.rs` — adds `pub mod openai/streaming/budget/prompts`.
+  - `desktop/src-tauri/src/daemon/mod.rs` — adds `DaemonEvent::ChatTokenStream { session_id, token, finish_reason }`. Privacy note in docstring re: tokens being the user's response.
+  - `desktop/src-tauri/src/ipc/mod.rs` — adds `pub mod chat`.
+  - `desktop/src-tauri/src/lib.rs` — flips `mod ai` → `pub mod ai` (so integration tests reach it). Registers `ipc::chat::start_chat_stream` in the invoke handler.
+  - `desktop/src-tauri/src/store/migrations.rs` — wires migration 5 (`ai_spend`) into the `MIGRATIONS` array.
+  - `desktop/src-tauri/Cargo.toml` — adds `chrono` (UTC day key) + `bytes` (already transitive via reqwest, made direct so the use site is hygienic). NO eventsource-stream / tiktoken-rs (see DECISIONS).
+  - `desktop/src/lib/chat-stream.ts` — `installChatStreamDriver` invokes `start_chat_stream` and routes `daemon:event` `ChatTokenStream` deltas into the chat store. Falls back to `mockStream` when the command rejects with "not found" so older daemon builds don't strand the dock UI. Reads both `session_id` (S18 wire) and `messageId` (S15 placeholder) for forward/backward compat.
+- **Verification (results, no asterisks):**
+  - **`cargo check --lib`** — clean in 8.83s after the deps + module edits (cold incremental against a warm shared target dir).
+  - **`cargo check --lib --tests`** — clean in 21.02s on the second run.
+  - **`cargo test --test prompts_parity`** — 3/3 pass in 0.00s after 2m 21s link (cold).
+  - **`cargo test --test budget_downgrade`** — 4/4 pass in 0.53s after 1m 06s link (incremental against warm target dir).
+  - **`cargo test --test openai_chat_stream`** — 1/1 pass in 0.06s after 9.19s link.
+  - **`cargo test --test openai_byok_overrides_platform`** — 3/3 pass in 6.93s after 9.09s link.
+  - **`cargo test --test openai_retry_backoff`** — 2/2 pass in 3.15s after 7.86s link.
+  - **`cargo test --lib ai::`** — 19/19 ai unit tests pass (5 prompts + 8 openai + 3 budget + 2 streaming + 1 ipc::chat — wait, ipc::chat counts under ipc::, so 5+8+3+2 = 18 ai + 1 model-name from openai not counted in `ai::` filter). Re-run with `cargo test --lib ai::` confirms 19/19 in 0.14s.
+  - **`cargo test --lib ipc::chat::`** — 3/3 model-routing tests pass in 0.00s.
+  - **`npx tsc --noEmit`** — exit 0.
+  - **`npm run build`** — `tsc -b && vite build` clean in 4.98s. Same Shiki language-chunk warnings as S15-S17 (`cpp.js`, `wasm.js`, `emacs-lisp.js` lazy-loaded, expected).
+  - **`npx vitest run`** — **18 test files / 37 tests / 37 passed in 8.93s**. New: `chat-stream-real.test.ts` (3 tests). Pre-existing 34 from S14-S17 still green.
+  - **TTFT against real OpenAI:** deferred to Jesus's manual smoke. The handoff DoD's 500ms target needs a live API key + production network; the pragmatic test pyramid (mock SSE chunk-by-chunk + retry timing harness) covers correctness and codepath shape.
+- **Track 5 status:** Sesión 18 lands the streaming chat path. Sesión 19 (local single-shot remediation + cloud-proxied agentic) and Sesión 20 (pre-push gate dock surface) close the track.
+- **Notes for Sesión 19:**
+  1. **OpenAI client is reusable for non-chat calls.** `chat_complete` is the entry point for analyze / diagnose / sing-shot remediation. Sesión 19 should call `OpenAIClient::from_store(store)?.chat_complete(messages, Model::Gpt54)` — same key resolution + retry contract. The remediation pipeline already running in cloud via `ai/remediate/cloud_proxy.rs` stays untouched.
+  2. **`embeddings()` is a stub returning `OpenAIError::NotImplemented`.** Sesión 13 (indexer wire) implements it.
+  3. **Repo context for Ask Inari is minimal.** `start_chat_stream` accepts `repo_id` but doesn't yet load `memory.md` or recent symbols — both noted as TODO with a dedicated comment. Sesión 19 wires `memory::read_active_memory_md(repo_id)` + indexer recent-symbols when those impls ship; the IPC contract is forward-compatible.
+  4. **Spend recording when `usage` is missing.** If OpenAI omits `usage` from the final chunk (older API endpoints), `start_chat_stream` records `prompt_tokens = estimate (chars/4)` + `completion_tokens = 0` and logs a warning. Acceptable for v1; the `/admin/ops` AI widget will surface drift if it shows up in production.
+  5. **`ChatTokenStream` privacy.** Tokens ARE the user's response. The `tracing` calls in `streaming.rs` only log session id + finish_reason. Any future log-aggregator integration must NOT serialize the full payload — see DECISIONS 2026-05-01 "ChatTokenStream carries session_id".
+  6. **Frontend fallback path.** The dock's `chat-stream.ts` still has the mock streamer for the "command not found" branch. When Sesión 19 lands, that branch shouldn't fire under normal operation (every supported daemon registers the command); the fallback is purely a safety net for rolling-deploy version skew.
+- **Blockers / deferred:**
+  - **Real OpenAI smoke (TTFT measurement)** — deferred to Jesus's manual `tauri dev` run.
+  - **Repo context for Ask Inari** — `start_chat_stream`'s `repo_id` arg is accepted but not yet consumed. Sesión 19 wires `memory::read_active_memory_md` + indexer recent-symbols.
+  - **Settings UI for per-user cap** — the `ai_per_user_cap_cents` setting key exists but `set_ai_settings` doesn't yet expose it. Sesión 19+ adds the UI control once we see real cap-hit telemetry.
+
 ### Session 19 — Local remediation pipeline (single-shot, agentic in cloud) (8h)
 
 - **Files:** `desktop/src-tauri/src/ai/remediate/mod.rs`, `ai/remediate/single_shot.rs`, `ai/remediate/proxy.rs`, `ai/remediate/orchestrator.rs`.

@@ -255,6 +255,23 @@ pub enum DaemonEvent {
         matched:      bool,
         divergence:   Option<DivergenceSummary>,
     },
+    /// Sesión 18 — one streamed delta from an OpenAI chat completion.
+    /// `session_id` is the chat-message id the dock dispatched the
+    /// `start_chat_stream` IPC with (one assistant message = one
+    /// session). `finish_reason` is `Some(_)` only on the closing
+    /// event (`stop` / `length` / `error` / etc.); intermediate
+    /// chunks carry `None` and a non-empty `token`.
+    ///
+    /// Privacy: token strings ARE the user's question response, so the
+    /// bus subscriber list is the trust boundary. The IPC events
+    /// bridge already filters out logging for `daemon:event` payload
+    /// bodies — the `tracing` calls in `streaming.rs` only log the
+    /// session id + finish_reason, never the deltas themselves.
+    ChatTokenStream {
+        session_id:    String,
+        token:         String,
+        finish_reason: Option<String>,
+    },
 }
 
 pub use bus::EventBus;

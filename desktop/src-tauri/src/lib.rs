@@ -36,7 +36,11 @@ pub mod store;
 // Session 4 — cloud / IPC / AI cloud-proxy shells / cli runner.
 pub mod cloud;
 pub mod ipc;
-mod ai;
+// `pub` so Sesión 18 integration tests in `tests/openai_*`,
+// `tests/budget_*`, and `tests/prompts_parity` can reach
+// `crate::ai::{openai, budget, prompts}`. Same precedent as `daemon`,
+// `store`, `sensors`, `indexer`, `cli`.
+pub mod ai;
 // `pub` so integration tests in `tests/substrate_*` can reach
 // `crate::cli::run::{prepare_inari_run, ...}` for Sesión 10. Same
 // precedent as `daemon` (S2), `store` (S3), `sensors` (S5/S7/S10).
@@ -152,6 +156,8 @@ pub fn run() {
             ipc::window::open_main_window,
             ipc::window::hide_dock,
             ipc::window::navigate,
+            // Sesión 18 — chat streaming
+            ipc::chat::start_chat_stream,
             // Sesión 17 — sensor toggles + power-up stubs
             ipc::sensors::get_sensors_state,
             ipc::sensors::set_sensor_enabled,

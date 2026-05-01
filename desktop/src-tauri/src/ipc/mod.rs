@@ -24,6 +24,7 @@
 //! local MCP HTTP transport (Session 7).
 
 pub mod auth;
+pub mod chat;
 pub mod commands;
 pub mod connect;
 pub mod error;

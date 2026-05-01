@@ -2562,6 +2562,8 @@ name = "inariwatch-desktop"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
+ "chrono",
  "fastembed",
  "flume",
  "futures-util",
