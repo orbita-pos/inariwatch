@@ -301,6 +301,25 @@ pub fn run() {
                 store.clone(),
             );
 
+            // Sesión 13 — episodic memory persister + retention runner.
+            // The persister subscribes to the bus and writes the
+            // persistable subset of `DaemonEvent` to the `events`
+            // table; the retention runner ticks once an hour and drops
+            // rows past their per-kind TTL (fs_change/shell_event/...
+            // = 30 days; git_event = infinite). Both handles are
+            // dropped here on purpose — the persister exits on
+            // `Shutdown`, the retention runner exits when the runtime
+            // is torn down at process exit. Retention's startup tick
+            // is suppressed so first-launch boot doesn't pay an extra
+            // DB write before any rows have aged out.
+            let _episodic_persister = memory::episodic::spawn_event_persister(
+                daemon_handle.clone(),
+                store.clone(),
+            );
+            let _retention_runner = memory::retention::spawn_retention_runner(
+                store.clone(),
+            );
+
             // Session 9 — Sensor 2 (shell hooks). Opens the per-platform
             // local socket (`~/.inari/sock/shell.sock` on Unix,
             // `\\.\pipe\inari-live-shell` on Windows). The listener is

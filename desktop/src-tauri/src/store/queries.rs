@@ -65,6 +65,140 @@ pub fn insert_event(
     Ok(conn.last_insert_rowid())
 }
 
+/// Filter for [`query_events`] (Sesión 13 — episodic memory). All
+/// fields are optional intersections; `None` means "any". When all are
+/// `None` you get the most-recent rows up to `limit`.
+#[derive(Debug, Clone, Default)]
+pub struct EventFilter<'a> {
+    pub kind:    Option<&'a str>,
+    pub repo_id: Option<&'a str>,
+    /// Lower bound on `timestamp` (inclusive). Use `None` for "no floor".
+    pub since:   Option<i64>,
+    /// Upper bound on the row count. Defaults to 100 when `None` to
+    /// keep the query bounded — callers that need everything pass a
+    /// concrete large number.
+    pub limit:   Option<usize>,
+}
+
+/// One event row read back from the `events` table. The payload is
+/// returned raw — consumers that care about a specific shape parse it
+/// themselves (we deliberately avoid coupling the store to per-kind
+/// schemas; the kind taxonomy lives in `crate::daemon::DaemonEvent`).
+#[derive(Debug, Clone)]
+pub struct EventRow {
+    pub id:           i64,
+    pub timestamp_ms: i64,
+    pub kind:         String,
+    pub repo_id:      Option<String>,
+    pub payload_json: String,
+}
+
+/// Read events with the given filter. Sorted by `timestamp DESC` so the
+/// most recent rows come first — matches what callers in the AI layer
+/// (Sesión 19 remediation context) want by default.
+pub fn query_events(store: &Store, filter: &EventFilter<'_>) -> Result<Vec<EventRow>> {
+    let conn = store.conn()?;
+
+    // Build WHERE fragments + bind values together so the positional
+    // parameter index always matches the bind order. Every fragment is
+    // a static string template; only the values flow through `params`.
+    let mut where_parts: Vec<String>            = Vec::new();
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut idx = 1usize;
+    if let Some(k) = filter.kind {
+        where_parts.push(format!("kind = ?{idx}"));
+        binds.push(Box::new(k.to_string()));
+        idx += 1;
+    }
+    if let Some(r) = filter.repo_id {
+        where_parts.push(format!("repo_id = ?{idx}"));
+        binds.push(Box::new(r.to_string()));
+        idx += 1;
+    }
+    if let Some(s) = filter.since {
+        where_parts.push(format!("timestamp >= ?{idx}"));
+        binds.push(Box::new(s));
+        idx += 1;
+    }
+    let where_sql = if where_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_parts.join(" AND "))
+    };
+
+    let limit = filter.limit.unwrap_or(100).min(10_000);
+    let sql = format!(
+        "SELECT id, timestamp, kind, repo_id, payload
+         FROM events{}
+         ORDER BY timestamp DESC
+         LIMIT ?{}",
+        where_sql, idx,
+    );
+    binds.push(Box::new(limit as i64));
+
+    let mut stmt = conn.prepare(&sql)?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs.into_iter()), |r| {
+        Ok(EventRow {
+            id:           r.get(0)?,
+            timestamp_ms: r.get(1)?,
+            kind:         r.get(2)?,
+            repo_id:      r.get(3)?,
+            payload_json: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows { out.push(row?); }
+    Ok(out)
+}
+
+/// Drop every event row for `kind` whose `timestamp` is strictly
+/// older than `cutoff_ts_ms`. Returns the number of rows actually
+/// deleted so the retention runner can decide whether to VACUUM.
+pub fn delete_events_older_than(
+    store:        &Store,
+    kind:         &str,
+    cutoff_ts_ms: i64,
+) -> Result<usize> {
+    let conn = store.conn()?;
+    let n = conn.execute(
+        "DELETE FROM events WHERE kind = ?1 AND timestamp < ?2",
+        params![kind, cutoff_ts_ms],
+    )?;
+    Ok(n)
+}
+
+/// Per-kind row counts in the `events` table. Used by the retention
+/// runner for telemetry + by integration tests to assert the deletion
+/// behaviour without touching SQL directly.
+pub fn count_events_by_kind(store: &Store) -> Result<std::collections::HashMap<String, u64>> {
+    let conn = store.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT kind, COUNT(*) FROM events GROUP BY kind",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        let kind:  String = r.get(0)?;
+        let count: i64    = r.get(1)?;
+        Ok((kind, count.max(0) as u64))
+    })?;
+    let mut out = std::collections::HashMap::new();
+    for r in rows {
+        let (k, c) = r?;
+        out.insert(k, c);
+    }
+    Ok(out)
+}
+
+/// `VACUUM` the underlying database. SQLite serializes the operation —
+/// the pool's other connections wait. Used by the retention runner
+/// when a tick deletes a meaningful number of rows so the file shrinks
+/// instead of just leaving free pages.
+pub fn vacuum(store: &Store) -> Result<()> {
+    let conn = store.conn()?;
+    conn.execute_batch("VACUUM")?;
+    Ok(())
+}
+
 /// Read the per-repo `replay_enabled` flag (migration 0004). Returns
 /// `false` for unknown ids — the substrate sensor (Session 10) treats
 /// "no row" identically to "row says off" so `FsChange` events for

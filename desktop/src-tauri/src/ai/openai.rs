@@ -56,7 +56,12 @@ pub enum OpenAIError {
     Api { status: u16, body: String },
     #[error("invalid JSON in stream chunk: {0}")]
     BadChunk(String),
-    #[error("not implemented in this build (Sesión 13 wires embeddings)")]
+    /// Retained for source compatibility — Sesión 13 wired
+    /// [`OpenAIClient::embeddings`] to the local fastembed model so
+    /// nothing in tree raises this anymore. Kept (instead of removed)
+    /// so that downstream callers compiled against earlier shapes do
+    /// not see an exhaustive-match break.
+    #[error("not implemented in this build")]
     NotImplemented,
     #[error("store error: {0}")]
     Store(#[from] crate::store::StoreError),
@@ -189,15 +194,41 @@ impl OpenAIClient {
         })
     }
 
-    /// Stub — Sesión 13 wires the indexer's embedding path against
-    /// `text-embedding-3-small` and the existing pgvector store. The
-    /// shape lands here so callers can compile against it in S18 and
-    /// S13 only changes the body.
+    /// Embed `texts` into 384-dim vectors via the bundled fastembed
+    /// MiniLM-L6-v2 model. Sesión 13 deliberately resolves embeddings
+    /// locally instead of calling OpenAI's `text-embedding-3-small`:
+    /// the fastembed model is already loaded for the indexer's code
+    /// search, the dimension matches the existing
+    /// `code_embeddings FLOAT[384]` schema, and routing every embed
+    /// through the network would burn budget on a workload that runs
+    /// fine on the user's CPU. See `INARI_LIVE_DECISIONS.md` 2026-05-01
+    /// for the rationale + the migration path if we ever need
+    /// 1536-dim semantics.
+    ///
+    /// Returns an empty vector for empty input. Bubbles fastembed
+    /// model-load failures through [`OpenAIError::Api`] so the caller
+    /// can surface "no embeddings — running offline?" without
+    /// inventing a new error variant.
     pub async fn embeddings(
         &self,
-        _texts: Vec<String>,
+        texts: Vec<String>,
     ) -> Result<Vec<Vec<f32>>, OpenAIError> {
-        Err(OpenAIError::NotImplemented)
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let join = tokio::task::spawn_blocking(move || {
+            crate::indexer::embeddings::embed_batch(&texts)
+        })
+        .await
+        .map_err(|e| OpenAIError::Api {
+            status: 0,
+            body:   format!("embed spawn_blocking join: {e}"),
+        })?;
+        let arrays = join.map_err(|e| OpenAIError::Api {
+            status: 0,
+            body:   format!("local embed failed: {e}"),
+        })?;
+        Ok(arrays.into_iter().map(|a| a.to_vec()).collect())
     }
 
     async fn send_with_retry(
