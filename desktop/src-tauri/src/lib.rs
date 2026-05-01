@@ -169,6 +169,9 @@ pub fn run() {
             // Sesión 20 — pre-push gate runner UI surface
             ipc::gates::get_recent_gate_runs,
             ipc::gates::request_bypass,
+            // Sesión 27 — EAP receipt chip + Replay button
+            ipc::eap::get_receipt_for_session,
+            ipc::replay::replay_against_patch,
             // Sesión 17 — sensor toggles + power-up stubs
             ipc::sensors::get_sensors_state,
             ipc::sensors::set_sensor_enabled,

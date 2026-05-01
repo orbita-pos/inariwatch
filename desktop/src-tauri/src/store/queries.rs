@@ -1180,3 +1180,125 @@ pub fn list_repos_with_metrics(store: &Store) -> Result<Vec<RepoSummary>> {
     }
     Ok(out)
 }
+
+// ── EAP receipts (Sesión 27) ─────────────────────────────────────────
+//
+// `eap_receipts` (migration 0009) is the local mirror of the cloud-side
+// EAP attestation receipts. The dock's `EAPReceiptChip` reads via
+// [`get_eap_receipt_by_remediation_session`]; ingestion (insert) is
+// exposed for tests + the future receipt-ingester that listens for
+// `RemediationCompleted` events.
+//
+// Content-addressed: `receipt_id == merkle_root` (kept as separate
+// columns so the wire format can evolve without a destructive
+// migration). `tools_called` and `files_read` are JSON-encoded blobs
+// — the popover decodes them client-side so the rust side stays
+// schema-agnostic about the inner shapes.
+
+#[derive(Debug, Clone)]
+pub struct NewEapReceipt<'a> {
+    pub receipt_id:             &'a str,
+    pub remediation_session_id: &'a str,
+    pub merkle_root:            &'a str,
+    pub signature:              Option<&'a str>,
+    pub signed:                 bool,
+    pub prompt_hash:            Option<&'a str>,
+    pub system_prompt:          Option<&'a str>,
+    /// JSON-encoded array of tool calls (free shape).
+    pub tools_called_json:      &'a str,
+    /// JSON-encoded array of files read (free shape).
+    pub files_read_json:        &'a str,
+    pub model:                  Option<&'a str>,
+    pub recording_id:           Option<&'a str>,
+    pub attestor:               &'a str,
+    pub created_at_ms:          i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EapReceiptRow {
+    pub receipt_id:             String,
+    pub remediation_session_id: String,
+    pub merkle_root:            String,
+    pub signature:              Option<String>,
+    pub signed:                 bool,
+    pub prompt_hash:            Option<String>,
+    pub system_prompt:          Option<String>,
+    pub tools_called_json:      String,
+    pub files_read_json:        String,
+    pub model:                  Option<String>,
+    pub recording_id:           Option<String>,
+    pub attestor:               String,
+    pub created_at_ms:          i64,
+}
+
+/// Idempotent insert. PK = receipt_id (Merkle root) → re-attesting the
+/// same chain is a no-op. Returns the count of new rows (1 = inserted,
+/// 0 = already present).
+pub fn insert_eap_receipt(store: &Store, new: &NewEapReceipt<'_>) -> Result<usize> {
+    let conn = store.conn()?;
+    let n = conn.execute(
+        "INSERT OR IGNORE INTO eap_receipts
+            (receipt_id, remediation_session_id, merkle_root, signature, signed,
+             prompt_hash, system_prompt, tools_called, files_read, model,
+             recording_id, attestor, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            new.receipt_id,
+            new.remediation_session_id,
+            new.merkle_root,
+            new.signature,
+            new.signed as i64,
+            new.prompt_hash,
+            new.system_prompt,
+            new.tools_called_json,
+            new.files_read_json,
+            new.model,
+            new.recording_id,
+            new.attestor,
+            new.created_at_ms,
+        ],
+    )?;
+    Ok(n)
+}
+
+/// Look up the receipt mirrored for a given remediation session. The
+/// dock's `EAPReceiptChip` calls this via the IPC seam to render the
+/// merkle root + popover details. Returns `None` when the session has
+/// not been attested yet (the chip falls back to the unsigned state).
+pub fn get_eap_receipt_by_remediation_session(
+    store:      &Store,
+    session_id: &str,
+) -> Result<Option<EapReceiptRow>> {
+    let conn = store.conn()?;
+    let row = conn
+        .query_row(
+            "SELECT receipt_id, remediation_session_id, merkle_root, signature, signed,
+                    prompt_hash, system_prompt, tools_called, files_read, model,
+                    recording_id, attestor, created_at
+             FROM eap_receipts
+             WHERE remediation_session_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            params![session_id],
+            |r| {
+                let signed_int: i64 = r.get(4)?;
+                Ok(EapReceiptRow {
+                    receipt_id:             r.get(0)?,
+                    remediation_session_id: r.get(1)?,
+                    merkle_root:            r.get(2)?,
+                    signature:              r.get(3)?,
+                    signed:                 signed_int != 0,
+                    prompt_hash:            r.get(5)?,
+                    system_prompt:          r.get(6)?,
+                    tools_called_json:      r.get(7)?,
+                    files_read_json:        r.get(8)?,
+                    model:                  r.get(9)?,
+                    recording_id:           r.get(10)?,
+                    attestor:               r.get(11)?,
+                    created_at_ms:          r.get(12)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
