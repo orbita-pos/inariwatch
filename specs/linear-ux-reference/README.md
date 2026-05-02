@@ -64,17 +64,36 @@ Dashboard with stat tiles + charts.
 
 ## Patterns to LOCK as Inari Live design tokens
 
-### Colors (extract via screenshot eyedrop, but approximate)
-- bg: very dark, near-black (#08080a / #0a0a0c)
-- surface: slightly lighter (#0e0e10)
-- card: subtle elevation (#1a1a1c / #18181b)
-- card-elevated: another step up (#232326)
-- border: ultra-subtle (rgba 255/255/255 at 6-8% opacity)
-- border-strong: hover state borders (10-12% opacity)
-- text: not pure white (#e6e6e6 or similar)
-- text-muted: medium gray for secondary (#8a8a8e)
-- text-subtle: tertiary (#5a5a5e)
-- accent: Linear's purple-ish (#5e6ad2-ish) — Inari Live keeps its existing accent if locked
+### Colors — LOCKED to InariWatch web palette (NOT Linear's defaults)
+
+**Inari Live MUST match the existing InariWatch web brand** (extracted from `web/app/globals.css` dark mode). Linear's screenshots are the *layout/density/typography* benchmark, NOT the color benchmark.
+
+Dark mode palette (canonical — matches `web/app/globals.css` lines 33-48):
+- `--bg: #0a0a0c` (page background, near-black)
+- `--surface: #111114` (card surface, one step up)
+- `--card: #16161a` (inner card)
+- `--card-elevated: #1a1a1f` (elevated card / modals)
+- `--border: #1f1f24` (default border)
+- `--border-subtle: #17171b` (ultra-subtle border)
+- `--border-strong: #2a2a31` (hover/strong border)
+- `--text: #f5f5f7` (primary text)
+- `--text-muted: #a1a1aa` (secondary)
+- `--text-subtle: #71717a` (tertiary — derived, matches zinc-500)
+
+**Accent — burnt orange (the InariWatch brand color):**
+- `--accent: #ea580c` (Tailwind orange-600 — primary accent, buttons/links/focus rings)
+- `--accent-hover: #c2410c` (orange-700 — hover state)
+- `--accent-light: #fb923c` (orange-400 — for highlights, gradient starts)
+- `--accent-gradient: linear-gradient(135deg, #fb923c 0%, #ea580c 55%, #c2410c 100%)` (matches `web/app/globals.css` line 106)
+- Use the burnt-orange gradient for hero CTAs / large accent surfaces. Use solid `#ea580c` for everything else (buttons, status pills, focus rings, links).
+
+**Status semantic colors** (these stay regardless of brand — they're status, not brand):
+- `--success: #4cb782` (green — On track / passed gate)
+- `--warning: #f0a020` (amber — At risk / pending)
+- `--danger: #eb5757` (red — Off track / failed)
+- Category pills get muted versions of brand orange / status colors
+
+**Anti-pattern:** do NOT use Linear's purple `#5e6ad2` even though it's all over the screenshots. That's Linear's brand. Inari Live's brand is burnt orange `#ea580c`. Every place a Linear screenshot shows their purple (selected sidebar item, accent button, status indicator) — replace with `#ea580c`.
 
 ### Status semantic colors (with colored 6-8px dot prefix)
 - `● On track` / success: green (#4cb782 or similar, low saturation)
