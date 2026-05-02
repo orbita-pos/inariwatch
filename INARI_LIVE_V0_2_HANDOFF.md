@@ -728,7 +728,43 @@ Tests: 10/10 new tests pass. Marketing-only run = 16/16 (S29 verify suite intact
 
 ---
 
-### S31 — Code signing pipeline (CI matrix) (8h)
+### S31 — Local smoke test: real GGUFs + sidecar binary on dev box (4h)
+
+**Status (2026-05-02): DONE — local smoke re-cut, distribution DEFERRED.** The original S31 (code signing CI matrix, 8h) is preserved verbatim below as the "**Deferred plan**" — it activates the moment any of the triggers in `feedback_no_signing_pre_users.md` fires (50+ active beta users / first paying customer / enterprise IT block / cultural moment). Until then, S31's job is to make Tab autocomplete + Fast Apply work end-to-end on Jesús's dev box so the wedge can be validated unsigned.
+
+**Branch:** `feat/inari-live-v0.2-session31-local-models`
+**Predecessor:** `8cf1666` on `main` (post-S33 + sidebar/Settings/focus-ring fixes).
+**Files (modified / new):**
+- `desktop/src-tauri/src/local_ai/registry.rs` — replaced placeholder BLAKE3 hashes for `qwen2.5-coder-1.5b` and `kortix-fast-apply-7b`. The `qwen2.5-coder-0.5b` fallback row stays a placeholder (Tier1 path not exercised on this dev box).
+- `desktop/scripts/sideload-models.ps1` (new) — verifies a downloaded GGUF against the catalogue's BLAKE3 + copies it to the canonical `<app_local_data>/inari-live/models/<id>/<hash>.gguf` path. Supports `-List` to inspect what's installed.
+- `desktop/SMOKE_TEST_LOCAL_AI.md` (new) — runbook for one-time setup on a fresh dev box + 4 manual test cases (Tab, Apply, pre-push gates, EAP chip + Replay).
+
+**Files placed OUT-of-tree (not committed):**
+- `%LOCALAPPDATA%\com.inariwatch.desktop\inari-live\bin\` — `llama-server.exe` (12.66 MB) + 42 supporting DLLs (103.6 MB total) extracted from `ggml-org/llama.cpp` release `b9002` (`llama-b9002-bin-win-vulkan-x64.zip`). Resolves via runtime fallback #2 (`<app_local_data>/inari-live/bin/llama-server.exe`).
+- `%LOCALAPPDATA%\com.inariwatch.desktop\inari-live\models\qwen2.5-coder-1.5b\117fd...gguf` (986,048,800 B from `bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF`).
+- `%LOCALAPPDATA%\com.inariwatch.desktop\inari-live\models\kortix-fast-apply-7b\8ec09...gguf` (4,683,072,224 B from `Kortix/FastApply-7B-v1.0_GGUF`).
+
+**Verification:**
+- `cargo check --lib --tests` — clean (1.90s warm).
+- `llama-server.exe --version` — `version: 9002 (457e2288c)`, Vulkan + CPU-icelake backends loaded.
+- `sideload-models.ps1 -List` — both Qwen-1.5B and Kortix-7B report `[installed] size=ok`.
+- Manual UI smoke (Tab + Apply via `npm run tauri dev` + VS Code Generic LSP Client) — runbook in `desktop/SMOKE_TEST_LOCAL_AI.md`. **Result of the dev-box pass to be captured below by Jesús after running through the runbook.**
+
+**Explicitly deferred (out of S31 scope):**
+- Apple Developer ID + DigiCert EV procurement (~$700/yr, 3-15 day paperwork).
+- `.github/workflows/release-desktop-unsigned.yml` (CI cross-compile matrix).
+- R2 bucket `inariwatch-releases` + custom domain.
+- `INSTALL_BETA.md` + `share-build.sh`.
+- `tauri.conf.json::bundle.resources` for the sidecar binary (S32 will own this once distribution is live).
+- Any `tauri build` invocation — every push triggers a Vercel build, all runs would be wasted on a re-cut session.
+
+**Notes for the trigger session (when distribution unfreezes):** the Deferred plan below was drafted assuming signed artifacts. With `feedback_no_signing_pre_users.md` still in force at trigger time, the activator should also revisit whether the unsigned-via-R2 fallback (R2 + waitlist + manual link distribution from `feedback_no_signing_pre_users.md`) is the right interim or whether the trigger means going straight to signed. Don't blindly run the Deferred plan -- start by re-reading the feedback file.
+
+---
+
+### S31 (Deferred plan) — Code signing pipeline (CI matrix) (8h)
+
+**Activates when:** any trigger in `feedback_no_signing_pre_users.md` fires.
 
 **Branch:** `feat/inari-live-v0.2-session31-signing`
 **Predecessor:** S30 + certs procured.
