@@ -21,22 +21,19 @@ interface NavItem {
   shortcut: number;
 }
 
-// 4 quick-access routes — these are the actual MainRoute values that
-// Inari Live's main window mounts (`screens/main/{Inbox,Activity,Memory,Patterns}.tsx`).
-// No placeholder "Inbox 3" / "My tasks 12" pills — those were Linear-mimic
-// fakes that Jesús explicitly asked to remove.
+// 5 routes mounted by Inari Live's main window
+// (`screens/main/{Inbox,Activity,Memory,Patterns}.tsx` + Settings).
+// Settings sits inline with the others (not pinned to a footer) so it
+// doesn't get clipped on shorter window heights.
 const TOP_NAV: NavItem[] = [
-  { id: "inbox",    label: "Inbox",    icon: Inbox,    shortcut: 1 },
-  { id: "activity", label: "Activity", icon: Activity, shortcut: 2 },
-  { id: "memory",   label: "Memory",   icon: BookOpen, shortcut: 3 },
-  { id: "patterns", label: "Patterns", icon: Layers,   shortcut: 4 },
+  { id: "inbox",    label: "Inbox",    icon: Inbox,         shortcut: 1 },
+  { id: "activity", label: "Activity", icon: Activity,      shortcut: 2 },
+  { id: "memory",   label: "Memory",   icon: BookOpen,      shortcut: 3 },
+  { id: "patterns", label: "Patterns", icon: Layers,        shortcut: 4 },
+  { id: "settings", label: "Settings", icon: SettingsIcon,  shortcut: 5 },
 ];
 
-const PINNED_NAV: NavItem[] = [
-  { id: "settings", label: "Settings", icon: SettingsIcon, shortcut: 5 },
-];
-
-const ALL_NAV: NavItem[] = [...TOP_NAV, ...PINNED_NAV];
+const ALL_NAV: NavItem[] = TOP_NAV;
 
 /**
  * Main window sidebar. S33 (2026-05-01) UX overhaul restyles this to mirror
@@ -149,9 +146,8 @@ export function Sidebar() {
         </button>
       </header>
 
-      {/* Body — Inari Live's 4 main routes. No placeholder Linear sections
-          (Workspace ▾ / Favorites ▾ / Invite teammates) — those were copied
-          from the screenshot without checking the actual product surface. */}
+      {/* Body — Inari Live's 5 main routes inline. Settings is in this
+          list (not in a footer tray) so short window heights don't clip it. */}
       <div className="flex-1 flex flex-col px-2 py-3 gap-px overflow-y-auto">
         {TOP_NAV.map((item) => (
           <SidebarItem
@@ -163,19 +159,6 @@ export function Sidebar() {
           />
         ))}
       </div>
-
-      {/* Settings pinned at the bottom — no border, reads as one panel. */}
-      <footer className="px-2 py-2 flex flex-col gap-px">
-        {PINNED_NAV.map((item) => (
-          <SidebarItem
-            key={item.id}
-            item={item}
-            selected={item.id === route}
-            onSelect={() => setRoute(item.id)}
-            onKeyDownActivate={onItemKeyDown}
-          />
-        ))}
-      </footer>
     </nav>
   );
 }

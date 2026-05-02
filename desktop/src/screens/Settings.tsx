@@ -42,7 +42,7 @@ export function Settings() {
       <nav
         data-testid="settings-rail"
         aria-label="Settings sections"
-        className="w-[220px] shrink-0 h-full border-r border-[var(--border)] bg-[var(--surface)] px-2 py-3 flex flex-col gap-px"
+        className="w-[220px] shrink-0 h-full border-r border-[var(--border-subtle)] bg-[var(--bg)] px-2 py-3 flex flex-col gap-px"
       >
         <div className="px-2 pb-2 text-[11px] uppercase tracking-wide text-[var(--text-subtle)] font-medium">
           Settings
