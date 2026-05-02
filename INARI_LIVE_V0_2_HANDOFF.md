@@ -627,6 +627,23 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 **Notes for S31:** 3 secrets MUST be in GitHub Secrets before S31 starts: `APPLE_CERT_P12_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_NOTARIZATION_USER`, `APPLE_NOTARIZATION_PASSWORD`, `DIGICERT_KEYLOCKER_TOKEN` (or `WINDOWS_CERT_*`), `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`. If any is missing, S31 is BLOCKED.
 
+**Status:** ✅ DONE 2026-05-01. Branch `feat/inari-live-v0.2-session30-landing` @ `6b93f05` (local-only, no push per S32 push rule). Files:
+- `web/app/(marketing)/inari-live/page.tsx`
+- `web/app/(marketing)/inari-live/_components/{Hero,LocalAIDemo,ReceiptDemo,DownloadButtons}.tsx`
+- `web/app/(marketing)/inari-live/__tests__/page.test.tsx` (5 assertions)
+- `web/app/(marketing)/inari-live/_components/__tests__/DownloadButtons.test.tsx` (5 assertions)
+- `web/public/inari-live/demo-poster.svg` (mp4 placeholder until S32)
+
+Tests: 10/10 new tests pass. Marketing-only run = 16/16 (S29 verify suite intact). `next build` clean (15s, /inari-live = 5.25 kB First Load 142 kB). 0 TS errors in new files; 17 pre-existing errors in unrelated test mocks were not touched.
+
+**Spec deviation (decided + logged):** the pre-v0.2 `web/app/inari-live/page.tsx` (April-2026 "GitHub App + auto-PR" landing) was DELETED — the v0.2 spec takes ownership of `/inari-live` and Next refuses to build with two pages resolving to the same path. Decision logged in `INARI_LIVE_DECISIONS.md` 2026-05-01 § Sesión 30. Git revert restores the old page if Jesús disagrees. The old GitHub App install flow remains accessible at `https://github.com/apps/inariwatch/installations/new`.
+
+**Cert procurement (parallel paperwork — Jesús's responsibility, NOT session work):**
+- Apple Developer Program: ⏸ NOT STARTED — Jesús to enroll at developer.apple.com TODAY.
+- DigiCert KeyLocker: ⏸ NOT STARTED — Jesús to start at digicert.com TODAY.
+- GPG key: ⏸ DEFERRED to S31 (local + free + instant; not on the critical path).
+- ⚠ S31 IS BLOCKED until Apple + DigiCert certs land in GitHub Secrets. ETA from start: 5-15 business days.
+
 ---
 
 ### S31 — Code signing pipeline (CI matrix) (8h)
