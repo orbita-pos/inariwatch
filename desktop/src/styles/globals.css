@@ -240,11 +240,17 @@ body.dock-window {
 
 /* ───── Focus ──────────────────────────────────────────────────────────── */
 
-/* Hide outline on mouse clicks but keep it for keyboard users (a11y). */
+/* Hide outline on mouse clicks but keep it for keyboard users (a11y).
+ *
+ * Text fields (input, textarea, select, contenteditable) are excluded:
+ * the cursor + caret are sufficient focus indicators, and a thick orange
+ * box around a text field reads as an error / validation banner. Custom
+ * components inside a focused dialog can re-enable via their own focus-
+ * visible: utility if they need it. */
 :focus:not(:focus-visible) {
   outline: none;
 }
-:focus-visible {
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable="true"]):not([cmdk-input]) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
