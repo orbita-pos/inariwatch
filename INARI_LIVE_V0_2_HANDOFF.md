@@ -367,27 +367,72 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 ### S25 — Fast Apply v1 — Kortix FastApply-7B wiring (8h)
 
+**Status (2026-05-01):** **DONE — 3/3 integration tests pass, compile clean.** Code at work commit `006050d` on `feat/inari-live-v0.2-session25-fast-apply` (this worktree, off integration tip `cf73355`). NOT pushed, NOT merged. `cargo check --lib` + `cargo check --lib --tests` both clean. Manual VS Code / dock smoke deferred to S31 — placeholder GGUF hash + missing sidecar binary block live downloads (same disposition as S23/S24).
+
 **Branch:** `feat/inari-live-v0.2-session25-fast-apply`
-**Predecessor:** S21 + S24 (or after S22 + S21 if AI track is sequenced fully).
+**Predecessor:** S21 + S22 + S23 + S24 + S27 + S28 + S29 + S30 all merged into integration tip `cf73355`.
 **Files (modified):**
-- `desktop/src-tauri/src/ai/remediate/single_shot.rs` — replace gpt-5.4 diff generation with local Kortix-7B call when `local_apply_enabled=true`.
-- `desktop/src-tauri/src/local_ai/registry.rs` — register `kortix-fast-apply-7b` model.
-- `desktop/src-tauri/src/ai/prompts.rs` — new `build_fast_apply_prompt(file_content, instruction) -> String` (Kortix's expected format: full file + edit sketch → expected output is the full edited file).
+- `desktop/src-tauri/src/ai/remediate/single_shot.rs` — gain `local_ai: Option<&LocalAI>` + `local_apply_enabled: bool` params on `run_single_shot`. New private `try_fast_apply_local`, `drain_local_stream`, `strip_chatml_trailer`. New public `build_unified_diff(repo_relative, original, edited) -> String` (shared with S26). New public `KORTIX_MODEL_ID = "kortix-fast-apply-7b"` + `KORTIX_LOCAL_MODEL_NAME = "kortix-7b-local"` constants.
+- `desktop/src-tauri/src/ai/remediate/orchestrator.rs` — `route_remediation` + `run_local` thread the same params through.
+- `desktop/src-tauri/src/ai/prompts.rs` — new `build_fast_apply_prompt(file_content, instruction) -> String` + 3 unit tests.
+- `desktop/src-tauri/src/ipc/remediation.rs` — `start_remediation` reads `LocalAI` from Tauri state + `local_apply_enabled` bool from settings. New `SETTINGS_KEY_LOCAL_APPLY_ENABLED` const (mirrored at `ipc::settings::SETTINGS_KEY_LOCAL_APPLY_ENABLED`).
+- `desktop/src-tauri/src/ipc/settings.rs` — `AiSettings.local_apply_enabled: bool` + `AiSettingsPatch.local_apply_enabled: Option<bool>` (default false; persisted on `set_ai_settings`).
+- `desktop/src-tauri/src/lib.rs` — `app.manage::<Option<local_ai::LocalAI>>(local_ai_handle.clone())` registers the LocalAI handle as Tauri-managed state alongside the LSP listener wiring.
+- `desktop/src-tauri/Cargo.toml` — `+ similar = "2"` (shared with S26).
+- `desktop/src-tauri/tests/single_shot_remediation_flow.rs` — call site updated to pass `None` / `false` for byte-identical legacy behaviour.
 
-**Behavior:**
-- Single-shot path's "generate diff" step routes through `LocalAI::generate(model_id="kortix-7b", prompt, max_tokens=4096, fim_mode=false)` when local apply enabled.
-- Cost recording: `cents_for_local = 0`. Spend tracker stamps the session with `model: "kortix-7b-local"`.
-- Fall back to gpt-5.4 cloud if: local model not downloaded, hardware tier < 2, or local generation parse fails.
-- Apply pipeline (parse → `git apply --check` → `git apply` → commit) unchanged.
+**Files (new):**
+- `desktop/src-tauri/tests/fast_apply_local_basic.rs` — 1 test, end-to-end happy path with `git apply --check` validation.
+- `desktop/src-tauri/tests/fast_apply_local_fallback_to_cloud.rs` — 1 test, model-not-cached → cloud fallback.
+- `desktop/src-tauri/tests/fast_apply_local_zero_cost.rs` — 1 test, cents/tokens contract.
 
-**Tests:**
-- `tests/fast_apply_local_basic.rs` — stub Kortix returns full edited file → diff extracted correctly → applies clean to tempdir repo.
-- `tests/fast_apply_local_fallback_to_cloud.rs` — local model unavailable → falls back to gpt-5.4 path.
-- `tests/fast_apply_local_zero_cost.rs` — `cents` recorded as 0 for local-mode session.
+**Behavior (as shipped):**
+- Single-shot's "generate diff" step routes through `LocalAI::generate(GenerateOptions { model_id: "kortix-fast-apply-7b", prompt, max_tokens: 4096, stop_seqs: vec!["<|im_end|>".into()], fim_mode: false, temperature: None })` when ALL prerequisites hold: (1) `local_apply_enabled = true`, (2) `local_ai: Option<&LocalAI>` is `Some(_)`, (3) persisted `settings.local_ai_tier == "tier2"`, (4) `registry.is_cached("kortix-fast-apply-7b")` returns true (GGUF on disk).
+- Pipeline:
+  1. Build Kortix's ChatML-style prompt via `build_fast_apply_prompt(file_content, instruction)`. Instruction = error message + first stack frame. file_content = first context-bodies entry (file_hint OR top semantic search hit).
+  2. Drain `LocalAI::generate` SSE into a String (180s wall-clock cap).
+  3. Strip any trailing ChatML marker (`<|im_end|>` / `<|im_start|>`) the model emits before the stop sequence fires.
+  4. Convert "full edited file" → unified diff via `similar::TextDiff::from_lines(orig, edited).unified_diff().context_radius(3).header("a/{path}", "b/{path}")`.
+  5. Stamp `RemediationDraft { model_used = "kortix-7b-local", prompt_tokens = 0, completion_tokens = 0, cents = 0 }`.
+- ANY prerequisite missing OR generation failure (network, parse, empty output, identical input/output) → transparent fall-back to the existing gpt-5.4 cloud path. No caller-visible difference.
+- Apply pipeline (`apply_diff` → parse → `git apply --check` → `git apply` → commit) is unchanged.
 
-**DoD:** 3 tests pass. Manual test: in dock, error → "Fix it" → with local mode on, diff appears in <1s and applies clean. Same test with WiFi off works identically.
+**Verification (achieved):**
+- `cargo check --lib` — clean (16.24s warm).
+- `cargo check --lib --tests` — clean (51.80s).
+- `cargo test --test fast_apply_local_basic --test fast_apply_local_fallback_to_cloud --test fast_apply_local_zero_cost` (alphabetical batch, one library link shared per S23 pattern): **3/3 PASS**.
+  - `local_kortix_serves_request_and_emits_zero_cost_diff` — **9.51s** (mock llama-server SSE → diff body contains both `+fn off_by_one() -> usize { 0 }` and `-fn off_by_one() -> usize { 1 }`; `git apply --check` against the working tree succeeds; `cents == 0`, `model_used == "kortix-7b-local"`).
+  - `missing_cached_model_falls_back_to_cloud` — **0.76s** (no GGUF on disk → cloud handler fires → `model_used == "gpt-5.4"`, `cents > 0`, `prompt_tokens == 500`).
+  - `local_kortix_session_records_zero_cents_and_zero_tokens` — **0.44s** (`cents == 0` AND `prompt_tokens == 0` AND `completion_tokens == 0`; cloud handler instrumented to panic if called).
+- Test profile build: 7m 29s (fresh — first time test deps + `similar v2.7.0` linked).
+- Existing `single_shot_remediation_flow` regression: **DEFERRED** — disk dropped to 253 MB during the re-link (per S23/S24 disk-wall pattern). The signature change in that test is mechanical (one line, signature-aligned with the 3 passing tests) and was compile-checked via `cargo check --lib --tests`. Resume with `cargo test --test single_shot_remediation_flow` after `target-shared/debug/incremental/` cleanup.
 
-**Notes for S26:** v1 ships but ~30% of generated diffs fail `git apply --check` due to whitespace drift, line-ending mismatches, or partial hunks. S26 fixes that.
+**Implementation deltas vs spec:**
+- **Hardware tier read from persisted `settings.local_ai_tier`, NOT live `hardware::detect()` per call.** Reconciled in DECISIONS § Sesión 25 — preserves the dock's manual override surface that S21's `record_detected_tier` was designed for, and is the reason tests can pin `tier2` on Tier1 dev boxes.
+- **LocalAI plumbed as `Option<&LocalAI>` + `local_apply_enabled: bool`, NOT a `RemediationMode::LocalApply` enum variant.** Reconciled in DECISIONS — the local/cloud choice is a runtime fallback decision, not a static routing call. Same facade-style optionality pattern S23 used for `LspState::set_local_ai`.
+- **Prompt uses explicit `<code>` / `<update>` tags inside the ChatML envelope**, not the spec prompt's literal copy-paste of "from snippet into the .". Matches the actual Kortix model card's expected format.
+- **`KORTIX_LOCAL_MODEL_NAME` is `&'static str` (locked at `"kortix-7b-local"`)**, mirroring `Model::api_name`'s shape so the cost-ledger group-by string never drifts.
+- **`temperature: None`** (per architect spec — the S24 hand-off note's "Some(0.2)" suggestion was deferred; we follow the architect's S25 prompt verbatim. S26 may pin lower if empirical apply-success rates demand it.).
+- **Kortix `size_bytes` left at S21's ~5.24 GB placeholder** (not the S25 spec's stated 4.5 GB). Reconciled in DECISIONS — S21 owns the catalogue placeholder; S31 replaces both size + hash atomically with real values from R2.
+- **`similar = "2"` added to Cargo.toml in this session, shared with S26.** Cargo locked v2.7.0 (v3.1.0 available; v2 keeps dep-tree consistency with `insta` 1.x).
+- **180s wall-clock timeout on the local stream drain** — defensive ceiling for wedged sidecars. Q4_K_M Kortix-7B at ~25 tok/s on a Tier-2 box finishes 4096 tokens in ~2.7 minutes; 3 minutes is the right ceiling.
+
+**Disk note:** Hit Build Rule 12 territory mid-session — disk dropped from 5.3 GB → 253 MB during the 3-test build (test profile + linker temp on `inariwatch_desktop_lib.lib`). The 3 new tests passed before the disk wall; the existing-test regression re-run that came after hit `error: failed to build archive ... os error 112`. Per the architect prompt's `<500 MB → pause` directive, I stopped before further compile work and proceeded to documentation. Resume command for the next session (after `target-shared/debug/incremental/` cleanup): `cargo test --test single_shot_remediation_flow`.
+
+**Notes for S26 (apply quality + retry — `feat/inari-live-v0.2-session26-apply-quality`):**
+- The local path produces unified diffs via `single_shot::build_unified_diff(rel_path, original, edited)` — pub fn, S26 imports it directly. The `similar = "2"` dep is already declared.
+- ~30% of locally-generated diffs are EXPECTED to fail `git apply --check` per the S25 spec (whitespace drift, CRLF, partial hunks). S26's `diff_repair::validate_and_repair` wraps the OUTPUT of `run_single_shot`, NOT its internals — the local/cloud distinction is invisible past the function boundary. S26's retry loop should detect the `model_used == "kortix-7b-local"` stamp and prefer regenerating-via-local-prompt rather than escalating to cloud (cheaper, faster, and the user opted in to local).
+- Patterns to watch in the failure modes: (a) Kortix returning the file with normalised LF endings on Windows-CRLF source files; (b) model trimming a trailing newline that `git apply --check` then complains about as "no newline at end of file"; (c) model adding a trailing `<|im_end|>` token before the stop-seq fires (we strip in `strip_chatml_trailer` but the heuristic only catches markers in the last 8 bytes — partial mid-content emissions slip through).
+- Cancel-on-timeout already in place (`FAST_APPLY_TIMEOUT_SECS = 180`). S26's retry wrapper should NOT add a second outer timeout — extending the timeout would push past the dock's "Inari is fixing this…" feel-budget.
+- The local path is single-file by design (Kortix is single-file fast-apply). Multi-file fixes still go to cloud. S26 should NOT try to extend Kortix to multi-file — that's a v0.3 feature when we evaluate the model card's claims about multi-file mode.
+- The `local_apply_enabled` toggle is read by the IPC layer once, at the start of the remediation. S26's retry loop inherits that bool — no need to re-read mid-flight.
+
+**Hand-offs for downstream sessions:**
+- **S30 (landing page)**: the hero copy "Local. Provable. Editor-agnostic." now has Apply landed — both half of "Local AI best-in-class" (Tab v2 from S24, Apply v1 from S25) is shipped. The "try it offline" demo on `/inari-live` can mock both paths with the same SSE shape we established here.
+- **S31 (signing pipeline)**: the Kortix GGUF needs to be uploaded to `models.inariwatch.com/kortix-fast-apply-7b/<real-blake3>.gguf`. Same upload pattern as the S21 Qwen models. Replace the `"0".repeat(64)` placeholder + the size_bytes hint atomically.
+- **S32 (auto-updater + launch)**: the `local_apply_enabled` toggle defaults to false. S32 should NOT flip it on for everyone — first-launch UX is "fast cloud apply works out of the box; opt in to local if you have ≥ 16 GB RAM". The dock's Settings → AI panel surfaces the toggle; users who care will find it.
+
+**Notes for next track:** S26 closes the local-AI track. After S26 lands, only the CRYPTO track (S27+S28+S29 — already DONE) and the ship sequence (S30 done; S31/S32 pending cert procurement) remain.
 
 ---
 
