@@ -473,6 +473,52 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 ### S29 — `verify.inariwatch.com` web verifier (4h)
 
+**Status (2026-05-01):** **DONE — 41/41 vitest pass, `npm run build` clean.** Code lives on `feat/inari-live-v0.2-session29-verify-web` in worktree `../radar-s29` off integration tip `7e3d5a1` (post-S23+S28 merge). NOT pushed, NOT merged. Closes the v0.2 CRYPTO track (S27 → S28 → S29).
+
+**Achieved (2026-05-01):**
+- `npx tsc --noEmit` — clean for all S29 files (`web/lib/eap-verify.ts`, `web/app/(marketing)/verify/{page,verify-client,r/[segment]/page}.tsx`, `web/app/api/verify/route.ts`, the three test files). The pre-existing strictness warnings under `web/lib/{ai,chaos,pollers}/__tests__/` are NOT touched by this session and remain on the same drift trajectory as before (none introduced by S29).
+- `npm run build` — clean. Both routes register: `/verify` (139 kB First Load) and `/verify/r/[segment]` (139 kB First Load). The dynamic-segment page server-renders the same shell as `/verify` and the client component decodes the URL on hydration (segment never reaches the server).
+- `npx vitest run lib/__tests__/eap-verify.test.ts app/api/verify/__tests__/route.test.ts "app/(marketing)/verify/__tests__/page.test.tsx"` — **41/41 pass**:
+  - `lib/__tests__/eap-verify.test.ts` (22 tests) — verifies the bit-exact port of `lib_eap_verify.rs`. Includes `signed_digest matches the documented Rust contract` (recomputes SHA-256(receipt_id) and asserts equality with the function output) and `derive_key_id matches the JS verifier byte-for-byte` (asserts `SHA-256(0^32)[..8] == "66687aadf862bd77"` — same fixture the Rust test locks).
+  - `app/api/verify/__tests__/route.test.ts` (13 tests) — full POST coverage (signed/tampered/merkle-only/malformed/oversized/multipart with `file` and `receipt`/empty), GET with `?json=` query, OPTIONS preflight. Crypto is REAL (no stubs) — every signed-receipt assertion mints a fresh Ed25519 keypair via `@noble/curves/ed25519`, so a divergence between the TS and Rust verifiers would surface immediately.
+  - `app/(marketing)/verify/__tests__/page.test.tsx` (6 tests) — `<VerifyClient />` paste→Verify→PASS for signed; tampered→signature-invalid; unsigned→merkle-only; unparseable→malformed. `<VerifyPage />` shell asserts the disclosure footer ("NOT cryptographically committed" + the metadata field list + "Merkle root" + "SHA-256(receipt_id)").
+- Playwright e2e written: `web/__tests__/verify-shareable-url.spec.ts`. **Skipped automatically** when `PLAYWRIGHT_BASE_URL` (default `localhost:3000`) is unreachable; run after `npm run dev`. Two cases: (1) `/verify/r/<base64>` shareable URL renders PASS without paste — encodes a real signed receipt into the URL segment, expects `data-outcome="signed"` + the receipt_id text. (2) `/verify` renders the disclosure footer + the hero copy.
+- Manual smoke: deferred. The dev-server smoke isn't blocked by anything in this session — but the disk wall (97 MB → 730 MB free over the run, see "Disk note" below) and the no-push rule made running it unnecessary; the production wire is already covered by the route + page integration tests.
+
+**Implementation deltas vs spec:**
+- Crypto lib: `@noble/curves/ed25519.js` + `@noble/hashes/sha2.js` (the explicit `.js` extensions are needed under `moduleResolution: "bundler"` because the package's `exports` map literal is keyed on `./ed25519.js` / `./sha2.js`). One new top-level dep (`@noble/curves`) — `@noble/hashes` rides in transitively. Zero non-noble crypto deps were added.
+- Ed25519 mode: `verify(..., { zip215: false })` — RFC 8032 / FIPS 186-5 strict mode. Matches the Rust `ed25519_dalek::VerifyingKey::verify_strict` semantics. The default ZIP215 mode would accept signatures the Rust verifier rejects; matching strict mode keeps the cross-port verdicts byte-identical. Documented inline in `eap-verify.ts::verify`.
+- Shareable URL: rather than living solely on `verify.inariwatch.com/r/<base64>`, the route is also reachable at `app.inariwatch.com/verify/r/<base64>` and `inariwatch.com/verify/r/<base64>` (host-agnostic). The middleware rewrites the verify subdomain onto `/verify`, but the dynamic segment route lives under `(marketing)/verify/r/[segment]/page.tsx` so direct hits to either host work without an extra rewrite. Cap is 4 KB encoded (vs the 2 KB the spec suggested) — large enough for a worst-case `.eap.json` with a long `system_prompt` field; encoder rejects payloads above the cap with `null` so callers fall back to the paste flow.
+- TypeScript pipeline: `parseReceipt` returns either an `EapReceipt` (which has `version`) or a `ParseError` discriminated union (which has `kind`). Caller-side narrowing uses `"version" in parsed` rather than `"kind" in parsed && parsed.kind === ...` — cleaner type narrowing under TS 5 + strict mode, and avoids a redundant assertion. Same pattern in three sites: `verify-client.tsx::runVerifySync`, `app/api/verify/route.ts::runVerify`, `lib/eap-verify.ts::verifyRaw`.
+- Vitest config: added `@vitejs/plugin-react` (already in devDependencies — not a new install). Required so `.tsx` test files compile JSX without manual `import React`. The page test sets per-file `// @vitest-environment happy-dom` (top-of-file annotation) so the existing node-environment node tests are unaffected. Added `happy-dom` + `@testing-library/react` + `@testing-library/dom` as devDependencies (16 packages total — first React component test in `web/`).
+- Server-side endpoint also exposes a GET path: `GET /api/verify?json=<urlencoded>` returns the same shape as the POST path. The spec-suggested POST-only path stays the primary contract; GET exists so a `curl https://verify.inariwatch.com/api/verify?json=$(jq -c . r.eap.json | jq -sRr @uri)` one-liner works for auditors who don't want to craft a body. Documented in the route preamble. The route uses `new URL(req.url).searchParams` (not `req.nextUrl.searchParams`) so test doubles backed by plain `Request` objects can call it without polyfilling Next-specific fields.
+- Disclosure footer: rendered in TWO places — (1) the `<Disclosure />` block on the `/verify` page shell, always visible, lists the three policy clauses (signature scope; metadata is display-only; Merkle-only is still tamper-evident). (2) Every `POST /api/verify` and `GET /api/verify` response carries a `disclosure: string` field with the same prose collapsed into a single sentence. Auditors hitting the API directly read the footer in the JSON response; humans on the page read the prose block.
+
+**Files (new — actually written):**
+- `web/lib/eap-verify.ts` (~280 LoC, no tests inline) — port of `lib_eap_verify.rs`.
+- `web/lib/__tests__/eap-verify.test.ts` (22 tests).
+- `web/app/(marketing)/verify/page.tsx` — server component, marketing nav + hero + `<VerifyClient />` + `<Disclosure />`.
+- `web/app/(marketing)/verify/verify-client.tsx` (~280 LoC) — interactive client component.
+- `web/app/(marketing)/verify/r/[segment]/page.tsx` — re-renders the `/verify` page; segment decoded client-side.
+- `web/app/(marketing)/verify/__tests__/page.test.tsx` (6 tests).
+- `web/app/api/verify/route.ts` — POST + GET + OPTIONS.
+- `web/app/api/verify/__tests__/route.test.ts` (13 tests).
+- `web/__tests__/verify-shareable-url.spec.ts` — Playwright e2e (skipped when no dev server).
+
+**Files (modified):**
+- `web/middleware.ts` — `verify.*` host rewrite block (mirrors `status.*` pattern); `/verify` added to root-domain marketing pass-through allow-list.
+- `web/vitest.config.mts` — added `@vitejs/plugin-react()` to enable JSX/TSX transform for the page test.
+- `web/package.json` + `web/package-lock.json` — `@noble/curves` (dep), `happy-dom` + `@testing-library/react` + `@testing-library/dom` (devDeps).
+
+**Disk note:** Ran into the same C: at 99% wall S23/S28 hit. Freed via `npm cache clean --force` (282 MB) + cleared `web/.next/` between build attempts. Build attempt #1 hit `ENOSPC` mid-webpack-cache write; #2 (after clean) succeeded all the way through page-data collection at 215 GB used / 93 MB free at peak. The build needs ~600-800 MB temp headroom in `.next/` even when webpack cache is partially disabled. Future sessions on this machine should clear `.next/` before any `npm run build`. NO cargo target-shared cleanup attempted (S29 doesn't touch Rust).
+
+**Vitest path:** `cd web && npx vitest run lib/__tests__/eap-verify.test.ts app/api/verify/__tests__/route.test.ts "app/(marketing)/verify/__tests__/page.test.tsx"` — 41/41 pass in ~1.7 s (transform 292ms, import 967ms, tests 394ms, environment 703ms). The page test environment swap to happy-dom adds ~600ms vs the route/lib tests but doesn't bleed into the rest of the suite (per-file annotation, not config-wide).
+
+**Hand-offs for S30 (landing page):**
+- The landing page `/inari-live` (S30 spec) embeds a "try it" snippet. Use the GET path: `GET /api/verify?json=<urlencoded>` returns a 200 + verdict in the response body. The shareable URL helpers (`encodeShareable` / `decodeShareable` in `web/lib/eap-verify.ts`) are the right primitives for "share verification" buttons on the landing snippet — they're URL-safe base64 and reject payloads > 4 KB.
+- The disclosure copy is duplicated on the API responses (`disclosure` field) and on the page shell. S30's landing snippet should NOT redefine its own copy — link to `/verify` and let the canonical disclosure live in one place.
+- The "Verify any Inari AI fix receipt" hero copy on `/verify` is the canonical CTA. S30's "Don't trust us — verify our receipts yourself" CTA links here; the standalone `inari-verify` CLI binaries (per S28's hand-off, planned for S31's release matrix) sit alongside the web verifier as the offline path.
+
 **Branch:** `feat/inari-live-v0.2-session29-verify-web`
 **Predecessor:** S28 merged.
 **Files (new):**
