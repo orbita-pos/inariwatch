@@ -7,8 +7,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const insertMock = vi.fn();
-const valuesMock = vi.fn(async () => undefined);
+// vi.hoisted() runs BEFORE vi.mock factories are evaluated — required because
+// the factories below reference these mocks. Plain top-level `const insertMock =
+// vi.fn()` would not exist at hoist-time and crashes with "Cannot access
+// 'insertMock' before initialization".
+const { insertMock, valuesMock } = vi.hoisted(() => ({
+  insertMock: vi.fn(),
+  valuesMock: vi.fn(async () => undefined),
+}));
 
 vi.mock("@/lib/db", () => ({
   db: {

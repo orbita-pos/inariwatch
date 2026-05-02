@@ -6,8 +6,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const sessionMock = vi.fn();
-const executeMock = vi.fn();
+// vi.hoisted() runs BEFORE vi.mock factories — required because the factories
+// below reference these mocks. Plain top-level `const sessionMock = vi.fn()`
+// crashes with "Cannot access 'sessionMock' before initialization" since
+// vi.mock is hoisted above it.
+const { sessionMock, executeMock } = vi.hoisted(() => ({
+  sessionMock: vi.fn(),
+  executeMock: vi.fn(),
+}));
 
 vi.mock("next-auth", () => ({
   getServerSession: () => sessionMock(),
