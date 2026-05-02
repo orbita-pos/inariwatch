@@ -11,10 +11,12 @@
 //! Tab completion through `LocalAI::generate(.., fim_mode=true)`. The
 //! TODO markers in `handlers/completion.rs` flag the swap site.
 
+pub mod cache;
 pub mod document_sync;
 pub mod fim;
 pub mod handlers;
 pub mod protocol;
+pub mod triggers;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -88,6 +90,12 @@ pub struct LspState {
     /// [`LspState::set_local_ai`]. When `None`, the completion handler
     /// returns an empty list (same contract as the S22 stub).
     local_ai: Mutex<Option<LocalAI>>,
+
+    /// Sesión 24 — LRU completion cache, keyed on
+    /// `(blake3(buffer), byte_offset)`. Hit returns the cached
+    /// CompletionItem in <5ms; miss falls through to the full FIM
+    /// pipeline. See `lsp/cache.rs`.
+    completion_cache: cache::CompletionCache,
 }
 
 impl LspState {
@@ -98,7 +106,15 @@ impl LspState {
             initialized: AtomicBool::new(false),
             completion_delay_ms: AtomicU64::new(0),
             local_ai: Mutex::new(None),
+            completion_cache: cache::CompletionCache::new(),
         }
+    }
+
+    /// Sesión 24 — completion cache snapshot. Cheap clone (Arc<Mutex>
+    /// internally). Used by the completion handler before AND after
+    /// the LocalAI call.
+    pub fn completion_cache(&self) -> cache::CompletionCache {
+        self.completion_cache.clone()
     }
 
     /// Sesión 23 — install (or replace) the LocalAI handle. Cheap clone

@@ -74,11 +74,12 @@ async fn generate_streams_three_tokens_then_finishes() {
 
     let mut stream = local
         .generate(GenerateOptions {
-            model_id:   "stub".into(),
-            prompt:     "fn ".into(),
-            max_tokens: 32,
-            stop_seqs:  vec!["\n\n".into()],
-            fim_mode:   true,
+            model_id:    "stub".into(),
+            prompt:      "fn ".into(),
+            max_tokens:  32,
+            stop_seqs:   vec!["\n\n".into()],
+            fim_mode:    true,
+            temperature: None,
         })
         .await
         .expect("stream opens");
