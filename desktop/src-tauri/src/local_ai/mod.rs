@@ -95,6 +95,11 @@ pub struct GenerateOptions {
     /// with `<｜fim_prefix｜> … <｜fim_suffix｜> … <｜fim_middle｜>`
     /// markers when this is `true`. See module docs.
     pub fim_mode:    bool,
+    /// Sampling temperature. `None` lets llama-server use its default
+    /// (`0.8` at the time of writing). S24's n=3 ranking pipeline sets
+    /// this to `Some(0.7)` so the parallel calls return varied
+    /// candidates the ranker can choose between.
+    pub temperature: Option<f32>,
 }
 
 impl LocalAI {
@@ -161,7 +166,7 @@ impl LocalAI {
         // Step 2 — fire the SSE request. llama-server's
         // `/completion` endpoint accepts a JSON body and replies
         // with `data: { ... }\n\n` framed events when `stream:true`.
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "prompt":      opts.prompt,
             "n_predict":   opts.max_tokens,
             "stop":        opts.stop_seqs,
@@ -171,6 +176,12 @@ impl LocalAI {
             // trail honest for S23/S25.
             "fim_mode":    opts.fim_mode,
         });
+        if let Some(t) = opts.temperature {
+            // llama-server reads `temperature` directly. When `None`
+            // we omit the field so the server applies its built-in
+            // default rather than a coerced one.
+            body["temperature"] = serde_json::json!(t);
+        }
         let url = format!("{}/completion", endpoint.base_url.trim_end_matches('/'));
         let resp = self.http.post(&url).json(&body).send().await?;
         if !resp.status().is_success() {
