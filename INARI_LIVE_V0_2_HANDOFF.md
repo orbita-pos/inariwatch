@@ -224,15 +224,17 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 ### S23 — Tab autocomplete v1 — Qwen2.5-Coder-1.5B FIM wiring (10h)
 
+**Status (2026-05-01):** **DONE — 3/3 integration tests pass.** Code lives on `feat/inari-live-v0.2-session23-tab-fim` in worktree `../radar-s23` (off integration tip `c6050e2`). NOT pushed, NOT merged. Commit SHA recorded in the commit log of that branch. `cargo check --lib` + `cargo check --lib --tests` both clean. Manual VS Code smoke deferred to S31/S32 — see Achieved block below for why.
+
 **Branch:** `feat/inari-live-v0.2-session23-tab-fim`
-**Predecessor:** S21 + S22 both merged to `main`.
+**Predecessor:** S21 + S22 + S27 all merged into the integration tip (`c6050e2`).
 **Files (modified):**
 - `desktop/src-tauri/src/lsp/handlers/completion.rs` — replace stub with FIM call.
-- `desktop/src-tauri/src/lsp/fim.rs` (new) — FIM prompt construction (`<｜fim_prefix｜>` / `<｜fim_suffix｜>` / `<｜fim_middle｜>` tokens for Qwen2.5-Coder), token streaming, ghost-text shaping.
-- `desktop/src-tauri/src/local_ai/registry.rs` — register `qwen2.5-coder-1.5b` model.
+- `desktop/src-tauri/src/lsp/fim.rs` (new) — FIM prompt construction (`<|fim_prefix|>` / `<|fim_suffix|>` / `<|fim_middle|>` tokens for Qwen2.5-Coder, **ASCII pipe**), token streaming, ghost-text shaping.
+- `desktop/src-tauri/src/local_ai/registry.rs` — register `qwen2.5-coder-1.5b` model. (Already present from S21 placeholder; S23 reuses verbatim.)
 
 **Behavior:**
-- On `textDocument/completion`, extract ±200 lines around cursor → build FIM prompt → call `LocalAI::generate(model_id="qwen-1.5b", prompt, max_tokens=64, stop_seqs=["\n\n"], fim_mode=true)` → stream tokens → emit `CompletionItem` with `insertText` once stream stops or hits stop seq.
+- On `textDocument/completion`, extract ±200 lines around cursor → build FIM prompt → call `LocalAI::generate(model_id="qwen2.5-coder-1.5b", prompt, max_tokens=64, stop_seqs=["\n\n"], fim_mode=true)` → stream tokens → emit `CompletionItem` with `insertText` once stream stops or hits stop seq.
 - Ghost-text rendering: client-side (editor decides; server returns `CompletionItem` with `command` field for ghost-text vs popup).
 - Cancel-on-keystroke: each `$/cancelRequest` aborts the pending model call within 50ms.
 - No ranking, no smart triggers, no dedup — those land in S24.
@@ -244,7 +246,43 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 **DoD:** All 3 tests pass. Manual test against real Qwen-1.5B (downloaded via S21) in VS Code: cursor in middle of function → typing triggers ghost-text within 200ms p50.
 
-**Notes for S24:** what feels OK in S23 will feel ROBOTIC in production. S24 fixes context selection, ranking, smart triggers. DO NOT skip S24.
+**Achieved (2026-05-01):**
+- `cargo check --lib`: **clean** (~42s warm).
+- `cargo check --lib --tests`: **clean** (~34s warm).
+- `cargo test --test tab_fim_basic`: **1/1 pass** (0.50s).
+- `cargo test --test tab_fim_cancel`: **1/1 pass** (5.59s — cancel→response observed in <400ms against a 10s slow mock).
+- `cargo test --test tab_fim_stop_sequence`: **1/1 pass** (0.50s — verified `stop:["\n\n"]`, `fim_mode:true`, `n_predict:64`, FIM sentinels in prompt body sent to llama-server).
+- 8 new unit tests in `lsp::fim::tests` (compile-checked via `cargo check --lib --tests`; run alongside lib unit suite at next `cargo test --lib` invocation).
+- 2 new unit tests in `lsp::handlers::completion::tests` (compile-checked, same disposition).
+- S22 regression: `lsp_completion_returns_stub` + `lsp_cancel_request_works` are byte-identical with the new handler when no LocalAI is installed (preserved `completion_delay_ms` knob — see DECISIONS § Sesión 23 cancel-regression entry).
+
+**Implementation deltas vs spec:**
+- FIM tokens use ASCII pipe `|`, not the fullwidth `｜` from the HANDOFF prose. Reconciled in DECISIONS § Sesión 23 — Qwen2.5-Coder's tokenizer requires the ASCII variant.
+- Context-window slicing uses line-indexed math (precompute `Vec<usize>` of line starts, binary-search the cursor's line, slice `±N`) instead of newline-counting walk-back. Cleaner edge-case behaviour at column 0 + N=0. Reconciled in DECISIONS.
+- Failure mode: every error path (no doc, no LocalAI, network/HTTP error, parse error, sidecar wedged) returns an empty `CompletionList` rather than a JSON-RPC error. Editors degrade silently to built-in suggestions — same UX contract as the S22 stub. Cancellation is the one exception (returns `-32800`).
+- LocalAI handle plumbed via `LspState::set_local_ai(LocalAI)` post-construction, NOT a constructor arg. `start_lsp_server` now returns `(SocketAddr, Arc<LspState>)` (additive — single caller in `lib.rs` updated; test variant unchanged).
+- `qwen2.5-coder-1.5b` reuses the S21 placeholder catalogue entry; the BLAKE3 digest is still `"0".repeat(64)` so production `ensure_local` returns `RegistryError::HashMismatch` cleanly. Real digest + R2 upload land in S31.
+
+**Files actually written:**
+- `desktop/src-tauri/src/lsp/fim.rs` (new, ~150 LoC + 8 unit tests)
+- `desktop/src-tauri/src/lsp/handlers/completion.rs` (rewrite, +110 LoC, 2 unit tests)
+- `desktop/src-tauri/src/lsp/mod.rs` (+ `pub mod fim;` + `local_ai: Mutex<Option<LocalAI>>` field + `set_local_ai`/`local_ai` accessors + signature change `start_lsp_server -> (SocketAddr, Arc<LspState>)`)
+- `desktop/src-tauri/src/lib.rs` (+ `build_local_ai(app, store)` helper, +`start_lsp_listener(Option<LocalAI>)` updated)
+- `desktop/src-tauri/tests/tab_fim_basic.rs` (new, 1 integration test)
+- `desktop/src-tauri/tests/tab_fim_cancel.rs` (new, 1 integration test)
+- `desktop/src-tauri/tests/tab_fim_stop_sequence.rs` (new, 1 integration test, verifies request body sent to llama-server)
+- `INARI_LIVE_DECISIONS.md` (+7 Sesión-23 entries)
+- `INARI_LIVE_V0_2_HANDOFF.md` (this Status block + Achieved/deltas).
+
+**Disk note:** Hit Build Rule 12 mid-session — disk dropped from 2.0 GB → 0.27 GB during the first cold-test build (the staticlib `.lib` is 2 GB on its own and the linker writes a fresh copy per test binary). Cleared `target-shared/debug/incremental/` (1.24 GB), `~/.cargo/registry/src/` (re-extracts on demand), and `target-shared/debug/deps/*.pdb` (2.91 GB) over the run. `cargo clean -p inariwatch-desktop` reclaimed 9.2 GB once for the cold path. Future sessions on this machine: prefer running tests in **alphabetical batches** (1 build → N tests share the lib) over per-test invocations.
+
+**Notes for S24:** What feels OK in S23 will feel ROBOTIC in production. S24 fixes context selection, ranking, smart triggers. **DO NOT skip S24.** Concrete handles for S24:
+- Find `// TODO(S24):` markers in `lsp/handlers/completion.rs` (3 sites: context, smart triggers, ranking/dedup/cache) and `lsp/fim.rs::extract_context` (1 site).
+- The `(prefix, suffix) -> String` contract of `fim::build_fim_prompt` is the SWAP point — S24 changes how (prefix, suffix) are computed but keeps the prompt-building API. The `±200 raw lines` becomes `top-3 indexer-relevant symbols + cursor's line ± M`.
+- `FIM_MAX_TOKENS = 64` and `fim_stop_seqs()` are private consts in `completion.rs`. S24 promotes to per-language tunables (e.g. Python wants longer max for block completions, Rust wants shorter for expression completions).
+- The cancel pipeline + `completion_delay_ms` debug knob are LOAD-BEARING for the S22 regression — preserve them in S24's refactor (DECISIONS § Sesión 23 cancel-regression entry explains why).
+- `state.local_ai()` snapshots cheap (clone of an Arc-y facade); S24's cache lookup goes BEFORE the LocalAI call and the cancel `select!`, so cache hits never block on the model.
+- Manual VS Code smoke test STILL deferred to S31/S32 — the catalogue's BLAKE3 placeholder blocks live downloads. S24 should NOT try to flip the placeholder; that's S31's job.
 
 ---
 

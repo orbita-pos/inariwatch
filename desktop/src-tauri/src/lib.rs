@@ -424,7 +424,12 @@ pub fn run() {
 
             // Sesión 22 (v0.2) — LSP server on 127.0.0.1:9877.
             // Fail-OPEN: bind failure logs but does NOT abort the daemon.
-            start_lsp_listener();
+            // Sesión 23 — wire LocalAI handle so the completion handler
+            // can route through `LocalAI::generate(.., fim_mode = true)`.
+            // LocalAI init failures are non-fatal: the LSP server still
+            // starts and degrades to empty completions.
+            let local_ai_handle = build_local_ai(&app.handle(), store.clone());
+            start_lsp_listener(local_ai_handle);
 
             // Local Capture ingest server (was `local_ingest::start`)
             // moves to `sensors/substrate/local_ai/local_ingest.rs` (Session 10).
@@ -672,13 +677,41 @@ fn open_dashboard(app: &AppHandle) {
 // Failure to bind (e.g. another instance already running) is logged but does
 // NOT abort daemon startup — the dock + tray + alert poller stay functional.
 
-fn start_lsp_listener() {
+fn start_lsp_listener(local_ai: Option<local_ai::LocalAI>) {
     tauri::async_runtime::spawn(async move {
         match lsp::start_lsp_server(LSP_DEFAULT_PORT).await {
-            Ok(addr) => eprintln!("[lsp] listening on {addr}"),
-            Err(e)   => eprintln!("[lsp] failed to bind: {e}"),
+            Ok((addr, state)) => {
+                if let Some(ai) = local_ai {
+                    state.set_local_ai(ai);
+                    eprintln!("[lsp] listening on {addr} (LocalAI wired)");
+                } else {
+                    eprintln!("[lsp] listening on {addr} (no LocalAI — empty completions)");
+                }
+            }
+            Err(e) => eprintln!("[lsp] failed to bind: {e}"),
         }
     });
+}
+
+/// Sesión 23 — build the LocalAI facade. Non-fatal failure: returns
+/// `None` and logs at `warn`. Sidecar binary resolution itself is lazy
+/// (only triggered by the first `LocalAI::generate` call), so this only
+/// fails if the registry can't initialise (typically a fs error in
+/// `<store>/models/`).
+fn build_local_ai(
+    app: &AppHandle,
+    store: Arc<store::Store>,
+) -> Option<local_ai::LocalAI> {
+    let resource_dir   = app.path().resource_dir().ok();
+    let app_local_data = app.path().app_local_data_dir().ok();
+    let paths = local_ai::SidecarPaths { resource_dir, app_local_data };
+    match local_ai::LocalAI::new(store, paths) {
+        Ok(ai) => Some(ai),
+        Err(e) => {
+            tracing::warn!(error = %e, "LocalAI init failed; LSP completions will be empty");
+            None
+        }
+    }
 }
 
 fn open_in_browser(url: &str) -> std::io::Result<()> {
