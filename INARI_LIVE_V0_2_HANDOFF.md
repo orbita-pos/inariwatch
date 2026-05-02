@@ -288,7 +288,7 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 ### S24 — Tab autocomplete v2 — UX MAGIC (10h)
 
-**Status (2026-05-01):** **Code complete, compile-checked clean, tests BLOCKED on disk pressure.** All 6 pieces of UX magic implemented + 6 integration tests written. `cargo check --lib` clean. `cargo check --lib --tests` and `cargo test --test tab_magic_*` deferred — the C: drive sat at 466-735 MB free for the second half of the session and writing additional test binaries kept ENOSPC'ing. The integration test runtime build needs ~3 GB headroom per binary; without disk cleanup authorisation we cannot finish the seal-compile. Code lives on `feat/inari-live-v0.2-session24-tab-magic` (not committed yet — pending the deferred test pass + DECISIONS append). NOT PUSHED.
+**Status (2026-05-01):** **DONE — 6/6 integration tests pass, compile clean.** Code at work commit `8539306` on `feat/inari-live-v0.2-session24-tab-magic` in worktree `../radar-s24` off integration tip `7e3d5a1`. NOT pushed, NOT merged. `cargo check --lib` + `cargo check --lib --tests` both clean. Manual VS Code smoke deferred to S31/S32 — same placeholder GGUF hash blocker as S23.
 
 **Branch:** `feat/inari-live-v0.2-session24-tab-magic`
 **Predecessor:** S23 merged.
@@ -317,11 +317,17 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 **Achieved (2026-05-01):**
 - `cargo check --lib`: **clean** (~12s incremental after the new `lsp::triggers` + `lsp::cache` modules + `fim::build_context_for_completion` extension + `handlers::completion.rs` rewrite).
-- `cargo check --lib --tests`: **deferred — disk blocked**. C: drive dropped from 3.4 GB → 735 MB during the cargo-check; integration tests ENOSPC on the linker.
-- `cargo test --test tab_magic_*`: **deferred — same disk block**.
+- `cargo check --lib --tests`: **clean** (5m 28s on the post-disk-cleanup re-seal).
+- `cargo test --test tab_magic_*` (6 tests as a single batch, alphabetical — one library link shared per S23's note): **6/6 PASS** (test profile build 6m 44s):
+  - `tab_magic_comment_suppressed::cursor_inside_rust_line_comment_returns_empty` — **0.50s** (mock counter stays at 0 → trigger suppresses BEFORE LocalAI call)
+  - `tab_magic_dedup_against_next_lines::completion_matching_next_3_lines_is_suppressed` — **0.50s** (whitespace-tolerant suffix match suppresses)
+  - `tab_magic_lru_cache_hit::second_completion_at_same_position_serves_from_cache` — **0.13s** (first call counter=3, second call still 3, identical insertText)
+  - `tab_magic_mid_word_suppressed::cursor_in_middle_of_identifier_returns_empty` — **0.10s** (mid-word byte check fires before tree-sitter)
+  - `tab_magic_ranks_complete_identifiers::ranker_picks_boundary_clean_over_mid_word` — **0.48s** (n=3 fires 3 requests, ranker rejects mid-word `addNumb`, picks one of the boundary-clean candidates)
+  - `tab_magic_string_literal_suppressed::cursor_inside_typescript_string_returns_empty_without_calling_model` — **0.21s** (counter=0 → suppression is pre-LocalAI)
 - Manual VS Code smoke deferred to S31 (same blocker as S23 — placeholder GGUF hash).
-- 6 integration tests written, syntactically complete (mirror the `tab_fim_basic.rs` shape from S23): `tab_magic_string_literal_suppressed.rs`, `tab_magic_comment_suppressed.rs`, `tab_magic_mid_word_suppressed.rs`, `tab_magic_ranks_complete_identifiers.rs`, `tab_magic_lru_cache_hit.rs`, `tab_magic_dedup_against_next_lines.rs`.
-- Unit tests added inline: `lsp::triggers` (~22 test cases — mid-word, string, comment, import, language-aliases), `lsp::cache` (6 test cases — key derivation, get/insert, capacity, TTL, refresh-on-reinsert), `lsp::fim::tests` (5 new S24 cases — per-lang max_tokens, fallback paths, ranker priority + proximity + skip-enclosing), `lsp::handlers::completion::tests` (5 new — empty list, first_line, ranker boundary preference, dedup whitespace tolerance, parses_clean validity).
+- 38 new unit tests inline (compile-checked via `cargo check --lib --tests`; will run on the next `cargo test --lib`): `lsp::triggers` (~22 cases — mid-word, string, comment, import, language-aliases), `lsp::cache` (6 cases — key derivation, get/insert, capacity, TTL, refresh-on-reinsert), `lsp::fim::tests` (5 new S24 cases — per-lang max_tokens, fallback paths, ranker priority + proximity + skip-enclosing), `lsp::handlers::completion::tests` (5 new — empty list, first_line, ranker boundary preference, dedup whitespace tolerance, parses_clean validity).
+- S22/S23 regression: **preserved**. `lsp_cancel_request_works` + `tab_fim_*` are byte-identical with the new handler under no-LocalAI conditions. The `completion_delay_ms` knob fires BEFORE the trigger check so the cancel race is still observable (see DECISIONS § Sesión 24 cache-before-select entry).
 
 **Implementation deltas vs spec:**
 - **Context selection uses parser-only** (S6 indexer), NOT semantic search via `embed_one`. Reconciled in DECISIONS § Sesión 24 — the spec said "use the indexer (S6)"; both surfaces are S6, parser is the right cardinality for the 250 ms hot path. Cross-file semantic retrieval is a v0.3 follow-up.
@@ -349,7 +355,7 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 - `INARI_LIVE_DECISIONS.md` (+6 Sesión-24 entries: parser-only context, tree-sitter triggers, additive ranking, parallel n=3, pre-select cache, silent 250 ms timeout)
 - `INARI_LIVE_V0_2_HANDOFF.md` (this Status block + Achieved/deltas).
 
-**Disk note (BLOCKER for tests):** C: drive started at 3.4 GB free, dropped to 466-735 MB during the cargo-check pass and stayed there. The integration test build needs ~3 GB transient linker headroom per new test binary (and we have 6 of them). Build Rule 12 cleanup of `target-shared/debug/incremental/` (~144 MB) + `target-shared/debug/deps/*.pdb` (~3-5 GB) was BLOCKED by the sandbox — those paths are outside the worktree. Authorisation request lodged with Jesús; until cleared the tests cannot link. **The next session's first task is to run the deferred test sweep with disk cleared:** `cargo test --test tab_magic_string_literal_suppressed --test tab_magic_comment_suppressed --test tab_magic_mid_word_suppressed --test tab_magic_ranks_complete_identifiers --test tab_magic_lru_cache_hit --test tab_magic_dedup_against_next_lines` (alphabetical batch — single library link shared across all 6 binaries, per S23's experience).
+**Disk note:** C: drive started at 3.4 GB free, dropped to 466-735 MB during the cargo-check pass. The integration test build hit ENOSPC mid-link on the `windows v0.52.0` rlib at first attempt. Jesús ran a more aggressive cleanup from his side (touching `target-shared/debug/build/<crate>/build-script-build.exe` artifacts) which freed the C: drive back to 6.6 GB. **A NEW build-rule emerged from this session:** when freeing disk by deleting `target-shared/debug/build/<crate>/out/`, cargo's `.fingerprint/<crate>-*/` MUST be deleted at the same time — otherwise cargo thinks the build script already ran and chokes with `os error 2: file not found` when downstream crates try to `include!(concat!(env!("OUT_DIR"), "/private.rs"))`. First retry hit exactly this pattern on `serde_core`; second retry (after Jesús's fingerprint cleanup) succeeded. Future sessions will see this codified in `project_machine_constraints.md` as Build Rule 17.
 
 **Notes for S25:** S24's `LocalAI` integration is the template. S25 follows the same pattern for instruct (non-FIM) calls — the `GenerateOptions::temperature: Option<f32>` knob is already wired (S25 will set `Some(0.2)` for deterministic apply diffs). The 250 ms timeout pattern + cache lookup before-cancel-select are reusable; the LSP-side ranker is NOT (Apply is a single-shot diff generation, no n=3). Concrete handles for S25:
 - The wire pattern `LocalAI::generate(opts) → drain stream → assemble String` is in `lsp::handlers::completion::collect_one` — copy-paste-able.
