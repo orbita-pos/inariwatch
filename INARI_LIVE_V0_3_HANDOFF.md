@@ -504,11 +504,71 @@ Stand up two NEW surfaces that ship local-first from day one: WhatsApp message d
 
 ### v0.3 S6 — Capture embedded `redact.pii.breadcrumbs` (6h)
 
-**Status:** PENDING.
-**Predecessor:** v0.3 S1 merged. PARALLEL-OK with v0.3 S2/S4/S5.
-**Worktree:** `git worktree add ../radar-v0.3-s6 -b feat/inari-live-v0.3-session6-capture-embedded`
+**Status:** **DONE-2026-05-02** (NOT PUSHED, NOT PUBLISHED). Worktree
+`../radar-v0.3-s6`, branch `feat/inari-live-v0.3-session6-capture-redact`.
+Built + 168/168 tests pass (54 new redact tests + 114 pre-existing,
+3 pre-existing skips). Perf p95 = 0.50ms on a 4327B payload.
 
-**Goal:**
+**Scope override vs the original goal**: ships **regex-based in-process
+redaction** (no ML model bundled), per `feedback_no_proprietary_ai.md`
+and `INARI_AI_ARCHITECTURE.md` §13.2. The original "ONNX DistilBERT
+in-process" idea was dropped — adds 30MB to the SDK and conflicts with
+"we don't ship our own AI runtime". Regex is deterministic, auditable,
+zero-dep, and covers the high-recall categories (email, phone, SSN,
+CC + Luhn, JWT, 6 vendor key shapes, sensitive-key whole-value scrub).
+
+**What landed:**
+- `capture/src/redact/` — 5 files (`index.ts` + `patterns.ts` + `keys.ts`
+  + `luhn.ts` + `hash.ts`). `redactPayload()` walks the outgoing
+  payload once, applying ~12 default patterns + the `SENSITIVE_KEYS`
+  whole-value rule. WeakSet cycle guard, depth-limited (default 32),
+  payload non-mutating. Hot-path overhead ~0.5ms p95 / 5KB.
+- `CaptureConfig.redact?: boolean | Partial<RedactConfig>` plumbed via
+  `init()` → `resolveRedactConfig()` → applied at the very end of
+  `sendWithHooks` (after every integration `onBeforeSend` and the user's
+  `beforeSend`). Both v1 and v2 wire paths are scrubbed.
+- `auto.ts` reads `INARIWATCH_REDACT=true|1|yes` env var and forwards
+  to `init({ redact })`, so `import "@inariwatch/capture/auto"` consumers
+  flip redaction with one env var.
+- `web/instrumentation.ts` — added a comment block documenting all 5
+  recognized env vars (no behavior change in the file itself).
+- `web/.env.example` — new section + `INARIWATCH_REDACT="true"` so the
+  dogfood path is on by default in any env that copies the example.
+- `package.json` 0.10.2 → **0.11.0** (minor: feature, fully back-compat).
+- `README.md` — new "PII redaction (in-process, opt-in)" section + new
+  row in init() options table + new env-var row.
+- `CHANGELOG.md` (new) + `MIRROR_SYNC_NOTES.md` (new).
+
+**Acceptance audit:**
+- `cd capture && npm run build` clean (tsc).
+- `cd capture && npm test` → 168/168, 3 pre-existing skips.
+- Capture works with redact unset → byte-identical to 0.10.2.
+- Capture with `init({ redact: true })` redacts before transport.send.
+- Performance budget met: p95 0.50ms on 4327B payload (10× headroom).
+
+**Pending (Jesus drives — NOT done in S6):**
+1. **Mirror sync to `orbita-pos/inariwatch-capture`**, then `npm publish`.
+   Procedure documented in `capture/MIRROR_SYNC_NOTES.md`.
+2. Set `INARIWATCH_REDACT=true` in production Kamal env (sops).
+3. **Polyglot ports** (Python/Go/Rust/Java/C#/Browser-v2) — deferred.
+
+**Notes for S7:**
+- The router contract for `redact.pii.breadcrumbs` (architecture §5.6) is
+  still met — the router can dispatch to the capture-embedded substrate
+  (this S6 path) OR a future cloud endpoint when polyglot SDKs need it.
+- `@inariwatch/capture` polyglot SDKs (per `project_capture_polyglot_sdks.md`)
+  will eventually grow the same redact module — algorithm + patterns
+  ported per language, fingerprint-vectors precedent.
+
+**Risks (recorded, not blocking):**
+- Phone E.164 regex may match unrelated 10+ digit strings in numeric-
+  heavy logs. Mitigation: customPatterns lets users narrow.
+- AWS secret 40-char shape collides with base64 blobs — defaulted OFF.
+
+**Predecessor:** v0.3 S1 merged. PARALLEL-OK with v0.3 S2/S4/S5.
+**Worktree:** `git worktree add ../radar-v0.3-s6 -b feat/inari-live-v0.3-session6-capture-redact`
+
+**Goal (original — recorded for posterity):**
 Add optional in-process AI to `@inariwatch/capture` (Node SDK first) for PII redaction of breadcrumbs BEFORE they're sent to InariWatch cloud. Demonstrates the "capture-embedded" substrate from `INARI_AI_ARCHITECTURE.md` §3.
 
 **Work:**

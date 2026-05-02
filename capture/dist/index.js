@@ -5,6 +5,8 @@ export { withInariWatch } from "./plugins/next.js";
 export { addBreadcrumb } from "./breadcrumbs.js";
 export { setUser, setTag, setRequestContext, runWithScope } from "./scope.js";
 export { initFullTrace, getSessionId, setSessionId, injectSessionHeader, __resetFullTraceForTesting } from "./fulltrace.js";
+// In-process PII / secret redaction (v0.3 S6). Opt-in via init({ redact: true }).
+export { redactPayload, resolveRedactConfig } from "./redact/index.js";
 export { applyTokenBudget, estimateTokens, V2_FIELD_DROP_PRIORITY } from "./v2-budget.js";
 // Payload v2 wire contract — frozen as of 2026-04-25. Tracks B-H of
 // SKYNET §3 read/write this shape. Additive changes only.

@@ -6,12 +6,14 @@ import { getBreadcrumbs, initBreadcrumbs } from "./breadcrumbs.js";
 import { getUser, getTags, getRequestContext } from "./scope.js";
 import { initFullTrace, getSessionId } from "./fulltrace.js";
 import { resolvePayloadVersion } from "./payload-version.js";
+import { redactPayload, resolveRedactConfig } from "./redact/index.js";
 let globalTransport = null;
 let globalConfig = null;
 let lastReportedRelease = null;
 let substrateFlush = null;
 let sessionFlush = null;
 let registeredIntegrations = [];
+let resolvedRedactConfig = { enabled: false };
 /**
  * Run all registered integrations' `onBeforeSend` hooks in registration order,
  * then the user-supplied `config.beforeSend`, then dispatch via the transport.
@@ -62,7 +64,10 @@ async function sendWithHooks(event) {
             // Transport's `send` types `ErrorEvent`; the v2 shape is structurally
             // wider but the transport only reads `fingerprint` for retry dedup
             // and JSON-stringifies everything else, so it round-trips safely.
-            globalTransport.send(wire);
+            const finalV2 = resolvedRedactConfig.enabled
+                ? redactPayload(wire, resolvedRedactConfig)
+                : wire;
+            globalTransport.send(finalV2);
             return;
         }
         catch (err) {
@@ -72,7 +77,13 @@ async function sendWithHooks(event) {
             // fall through to v1 send
         }
     }
-    globalTransport.send(current);
+    // Last step before the wire: in-process PII / secret redaction (v1
+    // path). Runs after every integration hook and the user's beforeSend
+    // so it sees the fully-enriched payload. No-op when redact is unset.
+    const finalEvent = resolvedRedactConfig.enabled
+        ? redactPayload(current, resolvedRedactConfig)
+        : current;
+    globalTransport.send(finalEvent);
 }
 /** Flush all pending events — call this before process exit or serverless return. */
 export async function flush() {
@@ -84,6 +95,7 @@ export function init(config = {}) {
     const dsn = config.dsn || env.INARIWATCH_DSN;
     const environment = config.environment || env.INARIWATCH_ENVIRONMENT || env.NODE_ENV;
     globalConfig = { ...config, dsn, environment };
+    resolvedRedactConfig = resolveRedactConfig(config.redact);
     if (!dsn) {
         globalTransport = createLocalTransport(globalConfig);
         if (!config.silent) {

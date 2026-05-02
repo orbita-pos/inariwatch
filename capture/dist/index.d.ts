@@ -6,6 +6,8 @@ export { withInariWatch } from "./plugins/next.js";
 export { addBreadcrumb } from "./breadcrumbs.js";
 export { setUser, setTag, setRequestContext, runWithScope } from "./scope.js";
 export { initFullTrace, getSessionId, setSessionId, injectSessionHeader, __resetFullTraceForTesting } from "./fulltrace.js";
+export { redactPayload, resolveRedactConfig } from "./redact/index.js";
+export type { RedactConfig, Pattern as RedactPattern } from "./redact/index.js";
 export type { CaptureConfig, ErrorEvent, ParsedDSN, SubstrateConfig, SessionConfig, SessionEvent, FullTraceConfig, Integration, Breadcrumb, GitContext, EnvironmentContext, SecurityContext, VulnerabilityType, ShieldConfig, SerializedValue, ForensicsCapture, SourceContextFrame, RuntimeSnap, Precursor, Hypothesis, FleetMatch, IntentContract, CausalGraph, CausalGraphNode, CausalGraphEdge, EapSignatures, } from "./types.js";
 export { applyTokenBudget, estimateTokens, V2_FIELD_DROP_PRIORITY } from "./v2-budget.js";
 export { buildPayloadV2Unsigned, buildEvidencePack, computeEvidenceMerkleRootSync, computeEvidenceMerkleRootAsync, canonicalJsonStringify, estimateTokensTiktoken, parseStackForEvidence, PAYLOAD_V2_JSON_SCHEMA, } from "./payload-v2.js";

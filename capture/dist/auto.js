@@ -51,9 +51,15 @@ async function loadV2Integrations() {
     const xs = await Promise.all([loadForensic(ctx), loadFleet(ctx), loadAgent(ctx)]);
     return xs.filter((x) => x !== null);
 }
+// In-process PII / secret redaction (v0.3 S6). Opt-in via env var so the
+// auto-init path stays config-free for consumers that do `import "@inariwatch/capture/auto"`
+// without ever touching `init()` directly. Accepts "true"/"1"/"yes" to flip on.
+const redactFlag = process.env.INARIWATCH_REDACT;
+const redactEnabled = redactFlag === "true" || redactFlag === "1" || redactFlag === "yes";
 const baseConfig = {
     release: process.env.INARIWATCH_RELEASE,
     substrate: process.env.INARIWATCH_SUBSTRATE === "true",
+    redact: redactEnabled,
 };
 const v2Flag = process.env.INARIWATCH_CAPTURE_V2;
 const v2Enabled = v2Flag === "true" || v2Flag === "1" || v2Flag === "yes";
