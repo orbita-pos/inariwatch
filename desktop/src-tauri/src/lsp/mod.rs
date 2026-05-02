@@ -12,6 +12,7 @@
 //! TODO markers in `handlers/completion.rs` flag the swap site.
 
 pub mod document_sync;
+pub mod fim;
 pub mod handlers;
 pub mod protocol;
 
@@ -25,6 +26,7 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::local_ai::LocalAI;
 use crate::lsp::document_sync::{ContentChange, DocumentStore};
 use crate::lsp::protocol::{
     decode, read_message, write_message, InboundMessage, NotificationMessage, RequestId,
@@ -32,15 +34,18 @@ use crate::lsp::protocol::{
 };
 
 /// Bind the LSP server on `127.0.0.1:port` and spawn the accept loop in
-/// the background. Returns the bound socket address (useful when port == 0
-/// for tests). Errors only on initial bind failure.
-pub async fn start_lsp_server(port: u16) -> std::io::Result<SocketAddr> {
+/// the background. Returns the bound socket address + the shared state
+/// handle so the caller can install runtime dependencies (e.g. Sesión
+/// 23's `LocalAI`) after the listener starts. Errors only on initial
+/// bind failure.
+pub async fn start_lsp_server(port: u16) -> std::io::Result<(SocketAddr, Arc<LspState>)> {
     let addr = format!("127.0.0.1:{port}");
     let listener = TcpListener::bind(&addr).await?;
     let bound = listener.local_addr()?;
     let state = Arc::new(LspState::new());
-    tokio::spawn(accept_loop(listener, state));
-    Ok(bound)
+    let s2 = state.clone();
+    tokio::spawn(accept_loop(listener, s2));
+    Ok((bound, state))
 }
 
 /// Test helper: bind on `127.0.0.1:0` and return the bound addr + the
@@ -73,10 +78,16 @@ pub struct LspState {
     initialized: AtomicBool,
 
     /// Test knob: when > 0, the completion handler sleeps this many ms
-    /// before computing the stub. Lets `lsp_cancel_request_works.rs`
-    /// observe a request that is genuinely pending. Production code
-    /// never writes this field.
+    /// before running its work. Lets `lsp_cancel_request_works.rs` observe
+    /// a request that is genuinely pending. Production code never writes
+    /// this field.
     completion_delay_ms: AtomicU64,
+
+    /// Sesión 23 — local AI handle for FIM completion. `None` until
+    /// `setup` wires it (production) or a test calls
+    /// [`LspState::set_local_ai`]. When `None`, the completion handler
+    /// returns an empty list (same contract as the S22 stub).
+    local_ai: Mutex<Option<LocalAI>>,
 }
 
 impl LspState {
@@ -86,7 +97,24 @@ impl LspState {
             pending: Mutex::new(HashMap::new()),
             initialized: AtomicBool::new(false),
             completion_delay_ms: AtomicU64::new(0),
+            local_ai: Mutex::new(None),
         }
+    }
+
+    /// Sesión 23 — install (or replace) the LocalAI handle. Cheap clone
+    /// of the facade is stashed; subsequent `local_ai()` calls return
+    /// the latest. Used by `setup()` in `lib.rs` (production) and by
+    /// integration tests in `tests/tab_fim_*.rs`.
+    pub fn set_local_ai(&self, ai: LocalAI) {
+        let mut g = self.local_ai.lock().expect("LspState local_ai mutex poisoned");
+        *g = Some(ai);
+    }
+
+    /// Snapshot the current LocalAI handle (or `None`). Cheap — facade
+    /// is `Clone` (Arc internally).
+    pub fn local_ai(&self) -> Option<LocalAI> {
+        let g = self.local_ai.lock().expect("LspState local_ai mutex poisoned");
+        g.clone()
     }
 
     pub fn is_initialized(&self) -> bool {
