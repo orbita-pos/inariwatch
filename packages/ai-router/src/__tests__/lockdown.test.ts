@@ -1,8 +1,8 @@
 import { RuleTester } from "eslint";
 import { describe, it } from "vitest";
 
-// Loaded as CJS via ESM interop — eslint-rule.js exports
-// `{ rules, rule, SDK_PACKAGES, ... }`.
+// ESM default export — eslint-rule.js exports
+// `{ rules, rule, SDK_PACKAGES, PROVIDER_URL_PATTERNS, ALLOWLIST_PATH_FRAGMENT }`.
 import lockdown from "../lockdown/eslint-rule.js";
 
 const tester = new RuleTester({

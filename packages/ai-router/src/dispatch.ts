@@ -704,7 +704,7 @@ export async function* dispatchStream(
     substrate,
     provider,
     model,
-    tsStart,
+    tsStart: tStart,
     tsEnd: Date.now(),
     workspaceId: input.workspace?.workspaceId,
     userId: input.workspace?.userId,

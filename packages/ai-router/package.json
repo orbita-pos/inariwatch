@@ -14,6 +14,8 @@
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "eslint": "^10.3.0",
+    "vitest": "^4.1.5"
+  }
 }

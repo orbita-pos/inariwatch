@@ -15,8 +15,6 @@
  * SDK-only check.
  */
 
-"use strict";
-
 const SDK_PACKAGES = new Set([
   "openai",
   "@anthropic-ai/sdk",
@@ -152,7 +150,8 @@ const rule = {
 
 // Plugin object — exported under the "inariwatch" namespace so an ESLint
 // flat config can reference it as `inariwatch/no-direct-ai-sdk-import`.
-module.exports = {
+// ESM default export so `web/eslint.config.mjs` can `import inariwatchAiRouter from ...`.
+export default {
   rules: {
     "no-direct-ai-sdk-import": rule,
   },

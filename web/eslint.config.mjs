@@ -10,6 +10,15 @@
 // rule in `rules.ts` — never an eslint-disable.
 
 import inariwatchAiRouter from "../packages/ai-router/src/lockdown/eslint-rule.js";
+import tsParser from "@typescript-eslint/parser";
+import tsPlugin from "@typescript-eslint/eslint-plugin";
+import nextPlugin from "@next/eslint-plugin-next";
+import reactHooksPlugin from "eslint-plugin-react-hooks";
+
+// `@typescript-eslint`, `@next/next`, `react-hooks` are registered but with NO
+// rules enforced — they exist so legacy inline `// eslint-disable-next-line ...`
+// pragmas (inherited from v0.2's removed .eslintrc) resolve cleanly.
+// The only enforced rule is `inariwatch/no-direct-ai-sdk-import`.
 
 export default [
   {
@@ -26,7 +35,23 @@ export default [
     ],
   },
   {
-    files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: { ecmaVersion: 2022, sourceType: "module" },
+    },
+    plugins: {
+      inariwatch: inariwatchAiRouter,
+      "@typescript-eslint": tsPlugin,
+      "@next/next": nextPlugin,
+      "react-hooks": reactHooksPlugin,
+    },
+    rules: {
+      "inariwatch/no-direct-ai-sdk-import": "error",
+    },
+  },
+  {
+    files: ["**/*.{js,jsx,mjs,cjs}"],
     plugins: {
       inariwatch: inariwatchAiRouter,
     },
