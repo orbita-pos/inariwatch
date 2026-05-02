@@ -355,6 +355,57 @@ pub fn build_single_shot_remediation_prompt(
     ]
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// build_fast_apply_prompt — Sesión 25, local Kortix FastApply-7B path
+// ─────────────────────────────────────────────────────────────────────
+
+/// Build the Kortix FastApply-7B "instant apply" prompt. The model
+/// expects a ChatML-style envelope with `<|im_start|>system`/`user` /
+/// `<|im_end|>` markers (ASCII pipes) — same dialect Qwen2.5-Coder
+/// uses, since Kortix is a fine-tune of Qwen2.5-Coder-7B.
+///
+/// Output contract: the model returns the FULL edited file (not a
+/// diff). The single_shot caller converts that to a unified diff via
+/// the `similar` crate before handing it back to the apply pipeline.
+///
+/// `file_content` is the original source of the file the user wants
+/// changed. `instruction` is the natural-language description of what
+/// needs to happen — for the S25 single-shot integration this is the
+/// alert's error message + stack trace, since we don't yet have a
+/// "snippet" surface in the dock (that's S26+'s direct-edit path).
+pub fn build_fast_apply_prompt(file_content: &str, instruction: &str) -> String {
+    // System prompt is intentionally short — Kortix is a specialised
+    // fine-tune; verbose system prompts hurt instead of helping. The
+    // instruct primer below mirrors the model card's recommended
+    // wording.
+    let system = "You are a coding assistant that helps merge code updates. \
+                  Apply the requested change to the code shown below and \
+                  return the COMPLETE updated file. Output ONLY the new \
+                  file contents — no explanation, no diff, no commentary.";
+
+    // User block uses explicit `<code>` / `<update>` tags so Kortix can
+    // distinguish "the file I'm editing" from "the change I'm being
+    // asked to make". The model card uses the same convention.
+    let mut user = String::with_capacity(file_content.len() + instruction.len() + 256);
+    user.push_str("Merge all changes from the <update> snippet into the <code> below.\n");
+    user.push_str("<code>\n");
+    user.push_str(file_content);
+    if !file_content.ends_with('\n') { user.push('\n'); }
+    user.push_str("</code>\n");
+    user.push_str("<update>\n");
+    user.push_str(instruction);
+    if !instruction.ends_with('\n') { user.push('\n'); }
+    user.push_str("</update>");
+
+    format!(
+        "<|im_start|>system\n{system}\n<|im_end|>\n\
+         <|im_start|>user\n{user}\n<|im_end|>\n\
+         <|im_start|>assistant\n",
+        system = system,
+        user   = user,
+    )
+}
+
 /// Truncate `s` at byte-offset `max_bytes`, rounded down to a char
 /// boundary. Cheap, panic-free helper — `&str[..n]` panics on
 /// multi-byte boundaries so callers cannot use raw slicing.
@@ -491,6 +542,32 @@ mod tests {
         // Events capped at 10 — cmd 9 yes, cmd 10 no.
         assert!(messages[1].content.contains("cmd 9"));
         assert!(!messages[1].content.contains("cmd 10"));
+    }
+
+    #[test]
+    fn fast_apply_prompt_uses_chatml_envelope() {
+        let p = build_fast_apply_prompt("fn add(a, b) { a - b }\n", "Fix the off-by-one — should be a + b.");
+        assert!(p.starts_with("<|im_start|>system\n"));
+        assert!(p.contains("<|im_end|>\n<|im_start|>user\n"));
+        assert!(p.ends_with("<|im_start|>assistant\n"));
+        // `|` is ASCII (0x7C) — same dialect Qwen2.5-Coder uses.
+        assert!(p.contains("<|im_start|>"));
+    }
+
+    #[test]
+    fn fast_apply_prompt_wraps_code_and_update() {
+        let p = build_fast_apply_prompt("CODE_BODY\n", "INSTRUCTION_BODY");
+        assert!(p.contains("<code>\nCODE_BODY\n</code>"));
+        assert!(p.contains("<update>\nINSTRUCTION_BODY\n</update>"));
+    }
+
+    #[test]
+    fn fast_apply_prompt_normalises_trailing_newlines() {
+        // Bodies without trailing newline still produce a well-formed
+        // envelope (no `</code>` glued onto the last code line).
+        let p = build_fast_apply_prompt("no-trailing-lf", "instr");
+        assert!(p.contains("no-trailing-lf\n</code>"));
+        assert!(p.contains("instr\n</update>"));
     }
 
     #[test]

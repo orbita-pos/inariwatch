@@ -437,7 +437,14 @@ pub fn run() {
             // can route through `LocalAI::generate(.., fim_mode = true)`.
             // LocalAI init failures are non-fatal: the LSP server still
             // starts and degrades to empty completions.
+            //
+            // Sesión 25 — register the LocalAI handle as Tauri-managed
+            // state so the remediation IPC (`start_remediation`) can
+            // read it for the Kortix FastApply-7B local path. Tauri
+            // requires concrete `Option<T>` registration so consumers
+            // pattern-match on `state.inner()`.
             let local_ai_handle = build_local_ai(&app.handle(), store.clone());
+            app.manage::<Option<local_ai::LocalAI>>(local_ai_handle.clone());
             start_lsp_listener(local_ai_handle);
 
             // Local Capture ingest server (was `local_ingest::start`)

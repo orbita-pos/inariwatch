@@ -146,6 +146,11 @@ const SETTINGS_KEY_USER_ONBOARDED:     &str = "user_onboarded";
 const SETTINGS_KEY_HTTP_PROXY_PORT:    &str = "http_proxy_port";
 const SETTINGS_KEY_HTTP_PROXY_ENABLED: &str = "http_proxy_enabled";
 const SETTINGS_KEY_FS_SENSOR_ENABLED:  &str = "fs_sensor_enabled";
+/// Sesión 25 — toggle that gates the Kortix FastApply-7B local path
+/// inside `run_single_shot`. Mirrored at
+/// `crate::ipc::remediation::SETTINGS_KEY_LOCAL_APPLY_ENABLED`. Keep
+/// the two constants byte-identical: future renames must touch both.
+const SETTINGS_KEY_LOCAL_APPLY_ENABLED: &str = "local_apply_enabled";
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../src/lib/types/")]
@@ -202,6 +207,12 @@ pub struct AiSettings {
     /// Hardcoded read-only display today; Sesión 18 wires real billing.
     pub spend_today_usd: f32,
     pub spend_cap_usd:   f32,
+    /// Sesión 25 — Fast Apply via local Kortix FastApply-7B. False by
+    /// default. Reading the toggle is cheap (a settings table lookup);
+    /// writing requires the hardware tier ≥ 2 + the GGUF pre-downloaded.
+    /// Both prerequisites are validated inside `run_single_shot`'s local
+    /// branch, NOT here — the toggle just expresses user intent.
+    pub local_apply_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -209,6 +220,9 @@ pub struct AiSettingsPatch {
     /// Raw key. Empty string deletes. `None` keeps prior value.
     pub openai_key:    Option<String>,
     pub model_routing: Option<String>,
+    /// Sesión 25 — flip the Kortix FastApply-7B routing on/off. None
+    /// keeps the prior value.
+    pub local_apply_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -379,6 +393,7 @@ pub fn get_ai_settings(
         model_routing:   read_string_or(&state, SETTINGS_KEY_AI_MODEL, "auto")?,
         spend_today_usd: 0.0,
         spend_cap_usd:   300.0,
+        local_apply_enabled: read_bool_or(&state, SETTINGS_KEY_LOCAL_APPLY_ENABLED, false)?,
     })
 }
 
@@ -407,6 +422,9 @@ pub fn set_ai_settings(
         if matches!(routing.as_str(), "auto" | "always_mini" | "always_full") {
             settings::set(&state, SETTINGS_KEY_AI_MODEL, &routing)?;
         }
+    }
+    if let Some(b) = patch.local_apply_enabled {
+        settings::set(&state, SETTINGS_KEY_LOCAL_APPLY_ENABLED, &b.to_string())?;
     }
     get_ai_settings(state)
 }

@@ -23,17 +23,51 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::ai::budget::Model;
 use crate::ai::openai::OpenAIClient;
 use crate::ai::prompts::{
-    build_single_shot_remediation_prompt, AlertContext, ContextFile, RecentEvent,
+    build_fast_apply_prompt, build_single_shot_remediation_prompt,
+    AlertContext, ContextFile, RecentEvent,
 };
 use crate::daemon::DaemonEvent;
+use crate::local_ai::{
+    hardware::HardwareTier,
+    GenerateOptions, LocalAI,
+};
 use crate::memory::semantic;
-use crate::store::{queries, Store};
+use crate::store::{queries, settings as store_settings, Store};
+
+/// Settings key the registry persists the detected hardware tier
+/// under. Mirrors `local_ai::registry::record_detected_tier`'s key.
+/// Sesión 25 reads from here instead of `hardware::detect()` so tests
+/// can override the tier via `settings::set` and so the dock's
+/// "downgrade to Tier1" UI can take effect without a full re-detect.
+const SETTINGS_KEY_LOCAL_AI_TIER: &str = "local_ai_tier";
+
+/// Catalogue id for the Sesión 25 Kortix FastApply-7B model. Must match
+/// `local_ai::registry::catalogue()` — the registry is the SSOT.
+pub const KORTIX_MODEL_ID: &str = "kortix-fast-apply-7b";
+
+/// Wire name stamped on `RemediationDraft.model_used` / persisted in
+/// `remediation_sessions.model` so dashboards can distinguish local-mode
+/// fixes from cloud calls. NEVER rename — the cost ledger groups by it.
+pub const KORTIX_LOCAL_MODEL_NAME: &str = "kortix-7b-local";
+
+/// Hard ceiling on `local_ai::generate` token output for the Apply
+/// path. 4096 covers single-file edits up to ~16 KB which spans 95th
+/// percentile of fix-shaped diffs in the v0.1 telemetry corpus.
+const FAST_APPLY_MAX_TOKENS: u32 = 4096;
+
+/// Per-call wall clock cap. Q4_K_M Kortix-7B at ~25 tok/s on a Tier-2
+/// box (M3 Pro / Ryzen 5800X3D) finishes a 4096-token completion in
+/// ~2.7 minutes worst case. We give it 3 minutes — anything beyond
+/// that is a wedged sidecar and fall-back to cloud is the right move.
+const FAST_APPLY_TIMEOUT_SECS: u64 = 180;
 
 /// Per-file byte cap when embedding sources into the prompt. 6 KB is
 /// the documented single-shot budget; the prompt builder doesn't
@@ -108,9 +142,20 @@ pub enum SingleShotError {
 ///
 /// `session_id` is plumbed through so the bus events match the row id
 /// the orchestrator just inserted.
+///
+/// `local_ai` + `local_apply_enabled` (Sesión 25) gate the Kortix
+/// FastApply-7B path. The local path is taken when **all** of these
+/// hold: (1) `local_apply_enabled` is true, (2) `local_ai` is `Some(_)`,
+/// (3) the host hardware classifies as `HardwareTier::Tier2`, and (4)
+/// the Kortix GGUF is already cached on disk. If any prerequisite is
+/// missing OR if the local generation fails for any reason, the
+/// pipeline transparently falls back to the existing gpt-5.4 cloud
+/// path (zero behaviour change for callers who pass `None` / `false`).
 pub async fn run_single_shot(
     store:      &Arc<Store>,
     client:     &OpenAIClient,
+    local_ai:   Option<&LocalAI>,
+    local_apply_enabled: bool,
     session_id: &str,
     input:      &SingleShotInput,
 ) -> Result<RemediationDraft, SingleShotError> {
@@ -145,6 +190,29 @@ pub async fn run_single_shot(
     for rel in &paths {
         if let Some(body) = read_file_clipped(&input.repo_path, rel) {
             context_bodies.push((rel.clone(), body));
+        }
+    }
+
+    // 2.5 — Sesión 25: try the local Kortix FastApply-7B path before
+    // burning a cloud call. All four prerequisites must hold (toggle on,
+    // facade present, hardware Tier2, model cached on disk). Any failure
+    // — prerequisite missing OR generation error — falls through to the
+    // existing gpt-5.4 path with no caller-visible difference.
+    if local_apply_enabled {
+        if let Some(ai) = local_ai {
+            if let Some((target_path, target_body)) = context_bodies.first() {
+                if let Some(draft) = try_fast_apply_local(
+                    store,
+                    ai,
+                    session_id,
+                    target_path,
+                    target_body,
+                    &input.error_message,
+                    input.stack_trace.as_deref(),
+                ).await {
+                    return Ok(draft);
+                }
+            }
         }
     }
 
@@ -318,6 +386,214 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Sesión 25 — Kortix FastApply-7B local path
+// ─────────────────────────────────────────────────────────────────────
+
+/// Attempt the local Fast Apply pipeline. Returns `Some(draft)` on
+/// success, `None` on any failure / missing prerequisite. The caller
+/// (`run_single_shot`) treats `None` as "fall back to cloud" — never
+/// surfaces an error from this function to the user.
+async fn try_fast_apply_local(
+    store:            &Arc<Store>,
+    ai:               &LocalAI,
+    session_id:       &str,
+    target_path:      &str,
+    target_body:      &str,
+    error_message:    &str,
+    stack_trace:      Option<&str>,
+) -> Option<RemediationDraft> {
+    // Prereq 1 — persisted hardware tier. The 7B model needs ≥ 16 GB
+    // RAM + 8 logical CPUs (see `hardware::classify`); the registry
+    // stores the last detected tier under `local_ai_tier`. Reading from
+    // settings lets the dock surface a tier override + lets tests
+    // exercise the local path on machines that classify Tier1.
+    let tier_str = store_settings::get(store, SETTINGS_KEY_LOCAL_AI_TIER)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let tier = HardwareTier::parse(&tier_str);
+    if tier != HardwareTier::Tier2 {
+        tracing::debug!(
+            ?tier,
+            session_id,
+            "fast_apply_local: skipping — hardware below Tier2",
+        );
+        return None;
+    }
+
+    // Prereq 2 — model is downloaded + verified on disk. We don't
+    // trigger a fresh download here: that's the dock's job (Settings
+    // → AI → "Download model"). Falling back to cloud is the right
+    // move when the user hasn't pulled the GGUF yet.
+    if !ai.registry().is_cached(KORTIX_MODEL_ID) {
+        tracing::debug!(session_id, "fast_apply_local: skipping — Kortix not cached");
+        return None;
+    }
+
+    // Build the prompt. Instruction = error message + stack-trace head.
+    let mut instruction = String::with_capacity(error_message.len() + 128);
+    instruction.push_str("Fix the following error in the file above:\n");
+    instruction.push_str(error_message);
+    if let Some(stack) = stack_trace {
+        if let Some(first) = stack.lines().next() {
+            instruction.push_str("\nStack: ");
+            instruction.push_str(first);
+        }
+    }
+    let prompt = build_fast_apply_prompt(target_body, &instruction);
+
+    let opts = GenerateOptions {
+        model_id:    KORTIX_MODEL_ID.to_string(),
+        prompt,
+        max_tokens:  FAST_APPLY_MAX_TOKENS,
+        // Kortix is a chat-style instruct model — NOT FIM. The runtime
+        // ignores this flag today but logs it so the audit trail is
+        // honest about the call shape.
+        fim_mode:    false,
+        // None = use llama-server's default. Kortix is deterministic
+        // enough at the default temperature; S26 may pin it lower if
+        // empirical apply-success rates demand it.
+        temperature: None,
+        // Stop on the closing ChatML marker so we don't bleed into a
+        // second turn if the model hallucinates one.
+        stop_seqs:   vec!["<|im_end|>".into()],
+    };
+
+    // Drain the stream into a String, capping wall-clock at the timeout.
+    let edited = match drain_local_stream(ai, opts).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(
+                session_id,
+                error = %e,
+                "fast_apply_local: generate failed; falling back to cloud",
+            );
+            return None;
+        }
+    };
+
+    // Strip any trailing ChatML marker the model emitted before the
+    // stop sequence (some llama-server builds emit a partial token
+    // before honouring `stop`).
+    let edited = strip_chatml_trailer(&edited);
+    if edited.trim().is_empty() {
+        tracing::warn!(session_id, "fast_apply_local: empty completion; falling back");
+        return None;
+    }
+
+    // Convert the full edited file → unified diff so the apply pipeline
+    // (orchestrator::apply_diff) stays unchanged.
+    let diff_unified = build_unified_diff(target_path, target_body, &edited);
+    if diff_unified.trim().is_empty() {
+        // No changes — model parroted the input back. Treat as failure
+        // so the caller can still try the cloud (which may have a
+        // different idea of what to change).
+        tracing::info!(session_id, "fast_apply_local: model returned identical file; falling back");
+        return None;
+    }
+
+    let files_touched = parse_diff_files(&diff_unified);
+    if files_touched.is_empty() {
+        // Diff produced but the `+++ b/...` parser couldn't extract a
+        // path — should never happen given the way we generate the
+        // diff, but defensively bail to cloud.
+        tracing::warn!(session_id, "fast_apply_local: diff has no +++ b/ path; falling back");
+        return None;
+    }
+
+    Some(RemediationDraft {
+        session_id:        session_id.to_string(),
+        diff_unified,
+        files_touched,
+        // Stable string for cost-ledger grouping. NEVER rename.
+        model_used:        KORTIX_LOCAL_MODEL_NAME,
+        // No usage tracking on local — `chars/4` heuristic would lie
+        // about a workload that never crosses the network. Zero is
+        // honest: zero cents, zero token bill.
+        prompt_tokens:     0,
+        completion_tokens: 0,
+        cents:             0,
+    })
+}
+
+/// Drain `LocalAI::generate` into a String, with a wall-clock cap. The
+/// stream's own `finish_reason` terminates it normally; the timeout is
+/// a safety net for wedged sidecars.
+async fn drain_local_stream(
+    ai:   &LocalAI,
+    opts: GenerateOptions,
+) -> Result<String, String> {
+    let stream_res = tokio::time::timeout(
+        Duration::from_secs(FAST_APPLY_TIMEOUT_SECS),
+        ai.generate(opts),
+    ).await;
+
+    let mut stream = match stream_res {
+        Ok(Ok(s))   => s,
+        Ok(Err(e))  => return Err(format!("generate open: {e}")),
+        Err(_)      => return Err("generate open timeout".to_string()),
+    };
+
+    let drain = async {
+        let mut out = String::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(tok) => {
+                    out.push_str(&tok.text);
+                    if tok.finish_reason.is_some() {
+                        break;
+                    }
+                }
+                Err(e) => return Err(format!("stream chunk: {e}")),
+            }
+        }
+        Ok(out)
+    };
+
+    match tokio::time::timeout(Duration::from_secs(FAST_APPLY_TIMEOUT_SECS), drain).await {
+        Ok(Ok(s))  => Ok(s),
+        Ok(Err(e)) => Err(e),
+        Err(_)     => Err("stream drain timeout".to_string()),
+    }
+}
+
+/// Some llama-server builds emit a partial `<|im_end|>` token before
+/// the stop-seq match fires — strip any trailing ChatML marker so the
+/// edited file is byte-clean. Also trims a single trailing newline
+/// the model often glues on after the marker.
+fn strip_chatml_trailer(s: &str) -> String {
+    let mut out = s.to_string();
+    for marker in ["<|im_end|>", "<|im_start|>"] {
+        if let Some(idx) = out.rfind(marker) {
+            // Keep everything before the marker; assume the marker is
+            // at the end (we never want to truncate mid-file content).
+            // If the marker appears mid-content somehow, that's the
+            // model lying about itself — return the original untouched.
+            let after_marker = idx + marker.len();
+            if after_marker >= out.len().saturating_sub(8) {
+                out.truncate(idx);
+            }
+        }
+    }
+    out
+}
+
+/// Build a unified diff from `original` → `edited` for `repo_relative`.
+/// Uses the `similar` crate's `unified_diff` builder + 3 lines of
+/// context (the same default `git apply` expects). The header lines
+/// match `git diff`'s `--- a/<path>` / `+++ b/<path>` convention so
+/// `parse_diff_files` extracts the right repo-relative path.
+pub fn build_unified_diff(repo_relative: &str, original: &str, edited: &str) -> String {
+    let diff = similar::TextDiff::from_lines(original, edited);
+    let header_a = format!("a/{repo_relative}");
+    let header_b = format!("b/{repo_relative}");
+    diff.unified_diff()
+        .context_radius(3)
+        .header(&header_a, &header_b)
+        .to_string()
 }
 
 /// Helper for tests + future status surfaces — wrap the synth bus

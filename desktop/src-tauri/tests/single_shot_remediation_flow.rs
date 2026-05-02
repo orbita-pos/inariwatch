@@ -103,7 +103,11 @@ async fn run_single_shot_returns_known_diff() {
         file_hint:         Some("src/main.rs".to_string()),
     };
 
-    let draft = run_single_shot(&store, &client, "session-1", &input)
+    // Sesión 25 — pass `local_ai = None` + `local_apply_enabled = false`
+    // so the function preserves the legacy gpt-5.4 cloud path. The Sesión
+    // 25 Kortix branch is exercised by the dedicated `fast_apply_local_*`
+    // suite.
+    let draft = run_single_shot(&store, &client, None, false, "session-1", &input)
         .await
         .expect("single-shot");
 
