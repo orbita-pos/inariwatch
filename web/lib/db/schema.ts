@@ -1368,6 +1368,7 @@ export const codeChunks = pgTable(
     code: text("code").notNull(),
     docstring: text("docstring"),
     embedding: vector("embedding"),
+    embeddingModelVersion: text("embedding_model_version").notNull().default("voyage-code-3"),
     language: text("language").notNull(),
     dependencies: text("dependencies").array().notNull().default([]),
     tsv: tsvector("tsv"),
@@ -1377,6 +1378,7 @@ export const codeChunks = pgTable(
   (table) => [
     index("idx_code_chunks_repo").on(table.repoId),
     index("idx_code_chunks_file").on(table.repoId, table.filePath),
+    index("idx_code_chunks_embedding_model").on(table.repoId, table.embeddingModelVersion),
   ]
 );
 

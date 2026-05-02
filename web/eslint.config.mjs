@@ -10,15 +10,24 @@
 // rule in `rules.ts` — never an eslint-disable.
 
 import inariwatchAiRouter from "../packages/ai-router/src/lockdown/eslint-rule.js";
+import inariwatchCodeIntel from "./lib/code-intelligence/lockdown/eslint-rule.js";
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import nextPlugin from "@next/eslint-plugin-next";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 
-// `@typescript-eslint`, `@next/next`, `react-hooks` are registered but with NO
-// rules enforced — they exist so legacy inline `// eslint-disable-next-line ...`
-// pragmas (inherited from v0.2's removed .eslintrc) resolve cleanly.
-// The only enforced rule is `inariwatch/no-direct-ai-sdk-import`.
+// Two custom rules are merged under the same `inariwatch` plugin namespace
+// so flat config can reference them as `inariwatch/<rule>`. Rules enforced:
+//   - inariwatch/no-direct-ai-sdk-import   (v0.3 S1 — AI router lockdown)
+//   - inariwatch/no-direct-code-intel-db   (Code Intel v2 Phase 0.2)
+// `@typescript-eslint`, `@next/next`, `react-hooks` are registered but with
+// NO rules enforced — they exist so legacy inline pragmas resolve cleanly.
+const inariwatchPlugin = {
+  rules: {
+    ...inariwatchAiRouter.rules,
+    ...inariwatchCodeIntel.rules,
+  },
+};
 
 export default [
   {
@@ -41,22 +50,24 @@ export default [
       parserOptions: { ecmaVersion: 2022, sourceType: "module" },
     },
     plugins: {
-      inariwatch: inariwatchAiRouter,
+      inariwatch: inariwatchPlugin,
       "@typescript-eslint": tsPlugin,
       "@next/next": nextPlugin,
       "react-hooks": reactHooksPlugin,
     },
     rules: {
       "inariwatch/no-direct-ai-sdk-import": "error",
+      "inariwatch/no-direct-code-intel-db": "error",
     },
   },
   {
     files: ["**/*.{js,jsx,mjs,cjs}"],
     plugins: {
-      inariwatch: inariwatchAiRouter,
+      inariwatch: inariwatchPlugin,
     },
     rules: {
       "inariwatch/no-direct-ai-sdk-import": "error",
+      "inariwatch/no-direct-code-intel-db": "error",
     },
   },
 ];

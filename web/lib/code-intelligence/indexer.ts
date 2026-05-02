@@ -11,7 +11,8 @@ import * as gh from "@/lib/services/github-api";
 import { parseFileAsync, shouldSkipFile, detectLanguage } from "./parser";
 import type { ParsedChunk } from "./parser";
 import { callAI } from "@/lib/ai/client";
-import { embedTexts } from "./embeddings";
+import { embedTextsWithModel, resolveEmbeddingModelLabel } from "./embeddings";
+import { logCodeIntelEvent } from "./logger";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,6 +187,14 @@ export async function indexRepository(opts: IndexOptions): Promise<{ repoId: str
     }
 
     // 6. Insert chunks into DB
+    // Stamp every row with the embedding model label up-front. If embeddingKey is
+    // unset, embeddings won't run (BM25-only chunk) but we still pin a model label
+    // so the v1↔v2 A/B widget can attribute "no embedding" rows to a real provider
+    // intent rather than the schema default.
+    const embeddingModelVersion = embeddingKey
+      ? resolveEmbeddingModelLabel(embeddingKey)
+      : "voyage-code-3";
+
     const insertBatch = chunks.map((c) => ({
       repoId,
       filePath: c.filePath,
@@ -195,6 +204,7 @@ export async function indexRepository(opts: IndexOptions): Promise<{ repoId: str
       endLine: c.endLine,
       code: c.code.slice(0, 50_000), // cap code size
       docstring: c.docstring ?? null,
+      embeddingModelVersion,
       language: c.language,
       dependencies: c.dependencies,
     }));
@@ -324,8 +334,21 @@ async function generateDocstrings(
       for (let j = 0; j < batch.length && j < descriptions.length; j++) {
         batch[j].docstring = descriptions[j];
       }
-    } catch {
-      // If AI fails for this batch, leave docstrings null — embeddings will use code directly
+    } catch (err) {
+      // If AI fails for this batch, leave docstrings null — embeddings will use code directly.
+      // Phase 0.4: surface the failure so the v1 baseline widget can attribute
+      // missing docstrings to provider issues vs. cost-saving omission.
+      logCodeIntelEvent({
+        event: "indexer.docstring_batch_failed",
+        severity: "warn",
+        provider: "openai",
+        detail: {
+          batchOffset: i,
+          batchSize: batch.length,
+          model: "gpt-4o-mini",
+        },
+        error: err,
+      });
     }
 
     onProgress(Math.min(i + DOCSTRING_BATCH_SIZE, chunks.length));
@@ -351,18 +374,37 @@ async function generateEmbeddings(
     });
 
     try {
-      // Uses Voyage Code 3 if key starts with pa-, otherwise OpenAI fallback
-      const embeddings = await embedTexts(texts, apiKey, "document");
+      // Uses Voyage Code 3 if key starts with pa-, otherwise OpenAI fallback.
+      // embedTextsWithModel returns the resolved model label so we can stamp
+      // every updated row with the EXACT model that produced its vector,
+      // even if the active model differs from the schema default.
+      const { vectors, modelVersion } = await embedTextsWithModel(texts, apiKey, "document");
 
       // Update chunks with embeddings in batches
-      for (let j = 0; j < embeddings.length; j++) {
-        const vec = `[${embeddings[j].join(",")}]`;
+      for (let j = 0; j < vectors.length; j++) {
+        const vec = `[${vectors[j].join(",")}]`;
         await db.execute(
-          sql`UPDATE code_chunks SET embedding = ${vec}::vector WHERE id = ${batchIds[j]}::uuid`
+          sql`UPDATE code_chunks
+              SET embedding = ${vec}::vector,
+                  embedding_model_version = ${modelVersion}
+              WHERE id = ${batchIds[j]}::uuid`
         );
       }
-    } catch {
-      // If embedding fails, chunks still work for BM25 search
+    } catch (err) {
+      // If embedding fails, chunks still work for BM25 search.
+      // embedding_model_version remains as set on insert (caller's intent).
+      // Phase 0.4: surface so /admin/ops can flag low embedding coverage as
+      // a provider outage rather than a config gap.
+      logCodeIntelEvent({
+        event: "indexer.embedding_batch_failed",
+        severity: "error",
+        provider: resolveEmbeddingModelLabel(apiKey),
+        detail: {
+          batchOffset: i,
+          batchSize: batchChunks.length,
+        },
+        error: err,
+      });
     }
 
     onProgress(Math.min(i + EMBEDDING_BATCH_SIZE, chunks.length));

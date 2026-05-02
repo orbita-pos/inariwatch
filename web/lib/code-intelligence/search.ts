@@ -10,6 +10,7 @@ import { db, codeChunks, codeDependencies, codeRepositories } from "@/lib/db";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { embedQuery } from "./embeddings";
 import { callAI } from "@/lib/ai/client";
+import { logCodeIntelEvent } from "./logger";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -278,8 +279,21 @@ async function aiRerank(
       .filter((i) => i >= 0 && i < candidates.length)
       .slice(0, limit)
       .map((i, rank) => ({ ...candidates[i], score: 1 - rank * 0.1 }));
-  } catch {
-    // If AI reranking fails, fall back to RRF ordering
+  } catch (err) {
+    // If AI reranking fails, fall back to RRF ordering. Phase 0.4: log so
+    // the baseline widget can detect "rerank silently disabled" — without
+    // this signal we'd misattribute v1 quality drops to embedding coverage.
+    logCodeIntelEvent({
+      event: "search.rerank_failed",
+      severity: "warn",
+      provider: "openai",
+      detail: {
+        candidateCount: candidates.length,
+        limit,
+        queryLength: query.length,
+      },
+      error: err,
+    });
     return candidates.slice(0, limit);
   }
 }

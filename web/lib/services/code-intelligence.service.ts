@@ -73,6 +73,65 @@ export async function triggerReindex(opts: IndexOptions): Promise<{ repoId: stri
   return indexRepository(opts);
 }
 
+// ── Lookup helpers (consumed by webhook + replay + index route) ──────────────
+//
+// These exist so consumers outside the code-intelligence module never import
+// codeRepositories / codeChunks / codeDependencies from `@/lib/db` directly.
+// The ESLint rule `inariwatch/no-direct-code-intel-db` enforces that boundary
+// (Phase 0.2). Add a method here before reaching for the table.
+
+export type IndexedRepoIdentity = {
+  id: string;
+};
+
+/**
+ * Returns the repo row id when (projectId, owner, repo) is already tracked
+ * in `code_repositories`. Used by the GitHub webhook to gate "only re-index
+ * repos we've indexed before" without leaking the table outside the module.
+ */
+export async function findIndexedRepoIdentity(params: {
+  projectId: string;
+  owner: string;
+  repo: string;
+}): Promise<IndexedRepoIdentity | null> {
+  const [row] = await db
+    .select({ id: codeRepositories.id })
+    .from(codeRepositories)
+    .where(
+      and(
+        eq(codeRepositories.projectId, params.projectId),
+        eq(codeRepositories.githubOwner, params.owner),
+        eq(codeRepositories.githubRepo, params.repo),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export type RepoIdentity = {
+  githubOwner: string;
+  githubRepo: string;
+  defaultBranch: string;
+};
+
+/**
+ * Returns the first connected repo for a project. Used by the replay
+ * manifest endpoint to deep-link stack frames into GitHub. Returns null
+ * when the project has no indexed repo yet.
+ */
+export async function getRepoIdentityForProject(projectId: string): Promise<RepoIdentity | null> {
+  const [row] = await db
+    .select({
+      githubOwner: codeRepositories.githubOwner,
+      githubRepo: codeRepositories.githubRepo,
+      defaultBranch: codeRepositories.defaultBranch,
+    })
+    .from(codeRepositories)
+    .where(eq(codeRepositories.projectId, projectId))
+    .limit(1);
+  return row ?? null;
+}
+
 // ── Stats ────────────────────────────────────────────────────────────────────
 
 export async function getCodeStats(projectId: string): Promise<{
