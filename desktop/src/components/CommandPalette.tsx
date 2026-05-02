@@ -201,8 +201,10 @@ export function CommandPalette({
       overlayClassName="fixed inset-0 z-[150] bg-black/70 backdrop-blur-md"
       className={cn(
         "fixed left-1/2 top-[18%] -translate-x-1/2 w-[min(92vw,560px)]",
-        "rounded-[var(--radius-lg)] border border-[var(--border-strong)]",
-        "bg-[var(--card-elevated)] overflow-hidden",
+        "rounded-[var(--radius-lg)] bg-[var(--card-elevated)] overflow-hidden",
+        // No border — drop shadow + bg contrast vs the blurred backdrop is
+        // enough to read as a floating surface. Border-strong (#2a2a31)
+        // looked harsh against the elevated card.
         "shadow-2xl shadow-black/60",
         "z-[200]",
       )}
