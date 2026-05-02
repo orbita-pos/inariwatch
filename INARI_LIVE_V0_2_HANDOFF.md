@@ -224,7 +224,7 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 ### S23 — Tab autocomplete v1 — Qwen2.5-Coder-1.5B FIM wiring (10h)
 
-**Status (2026-05-01):** **DONE — 3/3 integration tests pass.** Code lives on `feat/inari-live-v0.2-session23-tab-fim` in worktree `../radar-s23` (off integration tip `c6050e2`). NOT pushed, NOT merged. Commit SHA recorded in the commit log of that branch. `cargo check --lib` + `cargo check --lib --tests` both clean. Manual VS Code smoke deferred to S31/S32 — see Achieved block below for why.
+**Status (2026-05-01):** **DONE — 3/3 integration tests pass.** Code lives on `feat/inari-live-v0.2-session23-tab-fim` (work commit `b3e8ef1`, pinned in worktree `../radar-s23` off integration tip `c6050e2`). NOT pushed, NOT merged. `cargo check --lib` + `cargo check --lib --tests` both clean. Manual VS Code smoke deferred to S31/S32 — see Achieved block below for why.
 
 **Branch:** `feat/inari-live-v0.2-session23-tab-fim`
 **Predecessor:** S21 + S22 + S27 all merged into the integration tip (`c6050e2`).
