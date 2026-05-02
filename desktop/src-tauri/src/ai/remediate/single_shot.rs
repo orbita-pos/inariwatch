@@ -29,9 +29,11 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::ai::budget::Model;
+use crate::ai::diff_repair::{self, RepairError};
 use crate::ai::openai::OpenAIClient;
 use crate::ai::prompts::{
-    build_fast_apply_prompt, build_single_shot_remediation_prompt,
+    build_fast_apply_prompt, build_kortix_repair_prompt,
+    build_single_shot_remediation_prompt,
     AlertContext, ContextFile, RecentEvent,
 };
 use crate::daemon::DaemonEvent;
@@ -68,6 +70,15 @@ const FAST_APPLY_MAX_TOKENS: u32 = 4096;
 /// ~2.7 minutes worst case. We give it 3 minutes — anything beyond
 /// that is a wedged sidecar and fall-back to cloud is the right move.
 const FAST_APPLY_TIMEOUT_SECS: u64 = 180;
+
+/// Sesión 26 — number of attempts the local Kortix path makes before
+/// giving up and falling back to the cloud. Includes the first attempt:
+/// `MAX_LOCAL_ATTEMPTS = 2` means "try once with the v1 prompt, retry
+/// once with a repair prompt". The wall-clock cap on each attempt is
+/// still [`FAST_APPLY_TIMEOUT_SECS`] — the retry adds at most one extra
+/// 180 s ceiling, which is the budget the dock's "Inari is fixing
+/// this…" affordance can absorb.
+const MAX_LOCAL_ATTEMPTS: usize = 2;
 
 /// Per-file byte cap when embedding sources into the prompt. 6 KB is
 /// the documented single-shot budget; the prompt builder doesn't
@@ -198,6 +209,13 @@ pub async fn run_single_shot(
     // facade present, hardware Tier2, model cached on disk). Any failure
     // — prerequisite missing OR generation error — falls through to the
     // existing gpt-5.4 path with no caller-visible difference.
+    //
+    // Sesión 26: the local path now wraps the AI call in a parse-
+    // validate-retry loop (`diff_repair::validate_and_repair`). Up to
+    // [`MAX_LOCAL_ATTEMPTS`] attempts run locally before falling back
+    // to cloud, with `build_kortix_repair_prompt` producing the second-
+    // attempt prompt. `Truncated` and `FullRewriteSuspicious` are
+    // fatal for the local path (no retry — straight to cloud).
     if local_apply_enabled {
         if let Some(ai) = local_ai {
             if let Some((target_path, target_body)) = context_bodies.first() {
@@ -205,6 +223,7 @@ pub async fn run_single_shot(
                     store,
                     ai,
                     session_id,
+                    &input.repo_path,
                     target_path,
                     target_body,
                     &input.error_message,
@@ -396,10 +415,25 @@ fn now_ms() -> i64 {
 /// success, `None` on any failure / missing prerequisite. The caller
 /// (`run_single_shot`) treats `None` as "fall back to cloud" — never
 /// surfaces an error from this function to the user.
+///
+/// Sesión 26 — wraps the AI call in a parse-validate-retry loop with
+/// up to [`MAX_LOCAL_ATTEMPTS`] attempts. Each attempt runs:
+///   1. `LocalAI::generate` → drain to String → `strip_chatml_trailer`.
+///   2. `diff_repair::validate_and_repair` (normalises CRLF, trailing
+///      newline, BOM; rejects truncation, full-rewrite, mid-stream
+///      ChatML, empty output).
+///   3. `build_unified_diff` → `git apply --check` (when the repo is
+///      git-backed).
+/// On a recoverable validator error (PartialChatMLEmission, EmptyOutput)
+/// or an apply-check failure, the loop builds a `build_kortix_repair_prompt`
+/// for the next attempt. On a fatal validator error (Truncated,
+/// FullRewriteSuspicious) the loop bails immediately to cloud — no
+/// amount of prompt repair will recover those structural failures.
 async fn try_fast_apply_local(
     store:            &Arc<Store>,
     ai:               &LocalAI,
     session_id:       &str,
+    repo_path:        &Path,
     target_path:      &str,
     target_body:      &str,
     error_message:    &str,
@@ -433,7 +467,10 @@ async fn try_fast_apply_local(
         return None;
     }
 
-    // Build the prompt. Instruction = error message + stack-trace head.
+    // Build the base instruction (the natural-language fix request).
+    // Reused across attempts — only the prompt envelope changes between
+    // attempt 1 (build_fast_apply_prompt) and attempt 2+
+    // (build_kortix_repair_prompt).
     let mut instruction = String::with_capacity(error_message.len() + 128);
     instruction.push_str("Fix the following error in the file above:\n");
     instruction.push_str(error_message);
@@ -443,80 +480,183 @@ async fn try_fast_apply_local(
             instruction.push_str(first);
         }
     }
-    let prompt = build_fast_apply_prompt(target_body, &instruction);
 
-    let opts = GenerateOptions {
-        model_id:    KORTIX_MODEL_ID.to_string(),
-        prompt,
-        max_tokens:  FAST_APPLY_MAX_TOKENS,
-        // Kortix is a chat-style instruct model — NOT FIM. The runtime
-        // ignores this flag today but logs it so the audit trail is
-        // honest about the call shape.
-        fim_mode:    false,
-        // None = use llama-server's default. Kortix is deterministic
-        // enough at the default temperature; S26 may pin it lower if
-        // empirical apply-success rates demand it.
-        temperature: None,
-        // Stop on the closing ChatML marker so we don't bleed into a
-        // second turn if the model hallucinates one.
-        stop_seqs:   vec!["<|im_end|>".into()],
-    };
+    let mut current_prompt = build_fast_apply_prompt(target_body, &instruction);
 
-    // Drain the stream into a String, capping wall-clock at the timeout.
-    let edited = match drain_local_stream(ai, opts).await {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(
-                session_id,
-                error = %e,
-                "fast_apply_local: generate failed; falling back to cloud",
-            );
-            return None;
+    for attempt in 1..=MAX_LOCAL_ATTEMPTS {
+        let opts = GenerateOptions {
+            model_id:    KORTIX_MODEL_ID.to_string(),
+            prompt:      current_prompt.clone(),
+            max_tokens:  FAST_APPLY_MAX_TOKENS,
+            // Kortix is a chat-style instruct model — NOT FIM.
+            fim_mode:    false,
+            // None = use llama-server's default. S26 leaves this at the
+            // S25 baseline; the retry loop is a stronger lever for apply
+            // quality than tuning temperature.
+            temperature: None,
+            // Stop on the closing ChatML marker so we don't bleed into a
+            // second turn if the model hallucinates one.
+            stop_seqs:   vec!["<|im_end|>".into()],
+        };
+
+        let raw = match drain_local_stream(ai, opts).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    session_id,
+                    attempt,
+                    error = %e,
+                    "fast_apply_local: generate failed; falling back to cloud",
+                );
+                return None;
+            }
+        };
+
+        // Strip the trailing ChatML marker (mid-content markers are the
+        // diff_repair validator's job; this only handles the trailing
+        // 8-byte window S25 documented).
+        let edited = strip_chatml_trailer(&raw);
+
+        match diff_repair::validate_and_repair(target_body, &edited, &instruction) {
+            Ok(repaired) => {
+                let diff_unified = build_unified_diff(
+                    target_path,
+                    target_body,
+                    &repaired.edited_file,
+                );
+                if diff_unified.trim().is_empty() {
+                    // Identical input/output. Recoverable: ask for a
+                    // real edit on the next attempt.
+                    tracing::info!(
+                        session_id,
+                        attempt,
+                        "fast_apply_local: model returned identical file; retrying with repair prompt",
+                    );
+                    if attempt < MAX_LOCAL_ATTEMPTS {
+                        current_prompt = build_kortix_repair_prompt(
+                            &instruction,
+                            target_body,
+                            &RepairError::EmptyOutput,
+                        );
+                        continue;
+                    }
+                    return None;
+                }
+
+                let files_touched = parse_diff_files(&diff_unified);
+                if files_touched.is_empty() {
+                    tracing::warn!(
+                        session_id,
+                        attempt,
+                        "fast_apply_local: diff has no +++ b/ path; falling back",
+                    );
+                    return None;
+                }
+
+                if !git_apply_check(repo_path, &diff_unified) {
+                    tracing::info!(
+                        session_id,
+                        attempt,
+                        "fast_apply_local: git apply --check rejected diff; \
+                         retrying with repair prompt",
+                    );
+                    if attempt < MAX_LOCAL_ATTEMPTS {
+                        // The diff is structurally well-formed (validator
+                        // passed) but doesn't match the on-disk context
+                        // byte-for-byte. The most common cause is the
+                        // same family the validator's normaliser already
+                        // tried to fix (CRLF / trailing newline) but
+                        // missed. Treat as PartialChatMLEmission's peer
+                        // — recoverable, ask for a clean regen.
+                        current_prompt = build_kortix_repair_prompt(
+                            &instruction,
+                            target_body,
+                            &RepairError::EmptyOutput,
+                        );
+                        continue;
+                    }
+                    return None;
+                }
+
+                return Some(RemediationDraft {
+                    session_id:        session_id.to_string(),
+                    diff_unified,
+                    files_touched,
+                    // Stable string for cost-ledger grouping. NEVER rename.
+                    model_used:        KORTIX_LOCAL_MODEL_NAME,
+                    // No usage tracking on local — `chars/4` heuristic would
+                    // lie about a workload that never crosses the network.
+                    prompt_tokens:     0,
+                    completion_tokens: 0,
+                    cents:             0,
+                });
+            }
+            Err(err @ RepairError::Truncated { .. })
+            | Err(err @ RepairError::FullRewriteSuspicious) => {
+                // Fatal — these are structural failures no amount of
+                // prompt repair will recover. Bail to cloud immediately.
+                tracing::info!(
+                    session_id,
+                    attempt,
+                    err = %err,
+                    "fast_apply_local: fatal validator error; escalating to cloud",
+                );
+                return None;
+            }
+            Err(err) => {
+                // Recoverable — retry with the repair prompt.
+                tracing::info!(
+                    session_id,
+                    attempt,
+                    err = %err,
+                    "fast_apply_local: recoverable validator error; retrying with repair prompt",
+                );
+                if attempt < MAX_LOCAL_ATTEMPTS {
+                    current_prompt = build_kortix_repair_prompt(
+                        &instruction,
+                        target_body,
+                        &err,
+                    );
+                    continue;
+                }
+                // Exhausted retries → cloud.
+                return None;
+            }
         }
-    };
-
-    // Strip any trailing ChatML marker the model emitted before the
-    // stop sequence (some llama-server builds emit a partial token
-    // before honouring `stop`).
-    let edited = strip_chatml_trailer(&edited);
-    if edited.trim().is_empty() {
-        tracing::warn!(session_id, "fast_apply_local: empty completion; falling back");
-        return None;
     }
 
-    // Convert the full edited file → unified diff so the apply pipeline
-    // (orchestrator::apply_diff) stays unchanged.
-    let diff_unified = build_unified_diff(target_path, target_body, &edited);
-    if diff_unified.trim().is_empty() {
-        // No changes — model parroted the input back. Treat as failure
-        // so the caller can still try the cloud (which may have a
-        // different idea of what to change).
-        tracing::info!(session_id, "fast_apply_local: model returned identical file; falling back");
-        return None;
+    // Defensive: the loop above always returns. This line is unreachable
+    // in practice but satisfies the type checker.
+    None
+}
+
+/// Best-effort `git apply --check` against the on-disk repo. Returns
+/// true when the diff would apply cleanly (or when the repo is not
+/// git-backed — in which case the orchestrator's `apply_diff` is the
+/// real gate). False when `git apply --check` exits non-zero.
+fn git_apply_check(repo_path: &Path, diff: &str) -> bool {
+    if !repo_path.join(".git").exists() {
+        // Not a git repo → trust the validator + diff builder. The
+        // orchestrator's apply_diff will surface the real failure if
+        // any when the user accepts the draft.
+        return true;
     }
 
-    let files_touched = parse_diff_files(&diff_unified);
-    if files_touched.is_empty() {
-        // Diff produced but the `+++ b/...` parser couldn't extract a
-        // path — should never happen given the way we generate the
-        // diff, but defensively bail to cloud.
-        tracing::warn!(session_id, "fast_apply_local: diff has no +++ b/ path; falling back");
-        return None;
+    let patch_path = std::env::temp_dir()
+        .join(format!("inari-fastapply-check-{}.patch", uuid::Uuid::new_v4()));
+    if std::fs::write(&patch_path, diff).is_err() {
+        return false;
     }
+    let result = std::process::Command::new("git")
+        .current_dir(repo_path)
+        .args(["apply", "--check", patch_path.to_str().unwrap_or_default()])
+        .output();
+    let _ = std::fs::remove_file(&patch_path);
 
-    Some(RemediationDraft {
-        session_id:        session_id.to_string(),
-        diff_unified,
-        files_touched,
-        // Stable string for cost-ledger grouping. NEVER rename.
-        model_used:        KORTIX_LOCAL_MODEL_NAME,
-        // No usage tracking on local — `chars/4` heuristic would lie
-        // about a workload that never crosses the network. Zero is
-        // honest: zero cents, zero token bill.
-        prompt_tokens:     0,
-        completion_tokens: 0,
-        cents:             0,
-    })
+    match result {
+        Ok(out) => out.status.success(),
+        Err(_)  => false,
+    }
 }
 
 /// Drain `LocalAI::generate` into a String, with a wall-clock cap. The

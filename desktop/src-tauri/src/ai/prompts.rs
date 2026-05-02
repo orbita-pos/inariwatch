@@ -406,6 +406,68 @@ pub fn build_fast_apply_prompt(file_content: &str, instruction: &str) -> String 
     )
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// build_kortix_repair_prompt — Sesión 26, Fast Apply v2 retry path
+// ─────────────────────────────────────────────────────────────────────
+
+/// Build the second-attempt prompt the Kortix retry loop hands to
+/// [`crate::local_ai::LocalAI::generate`] when the first attempt failed
+/// validation. The format is identical to [`build_fast_apply_prompt`]
+/// (so Kortix's training distribution still matches), with the user's
+/// original instruction augmented by an `IMPORTANT:` footer that names
+/// the failure mode and asks for a corrective regeneration.
+///
+/// `instruction` is the unmodified user instruction from attempt 1.
+/// `file_content` is the original source (NOT the model's failed
+/// output — re-feeding the broken output as `<code>` would prime the
+/// model to repeat its mistake).
+/// `error` is the [`RepairError`] from `diff_repair::validate_and_repair`.
+///
+/// Sesión 26 stays inside the v1 prompt envelope on purpose — see
+/// DECISIONS for the "never silently mutate the v1 wording" rule from
+/// S25. The repair guidance lives ENTIRELY inside the user-instruction
+/// payload, not the system prompt or the ChatML envelope.
+pub fn build_kortix_repair_prompt(
+    instruction:  &str,
+    file_content: &str,
+    error:        &crate::ai::diff_repair::RepairError,
+) -> String {
+    use crate::ai::diff_repair::RepairError;
+
+    let guidance = match error {
+        RepairError::Truncated { .. } => {
+            "Your previous output was much shorter than the original file — \
+             it looks like the response was truncated. Please regenerate the \
+             COMPLETE updated file from the first line to the last, including \
+             every function, every import, and every comment. Do not abbreviate \
+             or omit any part of the file."
+        }
+        RepairError::FullRewriteSuspicious => {
+            "Your previous output rewrote nearly every line of the file. \
+             Please make ONLY the minimum changes needed to satisfy the \
+             instruction. Preserve every line that does not need to change."
+        }
+        RepairError::EmptyOutput => {
+            "Your previous output was empty. Please return the COMPLETE updated \
+             file contents — no preamble, no explanation, just the new file body."
+        }
+        RepairError::PartialChatMLEmission => {
+            "Your previous output contained a ChatML control token (such as \
+             <|im_start|> or <|im_end|>) inside the file body. Please regenerate \
+             the file WITHOUT any control tokens — emit only the file's source \
+             code, with no ChatML markers in the body."
+        }
+    };
+
+    let mut augmented = String::with_capacity(instruction.len() + guidance.len() + 32);
+    augmented.push_str(instruction);
+    if !instruction.ends_with('\n') { augmented.push('\n'); }
+    augmented.push_str("\nIMPORTANT: ");
+    augmented.push_str(guidance);
+
+    build_fast_apply_prompt(file_content, &augmented)
+}
+
 /// Truncate `s` at byte-offset `max_bytes`, rounded down to a char
 /// boundary. Cheap, panic-free helper — `&str[..n]` panics on
 /// multi-byte boundaries so callers cannot use raw slicing.
@@ -568,6 +630,54 @@ mod tests {
         let p = build_fast_apply_prompt("no-trailing-lf", "instr");
         assert!(p.contains("no-trailing-lf\n</code>"));
         assert!(p.contains("instr\n</update>"));
+    }
+
+    #[test]
+    fn kortix_repair_prompt_keeps_v1_envelope_and_appends_guidance() {
+        use crate::ai::diff_repair::RepairError;
+        let p = build_kortix_repair_prompt(
+            "Fix the off-by-one",
+            "fn add(a, b) { a - b }\n",
+            &RepairError::Truncated { original_len: 1000, edited_len: 100 },
+        );
+        // Envelope contract is unchanged — it still goes through
+        // build_fast_apply_prompt.
+        assert!(p.starts_with("<|im_start|>system\n"));
+        assert!(p.ends_with("<|im_start|>assistant\n"));
+        // Guidance lives inside the <update> payload.
+        assert!(p.contains("Fix the off-by-one"));
+        assert!(p.contains("IMPORTANT:"));
+        assert!(p.contains("truncated"));
+    }
+
+    #[test]
+    fn kortix_repair_prompt_emits_distinct_guidance_per_error() {
+        use crate::ai::diff_repair::RepairError;
+        let trunc = build_kortix_repair_prompt(
+            "fix",
+            "code\n",
+            &RepairError::Truncated { original_len: 1000, edited_len: 100 },
+        );
+        let rewrite = build_kortix_repair_prompt(
+            "fix",
+            "code\n",
+            &RepairError::FullRewriteSuspicious,
+        );
+        let chatml = build_kortix_repair_prompt(
+            "fix",
+            "code\n",
+            &RepairError::PartialChatMLEmission,
+        );
+        let empty = build_kortix_repair_prompt(
+            "fix",
+            "code\n",
+            &RepairError::EmptyOutput,
+        );
+
+        assert!(trunc.contains("truncated"));
+        assert!(rewrite.contains("rewrote nearly every line"));
+        assert!(chatml.contains("ChatML control token"));
+        assert!(empty.contains("empty"));
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! and adds `single_shot` + `orchestrator` as peer modules.
 
 pub mod budget;
+pub mod diff_repair;
 pub mod openai;
 pub mod prompts;
 pub mod remediate;
