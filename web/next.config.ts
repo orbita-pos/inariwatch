@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 // withInariWatch wrapper intentionally NOT imported here — the published
 // @inariwatch/capture@0.9.0's `./next` subpath exports only `import`/`default`
 // conditions, no `require`. Next.js's config transpiler compiles this file
@@ -44,6 +45,17 @@ const config: NextConfig = {
   // for the Hetzner Docker build. No effect on Vercel — Vercel uses its own
   // tracer — so it's safe to enable now and have both surfaces work.
   output: "standalone",
+
+  // Monorepo trace root. web/ pulls in `packages/ai-router/` via the
+  // tsconfig path alias "@inariwatch/ai-router" → "../packages/ai-router/
+  // src/index.ts". Without this, Next.js infers the trace root from where
+  // package-lock.json lives (web/) and the standalone bundle silently
+  // misses ai-router files at runtime. Setting this explicitly to the
+  // repo root makes the trace include packages/, mirrors the layout into
+  // .next/standalone/{web,packages}/ and shifts the entrypoint to
+  // .next/standalone/web/server.js — the runtime CMD in web/Dockerfile
+  // and Kamal's healthcheck base path are both updated to match.
+  outputFileTracingRoot: path.join(__dirname, ".."),
 
   // Image optimizer — tuned for self-hosted on a single CX21.
   //

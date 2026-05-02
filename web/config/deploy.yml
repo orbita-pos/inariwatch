@@ -86,8 +86,17 @@ registry:
 # Docker buildx — registry cache keeps subsequent builds at ~90s even after
 # a full Dockerfile change. mode=max caches intermediate stages too
 # (critical for the deps + build split).
+#
+# context: ".." — build context is the repo root (one level above this
+# config's `web/` directory) so the image build can see
+# `packages/ai-router/`, the workspace-internal package that web/tsconfig
+# resolves via the "@inariwatch/ai-router" path alias. Kamal cd's to
+# build_directory + working_dir = `<clone>/web` before invoking docker
+# buildx, so `--file Dockerfile` keeps resolving to web/Dockerfile while
+# the `..` context expands to the repo root with packages/ visible.
 builder:
   arch: amd64
+  context: ..
   cache:
     type: registry
     image: orbita-pos/inari-web-build-cache

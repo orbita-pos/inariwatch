@@ -1,0 +1,84 @@
+# BuildKit named-ignore for web/Dockerfile. Lives next to the Dockerfile
+# inside the build context so BuildKit picks it up over any repo-root
+# `.dockerignore`. Patterns are interpreted relative to the build context
+# root, which is now the repo root (see web/config/deploy.yml `builder.context`).
+
+# ── Build outputs + caches (any depth) ────────────────────────────────────
+.next
+out
+node_modules
+.turbo
+.vercel
+
+# ── Env files (secrets live in Kamal + sops, never in the image) ──────────
+.env
+.env.*
+!.env.example
+.env.sops.yaml
+**/.env
+**/.env.*
+**/.env.sops.yaml
+
+# ── VCS + editor metadata ─────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+.claude
+*.swp
+.DS_Store
+
+# ── Tests + fixtures (not needed at runtime) ──────────────────────────────
+__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/playwright.config.ts
+**/playwright-report
+**/test-results
+
+# ── Per-app docs/scripts (operator runbooks + dev tooling) ────────────────
+web/docs/
+web/scripts/
+
+# ── Logs + local state ────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Misc dev artifacts ────────────────────────────────────────────────────
+coverage
+.nyc_output
+.easignore
+
+# ── Sibling workspaces NOT needed for the web build ───────────────────────
+# Only web/ and packages/ai-router/ are required (path alias). Everything
+# else lives in its own repo / image / package and just bloats the context.
+action/
+bot-app/
+capture/
+capture-mcp/
+capture-replay/
+cli/
+desktop/
+infra/
+k6/
+mcp/
+node-forensic-v8/
+openclaw-skill/
+ops-agent/
+services/
+shared/
+specs/
+src/
+vscode/
+worker/
+
+# ── Top-level docs / runbooks (not needed for build) ──────────────────────
+*.md
+LICENSE
+*.txt
