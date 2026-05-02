@@ -11,6 +11,7 @@ import {
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/cn";
+import { useCommandPalette } from "@/lib/store/commandPalette";
 import { useMainWindow, type MainRoute } from "@/lib/store/mainWindow";
 
 interface NavItem {
@@ -53,6 +54,7 @@ const ALL_NAV: NavItem[] = TOP_NAV;
 export function Sidebar() {
   const route = useMainWindow((s) => s.route);
   const setRoute = useMainWindow((s) => s.setRoute);
+  const openPalette = useCommandPalette((s) => s.openWithIntent);
   const containerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -119,12 +121,14 @@ export function Sidebar() {
         <button
           type="button"
           aria-label="Search"
+          title="Search (⌘K)"
           data-testid="sidebar-search"
+          onClick={() => openPalette("search")}
           className={cn(
             "h-7 w-7 inline-flex items-center justify-center rounded-[var(--radius-sm)]",
             "text-[var(--text-muted)] hover:text-[var(--text)]",
             "transition-colors duration-[var(--duration-fast)]",
-            "hover:bg-[var(--card)] outline-none",
+            "hover:bg-[var(--card)] outline-none cursor-pointer",
             "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
           )}
         >
@@ -132,13 +136,15 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          aria-label="Compose"
+          aria-label="New fix request"
+          title="New fix request"
           data-testid="sidebar-compose"
+          onClick={() => openPalette("fix")}
           className={cn(
             "h-7 w-7 inline-flex items-center justify-center rounded-[var(--radius-sm)]",
             "text-[var(--text-muted)] hover:text-[var(--text)]",
             "transition-colors duration-[var(--duration-fast)]",
-            "hover:bg-[var(--card)] outline-none",
+            "hover:bg-[var(--card)] outline-none cursor-pointer",
             "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
           )}
         >

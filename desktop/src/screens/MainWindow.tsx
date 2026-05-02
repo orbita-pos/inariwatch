@@ -2,9 +2,11 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { ScrollArea } from "@/components/ui";
 import { pageEnter } from "@/lib/motion";
+import { useCommandPalette } from "@/lib/store/commandPalette";
 import { useMainWindow, type MainRoute } from "@/lib/store/mainWindow";
 import { MainActivity } from "@/screens/main/Activity";
 import { MainInbox } from "@/screens/main/Inbox";
@@ -30,6 +32,9 @@ export function MainWindow() {
   const route = useMainWindow((s) => s.route);
   const setRoute = useMainWindow((s) => s.setRoute);
   const reduce = useReducedMotion();
+  const paletteOpen = useCommandPalette((s) => s.open);
+  const paletteIntent = useCommandPalette((s) => s.intent);
+  const setPaletteOpen = useCommandPalette((s) => s.setOpen);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -85,6 +90,11 @@ export function MainWindow() {
           </motion.div>
         </AnimatePresence>
       </ScrollArea>
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        intent={paletteIntent}
+      />
     </div>
   );
 }

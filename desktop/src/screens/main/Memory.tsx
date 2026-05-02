@@ -1,6 +1,7 @@
 import { BookOpen, Search } from "lucide-react";
 
 import { ActionSquare, EmptyState, TopBar } from "@/components/ui";
+import { useCommandPalette } from "@/lib/store/commandPalette";
 
 /**
  * Memory — `memory.md` preview + audit history. Sesión 11 wired the IPC
@@ -8,6 +9,7 @@ import { ActionSquare, EmptyState, TopBar } from "@/components/ui";
  * Sesión 19. This is the polished empty shell until then.
  */
 export function MainMemory() {
+  const openPalette = useCommandPalette((s) => s.openWithIntent);
   return (
     <section data-testid="main-memory" className="h-full flex flex-col">
       <TopBar
@@ -15,7 +17,11 @@ export function MainMemory() {
         title="Memory"
         meta="Notes, audits, and learned patterns"
         actions={
-          <ActionSquare ariaLabel="Search memory" testId="memory-action-search">
+          <ActionSquare
+            ariaLabel="Search memory"
+            testId="memory-action-search"
+            onClick={() => openPalette("search")}
+          >
             <Search className="h-3.5 w-3.5" aria-hidden />
           </ActionSquare>
         }
