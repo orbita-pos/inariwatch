@@ -660,6 +660,58 @@ export async function replayAgainstPatch(
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Sesión 28 — export receipt as `.eap.json`
+//
+// The chip's modal surfaces an "Export receipt" button that opens the
+// native save-dialog (handled server-side via DialogExt — the
+// frontend ships zero new deps). The backend command bakes in the
+// attestor public key (best-effort — fetched from EAP_SERVER_URL
+// when available) so the resulting file can be verified offline by
+// the standalone `inari-verify` CLI binary (and, in S29, by the
+// `verify.inariwatch.com` web verifier).
+//
+// Wire shape:
+//   - `cancelled` — user dismissed the picker. NOT an error; the chip
+//     just returns to idle.
+//   - `ok`        — file written, includes path + whether the attestor
+//     pubkey was bundled (`hasPublicKey: false` → CLI will show a
+//     Merkle-only PASS rather than a signature-verified PASS).
+//   - `error`     — backend invocation failed (no receipt, write error,
+//     IPC not registered).
+// ──────────────────────────────────────────────────────────────────────
+
+export type ExportReceiptResult =
+  | { kind: "ok"; path: string; hasPublicKey: boolean }
+  | { kind: "cancelled" }
+  | { kind: "error"; message: string };
+
+export async function exportEapReceipt(
+  sessionId: string,
+): Promise<ExportReceiptResult> {
+  try {
+    const raw = await invoke<{
+      path: string;
+      has_public_key: boolean;
+    } | null>("export_eap_receipt", {
+      args: { session_id: sessionId },
+    });
+    if (raw === null) {
+      return { kind: "cancelled" };
+    }
+    return {
+      kind: "ok",
+      path: raw.path,
+      hasPublicKey: raw.has_public_key,
+    };
+  } catch (e) {
+    return {
+      kind: "error",
+      message: e instanceof Error ? e.message : "export invocation failed",
+    };
+  }
+}
+
 // Internal: shape backend ships over the wire (snake_case + tagged
 // `kind`). Mapped to the camelCase TS shape the dock consumes.
 type RawReplayResult =
