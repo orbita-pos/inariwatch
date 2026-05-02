@@ -121,10 +121,21 @@ describe("dispatchStream()", () => {
       'data: {"choices":[{"delta":{"content":"start"}}]}\n\n',
     ];
     // First yield delta, then break the body to simulate disconnect.
+    //
+    // NOTE: per WHATWG Streams, calling `controller.error()` *synchronously*
+    // after `controller.enqueue()` in the same start() tick discards the
+    // queued chunk and the very first reader.read() rejects with the error
+    // — the consumer never sees the delta. That's not what real
+    // mid-stream errors look like (TCP has at least some scheduling delay
+    // between bytes and a network error). Pull/push with a microtask gap
+    // so the consumer reads + decodes the delta BEFORE the error lands.
     const broken = new ReadableStream({
-      start(controller) {
+      async pull(controller) {
         const enc = new TextEncoder();
         for (const e of events) controller.enqueue(enc.encode(e));
+        // Yield the event-loop so the upstream reader picks the bytes up
+        // before we kill the stream.
+        await new Promise((r) => setTimeout(r, 0));
         controller.error(new Error("network died mid-stream"));
       },
     });
