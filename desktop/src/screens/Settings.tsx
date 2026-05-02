@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { ScrollArea } from "@/components/ui";
+import { ScrollArea, TopBar } from "@/components/ui";
 import { useSettings, type SettingsSection } from "@/lib/store/settings";
 import { SettingsAbout } from "@/screens/settings/About";
 import { SettingsAccount } from "@/screens/settings/Account";
@@ -77,18 +77,25 @@ export function Settings() {
         })}
       </nav>
 
-      <ScrollArea className="flex-1 h-full">
-        <main className="p-6">
-          {activeSection === "general"       ? <SettingsGeneral /> : null}
-          {activeSection === "repos"         ? <SettingsRepos /> : null}
-          {activeSection === "sensors"       ? <SettingsSensors /> : null}
-          {activeSection === "notifications" ? <SettingsNotifications /> : null}
-          {activeSection === "ai"            ? <SettingsAi /> : null}
-          {activeSection === "privacy"       ? <SettingsPrivacy /> : null}
-          {activeSection === "about"         ? <SettingsAbout /> : null}
-          {activeSection === "account"       ? <SettingsAccount /> : null}
-        </main>
-      </ScrollArea>
+      <div className="flex-1 h-full flex flex-col min-w-0">
+        <TopBar
+          testId="settings-topbar"
+          title="Settings"
+          meta={SECTIONS.find((s) => s.id === activeSection)?.label ?? "General"}
+        />
+        <ScrollArea className="flex-1">
+          <main className="p-6">
+            {activeSection === "general"       ? <SettingsGeneral /> : null}
+            {activeSection === "repos"         ? <SettingsRepos /> : null}
+            {activeSection === "sensors"       ? <SettingsSensors /> : null}
+            {activeSection === "notifications" ? <SettingsNotifications /> : null}
+            {activeSection === "ai"            ? <SettingsAi /> : null}
+            {activeSection === "privacy"       ? <SettingsPrivacy /> : null}
+            {activeSection === "about"         ? <SettingsAbout /> : null}
+            {activeSection === "account"       ? <SettingsAccount /> : null}
+          </main>
+        </ScrollArea>
+      </div>
     </div>
   );
 }
