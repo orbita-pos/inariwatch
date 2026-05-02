@@ -1,0 +1,87 @@
+//! Integration tests for the v0.3 S2 relay client.
+//!
+//! Real WS connectivity is exercised by the Go relay's own integration
+//! tests (services/relay/*_test.go). This file validates the parts of
+//! the Rust client that don't require a live network: backoff progression,
+//! capability surface, dispatch-frame serialization, and the stub
+//! response contract that web's user-sidecar provider falls back from.
+
+use inariwatch_desktop_lib::relay_client::{
+    build_stub_response, RelayConfig, RelayState, CAPABILITIES,
+};
+use serde_json::json;
+
+#[test]
+fn capabilities_advertise_v0_3_surface() {
+    // §3 of INARI_AI_ARCHITECTURE.md — sidecar covers notify.*, voice.tts,
+    // chat.conversational, redact.*. Tests guard against a future
+    // accidental list pruning.
+    for must_advertise in [
+        "notify.compose.email",
+        "notify.compose.slack",
+        "notify.compose.telegram",
+        "notify.compose.whatsapp",
+        "notify.compose.push",
+        "notify.compose.digest",
+        "notify.compose.status-page",
+        "notify.compose.postmortem-prose",
+        "voice.tts.alert",
+        "voice.tts.digest",
+        "chat.conversational",
+        "redact.pii.breadcrumbs",
+        "redact.pii.stacktrace",
+    ] {
+        assert!(
+            CAPABILITIES.contains(&must_advertise),
+            "missing capability {must_advertise}",
+        );
+    }
+}
+
+#[test]
+fn ws_url_constructs_correctly() {
+    let cfg = RelayConfig {
+        base_url: "wss://relay.inariwatch.com".into(),
+        jwt: "tok".into(),
+        app_version: "0.3.0".into(),
+        initial_backoff: None,
+    };
+    assert_eq!(cfg.ws_url(), "wss://relay.inariwatch.com/ws");
+}
+
+#[test]
+fn relay_state_serde_round_trip() {
+    for s in [
+        RelayState::Disconnected,
+        RelayState::Connecting,
+        RelayState::Connected,
+        RelayState::Reconnecting,
+    ] {
+        let raw = serde_json::to_string(&s).unwrap();
+        let back: RelayState = serde_json::from_str(&raw).unwrap();
+        assert_eq!(s, back);
+    }
+    // Frontend bridge expects snake_case.
+    let r = serde_json::to_string(&RelayState::Reconnecting).unwrap();
+    assert_eq!(r, "\"reconnecting\"");
+}
+
+#[test]
+fn stub_response_satisfies_relay_contract() {
+    // Mimic a dispatch frame the Go relay would forward.
+    let raw_dispatch = json!({
+        "type": "dispatch",
+        "request_id": "abc-123",
+        "task": "notify.compose.email",
+        "payload": {"alert": "x"},
+    });
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame =
+        serde_json::from_value(raw_dispatch).unwrap();
+    let resp = build_stub_response(&df);
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["request_id"], "abc-123");
+    assert_eq!(v["type"], "response");
+    assert_eq!(v["status"], "ok");
+    assert_eq!(v["body"]["task"], "notify.compose.email");
+    assert_eq!(v["body"]["stub"], true);
+}

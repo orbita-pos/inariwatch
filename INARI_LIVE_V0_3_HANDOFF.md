@@ -147,7 +147,80 @@ Create `packages/ai-router/` workspace package. Define task taxonomy + routing r
 
 ### v0.3 S2 — WS relay (`relay.inariwatch.com`) (6h)
 
-**Status:** PENDING.
+**Status:** DONE-2026-05-02 (NOT PUSHED, NOT DEPLOYED). Code-complete on
+`feat/inari-live-v0.3-session2-ws-relay` in worktree `../radar-v0.3-s2`.
+Tests: 19 Go, 11 Rust, 33 TS — all passing locally. Real Hetzner deploy
+deferred to Jesus (Caddyfile snippet + systemd unit + binary rsync — see
+`services/relay/README.md` for the runbook).
+
+**Built (per architecture §4):**
+- `services/relay/` — Go service on :9402. Endpoints: `/health` (public),
+  `/ws` (JWT-authed WS upgrade), `/dispatch` (Bearer-authed
+  server→server), `/admin/connections` (snapshot for `/admin/ops`).
+  Stateless beyond connection tracking, no payload logs.
+- `services/relay/deploy/caddy.snippet` — `wss://relay.inariwatch.com →
+  127.0.0.1:9402` with CF Origin Cert + 1h read/write timeouts for WS.
+- `services/relay/deploy/inari-relay.service` — systemd unit (drop-in
+  pattern matching inari-staging + inari-worker per
+  `project_hetzner_deploy.md`).
+- `desktop/src-tauri/src/relay_client.rs` — Inari Live registers on app
+  start, exponential backoff reconnect (1s → 30s ±20% jitter), surfaces
+  `RelayState` to the frontend. Stub dispatch handler responds
+  `{ stub: true }` until S3 wires real `notify.compose.email`.
+- `packages/ai-router/src/providers/user-sidecar.ts` — replaces S1 stub.
+  POSTs to relay `/dispatch` with `RELAY_DISPATCH_SECRET` Bearer; 2s
+  timeout; maps relay 503/504 to `sidecar-offline`/`sidecar-timeout`/
+  `sidecar-disconnect` so dispatch core's `shouldFallback()` picks them
+  up. Strips `apiKey` before send (architecture §4.5).
+- `packages/ai-router/src/providers/relay.ts` — internal HTTP helper
+  (single 100ms retry on transient network failures).
+- `packages/ai-router/src/dispatch.ts` — wires `setActiveSidecarUser`
+  around the sidecar runner; emits `relayPath="relay"` +
+  `userSidecarReceipt` (Ed25519, signed by sidecar — web persists
+  without re-signing per S27/S28 chain).
+- `packages/ai-router/src/receipts.ts` — `RouterReceipt` gains
+  `userSidecarReceipt?: unknown`.
+- `web/lib/relay/jwt.ts` — HS256 JWT signer. Same key derivation as Go
+  (`SHA-256("inariwatch-relay-jwt:" || INARI_LIVE_RELAY_JWT_KEY)`).
+- `web/app/(dashboard)/admin/ops/widgets/relay.tsx` — new ops widget
+  (count, by OS, by app version, stalest last-seen). Auth via
+  `RELAY_DISPATCH_SECRET` server-side; secret never reaches the browser.
+- `web/scripts/smoke-relay.ts` — end-to-end smoke (USER_ID=demo
+  `npx tsx scripts/smoke-relay.ts`).
+- `web/.env.example` — documents `RELAY_URL`, `RELAY_DISPATCH_SECRET`,
+  `INARI_LIVE_RELAY_JWT_KEY` (all optional; unset = transparent
+  fallback to cloud).
+
+**Tests passing locally:**
+- Go (`services/relay/`): 19 tests — JWT auth (valid/expired/bad-alg/
+  bad-sig/missing-sub/malformed/header-vs-query), dispatch routing
+  (online/offline/disconnect/timeout/bad-bearer), admin endpoint,
+  ctx-cancel.
+- Rust (`desktop/src-tauri/`): 11 tests — backoff progression + reset,
+  capability surface, dispatch frame deserialization, register frame
+  meta, RelayState serde, ws_url construction, stub response contract.
+- TS (`packages/ai-router/`): 33 tests — full S1 suite (pulled in S1's
+  uncommitted `pickProvider` fix to keep dispatch.test.ts green) +
+  13 new user-sidecar provider tests covering happy path, error
+  mapping for fallback contract, unsupported modes, receipt drainage.
+
+**Real deploy (Jesus drives, NOT done in S2):**
+1. `rsync` `services/relay/inari-relay` (build with
+   `GOOS=linux GOARCH=amd64 go build -o inari-relay .`) to
+   `/opt/inari-relay/inari-relay`.
+2. Drop systemd unit at `/etc/systemd/system/inari-relay.service` and
+   env at `/opt/inari-relay/.env` (sops-encrypted —
+   `RELAY_DISPATCH_SECRET` and `INARI_LIVE_RELAY_JWT_KEY` from
+   `openssl rand -hex 32`).
+3. Append `services/relay/deploy/caddy.snippet` to the Hetzner Caddyfile
+   and `caddy reload`. Confirm CF "Preserve Authorization Header" is on.
+4. Set `RELAY_URL`, `RELAY_DISPATCH_SECRET`, `INARI_LIVE_RELAY_JWT_KEY`
+   in web's Kamal env (sops). Web is inert until set — feature degrades
+   gracefully (router falls back to cloud per existing rules).
+5. Smoke: `curl -s https://relay.inariwatch.com/health`, then run
+   `USER_ID=… npx tsx web/scripts/smoke-relay.ts` after first sidecar
+   connects.
+
 **Predecessor:** v0.3 S1 merged.
 **Worktree:** `git worktree add ../radar-v0.3-s2 -b feat/inari-live-v0.3-session2-ws-relay`
 

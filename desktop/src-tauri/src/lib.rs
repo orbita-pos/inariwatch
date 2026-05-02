@@ -90,6 +90,15 @@ pub mod lsp;
 // `inariwatch_desktop_lib::lib_eap_verify`.
 pub mod lib_eap_verify;
 
+// v0.3 S2 — WS relay client (Inari Live registers with relay.inariwatch.com
+// at boot and keeps a long-lived WS open so the InariWatch cloud router
+// can dispatch `notify.compose.*` / `voice.tts.*` / `chat.conversational`
+// tasks here when the workspace flag is on. Real per-task handlers wired
+// in v0.3 S3; S2 ships a stub that ack-replies "ok stub" so the smoke
+// loop is testable end-to-end. `pub` so integration tests in
+// `tests/relay_client_test.rs` reach `RelayConfig` / `Backoff`.
+pub mod relay_client;
+
 pub const LSP_DEFAULT_PORT: u16 = 9877;
 
 const INARI_WINDOW_LABEL: &str = "inari";

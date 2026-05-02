@@ -1,0 +1,29 @@
+# systemd unit for inari-relay. Drop into /etc/systemd/system/.
+#
+# Follows the same pattern as inari-staging.service / inari-worker.service
+# (per project_hetzner_deploy.md). Env vars live in /opt/inari-relay/.env
+# and are NOT in the repo.
+
+[Unit]
+Description=InariWatch WS relay (v0.3 AI Router)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=inari
+Group=inari
+WorkingDirectory=/opt/inari-relay
+EnvironmentFile=/opt/inari-relay/.env
+ExecStart=/opt/inari-relay/inari-relay
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/caddy
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -200,6 +200,13 @@ similar                  = "2"
 # generation, which we only do in tests).
 ed25519-dalek            = { version = "2", default-features = false, features = ["std"] }
 
+# v0.3 S2 — WS relay client (Inari Live registers with relay.inariwatch.com).
+# tokio-tungstenite shares its rustls TLS stack with reqwest above so the
+# binary doesn't drag in two TLS implementations. `connect` + `handshake`
+# are the default features; we opt out of native-tls explicitly.
+tokio-tungstenite        = { version = "0.23", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+rand                     = "0.8"
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"

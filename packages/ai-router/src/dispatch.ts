@@ -11,6 +11,10 @@ import {
   openaiEmbed,
   type ProviderAdapter,
 } from "./providers";
+import {
+  setActiveSidecarUser,
+  takeLastUserSidecarReceipt,
+} from "./providers/user-sidecar";
 import type {
   AIMessage,
   AIResponse,
@@ -162,10 +166,15 @@ export function detectProvider(key: string): AIProvider {
 }
 
 function pickProvider(input: DispatchInput, target: Target): AIProvider {
-  // Caller-explicit provider wins — Phase 1 must respect what surfaces pass.
+  // Phase 1 is a zero-behavior-change refactor. Per rules.ts, cloud-target
+  // `provider` is an advisory hint — the legacy client routed solely on
+  // `opts.provider ?? detectProvider(apiKey)`. Honor that contract.
+  // Order: caller-explicit > apiKey prefix > rule hint > openai default.
   if (input.provider) return input.provider;
+  const detected = detectProvider(input.apiKey);
+  if (detected !== "openai") return detected;
   if (target.substrate === "cloud" && target.provider) return target.provider;
-  return detectProvider(input.apiKey);
+  return detected;
 }
 
 // ── Substrate runners ───────────────────────────────────────────────────────
@@ -211,11 +220,19 @@ async function runOnCloud(
 }
 
 async function runOnSidecar(input: DispatchInput): Promise<RunResult> {
-  // Phase 1: stub. user-sidecar throws; the dispatch fallback machinery
-  // catches the throw and re-runs on cloud, so callers never see the gap.
-  const out = await runAdapter(input, SIDECAR, "openai" /* placeholder */);
-  const model = modelFromOutput(out);
-  return { output: out, provider: "user-sidecar", model, substrate: "user-sidecar" };
+  // v0.3 S2: real WS relay path. We push the workspace.userId into the
+  // user-sidecar provider's static slot just before the call (cleared in
+  // finally so cross-request leakage is impossible). If no userId is
+  // present the provider throws `sidecar-offline`, the dispatch core
+  // catches it via shouldFallback() and re-runs on cloud.
+  setActiveSidecarUser(input.workspace?.userId ?? null);
+  try {
+    const out = await runAdapter(input, SIDECAR, "openai" /* placeholder */);
+    const model = modelFromOutput(out);
+    return { output: out, provider: "user-sidecar", model, substrate: "user-sidecar" };
+  } finally {
+    setActiveSidecarUser(null);
+  }
 }
 
 async function runAdapter(
@@ -398,6 +415,14 @@ export async function dispatch(
     }
   }
 
+  // v0.3 S2 — when a dispatch ran on user-sidecar, the sidecar signs the
+  // receipt with the user's local Ed25519 key (S27/S28 chain) and rides
+  // it back via the relay response. Web persists it without re-signing.
+  // For other substrates this is null; web's sink computes its own
+  // cloud-key-signed receipt.
+  const userSidecarReceipt =
+    result.substrate === "user-sidecar" ? takeLastUserSidecarReceipt() : null;
+
   // Receipt emission is fire-and-forget. The sink (web's DB layer) handles
   // its own errors; the router never lets receipt failures bubble back.
   emitReceipt({
@@ -415,6 +440,8 @@ export async function dispatch(
     remediationSessionId: input.workspace?.remediationSessionId,
     isPlatformKey: input.workspace?.isPlatformKey ?? false,
     fallbackUsed: usedFallback,
+    relayPath: result.substrate === "user-sidecar" ? "relay" : "direct",
+    userSidecarReceipt: userSidecarReceipt ?? undefined,
   });
 
   return result.output;

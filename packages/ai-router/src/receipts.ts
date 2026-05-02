@@ -36,6 +36,15 @@ export interface RouterReceipt {
   relayPath?: "direct" | "relay";
   /** Hex-encoded Ed25519 signature (Phase 4+). */
   signature?: string;
+  /**
+   * v0.3 S2 — when the dispatch ran on user-sidecar, the sidecar signs
+   * its own receipt locally (S27/S28 chain) and the relay forwards it
+   * back to web. Web's sink persists this AS-IS without re-signing —
+   * the user's key is the source of truth for substrate=user-sidecar.
+   * For cloud / capture-embedded / cli-linked dispatches this stays
+   * undefined and web's sink signs with the cloud key.
+   */
+  userSidecarReceipt?: unknown;
 }
 
 export type ReceiptSink = (receipt: RouterReceipt) => void | Promise<void>;
