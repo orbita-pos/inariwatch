@@ -82,11 +82,17 @@ export function Sidebar() {
       ref={containerRef}
       data-testid="main-sidebar"
       aria-label="Main navigation"
-      className="w-[240px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--surface)]"
+      className="w-[240px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--bg)]"
     >
       {/* Workspace switcher header. Mirrors Linear's "Linear ▾ + search +
-          compose" header (`01-inbox-detail-view.png` top-left). */}
-      <header className="flex items-center gap-1 h-12 px-3 border-b border-[var(--border-subtle)]">
+          compose" header (`01-inbox-detail-view.png` top-left).
+          The whole header is the window drag region so the user can move
+          the frameless window by dragging the top edge — matches macOS /
+          Windows native UX without showing a title bar. */}
+      <header
+        data-tauri-drag-region
+        className="flex items-center gap-1 h-12 px-3 border-b border-[var(--border-subtle)]"
+      >
         <button
           type="button"
           data-testid="sidebar-workspace-switcher"

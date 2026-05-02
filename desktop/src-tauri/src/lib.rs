@@ -487,7 +487,14 @@ fn setup_window(app: &tauri::App) -> tauri::Result<()> {
     };
 
     WebviewWindowBuilder::new(app, "main", url)
-        .title("InariWatch")
+        .title("Inari Live")
+        // Linear-style frameless window — no native chrome / title bar.
+        // The sidebar header carries `data-tauri-drag-region` so the user
+        // can still drag the window from the top. macOS gets traffic-light
+        // controls via `title_bar_style: Overlay` (handled per-OS by Tauri
+        // when decorations are off). Close/minimise reachable via tray menu
+        // and global shortcuts.
+        .decorations(false)
         .inner_size(1280.0, 820.0)
         .min_inner_size(960.0, 600.0)
         .center()
