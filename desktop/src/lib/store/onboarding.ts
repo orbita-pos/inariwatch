@@ -43,6 +43,10 @@ interface OnboardingStore {
   lastPowerUpResult: PowerUpResult | null;
   /** Set when `onboarding_open_repo` rejected — UI shows the message. */
   errorMessage: string | null;
+  /** Flips to true after `finishOnboarding()` resolves. MainBoot reads
+   *  this to flip the gate from <Onboarding /> to <MainWindow /> without
+   *  a window reload. */
+  finished: boolean;
 
   setStep: (step: OnboardingStep) => void;
   setShellKind: (k: ShellKind) => void;
@@ -76,6 +80,7 @@ export const useOnboarding = create<OnboardingStore>((set, get) => ({
   },
   lastPowerUpResult: null,
   errorMessage: null,
+  finished: false,
 
   setStep: (step) => set({ step }),
   setShellKind: (k) => set({ shellKind: k }),
@@ -129,6 +134,7 @@ export const useOnboarding = create<OnboardingStore>((set, get) => ({
 
   finishOnboarding: async () => {
     await completeOnboarding();
+    set({ finished: true });
   },
 }));
 

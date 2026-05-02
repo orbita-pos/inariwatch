@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { isOnboarded } from "@/lib/main-ipc";
-import { useChat } from "@/lib/store/chat";
 import { useOnboarding } from "@/lib/store/onboarding";
 import { AppProviders } from "@/lib/boot";
 import { MainWindow } from "@/screens/MainWindow";
@@ -18,6 +17,7 @@ import { Onboarding } from "@/screens/Onboarding";
 function MainBoot() {
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const setOnboardingStep = useOnboarding((s) => s.setStep);
+  const onboardingFinished = useOnboarding((s) => s.finished);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,14 +35,13 @@ function MainBoot() {
     };
   }, []);
 
-  // When onboarding completes via the dock store, reflect it here so the
-  // gate flips without a full reload.
+  // Flip the gate the moment finishOnboarding() resolves — no DB
+  // round-trip, no window reload. The `finished` flag in the
+  // onboarding store is the canonical in-memory signal so the user
+  // doesn't get stuck on the Ready screen waiting for a refresh.
   useEffect(() => {
-    return useChat.subscribe(() => {
-      // No-op subscription anchor: if some surface flips to onboarded
-      // after we mounted, we re-check.
-    });
-  }, []);
+    if (onboardingFinished) setOnboarded(true);
+  }, [onboardingFinished]);
 
   // Reset onboarding store on every fresh mount so a back-out re-entry
   // doesn't carry state across sessions of the window.
