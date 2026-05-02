@@ -5,12 +5,10 @@ import {
   Inbox,
   Layers,
   PencilLine,
-  Plus,
   Search,
   Settings as SettingsIcon,
-  Star,
 } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/cn";
 import { useMainWindow, type MainRoute } from "@/lib/store/mainWindow";
@@ -21,16 +19,15 @@ interface NavItem {
   icon: typeof Inbox;
   /** Cmd/Ctrl + <digit> jumps to this item. */
   shortcut: number;
-  /** Optional unread / queue count rendered as a pill on the right. */
-  count?: number;
 }
 
+// 4 quick-access routes — these are the actual MainRoute values that
+// Inari Live's main window mounts (`screens/main/{Inbox,Activity,Memory,Patterns}.tsx`).
+// No placeholder "Inbox 3" / "My tasks 12" pills — those were Linear-mimic
+// fakes that Jesús explicitly asked to remove.
 const TOP_NAV: NavItem[] = [
-  { id: "inbox",    label: "Inbox",    icon: Inbox,    shortcut: 1, count: 3 },
-  { id: "activity", label: "Activity", icon: Activity, shortcut: 2, count: 12 },
-];
-
-const WORKSPACE_NAV: NavItem[] = [
+  { id: "inbox",    label: "Inbox",    icon: Inbox,    shortcut: 1 },
+  { id: "activity", label: "Activity", icon: Activity, shortcut: 2 },
   { id: "memory",   label: "Memory",   icon: BookOpen, shortcut: 3 },
   { id: "patterns", label: "Patterns", icon: Layers,   shortcut: 4 },
 ];
@@ -39,7 +36,7 @@ const PINNED_NAV: NavItem[] = [
   { id: "settings", label: "Settings", icon: SettingsIcon, shortcut: 5 },
 ];
 
-const ALL_NAV: NavItem[] = [...TOP_NAV, ...WORKSPACE_NAV, ...PINNED_NAV];
+const ALL_NAV: NavItem[] = [...TOP_NAV, ...PINNED_NAV];
 
 /**
  * Main window sidebar. S33 (2026-05-01) UX overhaul restyles this to mirror
@@ -60,8 +57,6 @@ export function Sidebar() {
   const route = useMainWindow((s) => s.route);
   const setRoute = useMainWindow((s) => s.setRoute);
   const containerRef = useRef<HTMLElement | null>(null);
-  const [workspaceOpen, setWorkspaceOpen] = useState(true);
-  const [favoritesOpen, setFavoritesOpen] = useState(true);
 
   useEffect(() => {
     function onGlobalKey(e: globalThis.KeyboardEvent) {
@@ -93,13 +88,13 @@ export function Sidebar() {
       className="w-[240px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--bg)]"
     >
       {/* Workspace switcher header. Mirrors Linear's "Linear ▾ + search +
-          compose" header (`01-inbox-detail-view.png` top-left).
+          compose" header (`01-inbox-detail-view.png` top-left). NO bottom
+          border per Jesús — sidebar reads as one continuous panel.
           The whole header is the window drag region so the user can move
-          the frameless window by dragging the top edge — matches macOS /
-          Windows native UX without showing a title bar. */}
+          the frameless window by dragging the top edge. */}
       <header
         data-tauri-drag-region
-        className="flex items-center gap-1 h-12 px-3 border-b border-[var(--border-subtle)]"
+        className="flex items-center gap-1 h-12 px-3"
       >
         <button
           type="button"
@@ -154,96 +149,23 @@ export function Sidebar() {
         </button>
       </header>
 
-      {/* Body — top items + Workspace section + Favorites section.
-          Mirrors Linear's `01-inbox-detail-view.png` density. */}
-      <div className="flex-1 flex flex-col px-2 py-3 gap-4 overflow-y-auto">
-        {/* Top quick-access items (Inbox, Activity) with counter pills. */}
-        <div className="flex flex-col gap-px">
-          {TOP_NAV.map((item) => (
-            <SidebarItem
-              key={item.id}
-              item={item}
-              selected={item.id === route}
-              onSelect={() => setRoute(item.id)}
-              onKeyDownActivate={onItemKeyDown}
-            />
-          ))}
-        </div>
-
-        <section aria-label="Workspace">
-          <button
-            type="button"
-            data-testid="sidebar-section-workspace"
-            onClick={() => setWorkspaceOpen((v) => !v)}
-            className={cn(
-              "flex items-center gap-1 w-full px-2 h-6 rounded-[var(--radius-sm)]",
-              "text-[11px] font-medium uppercase tracking-wide",
-              "text-[var(--text-subtle)] hover:text-[var(--text-muted)]",
-              "transition-colors duration-[var(--duration-fast)]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-            )}
-            aria-expanded={workspaceOpen}
-          >
-            <ChevronDown
-              className={cn(
-                "h-3 w-3 transition-transform duration-[var(--duration-fast)]",
-                workspaceOpen ? "rotate-0" : "-rotate-90",
-              )}
-              aria-hidden
-            />
-            <span>Workspace</span>
-          </button>
-
-          {workspaceOpen ? (
-            <div className="mt-1 flex flex-col gap-px">
-              {WORKSPACE_NAV.map((item) => (
-                <SidebarItem
-                  key={item.id}
-                  item={item}
-                  selected={item.id === route}
-                  onSelect={() => setRoute(item.id)}
-                  onKeyDownActivate={onItemKeyDown}
-                />
-              ))}
-            </div>
-          ) : null}
-        </section>
-
-        <section aria-label="Favorites">
-          <button
-            type="button"
-            data-testid="sidebar-section-favorites"
-            onClick={() => setFavoritesOpen((v) => !v)}
-            className={cn(
-              "flex items-center gap-1 w-full px-2 h-6 rounded-[var(--radius-sm)]",
-              "text-[11px] font-medium uppercase tracking-wide",
-              "text-[var(--text-subtle)] hover:text-[var(--text-muted)]",
-              "transition-colors duration-[var(--duration-fast)]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-            )}
-            aria-expanded={favoritesOpen}
-          >
-            <ChevronDown
-              className={cn(
-                "h-3 w-3 transition-transform duration-[var(--duration-fast)]",
-                favoritesOpen ? "rotate-0" : "-rotate-90",
-              )}
-              aria-hidden
-            />
-            <span>Favorites</span>
-          </button>
-
-          {favoritesOpen ? (
-            <div className="mt-1 px-2 py-2 text-[12px] text-[var(--text-subtle)]">
-              <Star className="h-3 w-3 inline-block mr-1.5 align-text-bottom" aria-hidden />
-              Pin items here
-            </div>
-          ) : null}
-        </section>
+      {/* Body — Inari Live's 4 main routes. No placeholder Linear sections
+          (Workspace ▾ / Favorites ▾ / Invite teammates) — those were copied
+          from the screenshot without checking the actual product surface. */}
+      <div className="flex-1 flex flex-col px-2 py-3 gap-px overflow-y-auto">
+        {TOP_NAV.map((item) => (
+          <SidebarItem
+            key={item.id}
+            item={item}
+            selected={item.id === route}
+            onSelect={() => setRoute(item.id)}
+            onKeyDownActivate={onItemKeyDown}
+          />
+        ))}
       </div>
 
-      {/* Pinned tray (Settings) + Invite teammates CTA. */}
-      <footer className="px-2 py-2 border-t border-[var(--border-subtle)] flex flex-col gap-px">
+      {/* Settings pinned at the bottom — no border, reads as one panel. */}
+      <footer className="px-2 py-2 flex flex-col gap-px">
         {PINNED_NAV.map((item) => (
           <SidebarItem
             key={item.id}
@@ -253,20 +175,6 @@ export function Sidebar() {
             onKeyDownActivate={onItemKeyDown}
           />
         ))}
-        <button
-          type="button"
-          data-testid="sidebar-invite"
-          className={cn(
-            "flex items-center gap-2 px-2 h-7 mt-1 rounded-[var(--radius-sm)]",
-            "text-[13px] text-left cursor-pointer outline-none",
-            "text-[var(--text-muted)] hover:text-[var(--text)]",
-            "hover:bg-[var(--card)] transition-colors duration-[var(--duration-fast)]",
-            "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-          )}
-        >
-          <Plus className="h-[14px] w-[14px] shrink-0" aria-hidden />
-          <span className="flex-1 truncate">Invite teammates</span>
-        </button>
       </footer>
     </nav>
   );
@@ -311,18 +219,9 @@ function SidebarItem({ item, selected, onSelect, onKeyDownActivate }: SidebarIte
       ) : null}
       <Icon className="h-[14px] w-[14px] shrink-0" aria-hidden />
       <span className="flex-1 truncate">{item.label}</span>
-      {typeof item.count === "number" && item.count > 0 ? (
-        <span
-          className="text-[11px] font-medium tabular-nums text-[var(--accent)] bg-[var(--accent)]/10 rounded-full px-1.5 py-px"
-          aria-label={`${item.count} unread`}
-        >
-          {item.count}
-        </span>
-      ) : (
-        <kbd className="text-[10px] tabular-nums text-[var(--text-subtle)] opacity-0 group-hover:opacity-100 transition-opacity duration-[var(--duration-fast)]">
-          ⌘{item.shortcut}
-        </kbd>
-      )}
+      <kbd className="text-[10px] tabular-nums text-[var(--text-subtle)] opacity-0 group-hover:opacity-100 transition-opacity duration-[var(--duration-fast)]">
+        ⌘{item.shortcut}
+      </kbd>
     </button>
   );
 }
