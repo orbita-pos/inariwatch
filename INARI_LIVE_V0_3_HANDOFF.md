@@ -306,6 +306,70 @@ Build the WebSocket relay infrastructure that lets the InariWatch cloud dispatch
 
 ---
 
+### v0.3 S2.6 — Test hardening pre-merge-to-main (3h)
+
+**Status:** DONE-2026-05-02 (NOT PUSHED). Worktree `../radar-v0.3-s2.6`, branched from S2.5 (`f78abaf`), tip `2164c11`. Pure test/typecheck hardening — zero product change.
+
+**Predecessor:** v0.3 S2.5 (`f78abaf`).
+**Worktree command:** `git worktree add ../radar-v0.3-s2.6 -b feat/inari-live-v0.3-session2.6-test-hardening feat/inari-live-v0.3-session2.5-router-followups`
+
+**Why this session existed:** S1+S2+S2.5 all shipped without running `next build` / `npm run lint` / `vitest` locally first. Cumulated regressions blocked merge to main. S2.6 is the catch-up.
+
+**6 commits landed:**
+
+1. **`b9e1dce` fix(ai-router): S2.5 hotfixes** — three uncommitted fixes carried forward from S2.5:
+   - `packages/ai-router/src/lockdown/eslint-rule.js` CJS `module.exports` → ESM `export default` (the package is `"type": "module"`, web's flat config does `import inariwatchAiRouter from ...`). Export shape byte-identical: `{ rules, rule, SDK_PACKAGES, PROVIDER_URL_PATTERNS, ALLOWLIST_PATH_FRAGMENT }`.
+   - `packages/ai-router/src/dispatch.ts` line 707 typo: `tsStart` (no local var) → `tsStart: tStart` (the receipt field is `tsStart` but the local time var was named `tStart`).
+   - `web/eslint.config.mjs`: split `files` into TS branch (with `tsParser` + `@typescript-eslint`/`@next/next`/`react-hooks` plugins **registered, not enforced**) and JS branch. Only enforced rule is still `inariwatch/no-direct-ai-sdk-import`. Plugins exist so legacy v0.2 inline `// eslint-disable-next-line ...` pragmas resolve cleanly. Result: 0 errors, 17 "unused-disable" warnings (all from removed-but-still-pragma'd v0.2 rules).
+   - Installed: `web/` got `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `@next/eslint-plugin-next`, `eslint-plugin-react-hooks` as devDeps. `packages/ai-router/` got `vitest` + `eslint` as devDeps.
+
+2. **`075d5ad` test(ai-router): vi.hoisted()** — S2.5 added `web/lib/__tests__/persist-receipt.test.ts` and `web/app/api/admin/router/__tests__/summary.test.ts` with mocks declared as plain `const m = vi.fn()`. vi.mock factories are hoisted above all top-level statements, so they referenced uninitialized symbols → `Cannot access X before initialization`. Fix: declare via `vi.hoisted(() => ({ ... }))`. 8/8 green.
+
+3. **`a1c4589` test(ai-router): dispatch-stream mid-stream error** — the synthetic `broken` ReadableStream called `controller.enqueue()` then `controller.error()` synchronously inside the same `start()` tick. Per WHATWG Streams that puts the stream in errored state instantly and discards the queued chunk; the consumer's first `read()` rejects with the error and `saw === ""` instead of `"start"`. Real production mid-stream errors involve TCP latency between bytes and the network failure. Fix: switch to `pull()` and `await new Promise(r => setTimeout(r, 0))` between enqueue and error so the consumer reads the queued bytes first. Implementation buffering was correct all along.
+
+4. **`fcc19ab` fix(ai-router): lazy-import lib/db in persist-receipt** — S2.5's `client.ts` imports `persist-receipt.ts`, which top-level-imported `@/lib/db`, which throws synchronously on module-load when `DATABASE_URL` is unset. Result: any test that transitively imports `client.ts` crashed during suite setup. Affected (4 files): `lib/ai/__tests__/client-responses-input.test.ts`, `lib/ai/__tests__/verifier.test.ts`, `lib/chaos/__tests__/ai-provider-failure.test.ts`, `lib/chaos/__tests__/integration-remediation.test.ts`. Fix: defer the `@/lib/db` import to inside `doInsert()`. Sink is fire-and-forget so the dispatch path only pays the dynamic import on real receipts. Mocked tests still work because `vi.mock` covers dynamic imports.
+
+5. **`2164c11` fix(ai-router): typecheck regressions blocking next build** — four discrete tsc errors:
+   - `dispatch.ts` `pickProvider(input: DispatchInput, ...)` was called from `runOnTargetStream` with `DispatchStreamInput` (different mode literal). Both extend `DispatchBase` which is what pickProvider actually reads. Widen parameter to `DispatchBase`.
+   - `web/app/api/admin/router/receipts/summary/route.ts`: Drizzle's `db.execute<T>` constrains `T extends Record<string, unknown>`. `SubstrateRow`/`TaskRow` interfaces didn't satisfy that. Switch to type aliases with `& Record<string, unknown>`, plus a new `TotalsRow`.
+   - `web/lib/ai/client.ts` `CallAIOpts` dropped `temperature` + `jsonMode` in S1's rewrite — but `alert-classifier.ts` legacy code passes `{ temperature: 0 }`. Re-add fields and forward to `routerCallAIWithUsage`.
+   - `web/scripts/smoke-relay.ts`: `registerReceiptSink` callback must return `void | Promise<void>`, but `(r) => arr.push(r)` returns `number`. Wrap in block.
+
+**Pre-existing failures (NOT caused by S1+S2+S2.5 — verified by running on S1 baseline `474e56d` with identical results):**
+- `app/api/webhooks/github/__tests__/route.test.ts` — 9 assertion failures. Route validates `integrationId` as a UUID (`/^[0-9a-f]{8}-[0-9a-f]{4}-...$/`), but every test passes `"integ-1"` and gets 400 "Invalid integration ID" before reaching mocked rate-limiter / auth.
+- `app/api/webhooks/datadog/__tests__/route.test.ts` — 1 suite-import crash. Route imports `@/lib/auth-rate-limit` which eagerly imports `@/lib/db`.
+- `app/api/webhooks/sentry/__tests__/route.test.ts` — same as datadog.
+- `app/api/attestation/[id]/__tests__/route.test.ts` — 1 assertion failure (verification.verified undefined).
+
+These 4 are out of S2.6 scope. They should be fixed before merging to main but aren't S1/S2/S2.5/S2.6 regressions.
+
+**Final validation:**
+- `web/ npm run lint` → 0 errors, 17 warnings (all unused-disable pragmas from removed v0.2 rules — non-blocking).
+- `packages/ai-router/ npx vitest run` → **45/45 (100%)**.
+- `web/ npx vitest run` → **2089/2099 (99.52%)**, 4 files failed = 10 tests failed, all 4 pre-existing.
+- `web/ npx next build` → ✅ successful (Type-check + page-data collection + production bundle).
+- Phase A worktree (`../radar-inarilive-dashboard`, tip `6ea2b2e`) — not based on S1+S2.5; validated separately:
+  - `npx vitest run` → **2091/2101 (99.52%)**, same 4 pre-existing.
+  - `cd desktop/src-tauri && cargo check --tests` → ✅ clean.
+  - No `eslint.config.mjs` (Phase A predates v0.3 lockdown). No lint script applies.
+
+**Push recommendation:** **GO** — once Jesus is ready to merge S1+S2+S2.5+Phase A to main. CI will see only the 4 pre-existing failures, none of which are this session's fault. Pre-existing failures should be tracked as a separate cleanup, not as a blocker on the v0.3 merge.
+
+**Predecessor commits queued for push (from oldest):**
+```
+474e56d  feat(ai-router): v0.3 S1 — router scaffold + wire web/lib/ai/* (zero behavior change)
+2424d0c  feat(ai-router): v0.3 S2 — WS relay infra + Inari Live registration + user-sidecar provider
+f78abaf  feat(ai-router): v0.3 S2.5 — stream mode + validateKey + receipts persistence + /admin/ops widget + eslint-disable cleanup
+b9e1dce  fix(ai-router): S2.5 hotfixes — lockdown ESM + eslint plugins + dispatch.ts tsStart typo
+075d5ad  test(ai-router): vi.hoisted() in S2.5 persist-receipt + summary tests
+a1c4589  test(ai-router): dispatch-stream mid-stream error uses microtask gap
+fcc19ab  fix(ai-router): lazy-import lib/db in persist-receipt sink
+2164c11  fix(ai-router): typecheck regressions blocking next build
+```
+Phase A (`6ea2b2e` on `feat/inari-live-v0.3-dashboard-phase-a`) merges separately — based on `a209440`, not on S1.
+
+---
+
 ### v0.3 S3 — First local task: `notify.compose.email` + eval harness (6h)
 
 **Status:** PENDING.
