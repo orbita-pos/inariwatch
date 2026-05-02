@@ -194,10 +194,16 @@ export function CommandPalette({
       open={open}
       onOpenChange={setOpen}
       label="Inari command palette"
+      // Backdrop overlay (Radix sibling element) gets backdrop-blur + dark
+      // tint so the palette reads as floating ABOVE the page, not blending
+      // into it. The dialog itself uses --card-elevated (one tier above
+      // --card / --surface) + a visible border + real drop shadow.
+      overlayClassName="fixed inset-0 z-[150] bg-black/70 backdrop-blur-md"
       className={cn(
-        "fixed left-1/2 top-[20%] -translate-x-1/2 w-[min(92vw,560px)]",
-        "rounded-[var(--radius-xl)] border border-[var(--border)]",
-        "bg-[var(--bg)] shadow-[var(--shadow-3)] overflow-hidden",
+        "fixed left-1/2 top-[18%] -translate-x-1/2 w-[min(92vw,560px)]",
+        "rounded-[var(--radius-lg)] border border-[var(--border-strong)]",
+        "bg-[var(--card-elevated)] overflow-hidden",
+        "shadow-2xl shadow-black/60",
         "z-[200]",
       )}
     >
@@ -276,7 +282,7 @@ function RootView({ onSelect }: RootViewProps) {
                 className={cn(
                   "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)]",
                   "cursor-pointer select-none text-sm text-[var(--text)]",
-                  "data-[selected=true]:bg-[var(--surface)]",
+                  "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-[var(--text)]",
                 )}
               >
                 <Icon className="h-4 w-4 text-[var(--muted)]" aria-hidden />
@@ -334,7 +340,7 @@ function SearchView({
                 className={cn(
                   "flex flex-col gap-0.5 px-3 py-2 rounded-[var(--radius-sm)]",
                   "cursor-pointer select-none text-sm text-[var(--text)]",
-                  "data-[selected=true]:bg-[var(--surface)]",
+                  "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-[var(--text)]",
                 )}
               >
                 <span className="font-[var(--font-mono)] text-xs">
@@ -382,7 +388,7 @@ function FixView({ alerts, loading, onBack, onPick }: FixViewProps) {
                 className={cn(
                   "flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)]",
                   "cursor-pointer select-none text-sm text-[var(--text)]",
-                  "data-[selected=true]:bg-[var(--surface)]",
+                  "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-[var(--text)]",
                 )}
               >
                 <span className="flex-1 truncate">{alert.title}</span>
