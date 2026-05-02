@@ -579,7 +579,7 @@ Hard-learned rule (`feedback_parallel_sessions_need_worktrees.md` 2026-04-30): e
 
 **Notes for S31:** 3 secrets MUST be in GitHub Secrets before S31 starts: `APPLE_CERT_P12_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_NOTARIZATION_USER`, `APPLE_NOTARIZATION_PASSWORD`, `DIGICERT_KEYLOCKER_TOKEN` (or `WINDOWS_CERT_*`), `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`. If any is missing, S31 is BLOCKED.
 
-**Status:** ✅ DONE 2026-05-01. Branch `feat/inari-live-v0.2-session30-landing` (commit pending — local-only, no push per S32 push rule). Files:
+**Status:** ✅ DONE 2026-05-01. Branch `feat/inari-live-v0.2-session30-landing` @ `6b93f05` (local-only, no push per S32 push rule). Files:
 - `web/app/(marketing)/inari-live/page.tsx`
 - `web/app/(marketing)/inari-live/_components/{Hero,LocalAIDemo,ReceiptDemo,DownloadButtons}.tsx`
 - `web/app/(marketing)/inari-live/__tests__/page.test.tsx` (5 assertions)
