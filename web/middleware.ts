@@ -164,6 +164,21 @@ export function middleware(req: NextRequest) {
     return rewriteWithCsp(req, url);
   }
 
+  // Verify subdomain rewrite — verify.inariwatch.com → /verify
+  // (Sesión 29) Pure compute endpoint; no auth, no rate limit. Mirrors
+  // the mcp.* pattern so a shareable URL like
+  //   verify.inariwatch.com/r/<base64-eap-json>
+  // round-trips to `/verify/r/<base64>` without leaking the host.
+  if (host.startsWith("verify.")) {
+    const url = req.nextUrl.clone();
+    if (pathname === "/" || pathname === "") {
+      url.pathname = "/verify";
+    } else if (!pathname.startsWith("/verify")) {
+      url.pathname = `/verify${pathname}`;
+    }
+    return rewriteWithCsp(req, url);
+  }
+
   // Status subdomain rewrite — status.inariwatch.com → /status
   if (host.startsWith("status.")) {
     const url = req.nextUrl.clone();
@@ -217,6 +232,7 @@ export function middleware(req: NextRequest) {
       pathname.startsWith("/terms") ||
       pathname.startsWith("/status") ||
       pathname.startsWith("/replay") ||
+      pathname.startsWith("/verify") ||
       pathname.endsWith(".mp4") ||
       pathname.endsWith(".webm")
     ) {
