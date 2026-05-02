@@ -10,17 +10,25 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 
-interface SubstrateRow {
+// Drizzle's `db.execute<T>` constrains `T extends Record<string, unknown>`.
+// Use type-aliased intersections so the row shapes index-signature cleanly
+// without an open `[key: string]: unknown;` field on every interface.
+type SubstrateRow = {
   substrate: string;
   count: number;
   p50_duration_ms: number;
   p95_duration_ms: number;
-}
+} & Record<string, unknown>;
 
-interface TaskRow {
+type TaskRow = {
   task: string;
   count: number;
-}
+} & Record<string, unknown>;
+
+type TotalsRow = {
+  total: number;
+  fallback_count: number;
+} & Record<string, unknown>;
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -51,7 +59,7 @@ export async function GET() {
     LIMIT 5
   `);
 
-  const totalsRow = await db.execute<{ total: number; fallback_count: number }>(sql`
+  const totalsRow = await db.execute<TotalsRow>(sql`
     SELECT
       COUNT(*)::int AS total,
       SUM(CASE WHEN fallback_used THEN 1 ELSE 0 END)::int AS fallback_count
@@ -61,7 +69,7 @@ export async function GET() {
 
   const substrateRows = readRows<SubstrateRow>(substrateAgg);
   const taskRows = readRows<TaskRow>(taskAgg);
-  const totalsRows = readRows<{ total: number; fallback_count: number }>(totalsRow);
+  const totalsRows = readRows<TotalsRow>(totalsRow);
   const totals = totalsRows[0] ?? { total: 0, fallback_count: 0 };
 
   return NextResponse.json({

@@ -31,7 +31,9 @@ if (!process.env.RELAY_URL || !process.env.RELAY_DISPATCH_SECRET) {
 }
 
 const receipts: any[] = [];
-registerReceiptSink((r) => receipts.push(r));
+registerReceiptSink((r) => {
+  receipts.push(r);
+});
 
 async function main() {
   const t0 = Date.now();

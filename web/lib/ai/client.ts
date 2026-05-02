@@ -188,6 +188,10 @@ export interface CallAIOpts {
   model?: string;
   timeout?: number;
   provider?: AIProvider;
+  /** Forwarded to providers that accept sampling temperature. */
+  temperature?: number;
+  /** Force JSON output (OpenAI-compatible only). */
+  jsonMode?: boolean;
   /** When set, auto-logs usage + cost to ai_usage_logs. */
   log?: AILogContext;
   /**
@@ -216,6 +220,8 @@ export async function callAI(
         model: opts.model,
         timeout: opts.timeout,
         provider: opts.provider,
+        temperature: opts.temperature,
+        jsonMode: opts.jsonMode,
         workspace: workspaceFromLog(opts.log),
       },
     );
@@ -254,6 +260,8 @@ export async function callAIWithUsage(
         model: opts.model,
         timeout: opts.timeout,
         provider: opts.provider,
+        temperature: opts.temperature,
+        jsonMode: opts.jsonMode,
         workspace: workspaceFromLog(opts.log),
       },
     );

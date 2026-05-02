@@ -194,7 +194,7 @@ export function detectProvider(key: string): AIProvider {
   return "openai";
 }
 
-function pickProvider(input: DispatchInput, target: Target): AIProvider {
+function pickProvider(input: DispatchBase, target: Target): AIProvider {
   // Phase 1 is a zero-behavior-change refactor. Per rules.ts, cloud-target
   // `provider` is an advisory hint — the legacy client routed solely on
   // `opts.provider ?? detectProvider(apiKey)`. Honor that contract.
