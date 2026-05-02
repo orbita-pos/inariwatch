@@ -25,6 +25,7 @@
 
 pub mod auth;
 pub mod chat;
+pub mod cloud;
 pub mod commands;
 pub mod connect;
 pub mod eap;

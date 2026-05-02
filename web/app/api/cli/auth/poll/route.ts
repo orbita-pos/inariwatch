@@ -16,9 +16,14 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return NextResponse.json({ status: "invalid" }, { status: 400 });
 
-  // client=mobile → separate token that won't be revoked by CLI re-auth
+  // client=mobile / client=desktop → separate tokens that won't be revoked
+  // by CLI re-auth. Inari Live (Tauri desktop app) ships its device flow
+  // through this same route with `client=desktop`; the resulting token is
+  // stored under service="desktop" so /api/desktop/* + authenticateExtensionToken()
+  // can find it. Anything else falls back to the legacy "cli" service.
   const client = req.nextUrl.searchParams.get("client");
-  const service = client === "mobile" ? "mobile" : "cli";
+  const service =
+    client === "mobile" || client === "desktop" ? client : "cli";
 
   const [pending] = await db
     .select()

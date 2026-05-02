@@ -213,3 +213,7 @@ tempfile                 = "3"
 # Session 7 — integration tests fire HTTP requests at the running
 # axum router. reqwest already declared as a runtime dep above; the
 # JSON feature is enough.
+# v0.3 Phase A — `mockito` stands up a local HTTP server fixture for
+# the cloud widget tests. Lightweight (~5 transitive deps), pure-Rust,
+# no Docker / network dep.
+mockito                  = "1"

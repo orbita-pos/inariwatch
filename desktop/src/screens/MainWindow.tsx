@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { CloudDashboard } from "@/components/cloud/CloudDashboard";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { ScrollArea } from "@/components/ui";
@@ -90,6 +91,7 @@ export function MainWindow() {
           </motion.div>
         </AnimatePresence>
       </ScrollArea>
+      <CloudDashboard />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}

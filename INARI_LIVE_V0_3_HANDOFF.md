@@ -641,4 +641,70 @@ Same as `INARI_AI_ARCHITECTURE.md` §13:
 
 ---
 
+## Parallel track: Inari Live ↔ Web Dashboard
+
+**Goal:** Add a right-side collapsible dashboard panel inside Inari Live that shows the workspace's live cloud state (alerts, uptime, deploys, on-call, community fixes, "Ask Inari" chat). Direction = sidecar → cloud HTTP (opposite of S2 relay). Reuses `/api/desktop/*` Bearer-token surface that already exists.
+
+**Why parallel-safe:** Inari Live consumes web's HTTP API. It does NOT call AI providers directly — web's API uses the router internally. Zero overlap with router/relay files.
+
+### Phase A — read-only widgets (parallelizable with v0.3 S2/S3)
+
+**Status:** **DONE-2026-05-02** — branched off the v0.2 integration tip (`a209440`) instead of `main` because the desktop v0.2 sessions (cloud module, ipc layer, Settings, MainWindow) had not been merged to `main` yet. NOT PUSHED. Tests: 9 Rust integration + 5 Rust unit + 10 web vitest + 6 frontend vitest = 30 new + all green.
+
+**Predecessor:** v0.3 S1 done. (Independent of S2.) Branched off the integration branch (see Status above) — `main` lacked the v0.2 desktop scaffold the panel depends on.
+
+**Worktree:** `git worktree add ../radar-inarilive-dashboard -b feat/inari-live-v0.3-dashboard-phase-a feat/inari-live-track3-session12-procedural-patterns`
+
+**Goal:** 6 read-only widgets in a right-side panel of Inari Live, fed via existing `/api/desktop/*` endpoints (extend as needed). No AI calls.
+
+**Work:**
+1. Auth flow (one-time): `inari live` UI surfaces "Connect to InariWatch Cloud" button → opens browser → device code page on web → user approves → web returns short-lived JWT → Inari Live persists in OS keychain via `keyring` Rust crate (already in v0.2). Reuse `/api/cli/auth/start` + `/api/cli/auth/poll` patterns from CLI flow.
+2. Rust HTTP client `desktop/src-tauri/src/cloud_client.rs` — wraps `reqwest`, attaches Bearer, handles 401 → re-auth prompt.
+3. IPC commands (Tauri): `cloud_get_alerts`, `cloud_get_uptime`, `cloud_get_deploys`, `cloud_get_oncall`, `cloud_get_community_trending`, `cloud_get_status_summary`. Each returns a typed payload to frontend.
+4. Frontend right-side panel (collapsible, persists state in localStorage). Tabs OR vertical-stacked widgets — pick one (recommend vertical stack with collapsible cards).
+5. SSE for alerts feed (web already has `/api/alerts/stream`; reuse). Other widgets: poll every 30s.
+6. New web endpoints if needed: `/api/desktop/uptime`, `/api/desktop/deploys`, `/api/desktop/oncall`, `/api/desktop/community/trending`, `/api/desktop/status-summary`. Mirror service-layer functions.
+7. Settings panel (S17): add "Cloud connection" section showing connected workspace + disconnect button.
+
+**Tests:** Rust HTTP client (mock server with `mockito`), each IPC command (Tauri test harness), each new web endpoint (vitest + service mock), SSE reconnect on token refresh.
+
+**Acceptance:**
+- Inari Live boots offline-first (panel shows "Not connected") → user clicks Connect → browser opens → user approves → panel populates within 5s.
+- All 6 widgets render real data within 2s of connection.
+- Token revocation on web → panel shows "Reconnect" within 30s.
+- Inari Live works fully if panel is collapsed (zero perf impact).
+- ZERO AI provider imports in `desktop/src-tauri/src/` outside what S21 already added.
+
+**Estimate:** ~8h. 1 session.
+
+### Phase B — AI-interactive widgets
+
+**Predecessor:** v0.3 S3 merged (router contract stable + first local task live). Phase A merged.
+
+**Worktree:** `git worktree add ../radar-inarilive-dashboard-b -b feat/inari-live-v0.3-dashboard-phase-b feat/inari-live-v0.3-dashboard-phase-a`
+
+**Goal:** Add 3 interactive widgets that invoke router-backed endpoints.
+
+**Work:**
+1. **Ask Inari chat widget** — embedded chat UI consuming `/api/chat`. Token streaming via SSE (S2.5 stream mode).
+2. **Fix It button on alert cards** — POST `/api/desktop/alerts/[id]/fix` triggers remediation. Stream session via `/api/remediation/stream/[sessionId]`.
+3. **Code Intelligence search** — search box → `/api/desktop/code-intel/search` → results with file paths + snippets. Click → opens file in active editor (via existing LSP integration from S22).
+
+**Tests:** Chat streaming reconnect, fix trigger error handling (offline / unauthorized / quota exceeded), search with empty results / network failure.
+
+**Acceptance:**
+- Chat first-token latency: <2s p95.
+- Fix triggered from Inari Live shows up in `/admin/ops` Remediations widget within 3s.
+- Code search returns results in <500ms p95 for indexed repos.
+
+**Estimate:** ~6h. 1 session.
+
+### Notes
+
+- DO NOT add AI provider SDK imports in `desktop/src-tauri/` Phase A or B. All AI dispatch happens server-side via router.
+- Phase A is the "wedge moment" for users — first time Inari Live shows cloud value. Land it before any v0.3 marketing.
+- Both phases should NOT push without explicit ask (per `feedback_commit_workflow.md`).
+
+---
+
 **END OF HANDOFF — v0.3 starts after v0.2 S31 finishes. Read `INARI_AI_ARCHITECTURE.md` first.**

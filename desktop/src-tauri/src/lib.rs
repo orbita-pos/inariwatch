@@ -214,6 +214,15 @@ pub fn run() {
             ipc::sensors::set_replay_enabled,
             ipc::sensors::install_vscode_extension,
             ipc::sensors::configure_http_proxy,
+            // v0.3 Phase A — read-only cloud-dashboard widget fetchers.
+            // Each command emits `cloud-auth-required` on HTTP 401 so the
+            // React panel can flip back to its "Reconnect" empty state.
+            ipc::cloud::cloud_get_alerts,
+            ipc::cloud::cloud_get_uptime,
+            ipc::cloud::cloud_get_deploys,
+            ipc::cloud::cloud_get_oncall,
+            ipc::cloud::cloud_get_community_trending,
+            ipc::cloud::cloud_get_status_summary,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -441,6 +450,13 @@ pub fn run() {
 
             // Background alert poller (extracted to cloud/alert_poller.rs).
             cloud::alert_poller::start(app.handle().clone(), store.clone());
+
+            // v0.3 Phase A — SSE client for `/api/alerts/stream`. Forwards
+            // events to the frontend via Tauri `cloud-alerts-update` so the
+            // right-side dashboard panel refreshes without a polling loop
+            // of its own. Survives token churn — re-reads creds each
+            // iteration like the alert poller does.
+            cloud::alert_stream::start(app.handle().clone(), store.clone());
 
             // FS watcher + replay dispatcher. Session 5/10 owns the rewrite.
             inari_watcher::start(app.handle().clone());
