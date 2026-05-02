@@ -87,17 +87,15 @@ export function OnboardingDropRepo() {
               ? `${progress.symbol_count.toLocaleString()} symbols indexed`
               : "Walking the repo…"}
           </p>
-          {progress.stage === "done" ? (
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={() => setStep("powerups")}
-              data-testid="onboarding-continue"
-            >
-              Continue
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            variant="primary"
+            size="md"
+            onClick={() => setStep("powerups")}
+            data-testid="onboarding-continue"
+          >
+            {progress.stage === "done" ? "Continue" : "Continue (indexing keeps running)"}
+          </Button>
         </div>
       )}
     </div>
