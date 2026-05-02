@@ -62,8 +62,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
-      - name: Install web deps (router tests reuse web's vitest)
+      - name: Install web deps (vitest path-alias resolution)
         working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Install ai-router deps (vitest + eslint as local devDeps)
+        working-directory: packages/ai-router
         run: npm ci --no-audit --no-fund
 
       - name: Router unit tests
