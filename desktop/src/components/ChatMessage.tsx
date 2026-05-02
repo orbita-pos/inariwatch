@@ -124,7 +124,7 @@ function CodeBlock({ language, code }: CodeBlockProps) {
       >
         {copied ? (
           <>
-            <Check className="h-3 w-3 text-[var(--color-success)]" aria-hidden />
+            <Check className="h-3 w-3 text-[var(--success)]" aria-hidden />
             <span className="text-[0.65rem]">Copied</span>
           </>
         ) : (
@@ -168,11 +168,17 @@ export function ChatMessage({ message }: ChatMessageProps) {
     >
       <div
         className={cn(
-          "max-w-[85%] px-3 py-2 rounded-[var(--radius-lg)]",
-          "text-sm leading-relaxed",
+          // S33: user bubble = Inter 13px on `--card-elevated`. AI bubble =
+          // Source Serif 15px with a subtle 2px orange left strip so the
+          // identity reads even when the bubble is bg-transparent.
+          "max-w-[85%] px-4 py-2.5 rounded-[var(--radius-lg)]",
+          "leading-relaxed",
           isUser
-            ? "bg-[var(--surface)] text-[var(--text)] font-[var(--font-sans)]"
-            : "bg-transparent text-[var(--text)] font-[var(--font-serif)]",
+            ? "bg-[var(--card-elevated)] text-[var(--text)] font-[var(--font-sans)] text-[13px]"
+            : cn(
+                "bg-transparent text-[var(--text)] font-[var(--font-serif)] text-[15px]",
+                "border-l-2 border-[var(--accent)]/60 pl-4",
+              ),
         )}
       >
         {blocks.length === 0 || (blocks.length === 1 && blocks[0]!.content === "") ? (
@@ -202,7 +208,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                   aria-hidden
                   className={cn(
                     "ml-[1px] inline-block w-[6px] h-[1em] align-[-0.1em]",
-                    "bg-[var(--color-ai)] animate-pulse",
+                    "bg-[var(--accent)] animate-pulse",
                   )}
                 />
               ) : null}

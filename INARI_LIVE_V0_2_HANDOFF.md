@@ -786,6 +786,39 @@ Tests: 10/10 new tests pass. Marketing-only run = 16/16 (S29 verify suite intact
 
 ---
 
+### S33 — UX overhaul: Linear-grade density + InariWatch burnt-orange brand (8h) [PARALLEL TO SHIP TRACK — closes UX track]
+
+**Branch:** `feat/inari-live-v0.2-session33-ux-overhaul`
+**Predecessor:** main `c0d9c4c` (docs(inari-live): lock InariWatch web palette in S33 reference).
+**Status (2026-05-01):** **DONE — code-complete, NOT PUSHED.** Tip `d1abc0f` (`feat(inari-live): Sesión 33 — UX overhaul…`) on worktree `radar-s33`. `npx tsc --noEmit` clean. `npm run build` clean (5.17s, 11 MB dist, no new warnings). Visual smoke (`npm run tauri dev`) deferred to Jesús — Tauri dev is interactive. Test contract preserved (all existing testIDs unchanged, S33 changes are CSS-class-name + token-rename only). Vitest in the s33 worktree was blocked by the node_modules junction (kept to spare 2GB disk); same code passes 54/54 in the parent worktree on identical setup.
+
+**Files (new):** `desktop/src/components/ui/{TopBar,StatusPill,Card,EmptyState,Skeleton}.tsx` + `desktop/src/lib/motion.ts`.
+
+**Files (modified, 20):** `desktop/src/styles/globals.css` (token rewrite mirroring `web/app/globals.css` lines 33-148), `components/ui/{Button,Input,Tabs,Toast,index}.tsx`, `components/sidebar/Sidebar.tsx`, `components/{DiffViewer,EAPReceiptChip,RepoDropzone,ChatMessage}.tsx`, `components/dock/DockShell.tsx`, `screens/{MainWindow,Settings,DockIdle,DockConversation}.tsx`, `screens/main/{Inbox,Activity,Memory,Patterns}.tsx`.
+
+**Behavior highlights:**
+- Tokens: zinc-dark surfaces (`#0a0a0c → #1a1a1f`), 3 border weights, 3 text weights, burnt-orange accent (`#ea580c / #c2410c / #fb923c`), status (`#4cb782 / #f0a020 / #eb5757`). Spacing 4/8/12/16/24/32/48/64. Radii 6/8/12/16. Motion 150/200/300ms, ease `cubic-bezier(0.16, 1, 0.3, 1)`. Pre-S33 token names kept as aliases.
+- Sidebar 240px + workspace switcher + collapsible Workspace section + selected = bg `--card` + 2px left strip `--accent`.
+- Tabs flipped to underline pattern (`border-bottom 2px var(--accent)` on active).
+- Button hover = bg/opacity-only (no scale/shadow).
+- DiffViewer add/del rows softened 15% → 8% over `--surface`.
+- ChatMessage: AI bubble = Source Serif 15px + 60%-opacity 2px `--accent` left strip; user bubble = Inter 13px on `--card-elevated`.
+- DockShell uses new `.frosted-glass` (blur 40px + saturate 140%).
+- RepoDropzone bigger + opacity-pulse (was scale-pulse) + orange border on drag.
+- Toast: 2px border-left in status color + slide-up + fade.
+- MainWindow route swaps via `<AnimatePresence>` + `pageEnter` preset.
+- 4 main shells (Inbox/Activity/Memory/Patterns) rewritten as TopBar + EmptyState (polished empty states until Sesión 19 wires data).
+
+**DoD:** All 8 phases complete. `tsc --noEmit` + `npm run build` clean. Brand audit passes (zero non-comment matches for `5e6ad2|indigo|violet|purple` in `desktop/src/`).
+
+**Coverage gaps (NOT touched in S33 — fix-forward):**
+- `screens/DockAlert.tsx` (491 lines), `screens/DockDiff.tsx` (521 lines), `screens/GateRunning.tsx` — render with right brand colors via alias mapping but typography/density still pre-S33.
+- `components/{CommandPalette,QuickActions,RecentActivity,ToolCallCard,GateChecklist,ConfidenceBadge,PowerUpToggles}.tsx`, `components/main/MainShell.tsx`, `dev/Storybook.tsx` — same disposition (correct colors via alias, density unchanged).
+
+**Track UX cierra acá.** S33 (UX overhaul) cerrado — Inari Live ahora se ve Linear-grade con brand burnt orange InariWatch. Próximo: S31 unsigned + S32 waitlist para distribución (replanned per `feedback_no_signing_pre_users.md`).
+
+---
+
 ## Coordination protocol
 
 - **One session = one branch.** Branch naming: `feat/inari-live-v0.2-session<N>-<slug>`.

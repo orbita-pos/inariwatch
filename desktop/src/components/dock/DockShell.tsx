@@ -55,9 +55,12 @@ export function DockShell() {
     >
       <motion.section
         className={[
+          // S33: frosted-glass surface (`.frosted-glass` keyframe in
+          // globals.css drives blur(40px) saturate(140%) over rgba(15,15,17,0.85))
+          // — replaces the older bg/80 + backdrop-blur-md combo.
           "w-full h-full max-h-[480px] max-w-[720px]",
-          "rounded-[var(--radius-2xl)] border border-[var(--border)]",
-          "bg-[var(--bg)]/80 backdrop-blur-md shadow-[var(--shadow-3)]",
+          "rounded-[var(--radius-lg)] border border-[var(--border)]",
+          "frosted-glass shadow-[var(--shadow-3)]",
           "flex flex-col overflow-hidden",
         ].join(" ")}
         initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}

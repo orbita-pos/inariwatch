@@ -270,9 +270,9 @@ export function DockIdle({
   return (
     <div data-testid="dock-idle" className="flex flex-col h-full">
       {/* Section 1 — top: input + repo status */}
-      <div className="px-4 pt-4 pb-3 border-b border-[var(--border)] flex flex-col gap-2">
-        <form onSubmit={onSubmitInput} className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--color-ai)]" aria-hidden />
+      <div className="px-6 pt-5 pb-3 border-b border-[var(--border-subtle)] flex flex-col gap-2">
+        <form onSubmit={onSubmitInput} className="flex items-center gap-3">
+          <Sparkles className="h-4 w-4 text-[var(--accent)]" aria-hidden />
           <input
             ref={inputRef}
             type="text"
@@ -282,12 +282,12 @@ export function DockIdle({
             placeholder="Ask Inari, search this repo, or fix the latest error"
             aria-label="Inari prompt"
             data-testid="dock-input"
-            className="flex-1 h-9 bg-transparent text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none border-none"
+            className="flex-1 h-9 bg-transparent text-[15px] text-[var(--text)] placeholder:text-[var(--text-subtle)] outline-none border-none"
           />
           <KbdHint>⌘ K</KbdHint>
         </form>
         <div
-          className="text-xs text-[var(--muted)] flex items-center gap-1"
+          className="text-[12px] text-[var(--text-muted)] flex items-center gap-1.5"
           data-testid="dock-status-row"
         >
           <span>
@@ -301,12 +301,12 @@ export function DockIdle({
       </div>
 
       {/* Section 2 — mid: quick actions */}
-      <div className="px-4 py-3 border-b border-[var(--border)]">
+      <div className="px-6 py-3 border-b border-[var(--border-subtle)]">
         <QuickActions onSelect={onQuickAction} />
       </div>
 
       {/* Section 3 — bottom: recent activity */}
-      <div className="flex-1 px-4 py-3 overflow-auto">
+      <div className="flex-1 px-6 py-3 overflow-auto">
         <RecentActivity
           entries={activity}
           onViewAll={() => openMainWindow("activity")}
@@ -315,7 +315,7 @@ export function DockIdle({
 
       {/* Section 4 — footer: stats */}
       <footer
-        className="flex items-center justify-between px-4 h-9 border-t border-[var(--border)] text-xs text-[var(--muted)]"
+        className="flex items-center justify-between px-6 h-9 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
         data-testid="dock-idle-footer"
       >
         <span>

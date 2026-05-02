@@ -126,9 +126,14 @@ function extractLinesFromShiki(html: string, expected: number): string[] {
   return matches.slice(0, expected);
 }
 
+// S33 (2026-05-01): add/del rows render as ultra-low-opacity tints
+// (~8% over `--surface`) per `specs/linear-ux-reference/README.md` —
+// Linear's diff surfaces lean restrained, never the heavy 30% tints
+// some VCS uis ship. The mix is computed in oklch so the perceived
+// chroma matches the underlying surface.
 const TYPE_BG: Record<DiffLine["type"], string> = {
-  add: "bg-[color:color-mix(in_oklch,var(--color-success)_15%,transparent)]",
-  del: "bg-[color:color-mix(in_oklch,var(--color-danger)_15%,transparent)]",
+  add: "bg-[color:color-mix(in_oklch,var(--success)_8%,transparent)]",
+  del: "bg-[color:color-mix(in_oklch,var(--danger)_8%,transparent)]",
   context: "bg-transparent",
 };
 
@@ -139,9 +144,9 @@ const TYPE_PREFIX: Record<DiffLine["type"], string> = {
 };
 
 const TYPE_PREFIX_TONE: Record<DiffLine["type"], string> = {
-  add: "text-[var(--color-success)]",
-  del: "text-[var(--color-danger)]",
-  context: "text-[var(--muted)]",
+  add: "text-[var(--success)]",
+  del: "text-[var(--danger)]",
+  context: "text-[var(--text-subtle)]",
 };
 
 interface HunkVisibility {
@@ -227,10 +232,12 @@ export function DiffViewer({ diff, language, mode, className }: DiffViewerProps)
         data-hunk-open={open ? "true" : "false"}
         aria-expanded={open}
         className={cn(
-          "w-full flex items-center gap-2 px-2 py-1",
-          "text-[0.7rem] font-[var(--font-mono)] text-[var(--muted)]",
-          "bg-[var(--surface)] border-y border-[var(--border)]",
-          "hover:bg-[color:color-mix(in_oklch,var(--surface)_80%,var(--bg))]",
+          // S33: hunk header is monospace 12px, text-muted, on surface.
+          "w-full flex items-center gap-2 px-3 h-7 cursor-pointer",
+          "text-[12px] font-[var(--font-mono)] text-[var(--text-muted)]",
+          "bg-[var(--surface)] border-y border-[var(--border-subtle)]",
+          "transition-colors duration-[var(--duration-fast)]",
+          "hover:bg-[var(--card)] hover:text-[var(--text)]",
         )}
       >
         <motion.span
@@ -257,7 +264,7 @@ export function DiffViewer({ diff, language, mode, className }: DiffViewerProps)
       data-hunk-count={parsed.hunks.length}
       className={cn(
         "border border-[var(--border)] rounded-[var(--radius-md)]",
-        "bg-[var(--bg)] overflow-hidden",
+        "bg-[var(--surface)] overflow-hidden",
         className,
       )}
     >
@@ -289,9 +296,11 @@ export function DiffViewer({ diff, language, mode, className }: DiffViewerProps)
                 type="button"
                 data-testid="diff-show-context"
                 className={cn(
-                  "w-full text-[0.65rem] py-1",
-                  "text-[var(--muted)] hover:text-[var(--text)]",
-                  "bg-[var(--bg)] border-t border-[var(--border)]",
+                  "w-full text-[11px] py-1.5 cursor-pointer",
+                  "text-[var(--text-muted)] hover:text-[var(--text)]",
+                  "bg-[var(--surface)] hover:bg-[var(--card)]",
+                  "border-t border-[var(--border-subtle)]",
+                  "transition-colors duration-[var(--duration-fast)]",
                 )}
                 onClick={() =>
                   console.info(

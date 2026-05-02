@@ -11,6 +11,7 @@ import {
 
 import { ChatMessage } from "@/components/ChatMessage";
 import { Button, KbdHint } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import { useChat, type ChatMessage as ChatMessageT } from "@/lib/store/chat";
 
 const SCROLL_BOTTOM_TOLERANCE = 16;
@@ -109,8 +110,8 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
   return (
     <div data-testid="dock-conversation" className="flex flex-col h-full">
       {/* Top — input + clear */}
-      <div className="flex items-center gap-2 px-4 h-12 border-b border-[var(--border)]">
-        <Sparkles className="h-4 w-4 text-[var(--color-ai)]" aria-hidden />
+      <div className="flex items-center gap-3 px-6 h-14 border-b border-[var(--border-subtle)]">
+        <Sparkles className="h-4 w-4 text-[var(--accent)]" aria-hidden />
         <form onSubmit={onSubmit} className="flex-1 flex items-center gap-2">
           <input
             ref={inputRef}
@@ -120,7 +121,7 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
             placeholder="Ask Inari…"
             aria-label="Inari prompt"
             data-testid="dock-conversation-input"
-            className="flex-1 h-9 bg-transparent text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none border-none"
+            className="flex-1 h-9 bg-transparent text-[15px] text-[var(--text)] placeholder:text-[var(--text-subtle)] outline-none border-none"
           />
         </form>
         <button
@@ -128,7 +129,12 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
           onClick={clearConversation}
           aria-label="Clear conversation"
           data-testid="dock-conversation-clear"
-          className="text-[var(--muted)] hover:text-[var(--text)] transition-colors duration-[var(--duration-fast)]"
+          className={cn(
+            "h-7 w-7 inline-flex items-center justify-center rounded-[var(--radius-sm)]",
+            "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--card)]",
+            "transition-colors duration-[var(--duration-fast)] cursor-pointer",
+            "outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+          )}
         >
           <X className="h-4 w-4" />
         </button>
@@ -139,7 +145,7 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
         ref={scrollRef}
         onScroll={onScroll}
         data-testid="dock-conversation-scroll"
-        className="flex-1 overflow-auto px-4 py-3"
+        className="flex-1 overflow-auto px-6 py-4"
       >
         {isEmpty ? (
           <div
@@ -150,15 +156,15 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
               initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
               animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
-              className="text-3xl text-[var(--color-ai)]"
+              className="text-3xl text-[var(--accent)]"
               aria-hidden
             >
               ✦
             </motion.div>
-            <h2 className="font-[var(--font-serif)] text-lg text-[var(--text)]">
+            <h2 className="font-[var(--font-serif)] text-[18px] text-[var(--text)]">
               Inari is ready
             </h2>
-            <ul className="flex flex-col gap-1.5 text-sm text-[var(--muted)] max-w-[40ch]">
+            <ul className="flex flex-col gap-2 text-[13px] text-[var(--text-muted)] max-w-[40ch]">
               {EMPTY_PROMPTS.map((prompt) => (
                 <li key={prompt}>
                   <button
@@ -167,7 +173,7 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
                       setInputValue(prompt);
                       sendMessage(prompt);
                     }}
-                    className="hover:text-[var(--color-primary)] transition-colors duration-[var(--duration-fast)] focus:outline-none focus-visible:underline"
+                    className="hover:text-[var(--accent-light)] transition-colors duration-[var(--duration-fast)] cursor-pointer focus:outline-none focus-visible:underline"
                   >
                     “{prompt}”
                   </button>
@@ -176,7 +182,7 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
             </ul>
           </div>
         ) : (
-          <ul className="flex flex-col gap-3 min-h-full">
+          <ul className="flex flex-col gap-4 min-h-full">
             {messages.map((message) => (
               <li key={message.id}>
                 <ChatMessage message={message} />
@@ -188,7 +194,7 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
 
       {/* Footer — contextual to last AI message */}
       <footer
-        className="flex items-center justify-between gap-2 px-4 h-12 border-t border-[var(--border)]"
+        className="flex items-center justify-between gap-2 px-6 h-12 border-t border-[var(--border-subtle)]"
         data-testid="dock-conversation-footer"
       >
         <div className="flex items-center gap-2">
@@ -232,7 +238,7 @@ export function DockConversation({ autoFocusInput = true }: DockConversationProp
             Tell me more
           </Button>
         </div>
-        <span className="text-xs text-[var(--muted)]">
+        <span className="text-[11px] text-[var(--text-muted)]">
           <KbdHint>ESC</KbdHint> to close
         </span>
       </footer>

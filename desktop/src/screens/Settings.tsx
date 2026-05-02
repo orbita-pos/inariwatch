@@ -42,29 +42,43 @@ export function Settings() {
       <nav
         data-testid="settings-rail"
         aria-label="Settings sections"
-        className="w-[200px] shrink-0 h-full border-r border-[var(--border)] bg-[var(--surface)] p-3 flex flex-col gap-1"
+        className="w-[220px] shrink-0 h-full border-r border-[var(--border)] bg-[var(--surface)] px-2 py-3 flex flex-col gap-px"
       >
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => setActiveSection(s.id)}
-            data-testid={`settings-tab-${s.id}`}
-            aria-current={activeSection === s.id ? "page" : undefined}
-            className={[
-              "h-8 px-2 rounded-[var(--radius-sm)] text-sm text-left transition-colors",
-              activeSection === s.id
-                ? "bg-[var(--bg)] text-[var(--text)] shadow-[var(--shadow-1)]"
-                : "text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]",
-            ].join(" ")}
-          >
-            {s.label}
-          </button>
-        ))}
+        <div className="px-2 pb-2 text-[11px] uppercase tracking-wide text-[var(--text-subtle)] font-medium">
+          Settings
+        </div>
+        {SECTIONS.map((s) => {
+          const selected = activeSection === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setActiveSection(s.id)}
+              data-testid={`settings-tab-${s.id}`}
+              aria-current={selected ? "page" : undefined}
+              className={[
+                "relative h-7 px-2 rounded-[var(--radius-sm)] text-[13px] text-left",
+                "transition-colors duration-[var(--duration-fast)] outline-none cursor-pointer",
+                "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                selected
+                  ? "bg-[var(--card)] text-[var(--text)]"
+                  : "text-[var(--text-muted)] hover:bg-[var(--card)] hover:text-[var(--text)]",
+              ].join(" ")}
+            >
+              {selected ? (
+                <span
+                  aria-hidden
+                  className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r bg-[var(--accent)]"
+                />
+              ) : null}
+              {s.label}
+            </button>
+          );
+        })}
       </nav>
 
       <ScrollArea className="flex-1 h-full">
-        <main className="p-8">
+        <main className="p-6">
           {activeSection === "general"       ? <SettingsGeneral /> : null}
           {activeSection === "repos"         ? <SettingsRepos /> : null}
           {activeSection === "sensors"       ? <SettingsSensors /> : null}
