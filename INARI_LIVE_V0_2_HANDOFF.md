@@ -790,7 +790,7 @@ Tests: 10/10 new tests pass. Marketing-only run = 16/16 (S29 verify suite intact
 
 **Branch:** `feat/inari-live-v0.2-session33-ux-overhaul`
 **Predecessor:** main `c0d9c4c` (docs(inari-live): lock InariWatch web palette in S33 reference).
-**Status (2026-05-01):** **DONE — code-complete, NOT PUSHED.** `npx tsc --noEmit` clean. `npm run build` clean (5.17s, 11 MB dist, no new warnings). Worktree `radar-s33`. Visual smoke (`npm run tauri dev`) deferred to Jesús — Tauri dev is interactive. Test contract preserved (all existing testIDs unchanged, S33 changes are CSS-class-name + token-rename only). Vitest in the s33 worktree was blocked by the node_modules junction (kept to spare 2GB disk); same code passes 54/54 in the parent worktree on identical setup.
+**Status (2026-05-01):** **DONE — code-complete, NOT PUSHED.** Tip `d1abc0f` (`feat(inari-live): Sesión 33 — UX overhaul…`) on worktree `radar-s33`. `npx tsc --noEmit` clean. `npm run build` clean (5.17s, 11 MB dist, no new warnings). Visual smoke (`npm run tauri dev`) deferred to Jesús — Tauri dev is interactive. Test contract preserved (all existing testIDs unchanged, S33 changes are CSS-class-name + token-rename only). Vitest in the s33 worktree was blocked by the node_modules junction (kept to spare 2GB disk); same code passes 54/54 in the parent worktree on identical setup.
 
 **Files (new):** `desktop/src/components/ui/{TopBar,StatusPill,Card,EmptyState,Skeleton}.tsx` + `desktop/src/lib/motion.ts`.
 
