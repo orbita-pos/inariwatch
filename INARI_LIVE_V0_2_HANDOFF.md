@@ -730,7 +730,7 @@ Tests: 10/10 new tests pass. Marketing-only run = 16/16 (S29 verify suite intact
 
 ### S31 — Local smoke test: real GGUFs + sidecar binary on dev box (4h)
 
-**Status (2026-05-02): DONE — local smoke re-cut, distribution DEFERRED.** The original S31 (code signing CI matrix, 8h) is preserved verbatim below as the "**Deferred plan**" — it activates the moment any of the triggers in `feedback_no_signing_pre_users.md` fires (50+ active beta users / first paying customer / enterprise IT block / cultural moment). Until then, S31's job is to make Tab autocomplete + Fast Apply work end-to-end on Jesús's dev box so the wedge can be validated unsigned.
+**Status (2026-05-02): DONE — local smoke re-cut, distribution DEFERRED.** Commit `f6dad6c` on `feat/inari-live-v0.2-session31-local-models`. NOT pushed. The original S31 (code signing CI matrix, 8h) is preserved verbatim below as the "**Deferred plan**" — it activates the moment any of the triggers in `feedback_no_signing_pre_users.md` fires (50+ active beta users / first paying customer / enterprise IT block / cultural moment). Until then, S31's job is to make Tab autocomplete + Fast Apply work end-to-end on Jesús's dev box so the wedge can be validated unsigned.
 
 **Branch:** `feat/inari-live-v0.2-session31-local-models`
 **Predecessor:** `8cf1666` on `main` (post-S33 + sidebar/Settings/focus-ring fixes).
