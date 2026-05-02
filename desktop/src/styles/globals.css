@@ -1,14 +1,17 @@
 /*
  * Inari Live — global styles. Loaded by every Vite entry (dock / main / dev).
  *
- * Design tokens are LOCKED per HANDOFF spec recap. Mods to the OKLCH palette,
- * radius scale, shadow scale, durations, or font stacks require an entry in
- * INARI_LIVE_DECISIONS.md before being merged.
+ * S33 (2026-05-01) UX overhaul: design tokens were realigned bit-exactly to
+ * `web/app/globals.css` lines 33-148 so the desktop app reads as the same
+ * brand as `app.inariwatch.com`. The LOCKED values below are the canonical
+ * source of truth — DO NOT introduce new accent colors, new radii, or new
+ * spacing values without an entry in INARI_LIVE_DECISIONS.md (Sesión 33).
+ *
+ * Layout / density / typography reference: Linear (`specs/linear-ux-reference/`).
+ * Color reference: InariWatch web (burnt orange #ea580c, NOT Linear's purple).
  *
  * Tailwind v4: tokens declared inside `@theme {}` become both CSS vars and
- * utility classes (e.g. `bg-primary`, `text-text`, `rounded-md`). The fallback
- * dark-mode tokens reuse the same names so `data-theme="dark"` switches them
- * cleanly without per-component overrides.
+ * utility classes (e.g. `bg-accent`, `text-text-muted`, `rounded-md`).
  */
 
 @import "tailwindcss";
@@ -44,83 +47,140 @@
   font-display: swap;
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * Design tokens — LOCKED (S33). Mirrors `web/app/globals.css` dark mode.
+ * Tailwind v4 promotes these to utility classes (e.g. `bg-bg`, `text-text`).
+ * ────────────────────────────────────────────────────────────────────────── */
 @theme {
-  /* OKLCH palette — locked per Spec recap (HANDOFF.md). */
-  --color-bg: oklch(0.99 0 0);
-  --color-bg-dark: oklch(0.1 0 0);
-  --color-surface: oklch(0.97 0 0);
-  --color-surface-dark: oklch(0.13 0 0);
-  --color-border: oklch(0.92 0 0);
-  --color-border-dark: oklch(0.18 0 0);
-  --color-text: oklch(0.2 0 0);
-  --color-text-dark: oklch(0.95 0 0);
-  --color-muted: oklch(0.5 0 0);
-  --color-muted-dark: oklch(0.65 0 0);
-  --color-primary: oklch(0.62 0.18 240);
-  --color-success: oklch(0.65 0.18 145);
-  --color-warning: oklch(0.78 0.16 75);
-  --color-danger: oklch(0.62 0.21 25);
-  --color-ai: oklch(0.65 0.2 285);
+  /* Surfaces (zinc dark, neutral, no color tint). */
+  --color-bg:             #0a0a0c;
+  --color-surface:        #111114;
+  --color-card:           #16161a;
+  --color-card-elevated:  #1a1a1f;
 
-  /* Radius scale */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
+  /* Borders (three weights). */
+  --color-border:         #1f1f24;
+  --color-border-subtle:  #17171b;
+  --color-border-strong:  #2a2a31;
 
-  /* Shadow scale — soft, layered, no hard edges. */
+  /* Text (three weights). */
+  --color-text:           #f5f5f7;
+  --color-text-muted:     #a1a1aa;
+  --color-text-subtle:    #71717a;
+
+  /* Accent — burnt orange (the InariWatch brand color). */
+  --color-accent:         #ea580c;   /* Tailwind orange-600 */
+  --color-accent-hover:   #c2410c;   /* orange-700 */
+  --color-accent-light:   #fb923c;   /* orange-400 */
+
+  /* Status semantic colors (kept regardless of brand). */
+  --color-success:        #4cb782;
+  --color-warning:        #f0a020;
+  --color-danger:         #eb5757;
+
+  /* Spacing scale — LOCKED to 8-point with 4-step (no random values).
+   * Tailwind v4 picks these up as `gap-3`, `p-4`, etc. */
+  --spacing-1:  4px;
+  --spacing-2:  8px;
+  --spacing-3:  12px;
+  --spacing-4:  16px;
+  --spacing-5:  24px;
+  --spacing-6:  32px;
+  --spacing-7:  48px;
+  --spacing-8:  64px;
+
+  /* Border radius scale — LOCKED. */
+  --radius-sm:  6px;   /* buttons, pills, action squares */
+  --radius-md:  8px;   /* small cards, inputs */
+  --radius-lg:  12px;  /* large cards, modals */
+  --radius-xl:  16px;  /* hero surfaces (rare) */
+
+  /* Shadow scale — soft, no hard edges. Drop shadows are intentionally
+   * subtle: Linear-density UIs read better without heavy elevation. */
   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
-  --shadow-2: 0 4px 12px rgb(0 0 0 / 0.1);
+  --shadow-2: 0 4px 12px rgb(0 0 0 / 0.10);
   --shadow-3: 0 12px 24px rgb(0 0 0 / 0.15);
 
-  /* Motion. The spring easing is used for "reveal" interactions (open dock,
+  /* Motion — LOCKED 150ms baseline, cubic-bezier(0.16,1,0.3,1) ease.
+   * The spring easing is reserved for "reveal" interactions (open dock,
    * apply fix). Reduced-motion swaps to fade-only via the override below. */
-  --duration-fast: 150ms;
-  --duration-medium: 200ms;
-  --easing-spring: cubic-bezier(0.5, 1.5, 0.4, 1);
-  --easing-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast:    150ms;
+  --duration-medium:  200ms;
+  --duration-slow:    300ms;
+  --easing-spring:    cubic-bezier(0.5, 1.5, 0.4, 1);
+  --easing-out:       cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Typography */
-  --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
+  /* Typography stacks. */
+  --font-sans:  "Inter Variable", system-ui, -apple-system, sans-serif;
   --font-serif: "Source Serif 4", Georgia, serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Mono", monospace;
+  --font-mono:  "JetBrains Mono Variable", ui-monospace, "Cascadia Mono", monospace;
 }
 
-/* Resolved tokens that the rest of the app reads via `var()`.
+/* ──────────────────────────────────────────────────────────────────────────
+ * Resolved tokens (read by `var()` across the codebase).
  *
- * Tailwind v4 does NOT auto-emit dark variants for arbitrary CSS vars; we
- * manage the swap by hand here so utilities like `bg-[var(--bg)]` keep
- * working in both themes. */
+ * Inari Live is dark-only post-S33: the `web/app/globals.css` dark palette
+ * is the canonical brand. We keep `data-theme="light"` reachable as a
+ * future-proof escape hatch but the default is dark. The legacy `--bg /
+ * --surface / --border / --text / --muted` and `--color-primary /
+ * --color-ai` aliases below are the bridge for ~26 components that already
+ * read those names — touching all of them in one sweep would balloon the
+ * S33 diff. Phase-out tracked in INARI_LIVE_DECISIONS.md.
+ * ────────────────────────────────────────────────────────────────────────── */
 :root {
-  --bg: var(--color-bg);
-  --surface: var(--color-surface);
-  --border: var(--color-border);
-  --text: var(--color-text);
-  --muted: var(--color-muted);
-  color-scheme: light;
-}
-
-:root[data-theme="dark"],
-:root[data-theme="auto"]:where([data-system-theme="dark"]) {
-  --bg: var(--color-bg-dark);
-  --surface: var(--color-surface-dark);
-  --border: var(--color-border-dark);
-  --text: var(--color-text-dark);
-  --muted: var(--color-muted-dark);
   color-scheme: dark;
+
+  /* Canonical (new, prefer these going forward). */
+  --bg:                var(--color-bg);
+  --surface:           var(--color-surface);
+  --card:              var(--color-card);
+  --card-elevated:     var(--color-card-elevated);
+  --border:            var(--color-border);
+  --border-subtle:     var(--color-border-subtle);
+  --border-strong:     var(--color-border-strong);
+  --text:              var(--color-text);
+  --text-muted:        var(--color-text-muted);
+  --text-subtle:       var(--color-text-subtle);
+
+  --accent:            var(--color-accent);
+  --accent-hover:      var(--color-accent-hover);
+  --accent-light:      var(--color-accent-light);
+  --accent-gradient:   linear-gradient(135deg, #fb923c 0%, #ea580c 55%, #c2410c 100%);
+
+  --success:           var(--color-success);
+  --warning:           var(--color-warning);
+  --danger:            var(--color-danger);
+
+  /* Legacy aliases — kept so pre-S33 components keep rendering. New code
+   * should prefer the canonical names above. */
+  --muted:             var(--color-text-muted);
+  --color-primary:     var(--color-accent);   /* old "primary" was blue; brand is orange */
+  --color-ai:          var(--color-accent-light); /* old "ai" was purple; brand has no purple */
+
+  /* Legacy motion aliases. `--duration-base` was used in onboarding before
+   * the spec recap split fast/medium/slow. */
+  --duration-base:     var(--duration-fast);
+  --easing-base:       var(--easing-out);
+
+  /* Legacy radius alias (--radius-2xl appears in DropRepo + a couple of
+   * cards). Keep mapping to `--radius-xl` until those callers update. */
+  --radius-2xl:        var(--radius-xl);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]),
-  :root[data-theme="auto"]:not([data-system-theme="light"]) {
-    --bg: var(--color-bg-dark);
-    --surface: var(--color-surface-dark);
-    --border: var(--color-border-dark);
-    --text: var(--color-text-dark);
-    --muted: var(--color-muted-dark);
-    color-scheme: dark;
-  }
+/* Light-mode escape hatch (reserved — Inari Live ships dark-only). */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg:                #fafafa;
+  --surface:           #ffffff;
+  --card:              #f4f4f5;
+  --card-elevated:     #efefef;
+  --border:            #e4e4e7;
+  --border-subtle:     #f0f0f0;
+  --border-strong:     #d4d4d8;
+  --text:              #0a0a0c;
+  --text-muted:        #52525b;
+  --text-subtle:       #71717a;
+  --muted:             #52525b;
 }
 
 /* Reduced-motion: collapse motion tokens. Components that read these vars
@@ -129,10 +189,13 @@
  * `useReducedMotion()` hook to drop springs. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --duration-fast: 0ms;
+    --duration-fast:   0ms;
     --duration-medium: 0ms;
-    --easing-spring: linear;
-    --easing-out: linear;
+    --duration-slow:   0ms;
+    --duration-base:   0ms;
+    --easing-spring:   linear;
+    --easing-out:      linear;
+    --easing-base:     linear;
   }
   *,
   *::before,
@@ -169,13 +232,88 @@ body.dock-window {
   background: transparent;
 }
 
-/* Remove the focus outline on mouse clicks but keep it for keyboard users.
- * Standard accessibility pattern; works in all evergreen browsers. */
+/* Selection color — burnt orange tint. */
+::selection {
+  background: rgb(234 88 12 / 0.30);
+  color: var(--text);
+}
+
+/* ───── Focus ──────────────────────────────────────────────────────────── */
+
+/* Hide outline on mouse clicks but keep it for keyboard users (a11y). */
 :focus:not(:focus-visible) {
   outline: none;
 }
 :focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+/* ───── Scrollbars ─────────────────────────────────────────────────────── */
+
+/* Linear-style thin scrollbars: 6px, transparent track, low-contrast thumb. */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
+
+/* Firefox. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* ───── Utilities ──────────────────────────────────────────────────────── */
+
+/* Burnt-orange gradient text — for hero surfaces / accent headlines. */
+.text-gradient-accent {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Subtle accent glows — used sparingly on hero CTAs. */
+.glow-accent {
+  box-shadow:
+    0 0 20px rgb(234 88 12 / 0.18),
+    0 0 60px rgb(234 88 12 / 0.07);
+}
+.glow-accent-sm {
+  box-shadow: 0 0 12px rgb(234 88 12 / 0.30);
+}
+
+/* Skeleton shimmer — used by the <Skeleton> component (S33 Phase 6). */
+@keyframes inari-skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--card) 0%,
+    var(--card-elevated) 50%,
+    var(--card) 100%
+  );
+  background-size: 200% 100%;
+  animation: inari-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Frosted-glass surface — for the dock window. Backdrop-filter is
+ * supported in Tauri 2 (Edge WebView2 / WKWebView). */
+.frosted-glass {
+  background: rgb(15 15 17 / 0.85);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
 }

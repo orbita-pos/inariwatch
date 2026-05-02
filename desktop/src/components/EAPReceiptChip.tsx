@@ -74,10 +74,10 @@ export function EAPReceiptChip({ receipt, compact = false }: EAPReceiptChipProps
         data-testid="eap-receipt-chip"
         data-eap-state="unsigned"
         className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5",
+          "inline-flex items-center gap-1.5 px-2 py-0.5",
           "rounded-[var(--radius-sm)] border border-[var(--border)]",
-          "bg-[var(--surface)] text-xs font-[var(--font-mono)]",
-          "text-[var(--muted)]",
+          "bg-[var(--card)] text-[11px] font-[var(--font-mono)]",
+          "text-[var(--text-muted)]",
         )}
       >
         <Lock className="h-3 w-3" aria-hidden />
@@ -98,14 +98,14 @@ export function EAPReceiptChip({ receipt, compact = false }: EAPReceiptChipProps
         data-eap-state={stateAttr}
         title={`EAP receipt — Merkle root ${truncated}`}
         className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5",
+          "inline-flex items-center gap-1.5 px-2 py-0.5 cursor-pointer",
           "rounded-[var(--radius-sm)] border",
-          "bg-[var(--surface)] text-xs font-[var(--font-mono)]",
+          "bg-[var(--card)] text-[11px] font-[var(--font-mono)]",
           "transition-colors duration-[var(--duration-fast)]",
           receipt.signed
-            ? "border-[var(--color-primary)] text-[var(--color-primary)]"
-            : "border-[var(--border)] text-[var(--muted)]",
-          "hover:brightness-110",
+            ? "border-[var(--accent)] text-[var(--accent-light)] hover:bg-[rgb(234_88_12_/_0.10)]"
+            : "border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--card-elevated)] hover:border-[var(--border-strong)]",
+          "outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
         )}
       >
         <Lock className="h-3 w-3" aria-hidden />
@@ -131,8 +131,9 @@ export function EAPReceiptChip({ receipt, compact = false }: EAPReceiptChipProps
               rel="noreferrer"
               data-testid="eap-receipt-chip-verify-link"
               className={cn(
-                "inline-flex items-center gap-1 text-xs text-[var(--color-primary)]",
-                "hover:underline",
+                "inline-flex items-center gap-1 text-[12px] text-[var(--accent-light)]",
+                "hover:text-[var(--accent)] hover:underline",
+                "transition-colors duration-[var(--duration-fast)]",
               )}
             >
               <ExternalLink className="h-3 w-3" aria-hidden /> Open in verifier
@@ -143,8 +144,9 @@ export function EAPReceiptChip({ receipt, compact = false }: EAPReceiptChipProps
               disabled={exportState.kind === "saving"}
               data-testid="eap-receipt-chip-export"
               className={cn(
-                "inline-flex items-center gap-1 text-xs text-[var(--muted)]",
-                "hover:text-[var(--color-primary)] hover:underline",
+                "inline-flex items-center gap-1 text-[12px] text-[var(--text-muted)]",
+                "hover:text-[var(--accent-light)] hover:underline",
+                "transition-colors duration-[var(--duration-fast)]",
                 "disabled:opacity-60 disabled:cursor-progress",
               )}
             >
@@ -315,7 +317,7 @@ function ExportStatusLine({ state }: { state: ExportFeedback }) {
   return (
     <p
       data-testid="eap-receipt-chip-export-status"
-      className="mt-2 text-[0.65rem] text-red-500 break-all"
+      className="mt-2 text-[11px] text-[var(--danger)] break-all"
       role="alert"
     >
       Export failed: {state.message}
