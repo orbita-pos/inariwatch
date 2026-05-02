@@ -1,7 +1,6 @@
 import {
   Activity,
   BookOpen,
-  ChevronDown,
   Inbox,
   Layers,
   PencilLine,
@@ -95,15 +94,13 @@ export function Sidebar() {
         data-tauri-drag-region
         className="flex items-center gap-1 h-12 px-3"
       >
-        <button
-          type="button"
+        {/* Workspace badge — display-only. Inari Live is single-user
+            desktop; no workspace switching to surface, so this is a
+            <div> not a <button>. The dropdown chevron was removed for
+            the same reason — no menu, no caret. */}
+        <div
           data-testid="sidebar-workspace-switcher"
-          className={cn(
-            "flex items-center gap-2 flex-1 h-7 px-1.5 rounded-[var(--radius-sm)]",
-            "transition-colors duration-[var(--duration-fast)]",
-            "hover:bg-[var(--card)] outline-none",
-            "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-          )}
+          className="flex items-center gap-2 flex-1 h-7 px-1.5"
         >
           <img
             src="/favicon.png"
@@ -116,8 +113,7 @@ export function Sidebar() {
           <span className="text-[13px] font-medium text-[var(--text)] truncate">
             Inari
           </span>
-          <ChevronDown className="h-3 w-3 text-[var(--text-subtle)] shrink-0" aria-hidden />
-        </button>
+        </div>
         <button
           type="button"
           aria-label="Search"
