@@ -428,9 +428,13 @@ function PaletteInputBar({
             onEscape();
           }
         }}
+        // Suppress the global :focus-visible orange outline from globals.css
+        // — it's load-bearing for buttons/links a11y but reads as a thick
+        // accent box around a text field inside an already-focused dialog.
+        // The dialog itself + the cursor are sufficient focus indicators.
         className={cn(
           "flex-1 h-11 bg-transparent text-sm text-[var(--text)]",
-          "placeholder:text-[var(--muted)] outline-none",
+          "placeholder:text-[var(--muted)] outline-none focus:outline-none focus-visible:outline-none",
         )}
       />
     </div>
