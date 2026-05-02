@@ -77,12 +77,23 @@ pub enum ModelFamily {
 /// we can rotate model variants without renaming the id.
 pub const DEFAULT_CDN_BASE: &str = "https://models.inariwatch.com";
 
-/// Hard-coded catalogue for v0.2. The hashes are placeholders — they
-/// will be replaced with real digests once the GGUFs are uploaded to
-/// R2 in S31. Until then, production [`ModelRegistry::ensure_local`]
-/// calls will fail with [`RegistryError::HashMismatch`] for these
-/// IDs, which surfaces as "model not yet available — check back in
-/// the next release" in the dock. Tests pass their own catalogues.
+/// Hard-coded catalogue for v0.2.
+///
+/// S31 (2026-05-02) replaced the S21 placeholder digests for the two
+/// shipping models (Qwen2.5-Coder-1.5B Tab + Kortix FastApply-7B Apply)
+/// with real BLAKE3 hashes computed locally against the Q4_K_M GGUFs
+/// downloaded from HuggingFace:
+/// - `bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF` →
+///   `Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf` (986,048,800 bytes)
+/// - `Kortix/FastApply-7B-v1.0_GGUF` → `hf.Q4_K_M.gguf`
+///   (4,683,072,224 bytes)
+///
+/// The 0.5B fallback row stays a placeholder — S31 only stages what the
+/// dev box will exercise; the 0.5B path is exercised on <8 GB RAM
+/// machines we do not yet have in the smoke loop. Production
+/// [`ModelRegistry::ensure_local`] for that id keeps failing with
+/// [`RegistryError::HashMismatch`] until a future session lands the
+/// real digest. Tests pass their own catalogues.
 pub fn catalogue() -> Vec<ModelSpec> {
     vec![
         ModelSpec {
@@ -95,15 +106,15 @@ pub fn catalogue() -> Vec<ModelSpec> {
         ModelSpec {
             id:           "qwen2.5-coder-1.5b".to_string(),
             display_name: "Qwen2.5-Coder 1.5B (Tab)".to_string(),
-            blake3_hex:   "0".repeat(64),
-            size_bytes:   1_000 * 1024 * 1024,
+            blake3_hex:   "117fd82563e7bb5d49ae7a247787177657c0a56cfbf204af18638c59e5719897".to_string(),
+            size_bytes:   986_048_800,
             family:       ModelFamily::Tab,
         },
         ModelSpec {
             id:           "kortix-fast-apply-7b".to_string(),
             display_name: "Kortix FastApply 7B (Apply)".to_string(),
-            blake3_hex:   "0".repeat(64),
-            size_bytes:   5_000 * 1024 * 1024,
+            blake3_hex:   "8ec091271467d3834aad84136a53be8f262f5665f1aff800c773f1323f3593c8".to_string(),
+            size_bytes:   4_683_072_224,
             family:       ModelFamily::Apply,
         },
     ]
