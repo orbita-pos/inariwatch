@@ -103,4 +103,34 @@ describe("persistRouterReceipt", () => {
     await new Promise((r) => setImmediate(r));
     // Receipt failures must be swallowed.
   });
+
+  // v0.3 S3 — usage plumbs from RouterReceipt directly. The S2.5 inferUsage()
+  // returned hard-coded nulls; S3 reads the receipt fields so /admin/ops cost
+  // columns finally have data.
+  it("persists token usage from the receipt", async () => {
+    persistRouterReceipt(
+      baseReceipt({
+        inputTokens: 123,
+        outputTokens: 45,
+        cachedInputTokens: 6,
+      }),
+    );
+    await new Promise((r) => setImmediate(r));
+    const row = valuesMock.mock.calls[0]![0];
+    expect(row.inputTokens).toBe(123);
+    expect(row.outputTokens).toBe(45);
+    expect(row.cachedInputTokens).toBe(6);
+  });
+
+  it("persists null usage when the receipt didn't carry it", async () => {
+    // Sidecar stubs / voice TTS / mocks that don't surface counters leave
+    // these undefined on the receipt. The sink should still write a row —
+    // just with NULL columns so the cost dashboard renders an em-dash.
+    persistRouterReceipt(baseReceipt());
+    await new Promise((r) => setImmediate(r));
+    const row = valuesMock.mock.calls[0]![0];
+    expect(row.inputTokens).toBeNull();
+    expect(row.outputTokens).toBeNull();
+    expect(row.cachedInputTokens).toBeNull();
+  });
 });

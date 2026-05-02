@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs, slackInstallations, slackChannelMappings, projects, mcpTokens } from "@/lib/db";
+import { db, users, notificationChannels, apiKeys, outgoingWebhooks, auditLogs, slackInstallations, slackChannelMappings, projects, mcpTokens, organizations, organizationMembers } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { eq, desc } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
@@ -20,6 +20,7 @@ import { WebhookSection } from "./webhook-section";
 import { AuditLogSection } from "./audit-log-section";
 import { TwoFactorSection } from "./two-factor";
 import { AIKeySection } from "./ai-key";
+import { AIPreferencesSection } from "./ai-preferences";
 import { ProGate } from "@/components/pro-gate";
 import type { Metadata } from "next";
 
@@ -110,6 +111,31 @@ export default async function SettingsPage() {
     topTools: ((mcpTopToolsRaw?.rows ?? []) as { tool: string; count: number }[]),
     callsByDay: ((mcpByDayRaw?.rows ?? []) as { date: string; count: number }[]),
   };
+
+  // v0.3 S3 — resolve the user's active workspace + read its
+  // `localNotifyEnabled` flag so the AI Preferences toggle reflects
+  // current state. Falls back to the user's first membership when
+  // `activeOrgId` is unset (matches the behavior of the workspace
+  // switcher in the rest of the dashboard).
+  let activeOrgId: string | null = user?.activeOrgId ?? null;
+  if (!activeOrgId && userId) {
+    const member = await db
+      .select({ orgId: organizationMembers.organizationId })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, userId))
+      .limit(1);
+    activeOrgId = member[0]?.orgId ?? null;
+  }
+  const orgRow = activeOrgId
+    ? (
+        await db
+          .select({ localNotifyEnabled: organizations.localNotifyEnabled })
+          .from(organizations)
+          .where(eq(organizations.id, activeOrgId))
+          .limit(1)
+      )[0]
+    : null;
+  const localNotifyEnabled = orgRow?.localNotifyEnabled ?? false;
 
   return (
     <div className="mx-auto max-w-[680px] space-y-8">
@@ -240,6 +266,12 @@ export default async function SettingsPage() {
         )}
       </Section>
       </ProGate>
+
+      {/* ── AI Preferences (v0.3 S3) ─────────────────────────────────────── */}
+      <AIPreferencesSection
+        initial={localNotifyEnabled}
+        hasWorkspace={!!activeOrgId}
+      />
 
       {/* ── MCP Access Tokens ─────────────────────────────────────────────── */}
       <Section title="MCP">

@@ -83,3 +83,29 @@ export {
   receiptSinkCount,
 } from "./receipts";
 export type { RouterReceipt, ReceiptSink } from "./receipts";
+
+// v0.3 S3 — eval harness. Surfaces (web/scripts/run-eval.ts, /admin/ai-eval)
+// import these to drive cross-substrate quality measurement.
+export {
+  NOTIFY_COMPOSE_EMAIL_CORPUS,
+} from "./eval/corpus";
+export type {
+  ComposeEmailEvalInput,
+  ComposeEmailEvalRubric,
+  ComposeEmailEvalItem,
+} from "./eval/corpus";
+export {
+  PROMOTION_THRESHOLD,
+  buildJudgePrompt,
+  buildReport,
+  makeGpt4oMiniJudge,
+  scoreItem,
+  scoreRubric,
+} from "./eval/judge";
+export type {
+  ComposeEmailEvalOutput,
+  EvalReport,
+  ItemScore,
+  JudgeFn,
+} from "./eval/judge";
+export { runEval } from "./eval/run";

@@ -7,7 +7,7 @@
 //! response contract that web's user-sidecar provider falls back from.
 
 use inariwatch_desktop_lib::relay_client::{
-    build_stub_response, RelayConfig, RelayState, CAPABILITIES,
+    build_stub_response, handle_dispatch, RelayConfig, RelayState, CAPABILITIES,
 };
 use serde_json::json;
 
@@ -45,6 +45,7 @@ fn ws_url_constructs_correctly() {
         jwt: "tok".into(),
         app_version: "0.3.0".into(),
         initial_backoff: None,
+        local_ai: None,
     };
     assert_eq!(cfg.ws_url(), "wss://relay.inariwatch.com/ws");
 }
@@ -68,12 +69,16 @@ fn relay_state_serde_round_trip() {
 
 #[test]
 fn stub_response_satisfies_relay_contract() {
-    // Mimic a dispatch frame the Go relay would forward.
+    // Mimic a dispatch frame the Go relay would forward. `build_stub_response`
+    // is the bare-bones stub builder — the dispatcher routes
+    // `notify.compose.email` to a real handler when local_ai is wired, but
+    // the builder itself still returns a stub no matter the task. This test
+    // covers the contract for tasks the dispatcher CAN'T satisfy locally.
     let raw_dispatch = json!({
         "type": "dispatch",
         "request_id": "abc-123",
-        "task": "notify.compose.email",
-        "payload": {"alert": "x"},
+        "task": "voice.tts.alert",
+        "payload": {"text": "x"},
     });
     let df: inariwatch_desktop_lib::relay_client::DispatchFrame =
         serde_json::from_value(raw_dispatch).unwrap();
@@ -82,6 +87,30 @@ fn stub_response_satisfies_relay_contract() {
     assert_eq!(v["request_id"], "abc-123");
     assert_eq!(v["type"], "response");
     assert_eq!(v["status"], "ok");
-    assert_eq!(v["body"]["task"], "notify.compose.email");
+    assert_eq!(v["body"]["task"], "voice.tts.alert");
     assert_eq!(v["body"]["stub"], true);
+}
+
+// v0.3 S3 — `handle_dispatch` is the real entry point. We cover the
+// fallback branch (no LocalAI handle) here because it doesn't need a
+// model spawned. Real-model coverage lives in the eval harness +
+// end-to-end smoke per `INARI_LIVE_V0_3_HANDOFF.md` v0.3 S3 § Smoke.
+#[tokio::test]
+async fn handle_dispatch_email_falls_back_when_no_local_ai() {
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame = serde_json::from_value(json!({
+        "type": "dispatch",
+        "request_id": "rid-fallback",
+        "task": "notify.compose.email",
+        "payload": {"alert": {"title": "Boom"}},
+    }))
+    .unwrap();
+    let resp = handle_dispatch(None, &df).await;
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["request_id"], "rid-fallback");
+    assert_eq!(v["status"], "ok");
+    let note = v["body"]["note"].as_str().unwrap_or("");
+    assert!(
+        note.contains("local_ai not initialized"),
+        "expected fallback note, got {note:?}",
+    );
 }

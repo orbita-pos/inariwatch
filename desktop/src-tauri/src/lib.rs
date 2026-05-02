@@ -93,11 +93,18 @@ pub mod lib_eap_verify;
 // v0.3 S2 — WS relay client (Inari Live registers with relay.inariwatch.com
 // at boot and keeps a long-lived WS open so the InariWatch cloud router
 // can dispatch `notify.compose.*` / `voice.tts.*` / `chat.conversational`
-// tasks here when the workspace flag is on. Real per-task handlers wired
-// in v0.3 S3; S2 ships a stub that ack-replies "ok stub" so the smoke
-// loop is testable end-to-end. `pub` so integration tests in
-// `tests/relay_client_test.rs` reach `RelayConfig` / `Backoff`.
+// tasks here when the workspace flag is on. v0.3 S3 wires the first real
+// per-task handler (`notify.compose.email` → `notify_compose::compose_email`).
+// `pub` so integration tests in `tests/relay_client_test.rs` reach
+// `RelayConfig` / `Backoff` / `handle_dispatch`.
 pub mod relay_client;
+
+// v0.3 S3 — notify.compose.email handler. First "cómo decirlo" task to
+// run on the user's local model per `INARI_AI_ARCHITECTURE.md` §1
+// (LOCKED 2026-05-02). `pub` so unit tests + the relay_client dispatcher
+// can reach the prompt builder, response parser, and signed-receipt
+// helpers without going through the streaming model path.
+pub mod notify_compose;
 
 pub const LSP_DEFAULT_PORT: u16 = 9877;
 

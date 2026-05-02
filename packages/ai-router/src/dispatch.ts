@@ -373,6 +373,48 @@ function modelFromOutput(out: DispatchOutput): string {
   }
 }
 
+/**
+ * v0.3 S3 — pull token usage off a DispatchOutput so dispatch() can hand it
+ * to emitReceipt(). complete / tool-use / vision all carry an AIUsage shape
+ * (inputTokens / outputTokens / cachedInputTokens). embed exposes only
+ * inputTokens; the other two stay null. Providers that didn't surface usage
+ * (sidecar stub, mocks, errors) yield zeros, which we coerce to null so the
+ * persisted column reads "no data" not "0 tokens".
+ */
+function usageFromOutput(out: DispatchOutput): {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+} {
+  switch (out.mode) {
+    case "complete": {
+      const u = out.response.usage;
+      return {
+        inputTokens: u.inputTokens > 0 ? u.inputTokens : null,
+        outputTokens: u.outputTokens > 0 ? u.outputTokens : null,
+        cachedInputTokens:
+          u.cachedInputTokens > 0 ? u.cachedInputTokens : null,
+      };
+    }
+    case "tool-use":
+    case "vision": {
+      const u = out.usage;
+      return {
+        inputTokens: u.inputTokens > 0 ? u.inputTokens : null,
+        outputTokens: u.outputTokens > 0 ? u.outputTokens : null,
+        cachedInputTokens:
+          u.cachedInputTokens > 0 ? u.cachedInputTokens : null,
+      };
+    }
+    case "embed":
+      return {
+        inputTokens: out.usage.inputTokens > 0 ? out.usage.inputTokens : null,
+        outputTokens: null,
+        cachedInputTokens: null,
+      };
+  }
+}
+
 // ── Fallback policy ─────────────────────────────────────────────────────────
 
 function shouldFallback(
@@ -454,6 +496,7 @@ export async function dispatch(
 
   // Receipt emission is fire-and-forget. The sink (web's DB layer) handles
   // its own errors; the router never lets receipt failures bubble back.
+  const usage = usageFromOutput(result.output);
   emitReceipt({
     task: input.task,
     namespace: namespaceOf(input.task),
@@ -469,6 +512,9 @@ export async function dispatch(
     remediationSessionId: input.workspace?.remediationSessionId,
     isPlatformKey: input.workspace?.isPlatformKey ?? false,
     fallbackUsed: usedFallback,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
     relayPath: result.substrate === "user-sidecar" ? "relay" : "direct",
     userSidecarReceipt: userSidecarReceipt ?? undefined,
   });
@@ -713,6 +759,13 @@ export async function* dispatchStream(
     remediationSessionId: input.workspace?.remediationSessionId,
     isPlatformKey: input.workspace?.isPlatformKey ?? false,
     fallbackUsed: usedFallback || usedCompleteFallback,
+    // Usage was accumulated from the streaming final marker (or zeroed when
+    // the provider didn't emit one). Coerce zeros to null so /admin/ops
+    // shows "no data" instead of "0 tokens" — matches dispatch()'s policy.
+    inputTokens: usage.inputTokens > 0 ? usage.inputTokens : null,
+    outputTokens: usage.outputTokens > 0 ? usage.outputTokens : null,
+    cachedInputTokens:
+      usage.cachedInputTokens > 0 ? usage.cachedInputTokens : null,
     relayPath: substrate === "user-sidecar" ? "relay" : "direct",
     userSidecarReceipt: userSidecarReceipt ?? undefined,
   };
@@ -723,8 +776,6 @@ export async function* dispatchStream(
   if (!usedCompleteFallback) {
     emitReceipt(receipt);
   }
-  // Suppress unused-var lint for token bookkeeping.
-  void usage;
 
   yield { delta: "", done: true, receipt };
 }

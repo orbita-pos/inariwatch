@@ -183,6 +183,65 @@ describe("dispatch() — Phase 1 cloud routing", () => {
     expect(r.tsEnd).toBeGreaterThanOrEqual(r.tsStart);
   });
 
+  // v0.3 S3 — usage now plumbs onto the RouterReceipt itself so /admin/ops
+  // can show real cost columns. The OpenAI mock returned `prompt_tokens: 42,
+  // completion_tokens: 17` — those land on the receipt directly. Zero or
+  // missing values stay null so the receipts table never reports "0 tokens"
+  // for sidecar stubs or providers that didn't surface counters.
+  it("plumbs token usage from response onto the receipt (cloud complete)", async () => {
+    const { spy } = makeFetchStub({
+      "api.openai.com": {
+        body: {
+          choices: [{ message: { content: "ok" } }],
+          usage: {
+            prompt_tokens: 42,
+            completion_tokens: 17,
+            prompt_tokens_details: { cached_tokens: 8 },
+          },
+        },
+      },
+    });
+    globalThis.fetch = spy;
+
+    await dispatch({
+      mode: "complete",
+      task: TASKS.ALERT_AUTO_ANALYZE,
+      apiKey: "sk-test",
+      systemPrompt: "system",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(receipts.length).toBe(1);
+    const r = receipts[0];
+    expect(r.inputTokens).toBe(42);
+    expect(r.outputTokens).toBe(17);
+  });
+
+  it("coerces zero usage to null so /admin/ops shows no-data", async () => {
+    const { spy } = makeFetchStub({
+      "api.openai.com": {
+        body: {
+          choices: [{ message: { content: "ok" } }],
+          usage: {},
+        },
+      },
+    });
+    globalThis.fetch = spy;
+
+    await dispatch({
+      mode: "complete",
+      task: TASKS.ALERT_AUTO_ANALYZE,
+      apiKey: "sk-test",
+      systemPrompt: "system",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(receipts.length).toBe(1);
+    expect(receipts[0].inputTokens).toBeNull();
+    expect(receipts[0].outputTokens).toBeNull();
+    expect(receipts[0].cachedInputTokens).toBeNull();
+  });
+
   it("falls back to secondary provider on cloud-error trigger", async () => {
     const { spy, routes } = makeFetchStub({
       "api.openai.com": {
@@ -237,9 +296,14 @@ describe("dispatch() — Phase 1 cloud routing", () => {
     expect(receipts.length).toBe(0);
   });
 
-  it("user-sidecar substrate falls back to cloud when stub throws", async () => {
-    // Phase 1 user-sidecar always throws. Set up a rule that points at it
-    // with a cloud fallback to cover the path Phase 2 will exercise.
+  it("user-sidecar substrate falls back to cloud when sidecar errors", async () => {
+    // S3 wires `notify.compose.email` to user-sidecar with a cloud fallback.
+    // We force the primary via `taskOverrides` (so the test doesn't depend
+    // on `localNotifyEnabled` semantics) and let the user-sidecar adapter
+    // throw its `sidecar-offline` sentinel — RELAY_URL isn't set, no
+    // active user_id either. The router's `shouldFallback` matches the
+    // sentinel against `rule.fallbackTriggers` and re-runs on the cloud
+    // target. End result: caller never sees the sidecar failure.
     const { spy, routes } = makeFetchStub({
       "api.openai.com": {
         body: {
@@ -260,14 +324,11 @@ describe("dispatch() — Phase 1 cloud routing", () => {
         taskOverrides: {
           [TASKS.NOTIFY_COMPOSE_EMAIL]: {
             substrate: "user-sidecar",
-            model: "llama-3.2-3b-q4",
+            model: "qwen2.5-coder-1.5b",
           },
         },
       },
     });
-    // Override doesn't define a fallback, but the rule's default fallback for
-    // notify.compose.email isn't set today, so the dispatch must throw — the
-    // sidecar stub error bubbles up.
     expect(out.mode).toBe("complete");
     if (out.mode === "complete") {
       expect(out.response.text).toBe("fallback");

@@ -372,9 +372,79 @@ Phase A (`6ea2b2e` on `feat/inari-live-v0.3-dashboard-phase-a`) merges separatel
 
 ### v0.3 S3 — First local task: `notify.compose.email` + eval harness (6h)
 
-**Status:** PENDING.
-**Predecessor:** v0.3 S1 + v0.3 S2 merged.
-**Worktree:** `git worktree add ../radar-v0.3-s3 -b feat/inari-live-v0.3-session3-first-local-task`
+**Status:** DONE-2026-05-02 (NOT PUSHED). Worktree `../radar-v0.3-s3`,
+branch `feat/inari-live-v0.3-session3-notify-email`. Branched off
+`main` tip `1a14575` (post-S2.6 merge). 6 acceptance items shipped:
+
+1. **Token usage on `RouterReceipt`** — `inputTokens` / `outputTokens` /
+   `cachedInputTokens` plumbed from provider responses (complete /
+   tool-use / vision / embed). `dispatch()` + `dispatchStream()` write
+   them; persist-receipt sink stores them; zeros coerce to null so the
+   `/admin/ops` cost columns render "no-data" instead of "0 tokens".
+2. **Inari Live notify.compose.email handler** — new
+   `desktop/src-tauri/src/notify_compose/` (mod + tests). Builds the
+   prompt template, streams tokens from the local AI runtime
+   (Qwen2.5-Coder-1.5B from the S21 catalogue), parses brace-balanced
+   JSON, signs an Ed25519 receipt compatible with
+   `lib_eap_verify::verify`. `relay_client.rs` dispatcher routes
+   `notify.compose.email` → real handler; other tasks stay stubbed
+   until later sessions wire them.
+3. **Routing rule flipped** — `packages/ai-router/src/rules.ts:RULES`
+   primary for `NOTIFY_COMPOSE_EMAIL` is now
+   `{ substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" }` with
+   `workspaceFlag: "localNotifyEnabled"` and a cloud fallback that
+   triggers on `sidecar-offline` / `sidecar-timeout` /
+   `workspace-flag-cloud-only`. New `Rule.workspaceFlag` field +
+   resolver precedence (`taskOverrides` > `forceCloudOnly` >
+   `workspaceFlag` > `rule.primary`).
+4. **`localNotifyEnabled` workspace flag** — migration 0077 adds
+   `organizations.local_notify_enabled` (BOOLEAN NOT NULL DEFAULT
+   FALSE). Drizzle schema entry + Settings → AI Preferences toggle +
+   `setLocalNotifyEnabled` server action.
+5. **Eval harness** — `packages/ai-router/src/eval/`: 30-item corpus
+   covering FE / BE / deploy / db / auth / perf / manager / stakeholder /
+   Spanish scenarios + per-item rubric (subject keywords, body
+   must-contain, body must-not-contain, length window, suggested-
+   actions count) + GPT-4o-mini judge (40-pt soft score) + CLI runner +
+   `web/scripts/run-eval.ts` production wrapper. Promotion threshold
+   85/100 (≥85 = ship, 80-85 = ship behind flag, <80 = block).
+6. **Tests** —
+   - ai-router: 67/67 (was 45 in S2.6, +22 new for S3).
+   - desktop notify_compose lib unit tests: 14/14.
+   - desktop relay_client lib tests: 9/9 (was 7, +2 new for the
+     dispatcher fallback path).
+   - web new tests: migration-0077 (4) + ai-preferences-actions (4) +
+     persist-receipt usage extras (2) = 10/10. lib/ai full sweep
+     820/820.
+   - `web npm run lint` → 0 errors, 17 warnings (all pre-existing
+     unused-disable pragmas from the v0.2-removed rules).
+   - `web npx next build` typechecks clean — fails at "Collecting page
+     data" only because the build env lacks `DATABASE_URL` (runtime
+     env, not code regression).
+
+**Outstanding (NOT-PUSHED handoff items):**
+- `desktop/src-tauri/cargo test --test relay_client_test` is
+  compile-blocked on disk — the parent `radar` checkout fills the
+  shared `target-shared` debug dir during the post-S3 link step. Lib
+  unit tests for the same code path pass; the integration test only
+  adds two more assertions over the same code. Re-run after a
+  `target-shared/debug/deps` cleanup before push.
+- Real-model eval pass (cloud baseline + sidecar) hasn't been run —
+  the corpus exists, the runner is wired, but a live OpenAI key + a
+  running Inari Live with the Qwen model are required. Run
+  `npx tsx web/scripts/run-eval.ts --substrate cloud` and again with
+  `--substrate user-sidecar` once the worker host has both.
+- Smoke E2E (a real production alert composed by Inari Live, receipt
+  persisted to `ai_router_receipts`, `/admin/ops` widget showing the
+  user-sidecar dispatch) is gated on Jesus pushing the v0.3 S2 deploy
+  steps documented in `services/relay/README.md` first
+  (`RELAY_URL` + `RELAY_DISPATCH_SECRET` + `INARI_LIVE_RELAY_JWT_KEY`
+  in web's Kamal env, plus the Hetzner systemd unit). Until those
+  ship, every workspace stays on cloud routing per the flag default.
+
+**Predecessor:** v0.3 S1 + v0.3 S2 + v0.3 S2.5 + v0.3 S2.6 merged into
+`main` (tip `1a14575`).
+**Worktree:** `git worktree add ../radar-v0.3-s3 -b feat/inari-live-v0.3-session3-notify-email`
 
 **Goal:**
 Migrate the first user-visible task to local. Build the shared eval harness (used by all future task migrations) so we can quantitatively prove "local is acceptable" before each rule flip.

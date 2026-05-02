@@ -108,6 +108,13 @@ export const organizations = pgTable("organizations", {
     .references(() => users.id, { onDelete: "cascade" })
     .notNull(),
   avatarUrl: text("avatar_url"),
+  /**
+   * v0.3 S3 — opt-in flag that routes `notify.compose.email` dispatches to
+   * the workspace owner's Inari Live (user-sidecar) instead of cloud.
+   * Default false: existing customers see no behavior change. Flip via
+   * Settings → AI Preferences. Migration 0077.
+   */
+  localNotifyEnabled: boolean("local_notify_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

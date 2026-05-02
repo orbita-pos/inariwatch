@@ -27,6 +27,19 @@ export interface RouterReceipt {
   isPlatformKey: boolean;
   fallbackUsed: boolean;
   /**
+   * v0.3 S3 — token usage attribution for `/admin/ops` cost columns. The
+   * dispatch path fills these from the provider/sidecar response shape:
+   *   - complete / tool-use / vision → `response.usage` (all three fields)
+   *   - embed → only `inputTokens`
+   *   - voice / future TTS modes → all three left null
+   * Persisted to ai_router_receipts (input_tokens / output_tokens /
+   * cached_input_tokens) so /admin/ops widget shows real cost columns
+   * instead of em-dashes.
+   */
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  /**
    * Optional payload + response hash slots. Phase 1 leaves these unset; web
    * wiring may compute a SHA-256 of the prompt body when persisting.
    */

@@ -35,7 +35,6 @@ async function doInsert(receipt: RouterReceipt): Promise<void> {
   // can import persist-receipt unconditionally — the dispatch path only hits
   // the DB when a real receipt actually fires.
   const { db, aiRouterReceipts } = await import("@/lib/db");
-  const usage = inferUsage(receipt);
   await db.insert(aiRouterReceipts).values({
     workspaceId: receipt.workspaceId ?? null,
     userId: receipt.userId ?? null,
@@ -47,9 +46,13 @@ async function doInsert(receipt: RouterReceipt): Promise<void> {
     substrate: receipt.substrate,
     provider: String(receipt.provider),
     model: receipt.model,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cachedInputTokens: usage.cachedInputTokens,
+    // v0.3 S3 — usage now arrives on the receipt directly. dispatch() coerces
+    // zeros to null upstream so /admin/ops shows "no data" instead of "0
+    // tokens" for providers that didn't surface usage (sidecar stub, voice
+    // TTS, etc.).
+    inputTokens: receipt.inputTokens ?? null,
+    outputTokens: receipt.outputTokens ?? null,
+    cachedInputTokens: receipt.cachedInputTokens ?? null,
     durationMs: Math.max(0, receipt.tsEnd - receipt.tsStart),
     relayPath: receipt.relayPath ?? null,
     fallbackUsed: receipt.fallbackUsed,
@@ -58,26 +61,6 @@ async function doInsert(receipt: RouterReceipt): Promise<void> {
     userSidecarReceipt: receipt.userSidecarReceipt ?? null,
     cloudReceipt: null,
   });
-}
-
-interface UsageBag {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  cachedInputTokens: number | null;
-}
-
-/**
- * RouterReceipt today doesn't carry token usage on the receipt itself —
- * usage lives on the response shape. Until S3 plumbs it onto the receipt,
- * we leave the columns null and let /admin/ops display a "—" until the
- * column is populated by a future migration backfill.
- */
-function inferUsage(_receipt: RouterReceipt): UsageBag {
-  return {
-    inputTokens: null,
-    outputTokens: null,
-    cachedInputTokens: null,
-  };
 }
 
 /**

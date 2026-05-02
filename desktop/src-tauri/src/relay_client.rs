@@ -1,4 +1,4 @@
-//! Inari Live ↔ relay.inariwatch.com WS client (v0.3 S2).
+//! Inari Live ↔ relay.inariwatch.com WS client (v0.3 S2 + S3).
 //!
 //! Per `INARI_AI_ARCHITECTURE.md` §4 (LOCKED 2026-05-02): on app start
 //! the desktop binary opens a long-lived WebSocket to the relay, sends a
@@ -8,10 +8,12 @@
 //! frames here when the InariWatch cloud router decides a task should
 //! run on the user's box (notify.compose.*, voice.tts, etc.).
 //!
-//! S2 ships only the registration + reconnect plumbing + a stub
-//! dispatch handler that replies `{ ok, body: { stub: true } }`. Real
-//! task execution lands in v0.3 S3 (`notify.compose.email` is the
-//! first task wired to a local model).
+//! S2 shipped registration + reconnect plumbing + a stub dispatch handler
+//! that replied `{ ok, body: { stub: true } }`. v0.3 S3 wires the FIRST
+//! real task — `notify.compose.email` — through
+//! [`crate::notify_compose::compose_email`]. Other tasks remain stubbed
+//! until subsequent sessions wire them. The dispatcher returns a signed
+//! Ed25519 receipt (S28 chain protocol) the cloud persists AS-IS.
 //!
 //! Tauri integration: state changes (Connected / Reconnecting /
 //! Disconnected) are surfaced via the `relay:state` event for the
@@ -27,6 +29,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinHandle;
+
+use crate::local_ai::LocalAI;
+use crate::notify_compose::{self, ComposeEmailRequest};
 
 // ── Capabilities advertised on register ─────────────────────────────────────
 //
@@ -213,7 +218,7 @@ impl RelayClient {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RelayConfig {
     /// e.g. `wss://relay.inariwatch.com`. Stripped of trailing slash.
     pub base_url: String,
@@ -224,6 +229,26 @@ pub struct RelayConfig {
     /// Override for tests. Production callers leave this `None` to get the
     /// default exponential backoff.
     pub initial_backoff: Option<Backoff>,
+    /// v0.3 S3 — local AI handle. When `Some`, real task handlers run
+    /// (today: `notify.compose.email`). When `None` every task replies
+    /// with the S2 stub — useful for tests that don't need the model and
+    /// for boot ordering before the runtime is ready.
+    pub local_ai: Option<Arc<LocalAI>>,
+}
+
+impl std::fmt::Debug for RelayConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelayConfig")
+            .field("base_url", &self.base_url)
+            .field("jwt", &"<redacted>")
+            .field("app_version", &self.app_version)
+            .field("initial_backoff", &self.initial_backoff)
+            .field(
+                "local_ai",
+                &self.local_ai.as_ref().map(|_| "<LocalAI>").unwrap_or("None"),
+            )
+            .finish()
+    }
 }
 
 impl RelayConfig {
@@ -342,6 +367,7 @@ mod backoff_tests {
             jwt: "x".into(),
             app_version: "0.3.0".into(),
             initial_backoff: None,
+            local_ai: None,
         };
         assert_eq!(cfg.ws_url(), "wss://relay.inariwatch.com/ws");
 
@@ -350,6 +376,7 @@ mod backoff_tests {
             jwt: "x".into(),
             app_version: "0.3.0".into(),
             initial_backoff: None,
+            local_ai: None,
         };
         assert_eq!(cfg2.ws_url(), "wss://relay.inariwatch.com/ws");
     }
@@ -392,6 +419,53 @@ mod backoff_tests {
         // No error field serialized when None.
         assert!(json.get("error").is_none());
         assert!(json.get("receipt").is_none());
+    }
+
+    // v0.3 S3 — dispatcher routing.
+    //
+    // When `local_ai` is None we can't actually drive the email handler
+    // (it would need a model spawned), so we test the *fallback path*:
+    // the dispatcher should reply with a stub that explicitly says
+    // "local_ai not initialized" rather than the generic "not yet wired"
+    // stub. That distinction matters operationally — the cloud fallback
+    // path is gated on `body.note` content for telemetry.
+    #[tokio::test]
+    async fn dispatcher_email_falls_back_when_local_ai_missing() {
+        let df = DispatchFrame {
+            ty: "dispatch".into(),
+            request_id: "rid-email".into(),
+            task: "notify.compose.email".into(),
+            payload: serde_json::json!({
+                "alert": {"title": "boom"},
+            }),
+            timeout_ms: 0,
+        };
+        let resp = handle_dispatch(None, &df).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["body"]["stub"], true);
+        let note = json["body"]["note"].as_str().unwrap_or("");
+        assert!(
+            note.contains("local_ai not initialized"),
+            "expected fallback note, got {note:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatcher_unknown_task_uses_generic_stub() {
+        let df = DispatchFrame {
+            ty: "dispatch".into(),
+            request_id: "rid-x".into(),
+            task: "voice.tts.alert".into(),
+            payload: serde_json::json!({}),
+            timeout_ms: 0,
+        };
+        let resp = handle_dispatch(None, &df).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["body"]["stub"], true);
+        // Generic stub note (set by `build_stub_response`).
+        let note = json["body"]["note"].as_str().unwrap_or("");
+        assert!(note.contains("not yet wired"));
     }
 }
 
@@ -441,9 +515,10 @@ async fn supervisor_loop(
 // ── connect_once ────────────────────────────────────────────────────────────
 //
 // Real production path. Establishes a WS, sends `register`, pumps frames.
-// The dispatch handler is a stub for S2 — it replies `{ ok, body: { stub: true } }`
-// for every task. Real per-task handlers (notify.compose.email first) ship
-// in v0.3 S3.
+// Dispatch handlers split by task: v0.3 S3 wires `notify.compose.email`
+// to the local model; everything else replies with the S2 stub until a
+// future session adds it. The dispatcher is `async` because the email
+// path streams tokens from llama-server.
 
 async fn connect_once(
     cfg: &RelayConfig,
@@ -489,7 +564,7 @@ async fn connect_once(
                     if df.ty != "dispatch" {
                         continue;
                     }
-                    let resp = build_stub_response(&df);
+                    let resp = handle_dispatch(cfg.local_ai.as_ref(), &df).await;
                     if let Ok(out) = serde_json::to_string(&resp) {
                         if sink.send(Message::Text(out)).await.is_err() {
                             return Ok("send-failed");
@@ -508,9 +583,62 @@ async fn connect_once(
     Ok("stream-ended")
 }
 
+/// v0.3 S3 dispatcher. Picks the per-task handler. When `local_ai` is
+/// `None` we fall back to the S2 stub for every task — production runs
+/// supply a `LocalAI` via `RelayConfig::local_ai`, tests pass `None` to
+/// keep the WS contract observable without a model.
+pub async fn handle_dispatch(
+    local_ai: Option<&Arc<LocalAI>>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    match df.task.as_str() {
+        "notify.compose.email" => match local_ai {
+            Some(ai) => handle_notify_compose_email(ai, df).await,
+            None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
+        },
+        _ => build_stub_response(df),
+    }
+}
+
+/// notify.compose.email handler — invoked when the cloud router sent the
+/// task to user-sidecar (workspace flag on, sidecar online).
+async fn handle_notify_compose_email(
+    local_ai: &Arc<LocalAI>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    let request: ComposeEmailRequest = match serde_json::from_value(df.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return error_response(df, format!("invalid payload: {}", e)),
+    };
+    match notify_compose::compose_email(local_ai, request).await {
+        Ok(resp) => {
+            let model = resp.model.clone();
+            let body = match serde_json::to_value(&resp) {
+                Ok(v) => v,
+                Err(e) => return error_response(df, format!("serialize: {}", e)),
+            };
+            let receipt = notify_compose::build_signed_receipt(
+                &df.request_id,
+                &df.task,
+                &model,
+                &resp,
+            );
+            ResponseFrame {
+                ty: "response",
+                request_id: df.request_id.clone(),
+                status: "ok",
+                body: Some(body),
+                receipt: Some(receipt),
+                error: None,
+            }
+        }
+        Err(e) => error_response(df, format!("compose_email: {}", e)),
+    }
+}
+
 /// Builds the v0.3 S2 stub response. Pulled out so unit tests can verify
-/// the contract without touching the network. Real handlers replace this
-/// in v0.3 S3 (notify.compose.email first).
+/// the contract without touching the network. The S3 dispatcher routes
+/// to this for every task EXCEPT `notify.compose.email`.
 pub fn build_stub_response(df: &DispatchFrame) -> ResponseFrame {
     ResponseFrame {
         ty: "response",
@@ -519,10 +647,36 @@ pub fn build_stub_response(df: &DispatchFrame) -> ResponseFrame {
         body: Some(serde_json::json!({
             "stub": true,
             "task": df.task.clone(),
-            "note": "v0.3 S2 — real handler ships in S3",
+            "note": "task is not yet wired to a local handler — see v0.3 handoff",
         })),
         receipt: None,
         error: None,
+    }
+}
+
+fn stub_with_note(df: &DispatchFrame, note: &str) -> ResponseFrame {
+    ResponseFrame {
+        ty: "response",
+        request_id: df.request_id.clone(),
+        status: "ok",
+        body: Some(serde_json::json!({
+            "stub": true,
+            "task": df.task.clone(),
+            "note": note,
+        })),
+        receipt: None,
+        error: None,
+    }
+}
+
+fn error_response(df: &DispatchFrame, msg: String) -> ResponseFrame {
+    ResponseFrame {
+        ty: "response",
+        request_id: df.request_id.clone(),
+        status: "error",
+        body: None,
+        receipt: None,
+        error: Some(msg),
     }
 }
 
