@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ai::openai::OpenAIClient;
 use crate::daemon::{DaemonEvent, DaemonHandle};
+use crate::local_ai::LocalAI;
 use crate::store::{queries, Store};
 
 use super::single_shot::{run_single_shot, RemediationDraft, SingleShotError, SingleShotInput};
@@ -87,10 +88,16 @@ pub struct RemediationSession {
 /// Pick the path + execute. Local path runs to completion before
 /// returning; cloud path spawns a detached SSE consumer and returns
 /// state=pending immediately.
+///
+/// `local_ai` + `local_apply_enabled` (Sesión 25) gate the Kortix
+/// FastApply-7B local path inside `run_single_shot`. Pass `None` /
+/// `false` to keep the legacy cloud-only behaviour byte-identical.
 pub async fn route_remediation(
     store:      &Arc<Store>,
     daemon:     &Arc<DaemonHandle>,
     client:     OpenAIClient,
+    local_ai:   Option<LocalAI>,
+    local_apply_enabled: bool,
     session_id: String,
     input:      RemediationInput,
 ) -> Result<RemediationSession, OrchestratorError> {
@@ -119,7 +126,7 @@ pub async fn route_remediation(
 
     match mode {
         queries::RemediationMode::Local => {
-            run_local(store, daemon, &client, &session_id, &input).await
+            run_local(store, daemon, &client, local_ai.as_ref(), local_apply_enabled, &session_id, &input).await
         }
         queries::RemediationMode::Cloud => {
             run_cloud(store, daemon, &session_id, &input).await
@@ -131,6 +138,8 @@ async fn run_local(
     store:      &Arc<Store>,
     daemon:     &Arc<DaemonHandle>,
     client:     &OpenAIClient,
+    local_ai:   Option<&LocalAI>,
+    local_apply_enabled: bool,
     session_id: &str,
     input:      &RemediationInput,
 ) -> Result<RemediationSession, OrchestratorError> {
@@ -142,7 +151,14 @@ async fn run_local(
         error_fingerprint: input.error_fingerprint.clone(),
         file_hint:         input.file_hint.clone(),
     };
-    let draft_res = run_single_shot(store, client, session_id, &single_input).await;
+    let draft_res = run_single_shot(
+        store,
+        client,
+        local_ai,
+        local_apply_enabled,
+        session_id,
+        &single_input,
+    ).await;
 
     match draft_res {
         Ok(draft) => {

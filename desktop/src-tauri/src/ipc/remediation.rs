@@ -24,7 +24,8 @@ use crate::ai::remediate::{
     },
 };
 use crate::daemon::DaemonHandle;
-use crate::store::{queries, Store};
+use crate::local_ai::LocalAI;
+use crate::store::{queries, settings as store_settings, Store};
 
 use super::error::IpcError;
 
@@ -42,12 +43,14 @@ pub struct StartRemediationArgs {
 
 #[tauri::command]
 pub async fn start_remediation(
-    state:  tauri::State<'_, Arc<Store>>,
-    daemon: tauri::State<'_, Arc<DaemonHandle>>,
-    args:   StartRemediationArgs,
+    state:    tauri::State<'_, Arc<Store>>,
+    daemon:   tauri::State<'_, Arc<DaemonHandle>>,
+    local_ai: tauri::State<'_, Option<LocalAI>>,
+    args:     StartRemediationArgs,
 ) -> Result<RemediationSession, IpcError> {
     let store_arc:  Arc<Store>        = state.inner().clone();
     let daemon_arc: Arc<DaemonHandle> = daemon.inner().clone();
+    let local_ai_handle: Option<LocalAI> = local_ai.inner().clone();
 
     let repo_path = match queries::find_repo_path_by_id(&store_arc, &args.repo_id)? {
         Some(p) => PathBuf::from(p),
@@ -55,6 +58,10 @@ pub async fn start_remediation(
     };
 
     let client = OpenAIClient::from_store(&store_arc).map_err(IpcError::from)?;
+
+    // Sesión 25 — read the local-apply toggle. Default false: legacy
+    // behaviour is preserved for users who haven't opted in.
+    let local_apply_enabled = read_local_apply_enabled(&store_arc)?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let input = RemediationInput {
@@ -70,11 +77,24 @@ pub async fn start_remediation(
         &store_arc,
         &daemon_arc,
         client,
+        local_ai_handle,
+        local_apply_enabled,
         session_id,
         input,
     )
     .await
     .map_err(orchestrator_to_ipc)
+}
+
+/// SQL key for the Sesión 25 Fast Apply local toggle. Sibling of
+/// `local_ai_enabled`/`local_ai_tier` which the registry seeds.
+pub(crate) const SETTINGS_KEY_LOCAL_APPLY_ENABLED: &str = "local_apply_enabled";
+
+fn read_local_apply_enabled(store: &Arc<Store>) -> Result<bool, IpcError> {
+    Ok(match store_settings::get(store, SETTINGS_KEY_LOCAL_APPLY_ENABLED)?.as_deref() {
+        Some("true")  | Some("1") | Some("yes") => true,
+        _ => false,
+    })
 }
 
 #[derive(Debug, Deserialize)]
