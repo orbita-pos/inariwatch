@@ -96,6 +96,43 @@ export interface ToolUseOpts extends CompleteOpts {
   parallelToolCalls?: boolean;
 }
 
+// ── Streaming (v0.3 S2.5) ───────────────────────────────────────────────────
+//
+// Providers that natively support server-sent streaming implement
+// `streamComplete()`. Providers that do not throw `STREAM_NOT_SUPPORTED`
+// inside their adapter; dispatchStream() catches the sentinel and falls
+// back to a single-chunk emit from `complete()`.
+
+export interface StreamCompleteOpts extends CompleteOpts {
+  /** Optional — forwarded to fetch() so the caller can interrupt mid-stream. */
+  signal?: AbortSignal;
+}
+
+export type StreamDelta = {
+  /** Text token(s) emitted by the provider. May be empty for keep-alive frames. */
+  delta: string;
+};
+
+export type StreamFinal = {
+  /** Final accumulated usage. Some providers emit per-message, others omit; default to zeros. */
+  usage: AIUsage;
+  model: string;
+};
+
+export const STREAM_NOT_SUPPORTED = "stream-not-supported";
+
+/**
+ * Adapter-level streaming contract. Yields zero or more text deltas, then
+ * exactly one final marker carrying usage + model. Errors mid-stream
+ * propagate as thrown Errors and the dispatcher emits `{ delta: "", done: true }`
+ * after rethrowing.
+ */
+export type StreamCompleteResult = AsyncGenerator<
+  { type: "delta"; delta: string } | { type: "final"; final: StreamFinal },
+  void,
+  void
+>;
+
 export interface VisionOpts {
   apiKey: string;
   systemPrompt: string;
@@ -116,6 +153,19 @@ export type VisionProviderResult = {
   usage: AIUsage;
   model: string;
 };
+
+// ── Validate key (v0.3 S2.5) ────────────────────────────────────────────────
+//
+// `validateKey()` does NOT make AI inferences — it pings the provider's
+// list-models endpoint to confirm the key is live before the user saves it.
+// Lives on the provider adapter so the lockdown rule allows the raw fetch.
+
+export interface ValidateKeyResult {
+  valid: boolean;
+  error?: string;
+  /** Best-effort list of model ids the key has access to. Empty when unsupported. */
+  modelsAvailable?: string[];
+}
 
 /**
  * Safe JSON parse that surfaces HTML error pages with the original status

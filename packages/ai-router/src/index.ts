@@ -6,6 +6,7 @@
 
 export {
   dispatch,
+  dispatchStream,
   callAI,
   callAIWithUsage,
   callAIWithTools,
@@ -21,13 +22,27 @@ export type {
   DispatchOutput,
   DispatchMode,
   DispatchComplete,
+  DispatchStreamInput,
   DispatchToolUse,
   DispatchVision,
   DispatchEmbed,
   DispatchHints,
+  StreamChunk,
   WorkspaceContext,
   CallOpts,
 } from "./dispatch";
+
+export { validateProviderKey } from "./providers";
+export type { ValidateKeyResult } from "./providers";
+
+export { runGrader } from "./providers";
+export type { GraderRunRequest, GraderRunResult } from "./providers/openai";
+
+export { runManagedRemediation } from "./providers/anthropic-managed-agent";
+export type {
+  ManagedAgentParams,
+  ManagedAgentResult,
+} from "./providers/anthropic-managed-agent";
 export type {
   AIMessage,
   AIVisionMessage,

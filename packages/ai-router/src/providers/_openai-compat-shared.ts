@@ -13,13 +13,17 @@ import {
   type AIMessage,
   type ContentBlock,
   type CompleteOpts,
+  type StreamCompleteOpts,
+  type StreamCompleteResult,
   type ToolDefinition,
   type ToolResultBlock,
   type ToolUseBlock,
   type TextBlock,
   type ToolUseOpts,
   type AIResponse,
+  type AIUsage,
   type ToolUseProviderResult,
+  type ValidateKeyResult,
   type VisionOpts,
   type VisionProviderResult,
   safeJson,
@@ -332,6 +336,130 @@ function translateMessagesForOpenAI(
   }
 
   return result;
+}
+
+// ── Streaming (OpenAI-compat /v1/chat/completions SSE) ─────────────────────
+
+export async function* runStreamComplete(
+  opts: StreamCompleteOpts,
+  cfg: CompatCfg,
+): StreamCompleteResult {
+  const model = opts.model ?? cfg.defaultModel;
+  const isOpenAI = cfg.provider === "openai";
+  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${opts.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      ...(isOpenAI
+        ? { max_completion_tokens: opts.maxTokens ?? 1024 }
+        : { max_tokens: opts.maxTokens ?? 1024 }),
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      ...(opts.jsonMode ? { response_format: { type: "json_object" } } : {}),
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [{ role: "system", content: opts.systemPrompt }, ...opts.messages],
+    }),
+    signal: opts.signal ?? AbortSignal.timeout(opts.timeout ?? 60_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      `API error (${res.status}): ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let usage: AIUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") {
+          yield { type: "final", final: { usage, model } };
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+            usage?: {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              prompt_tokens_details?: { cached_tokens?: number };
+            };
+          };
+          const text = parsed.choices?.[0]?.delta?.content;
+          if (text) yield { type: "delta", delta: text };
+          if (parsed.usage) {
+            usage = {
+              inputTokens: parsed.usage.prompt_tokens ?? usage.inputTokens,
+              outputTokens: parsed.usage.completion_tokens ?? usage.outputTokens,
+              cachedInputTokens:
+                parsed.usage.prompt_tokens_details?.cached_tokens ??
+                usage.cachedInputTokens,
+            };
+          }
+        } catch {
+          // skip non-JSON keep-alive frames
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
+    }
+  }
+  yield { type: "final", final: { usage, model } };
+}
+
+// ── Validate key (OpenAI-compat /v1/models GET) ────────────────────────────
+
+export async function runValidateKey(
+  apiKey: string,
+  cfg: CompatCfg,
+  invalidErrorMsg: string,
+): Promise<ValidateKeyResult> {
+  if (!apiKey || apiKey.trim() === "") {
+    return { valid: false, error: "API key is required" };
+  }
+  try {
+    const res = await fetch(`${cfg.baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { valid: false, error: invalidErrorMsg };
+    }
+    if (!res.ok) {
+      return {
+        valid: false,
+        error: `Provider returned ${res.status} on /models — try again`,
+      };
+    }
+    const data = (await res.json()) as { data?: Array<{ id?: string }> };
+    const ids = (data?.data ?? []).map((m) => m.id ?? "").filter(Boolean);
+    return { valid: true, modelsAvailable: ids };
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Could not validate key — ${err instanceof Error ? err.message : "network error"}`,
+    };
+  }
 }
 
 /**

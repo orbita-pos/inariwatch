@@ -5,8 +5,11 @@
 import type {
   AIResponse,
   CompleteOpts,
+  StreamCompleteOpts,
+  StreamCompleteResult,
   ToolUseOpts,
   ToolUseProviderResult,
+  ValidateKeyResult,
   VisionOpts,
   VisionProviderResult,
 } from "./types";
@@ -14,6 +17,8 @@ import {
   runComplete as compatComplete,
   runWithTools as compatWithTools,
   runVision as compatVision,
+  runStreamComplete as compatStreamComplete,
+  runValidateKey as compatValidateKey,
 } from "./_openai-compat-shared";
 
 const CFG = {
@@ -34,4 +39,16 @@ export async function withTools(
 
 export async function vision(opts: VisionOpts): Promise<VisionProviderResult> {
   return compatVision(opts, CFG);
+}
+
+export function streamComplete(opts: StreamCompleteOpts): StreamCompleteResult {
+  return compatStreamComplete(opts, CFG);
+}
+
+export async function validateKey(apiKey: string): Promise<ValidateKeyResult> {
+  return compatValidateKey(
+    apiKey,
+    CFG,
+    "Invalid Grok (xAI) API key — replace it in Settings → AI",
+  );
 }

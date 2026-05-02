@@ -9,6 +9,7 @@ import { encrypt } from "@/lib/crypto";
 import type { AIModelPreferences, AITask } from "@/lib/ai/models";
 import { CLAUDE_MODELS, OPENAI_MODELS, GROK_MODELS, DEEPSEEK_MODELS, GEMINI_MODELS, DEFAULT_MODEL_PREFS } from "@/lib/ai/models";
 import type { AIProvider } from "@/lib/ai/client";
+import { validateProviderKey } from "@inariwatch/ai-router";
 
 const ALL_MODEL_IDS = new Set([
   "auto",
@@ -33,55 +34,11 @@ function resolveService(rawKey: string, providerHint?: string): AIProvider | nul
   return null;
 }
 
-// v0.3 S1 lockdown exception: validateKey() pings each provider's `/v1/models`
-// endpoint to confirm an API key is live. It does NOT make AI inferences, so
-// the dispatch() flow doesn't apply. Tracked as a v0.3 S2 follow-up: surface
-// `validateKey()` from each provider adapter via the router so this can move
-// inside `packages/ai-router/src/providers/`. Until then, the eslint-disable
-// below is the documented carve-out.
-
-/* eslint-disable inariwatch/no-direct-ai-sdk-import */
 async function validateKey(rawKey: string, provider: AIProvider): Promise<{ error?: string }> {
-  try {
-    switch (provider) {
-      case "claude": {
-        const res = await fetch("https://api.anthropic.com/v1/models", {
-          headers: { "x-api-key": rawKey, "anthropic-version": "2023-06-01" },
-        });
-        if (res.status === 401) return { error: "Invalid Claude API key." };
-        break;
-      }
-      case "grok": {
-        const res = await fetch("https://api.x.ai/v1/models", {
-          headers: { Authorization: `Bearer ${rawKey}` },
-        });
-        if (res.status === 401) return { error: "Invalid Grok (xAI) API key." };
-        break;
-      }
-      case "deepseek": {
-        const res = await fetch("https://api.deepseek.com/v1/models", {
-          headers: { Authorization: `Bearer ${rawKey}` },
-        });
-        if (res.status === 401) return { error: "Invalid DeepSeek API key." };
-        break;
-      }
-      case "gemini": {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${rawKey}`
-        );
-        if (res.status === 400 || res.status === 403) return { error: "Invalid Gemini API key." };
-        break;
-      }
-      default: {
-        const res = await fetch("https://api.openai.com/v1/models", {
-          headers: { Authorization: `Bearer ${rawKey}` },
-        });
-        if (res.status === 401) return { error: "Invalid OpenAI API key." };
-      }
-    }
-  } catch {
-    return { error: "Could not validate key — check your connection and try again." };
-  }
+  // v0.3 S2.5: routed through @inariwatch/ai-router so the raw provider URL
+  // lives inside `packages/ai-router/src/providers/` (lockdown rule allowed).
+  const r = await validateProviderKey(provider, rawKey);
+  if (!r.valid) return { error: r.error ?? "Invalid API key" };
   return {};
 }
 

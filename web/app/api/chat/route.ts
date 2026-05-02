@@ -4,9 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { getUserProjectIds } from "@/lib/db";
 import { getUserAIKey } from "@/lib/ai/get-key";
 import { resolveModel } from "@/lib/ai/models";
-import type { AIProvider } from "@/lib/ai/client";
 import { gatherChatContext, buildContextString, SYSTEM_OPS } from "@/lib/services/chat.service";
 import { assertWithinQuota, incrementQuota, QuotaExceededError } from "@/lib/ai/quota";
+import { dispatchStream, TASKS } from "@inariwatch/ai-router";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -80,19 +80,30 @@ export async function POST(req: NextRequest) {
     },
   ];
 
-  // Stream the response
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       let streamOk = false;
       try {
         const chatModel = resolveModel("chat", aiKey.provider, aiKey.modelPrefs);
-        const response = await streamAI(aiKey.key, aiKey.provider, SYSTEM_OPS, aiMessages, chatModel);
-
-        for await (const chunk of response) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
+        const it = dispatchStream({
+          mode: "stream",
+          task: TASKS.CHAT_CONVERSATIONAL,
+          apiKey: aiKey.key,
+          systemPrompt: SYSTEM_OPS,
+          messages: aiMessages,
+          maxTokens: 1024,
+          model: chatModel,
+          timeout: 60_000,
+          workspace: { userId, isPlatformKey: aiKey.isPlatformKey },
+        });
+        for await (const chunk of it) {
+          if (chunk.delta) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ content: chunk.delta })}\n\n`),
+            );
+          }
         }
-
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         streamOk = true;
       } catch (err) {
@@ -116,202 +127,4 @@ export async function POST(req: NextRequest) {
       Connection: "keep-alive",
     },
   });
-}
-
-// ── Streaming AI calls ──────────────────────────────────────────────────────
-//
-// NOTE — v0.3 S1 lockdown exception: streaming dispatch isn't part of the
-// `@inariwatch/ai-router` public surface yet. The functions below talk to
-// provider URLs directly so the chat stream survives Phase 1 unchanged.
-// Tracked as a v0.3 S2 follow-up: add `mode: "stream"` to dispatch() and
-// migrate this file. Until then, keep the eslint-disable below in place.
-
-/* eslint-disable inariwatch/no-direct-ai-sdk-import */
-
-async function* streamAI(
-  apiKey: string,
-  provider: AIProvider,
-  system: string,
-  messages: { role: "user" | "assistant"; content: string }[],
-  model: string,
-): AsyncGenerator<string> {
-  switch (provider) {
-    case "claude":
-      yield* streamClaude(apiKey, system, messages, model);
-      break;
-    case "grok":
-      yield* streamOpenAICompat(apiKey, system, messages, model, "https://api.x.ai/v1");
-      break;
-    case "deepseek":
-      yield* streamOpenAICompat(apiKey, system, messages, model, "https://api.deepseek.com/v1");
-      break;
-    case "gemini":
-      yield* streamGemini(apiKey, system, messages, model);
-      break;
-    default:
-      yield* streamOpenAICompat(apiKey, system, messages, model, "https://api.openai.com/v1");
-  }
-}
-
-async function* streamClaude(
-  apiKey: string,
-  system: string,
-  messages: { role: "user" | "assistant"; content: string }[],
-  model: string,
-): AsyncGenerator<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system,
-      messages,
-      stream: true,
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-
-  if (res.status === 402) throw new Error("Your Claude API balance has run out. Add credits at console.anthropic.com.");
-  if (res.status === 401) throw new Error("Invalid Claude API key. Replace it in Settings → AI.");
-  if (res.status === 429) throw new Error("Claude rate limit reached. Try again in a moment.");
-  if (!res.ok) throw new Error(`Claude API error (${res.status})`);
-  if (!res.body) throw new Error("No response body");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.slice(6);
-        if (data === "[DONE]") return;
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-            yield parsed.delta.text;
-          }
-        } catch { /* skip non-JSON lines */ }
-      }
-    }
-  }
-}
-
-async function* streamOpenAICompat(
-  apiKey: string,
-  system: string,
-  messages: { role: "user" | "assistant"; content: string }[],
-  model: string,
-  baseUrl: string,
-): AsyncGenerator<string> {
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      messages: [{ role: "system", content: system }, ...messages],
-      stream: true,
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-
-  if (res.status === 402) throw new Error("Your API balance has run out. Add credits to your account.");
-  if (res.status === 401) throw new Error("Invalid API key. Replace it in Settings → AI.");
-  if (res.status === 429) throw new Error("Rate limit reached. Try again in a moment.");
-  if (!res.ok) throw new Error(`API error (${res.status})`);
-  if (!res.body) throw new Error("No response body");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.slice(6);
-        if (data === "[DONE]") return;
-        try {
-          const parsed = JSON.parse(data);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) yield content;
-        } catch { /* skip */ }
-      }
-    }
-  }
-}
-
-async function* streamGemini(
-  apiKey: string,
-  system: string,
-  messages: { role: "user" | "assistant"; content: string }[],
-  model: string,
-): AsyncGenerator<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
-
-  const contents = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents,
-      generationConfig: { maxOutputTokens: 1024 },
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-
-  if (res.status === 402 || res.status === 429) throw new Error("Gemini quota exceeded. Check your usage at aistudio.google.com.");
-  if (res.status === 401 || res.status === 403) throw new Error("Invalid Gemini API key. Replace it in Settings → AI.");
-  if (!res.ok) throw new Error(`Gemini API error (${res.status})`);
-  if (!res.body) throw new Error("No response body");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const parsed = JSON.parse(line.slice(6));
-          const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) yield text;
-        } catch { /* skip */ }
-      }
-    }
-  }
 }

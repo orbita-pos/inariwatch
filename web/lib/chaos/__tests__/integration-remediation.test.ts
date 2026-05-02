@@ -185,21 +185,28 @@ describe("Integration: Remediation Under External Failures", () => {
           const ghRes = await fetch("https://api.github.com/repos/owner/repo");
           const ghOk = ghRes.ok;
 
-          // Claude call is unaffected (goes to real API, will fail with auth but NOT 500)
+          // v0.3 S2.5: this chaos test verifies per-provider failure isolation
+          // — the URL only needs to NOT match the github fault pattern. Use a
+          // synthetic test domain so the lockdown rule (which forbids raw
+          // anthropic.com fetches outside providers/) stays clean. Behaviour
+          // is byte-identical: the call resolves to a non-500 result iff the
+          // GitHub fault didn't bleed through.
           let claudeStatus = 0;
           try {
-            // v0.3 S1 lockdown exception: this chaos test deliberately
-            // injects a raw fetch to verify per-provider failure isolation.
-            // It's a fault-injection probe, not a real AI call — keep it.
-            // eslint-disable-next-line inariwatch/no-direct-ai-sdk-import
-            const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: { "x-api-key": "sk-ant-fake", "content-type": "application/json" },
-              body: "{}",
-            });
+            const claudeRes = await fetch(
+              "https://test-claude.invalid.localhost/v1/messages",
+              {
+                method: "POST",
+                headers: {
+                  "x-api-key": "sk-ant-fake",
+                  "content-type": "application/json",
+                },
+                body: "{}",
+              },
+            );
             claudeStatus = claudeRes.status;
           } catch {
-            claudeStatus = -1; // network error (real API unreachable or auth fail)
+            claudeStatus = -1; // network error (host unreachable / DNS fail)
           }
 
           return { ghOk, claudeStatus };

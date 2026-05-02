@@ -263,6 +263,49 @@ Build the WebSocket relay infrastructure that lets the InariWatch cloud dispatch
 
 ---
 
+### v0.3 S2.5 — Router follow-ups cleanup (4h)
+
+**Status:** DONE-2026-05-02 (NOT PUSHED). Worktree `../radar-v0.3-s2.5`, branched from S2 (`2424d0c`). Pure cleanup — zero new product features, the S3 starting line is now 100% lockdown-clean.
+
+**Predecessor:** v0.3 S2 merged.
+**Worktree:** `git worktree add ../radar-v0.3-s2.5 -b feat/inari-live-v0.3-session2.5-router-followups feat/inari-live-v0.3-session2-ws-relay`
+
+**What landed:**
+1. **Streaming dispatch (`mode: "stream"`)** — `dispatchStream()` public API yields `{ delta, done, receipt? }` chunks. Native `streamComplete()` impls on all 6 cloud providers (Anthropic SSE, OpenAI Chat SSE, Grok/Groq/DeepSeek via OpenAI-compat shared, Gemini SSE). gpt-5.x throws `stream-not-supported` (Responses streaming TODO). Fallback to non-streaming `complete()` is automatic when the sentinel fires before the first delta — caller only sees one big chunk, never an error. Receipt is emitted on `done: true`.
+2. **`validateKey()` per provider** — added to `ProviderAdapter`. Public `validateProviderKey(provider, key)` exported from `@inariwatch/ai-router`. Each provider hits its cheapest list-models endpoint. Empty key short-circuits without a network call. `web/app/(dashboard)/settings/ai-key-actions.ts` switched over.
+3. **Persistent `ai_router_receipts` mirror** — migration **0076** (bumped from the originally-planned 0074 because `schema.ts` already informally claims that slot for an unwritten `inari_live_saves` migration). Drizzle schema entry `aiRouterReceipts`. Sink in `web/lib/ai-router/persist-receipt.ts`, idempotently registered from `web/lib/ai/client.ts` boot path. Stores substrate/provider/model/timing + raw `userSidecarReceipt` JSONB for the S27/S28 chain. `workspace_id` FKs `organizations(id)` (workspaces and organizations are the same row in this monorepo).
+4. **`/admin/ops` router-receipts widget** — new server component at `web/app/(dashboard)/admin/ops/widgets/router-receipts.tsx`, fed by `GET /api/admin/router/receipts/summary` (admin-only, single round-trip with `percentile_cont`). Shows total dispatches, by-substrate p50/p95, top 5 tasks, fallback %.
+5. **All 5 `eslint-disable inariwatch/no-direct-ai-sdk-import` carve-outs removed:**
+   - `web/app/api/chat/route.ts` → resolved by #1 (`dispatchStream`).
+   - `web/app/(dashboard)/settings/ai-key-actions.ts` → resolved by #2 (`validateProviderKey`).
+   - `web/lib/ai/graders.ts` → migrated to `runGrader` (new export from `providers/openai.ts`).
+   - `web/lib/ai/managed-agent.ts` → moved to `packages/ai-router/src/providers/anthropic-managed-agent.ts` (allowlisted by lockdown). The web file is now a thin shim that injects the GitHub branch verifier (the router can't import `web/lib/services/github-api`).
+   - `web/lib/chaos/__tests__/integration-remediation.test.ts` → swapped raw `api.anthropic.com` fetch for synthetic `test-claude.invalid.localhost` URL — the test verifies URL-pattern fault isolation, not Claude itself.
+
+**Tests:**
+- `packages/ai-router/src/__tests__/dispatch-stream.test.ts` (new, 4 tests) — happy path SSE, complete fallback on `stream-not-supported`, mid-stream error propagation, Anthropic stream parsing.
+- `packages/ai-router/src/__tests__/validate-key.test.ts` (new, 7 tests) — 200/401/network across all 6 providers + empty-key short-circuit.
+- `web/lib/__tests__/persist-receipt.test.ts` (new, 4 tests) — column shape, sidecar receipt JSONB roundtrip, fallback flag, fire-and-forget swallow.
+- `web/app/api/admin/router/__tests__/summary.test.ts` (new, 4 tests) — admin gating, aggregation shape, both `{rows: T[]}` and `T[]` driver variants.
+
+**Acceptance:**
+- `grep -rn "no-direct-ai-sdk-import" web/ packages/ai-router/src/ | grep -v eslint-rule.js | grep -v eslint.config.mjs | grep -v lockdown.test.ts` → zero hits (only the rule definition + its tests remain).
+- `dispatchStream({ task: "chat.conversational" })` returns deltas + a final receipt against a live provider.
+- `validateProviderKey("openai", "sk-bad")` returns `{ valid: false, error: "Invalid OpenAI API key…" }` immediately (no key save).
+- Migration 0076 + Drizzle schema entry compile with `web/lib/db` re-exports.
+- Widget renders against the summary endpoint when admin browses `/admin/ops` (data = `0` until first dispatch persists).
+
+**Notes for S3:**
+- Router is now 100% lockdown-clean. S3 can flip `notify.compose.email` to user-sidecar without worrying about any escape hatches.
+- Token usage is NOT yet on `RouterReceipt` itself — `inferUsage()` in `persist-receipt` returns nulls. S3 should plumb `usage` from the dispatch result onto the receipt so /admin/ops can show real cost columns.
+- Migration slot drift: 0074 was bumped to 0076 to keep the pending `0074_inari_live_saves` slot intact.
+
+**Risks:**
+- `dispatchStream` uses sync slot `setActiveSidecarUser` for sidecar dispatches. Concurrent streams to the same Node process could race — but each request is a single dispatch call and the slot is cleared in `finally`. Same pattern as S2's complete path.
+- `runGrader` lives in `providers/openai.ts` (it's a fine-tune evaluation endpoint, not a chat completion). When Graders moves out of alpha and gets its own task type in `tasks.ts`, this becomes a normal provider method. Tracked, not blocking.
+
+---
+
 ### v0.3 S3 — First local task: `notify.compose.email` + eval harness (6h)
 
 **Status:** PENDING.

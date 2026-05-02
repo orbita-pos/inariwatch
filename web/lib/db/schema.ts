@@ -2079,3 +2079,55 @@ export const githubAppInstallations = pgTable(
 );
 
 export type GithubAppInstallation = typeof githubAppInstallations.$inferSelect;
+
+// ── ai_router_receipts (v0.3 S2.5, migration 0076) ─────────────────────────
+//
+// Durable mirror of @inariwatch/ai-router RouterReceipt events. Drives
+// /admin/ops widgets (substrate breakdown, p50/p95 latency, fallback count)
+// and audit replays. Per architecture §12 every dispatch emits a receipt;
+// this table captures them for post-hoc analysis without leaking payloads.
+
+export const aiRouterReceipts = pgTable(
+  "ai_router_receipts",
+  {
+    id:                  uuid("id").primaryKey().defaultRandom(),
+    // "workspace" is the user-facing name for `organizations` rows.
+    workspaceId:         uuid("workspace_id")
+                            .references(() => organizations.id, { onDelete: "cascade" }),
+    userId:              uuid("user_id"),
+    projectId:           uuid("project_id"),
+    alertId:             uuid("alert_id"),
+    remediationSessionId: uuid("remediation_session_id"),
+
+    task:                text("task").notNull(),
+    namespace:           text("namespace").notNull(),
+    substrate:           text("substrate").notNull(),
+    provider:            text("provider").notNull(),
+    model:               text("model").notNull(),
+
+    inputTokens:         integer("input_tokens"),
+    outputTokens:        integer("output_tokens"),
+    cachedInputTokens:   integer("cached_input_tokens"),
+    durationMs:          integer("duration_ms").notNull(),
+
+    relayPath:           text("relay_path"),
+    fallbackUsed:        boolean("fallback_used").notNull().default(false),
+    isPlatformKey:       boolean("is_platform_key").notNull().default(false),
+
+    eapChainRoot:        text("eap_chain_root"),
+    userSidecarReceipt:  jsonb("user_sidecar_receipt"),
+    cloudReceipt:        jsonb("cloud_receipt"),
+
+    createdAt:           timestamp("created_at", { withTimezone: true })
+                            .defaultNow().notNull(),
+  },
+  (table) => [
+    index("ai_router_receipts_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    index("ai_router_receipts_substrate_created_idx").on(table.substrate, table.createdAt),
+    index("ai_router_receipts_task_created_idx").on(table.task, table.createdAt),
+    index("ai_router_receipts_namespace_created_idx").on(table.namespace, table.createdAt),
+  ],
+);
+
+export type AiRouterReceipt = typeof aiRouterReceipts.$inferSelect;
+export type NewAiRouterReceipt = typeof aiRouterReceipts.$inferInsert;

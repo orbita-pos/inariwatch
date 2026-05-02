@@ -8,10 +8,13 @@ import {
   type AIMessage,
   type ContentBlock,
   type CompleteOpts,
+  type StreamCompleteOpts,
+  type StreamCompleteResult,
   type ToolDefinition,
   type ToolUseOpts,
   type AIResponse,
   type ToolUseProviderResult,
+  type ValidateKeyResult,
   type VisionOpts,
   type VisionProviderResult,
   type TextBlock,
@@ -211,6 +214,135 @@ export async function vision(opts: VisionOpts): Promise<VisionProviderResult> {
     },
     model,
   };
+}
+
+// ── Streaming ──────────────────────────────────────────────────────────────
+
+export async function* streamComplete(
+  opts: StreamCompleteOpts,
+): StreamCompleteResult {
+  const model = opts.model ?? DEFAULT_MODEL;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": opts.apiKey,
+      "anthropic-version": ANTHROPIC_VERSION,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: opts.maxTokens ?? 1024,
+      system: opts.systemPrompt,
+      messages: opts.messages,
+      stream: true,
+    }),
+    signal: opts.signal ?? AbortSignal.timeout(opts.timeout ?? 60_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      `Claude API error (${res.status}): ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let usage: AIUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") {
+          yield { type: "final", final: { usage, model } };
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data) as {
+            type?: string;
+            delta?: { text?: string };
+            message?: {
+              usage?: { input_tokens?: number; cache_read_input_tokens?: number };
+            };
+            usage?: { output_tokens?: number; input_tokens?: number };
+          };
+          if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+            yield { type: "delta", delta: parsed.delta.text };
+          } else if (parsed.type === "message_start" && parsed.message?.usage) {
+            usage = {
+              inputTokens:
+                (parsed.message.usage.input_tokens ?? 0) +
+                (parsed.message.usage.cache_read_input_tokens ?? 0),
+              outputTokens: usage.outputTokens,
+              cachedInputTokens:
+                parsed.message.usage.cache_read_input_tokens ?? 0,
+            };
+          } else if (parsed.type === "message_delta" && parsed.usage) {
+            usage = {
+              inputTokens: usage.inputTokens,
+              outputTokens: parsed.usage.output_tokens ?? usage.outputTokens,
+              cachedInputTokens: usage.cachedInputTokens,
+            };
+          }
+        } catch {
+          /* skip non-JSON */
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
+    }
+  }
+  yield { type: "final", final: { usage, model } };
+}
+
+// ── Validate key ───────────────────────────────────────────────────────────
+
+export async function validateKey(apiKey: string): Promise<ValidateKeyResult> {
+  if (!apiKey || apiKey.trim() === "") {
+    return { valid: false, error: "API key is required" };
+  }
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/models", {
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { valid: false, error: "Invalid Claude API key — replace it in Settings → AI" };
+    }
+    if (!res.ok) {
+      return {
+        valid: false,
+        error: `Anthropic returned ${res.status} on /models — try again`,
+      };
+    }
+    const data = (await res.json()) as { data?: Array<{ id?: string }> };
+    return {
+      valid: true,
+      modelsAvailable: (data?.data ?? [])
+        .map((m) => m.id ?? "")
+        .filter(Boolean),
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Could not validate key — ${err instanceof Error ? err.message : "network error"}`,
+    };
+  }
 }
 
 // ── Cache helpers (Anthropic-specific) ──────────────────────────────────────

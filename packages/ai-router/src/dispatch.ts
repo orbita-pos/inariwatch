@@ -18,9 +18,11 @@ import {
 import type {
   AIMessage,
   AIResponse,
+  AIUsage,
   AIVisionMessage,
   CompleteOpts,
   ContentBlock,
+  StreamCompleteOpts,
   TextBlock,
   ToolDefinition,
   ToolUseOpts,
@@ -37,12 +39,17 @@ import {
   getRule,
   resolvePrimary,
 } from "./rules";
-import { emitReceipt } from "./receipts";
+import { emitReceipt, type RouterReceipt } from "./receipts";
 import { TASKS, type TaskName, namespaceOf } from "./tasks";
 
 // ── Public input/output shapes ──────────────────────────────────────────────
 
-export type DispatchMode = "complete" | "tool-use" | "vision" | "embed";
+export type DispatchMode =
+  | "complete"
+  | "stream"
+  | "tool-use"
+  | "vision"
+  | "embed";
 
 export interface WorkspaceContext {
   /** Database id of the workspace owner. Used for receipts + workspace prefs. */
@@ -95,6 +102,19 @@ export interface DispatchComplete extends DispatchBase {
   jsonMode?: boolean;
 }
 
+export interface DispatchStreamInput extends DispatchBase {
+  mode: "stream";
+  systemPrompt: string;
+  messages: AIMessage[];
+  maxTokens?: number;
+  model?: string;
+  timeout?: number;
+  temperature?: number;
+  jsonMode?: boolean;
+  /** Optional — forwarded to fetch() so the caller can interrupt mid-stream. */
+  signal?: AbortSignal;
+}
+
 export interface DispatchToolUse extends DispatchBase {
   mode: "tool-use";
   systemPrompt: string;
@@ -133,6 +153,15 @@ export type DispatchInput =
   | DispatchToolUse
   | DispatchVision
   | DispatchEmbed;
+
+export interface StreamChunk {
+  /** Text token(s). Empty string on the final marker. */
+  delta: string;
+  /** True only on the terminal chunk. */
+  done: boolean;
+  /** Receipt is attached only on `done: true`. */
+  receipt?: RouterReceipt;
+}
 
 export type DispatchOutput =
   | { mode: "complete"; response: AIResponse }
@@ -445,6 +474,259 @@ export async function dispatch(
   });
 
   return result.output;
+}
+
+// ── Streaming dispatch (v0.3 S2.5) ──────────────────────────────────────────
+//
+// Yields delta tokens as they arrive from the provider, then a final
+// `{ delta: "", done: true, receipt }` chunk. Providers that do not support
+// native streaming throw the `stream-not-supported` sentinel; the dispatcher
+// falls back to a non-streaming `complete()` and emits the result as a
+// single `{ delta: <full-text>, done: false }` chunk followed by the
+// terminal marker.
+
+function buildStreamCompleteOpts(input: DispatchStreamInput): StreamCompleteOpts {
+  return {
+    apiKey: input.apiKey,
+    systemPrompt: input.systemPrompt,
+    messages: input.messages,
+    maxTokens: input.maxTokens,
+    model: input.model,
+    timeout: input.timeout,
+    temperature: input.temperature,
+    jsonMode: input.jsonMode,
+    signal: input.signal,
+  };
+}
+
+async function runOnTargetStream(
+  input: DispatchStreamInput,
+  target: Target,
+  opts: StreamCompleteOpts,
+): Promise<{
+  iterator: AsyncGenerator<{ delta: string }, { usage: AIUsage; model: string }, void>;
+  provider: AIProvider | "user-sidecar" | "capture-embedded" | "cli-linked";
+  substrate: Substrate;
+}> {
+  if (target.substrate === "cloud") {
+    const provider = pickProvider(input, target);
+    const adapter = CLOUD_PROVIDERS[provider];
+    if (!adapter || !adapter.streamComplete) {
+      throw new Error("stream-not-supported: provider lacks streamComplete");
+    }
+    const inner = adapter.streamComplete(opts);
+    return {
+      iterator: adaptStreamGenerator(inner),
+      provider,
+      substrate: "cloud",
+    };
+  }
+  if (target.substrate === "user-sidecar") {
+    setActiveSidecarUser(input.workspace?.userId ?? null);
+    const adapter = SIDECAR;
+    if (!adapter.streamComplete) {
+      throw new Error("stream-not-supported: user-sidecar lacks streamComplete");
+    }
+    const inner = adapter.streamComplete(opts);
+    return {
+      iterator: adaptStreamGenerator(inner),
+      provider: "user-sidecar",
+      substrate: "user-sidecar",
+    };
+  }
+  throw new Error(
+    `substrate "${target.substrate}" not implemented for streaming`,
+  );
+}
+
+async function* adaptStreamGenerator(
+  inner: AsyncGenerator<
+    { type: "delta"; delta: string } | { type: "final"; final: { usage: AIUsage; model: string } },
+    void,
+    void
+  >,
+): AsyncGenerator<{ delta: string }, { usage: AIUsage; model: string }, void> {
+  let final: { usage: AIUsage; model: string } | null = null;
+  for await (const chunk of inner) {
+    if (chunk.type === "delta") {
+      yield { delta: chunk.delta };
+    } else {
+      final = chunk.final;
+    }
+  }
+  if (!final) {
+    final = {
+      usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+      model: "",
+    };
+  }
+  return final;
+}
+
+export async function* dispatchStream(
+  input: DispatchStreamInput,
+): AsyncGenerator<StreamChunk, void, void> {
+  const tStart = Date.now();
+  const rule: Rule = getRule(input.task);
+  const primary = resolvePrimary(input.task, input.workspace?.preferences);
+  const opts = buildStreamCompleteOpts(input);
+
+  let provider: AIProvider | "user-sidecar" | "capture-embedded" | "cli-linked" =
+    "openai";
+  let substrate: Substrate = primary.substrate;
+  let usage: AIUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+  let model = input.model ?? "";
+  let usedFallback = false;
+  let usedCompleteFallback = false;
+  let didEmitDelta = false;
+
+  // Strategy: try native streaming on the primary target. If it throws
+  // STREAM_NOT_SUPPORTED before any delta is emitted, fall back to the
+  // dispatch() complete path on the SAME primary target. If the primary
+  // target itself fails (e.g., sidecar offline), use the rule's fallback
+  // with native streaming first, then complete fallback.
+  try {
+    const r = await runOnTargetStream(input, primary, opts);
+    provider = r.provider;
+    substrate = r.substrate;
+    try {
+      const it = r.iterator;
+      while (true) {
+        const next = await it.next();
+        if (next.done) {
+          if (next.value) {
+            usage = next.value.usage;
+            if (next.value.model) model = next.value.model;
+          }
+          break;
+        }
+        didEmitDelta = true;
+        yield { delta: next.value.delta, done: false };
+      }
+    } finally {
+      if (substrate === "user-sidecar") setActiveSidecarUser(null);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const streamUnsupported = msg.includes("stream-not-supported");
+    if (didEmitDelta) {
+      // Mid-stream error: surface to caller, no fallback.
+      throw err;
+    }
+    if (streamUnsupported) {
+      // Same primary target — fall back to non-streaming complete.
+      try {
+        const out = await dispatch({
+          mode: "complete",
+          task: input.task,
+          apiKey: input.apiKey,
+          systemPrompt: input.systemPrompt,
+          messages: input.messages,
+          maxTokens: input.maxTokens,
+          model: input.model,
+          timeout: input.timeout,
+          temperature: input.temperature,
+          jsonMode: input.jsonMode,
+          provider: input.provider,
+          workspace: input.workspace,
+          hints: input.hints,
+          log: input.log,
+        });
+        if (out.mode !== "complete") {
+          throw new Error("Internal: complete-fallback returned non-complete");
+        }
+        usedCompleteFallback = true;
+        provider = out.response.provider;
+        substrate = "cloud";
+        model = out.response.model;
+        usage = out.response.usage;
+        // Single-chunk emit. The receipt was already emitted by dispatch();
+        // we'll still emit a stream-shaped receipt below for the caller.
+        yield { delta: out.response.text, done: false };
+      } catch (innerErr) {
+        throw innerErr;
+      }
+    } else if (rule.fallback && shouldFallback(err, rule.fallbackTriggers)) {
+      // Provider-level failure (sidecar offline / cloud 5xx). Try the
+      // fallback target, prefer streaming.
+      usedFallback = true;
+      try {
+        const r = await runOnTargetStream(input, rule.fallback, opts);
+        provider = r.provider;
+        substrate = r.substrate;
+        try {
+          const it = r.iterator;
+          while (true) {
+            const next = await it.next();
+            if (next.done) {
+              if (next.value) {
+                usage = next.value.usage;
+                if (next.value.model) model = next.value.model;
+              }
+              break;
+            }
+            didEmitDelta = true;
+            yield { delta: next.value.delta, done: false };
+          }
+        } finally {
+          if (substrate === "user-sidecar") setActiveSidecarUser(null);
+        }
+      } catch (fallbackErr) {
+        const fmsg =
+          fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        if (!didEmitDelta && fmsg.includes("stream-not-supported")) {
+          // Final resort: complete on fallback target.
+          const fbProvider = pickProvider(input, rule.fallback);
+          const adapter = CLOUD_PROVIDERS[fbProvider];
+          if (!adapter) throw fallbackErr;
+          const r = await adapter.complete(opts);
+          usedCompleteFallback = true;
+          provider = fbProvider;
+          substrate = "cloud";
+          model = r.model;
+          usage = r.usage;
+          yield { delta: r.text, done: false };
+        } else {
+          throw fallbackErr;
+        }
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  // ── Receipt ───────────────────────────────────────────────────────────
+  const userSidecarReceipt =
+    substrate === "user-sidecar" ? takeLastUserSidecarReceipt() : null;
+  const receipt: RouterReceipt = {
+    task: input.task,
+    namespace: namespaceOf(input.task),
+    substrate,
+    provider,
+    model,
+    tsStart,
+    tsEnd: Date.now(),
+    workspaceId: input.workspace?.workspaceId,
+    userId: input.workspace?.userId,
+    projectId: input.workspace?.projectId,
+    alertId: input.workspace?.alertId,
+    remediationSessionId: input.workspace?.remediationSessionId,
+    isPlatformKey: input.workspace?.isPlatformKey ?? false,
+    fallbackUsed: usedFallback || usedCompleteFallback,
+    relayPath: substrate === "user-sidecar" ? "relay" : "direct",
+    userSidecarReceipt: userSidecarReceipt ?? undefined,
+  };
+  // Emit through the same sink registry so receipts persist for streamed
+  // dispatches too. dispatch() already emitted one if we fell back via the
+  // complete path — duplicates are de-duped at the sink level (web's
+  // persist-receipt uses the receipt id which is generated per emit).
+  if (!usedCompleteFallback) {
+    emitReceipt(receipt);
+  }
+  // Suppress unused-var lint for token bookkeeping.
+  void usage;
+
+  yield { delta: "", done: true, receipt };
 }
 
 // ── Convenience helpers (parity with legacy client.ts) ──────────────────────

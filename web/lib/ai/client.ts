@@ -38,11 +38,16 @@ import {
 
 import type { LensFeature, LensTelemetry } from "./lens";
 import { installKeepAliveDispatcher } from "./http-agent";
+import { ensureReceiptSinkRegistered } from "@/lib/ai-router/persist-receipt";
 
 // Fase 3 keep-alive dispatcher — installs once at module load. The router's
 // internal fetch() inherits the global undici dispatcher, so this still wins
 // TLS reuse on every provider call.
 installKeepAliveDispatcher();
+
+// v0.3 S2.5 — register the persistent sink for ai_router_receipts. Idempotent
+// across HMR / vitest reloads thanks to the router's de-duped sink registry.
+ensureReceiptSinkRegistered();
 
 // ── Re-exports (backward-compat for surface code) ──────────────────────────
 

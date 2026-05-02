@@ -27,8 +27,11 @@
 import type {
   AIResponse,
   CompleteOpts,
+  StreamCompleteOpts,
+  StreamCompleteResult,
   ToolUseOpts,
   ToolUseProviderResult,
+  ValidateKeyResult,
   VisionOpts,
   VisionProviderResult,
 } from "./types";
@@ -276,6 +279,28 @@ export async function vision(_opts: VisionOpts): Promise<VisionProviderResult> {
     "offline",
     "sidecar-offline: vision tasks are cloud-only in v0.3",
   );
+}
+
+export async function* streamComplete(
+  _opts: StreamCompleteOpts,
+): StreamCompleteResult {
+  // v0.3 S2.5: streaming over the relay isn't wired yet. Throw the
+  // sentinel so dispatchStream() falls back to non-streaming complete()
+  // (which goes through the relay /dispatch path) and emits a single chunk.
+  throw new Error(
+    "stream-not-supported: user-sidecar streaming arrives in S3+ when relay carries SSE frames",
+  );
+  // Generator marker so the function type matches; never reached.
+  yield { type: "final", final: { usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }, model: "" } };
+}
+
+export async function validateKey(_apiKey: string): Promise<ValidateKeyResult> {
+  // user-sidecar is reachable via WS relay, not an API key. Settings → AI Keys
+  // never hits this path; surface a clear error if it ever does.
+  return {
+    valid: false,
+    error: "user-sidecar is not a key-authenticated provider",
+  };
 }
 
 function numField(o: Record<string, unknown>, k: string): number {

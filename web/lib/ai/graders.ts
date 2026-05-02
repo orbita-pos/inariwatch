@@ -1,17 +1,11 @@
-/* eslint-disable inariwatch/no-direct-ai-sdk-import */
 /**
  * OpenAI Graders API integration (Fase 1 — Telemetry Foundation).
  *
- * v0.3 S1 lockdown exception: Graders is `/v1/fine_tuning/alpha/graders/run`
- * — a fine-tune evaluation endpoint, not part of the standard chat /
- * embeddings / responses surface dispatch() handles. Tracked as a v0.3 S2
- * follow-up: model Graders as task `gate.golden-eval` and wire through the
- * router. Until then, the file-level eslint-disable above is the carve-out.
- *
- * Thin adapter around `POST /v1/fine_tuning/alpha/graders/run` that scores
- * every row in a golden-dataset file against a grader config and returns a
- * single aggregated report. Fase 10 (fine-tune) calls this to gate model
- * ships; Fase 9 Loop 4 calls it on prompt PRs.
+ * v0.3 S2.5: the raw `api.openai.com` fetch now lives inside
+ * `packages/ai-router/src/providers/openai.ts` (`runGrader`). This file is
+ * a domain wrapper that loads golden-dataset rows, builds the model_sample
+ * string, and dispatches one Graders run per row through the router. The
+ * lockdown rule is satisfied — no `eslint-disable` needed.
  *
  * Kill switch:
  *   GRADERS_ENABLED=false  (default) — runGoldenDataset() throws
@@ -23,6 +17,7 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { runGrader } from "@inariwatch/ai-router";
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -144,7 +139,8 @@ export class GradersDisabledError extends Error {
 
 // ── Internal ───────────────────────────────────────────────────────────────
 
-const DEFAULT_ENDPOINT = "https://api.openai.com/v1/fine_tuning/alpha/graders/run";
+// Default endpoint lives inside the router (`runGrader` defaults). Tests
+// inject overrides via `config.endpoint`.
 const DEFAULT_CONCURRENCY = 8;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const TOTAL_BUDGET_MS = 5 * 60 * 1000; // Fase 1 acceptance: report in < 5 min.
@@ -187,37 +183,16 @@ async function runSingleGrade(
   grader: GraderConfig,
   modelSample: string,
   item: GoldenDatasetRecord,
-  opts: { endpoint: string; apiKey: string; timeoutMs: number }
+  opts: { endpoint?: string; apiKey: string; timeoutMs: number }
 ): Promise<{ reward: number; metadata: Record<string, unknown> }> {
-  const res = await fetch(opts.endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      grader,
-      model_sample: modelSample,
-      item,
-    }),
-    signal: AbortSignal.timeout(opts.timeoutMs),
+  return runGrader({
+    apiKey: opts.apiKey,
+    endpoint: opts.endpoint,
+    grader: grader as unknown as Record<string, unknown>,
+    modelSample,
+    item,
+    timeoutMs: opts.timeoutMs,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Graders API error (${res.status}): ${text.slice(0, 300)}`);
-  }
-
-  const data = (await res.json()) as {
-    reward?: number;
-    metadata?: Record<string, unknown>;
-  };
-
-  if (typeof data.reward !== "number") {
-    throw new Error(`Graders response missing 'reward' number: ${JSON.stringify(data).slice(0, 200)}`);
-  }
-
-  return { reward: data.reward, metadata: data.metadata ?? {} };
 }
 
 /** Minimal concurrency pool so we stay under OpenAI rate limits without a dep. */
@@ -267,7 +242,7 @@ export async function runGoldenDataset(config: GraderModelConfig): Promise<Grade
   const records = loadDataset(dataset);
 
   const grader = config.grader ?? defaultGrader();
-  const endpoint = config.endpoint ?? DEFAULT_ENDPOINT;
+  const endpoint = config.endpoint;
   const concurrency = config.concurrency ?? DEFAULT_CONCURRENCY;
   const perCallTimeoutMs = config.perCallTimeoutMs ?? DEFAULT_TIMEOUT_MS;
 

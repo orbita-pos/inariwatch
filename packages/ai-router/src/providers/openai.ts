@@ -28,8 +28,15 @@ import {
   runComplete as compatComplete,
   runWithTools as compatWithTools,
   runVision as compatVision,
+  runStreamComplete as compatStreamComplete,
+  runValidateKey as compatValidateKey,
 } from "./_openai-compat-shared";
-import { safeJson } from "./types";
+import {
+  safeJson,
+  type StreamCompleteOpts,
+  type StreamCompleteResult,
+  type ValidateKeyResult,
+} from "./types";
 
 const BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_CHAT_MODEL = "gpt-4o-mini";
@@ -61,6 +68,27 @@ export async function withTools(
 
 export async function vision(opts: VisionOpts): Promise<VisionProviderResult> {
   return compatVision(opts, { ...COMPAT_CFG, defaultModel: DEFAULT_CHAT_MODEL });
+}
+
+export async function* streamComplete(
+  opts: StreamCompleteOpts,
+): StreamCompleteResult {
+  // gpt-5.x is Responses-API only — Chat Completions doesn't stream it. Throw
+  // STREAM_NOT_SUPPORTED so dispatchStream() can fall back to non-streaming
+  // complete() and emit the result as one chunk.
+  const model = opts.model ?? DEFAULT_CHAT_MODEL;
+  if (isGPT5Family(model)) {
+    throw new Error("stream-not-supported: gpt-5.x stream uses Responses API (TODO)");
+  }
+  yield* compatStreamComplete(opts, COMPAT_CFG);
+}
+
+export async function validateKey(apiKey: string): Promise<ValidateKeyResult> {
+  return compatValidateKey(
+    apiKey,
+    COMPAT_CFG,
+    "Invalid OpenAI API key — replace it in Settings → AI",
+  );
 }
 
 // ── GPT-5.x model detection (provider-side) ─────────────────────────────────
@@ -335,6 +363,62 @@ function toResponsesItem(m: AIMessage): Record<string, unknown> {
     })
     .join("\n");
   return { type: "message", role: m.role, content: flat };
+}
+
+// ── Graders alpha (v0.3 S2.5) ───────────────────────────────────────────────
+//
+// Thin wrapper around OpenAI's `/v1/fine_tuning/alpha/graders/run` endpoint.
+// Lives here so the lockdown rule allows the api.openai.com fetch — surfaces
+// (web/lib/ai/graders.ts) call this through @inariwatch/ai-router instead of
+// fetching the URL themselves. Reference:
+// https://platform.openai.com/docs/api-reference/graders
+
+export interface GraderRunRequest {
+  apiKey: string;
+  endpoint?: string;
+  grader: Record<string, unknown>;
+  modelSample: string;
+  item: unknown;
+  timeoutMs?: number;
+}
+
+export interface GraderRunResult {
+  reward: number;
+  metadata: Record<string, unknown>;
+}
+
+export async function runGrader(req: GraderRunRequest): Promise<GraderRunResult> {
+  const endpoint =
+    req.endpoint ?? `${BASE_URL}/fine_tuning/alpha/graders/run`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${req.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      grader: req.grader,
+      model_sample: req.modelSample,
+      item: req.item,
+    }),
+    signal: AbortSignal.timeout(req.timeoutMs ?? 30_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Graders API error (${res.status}): ${text.slice(0, 300)}`);
+  }
+
+  const data = (await res.json()) as {
+    reward?: number;
+    metadata?: Record<string, unknown>;
+  };
+  if (typeof data.reward !== "number") {
+    throw new Error(
+      `Graders response missing 'reward' number: ${JSON.stringify(data).slice(0, 200)}`,
+    );
+  }
+  return { reward: data.reward, metadata: data.metadata ?? {} };
 }
 
 // ── Embeddings ──────────────────────────────────────────────────────────────

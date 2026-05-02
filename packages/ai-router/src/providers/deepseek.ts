@@ -4,13 +4,18 @@
 import type {
   AIResponse,
   CompleteOpts,
+  StreamCompleteOpts,
+  StreamCompleteResult,
   ToolUseOpts,
   ToolUseProviderResult,
+  ValidateKeyResult,
   VisionOpts,
 } from "./types";
 import {
   runComplete as compatComplete,
   runWithTools as compatWithTools,
+  runStreamComplete as compatStreamComplete,
+  runValidateKey as compatValidateKey,
 } from "./_openai-compat-shared";
 
 const CFG = {
@@ -33,5 +38,17 @@ export async function vision(opts: VisionOpts): Promise<never> {
   void opts;
   throw new Error(
     "DeepSeek does not support vision; route to a vision-capable provider",
+  );
+}
+
+export function streamComplete(opts: StreamCompleteOpts): StreamCompleteResult {
+  return compatStreamComplete(opts, CFG);
+}
+
+export async function validateKey(apiKey: string): Promise<ValidateKeyResult> {
+  return compatValidateKey(
+    apiKey,
+    CFG,
+    "Invalid DeepSeek API key — replace it in Settings → AI",
   );
 }
