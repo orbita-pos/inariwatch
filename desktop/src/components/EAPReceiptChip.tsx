@@ -1,8 +1,8 @@
-import { Lock, ExternalLink } from "lucide-react";
+import { Download, ExternalLink, Lock } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Dialog, DialogClose, Button } from "@/components/ui";
-import type { EapReceiptDto } from "@/lib/dock-ipc";
+import { exportEapReceipt, type EapReceiptDto } from "@/lib/dock-ipc";
 import { cn } from "@/lib/cn";
 
 interface EAPReceiptChipProps {
@@ -10,6 +10,38 @@ interface EAPReceiptChipProps {
   receipt: EapReceiptDto | null;
   /** When true the chip renders compact (used inline beside the Replay button). */
   compact?: boolean;
+}
+
+/** Status the Export button surfaces below the action row. */
+type ExportFeedback =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved"; path: string; merkleOnly: boolean }
+  | { kind: "error"; message: string };
+
+/**
+ * Sesión 28 — call `export_eap_receipt`. The native save-dialog runs
+ * server-side (same pattern as `desktop_pick_watch_dir`), so the
+ * frontend ships ZERO new deps. The IPC returns:
+ *   - `kind: "ok"`        — file written; show success row.
+ *   - `kind: "cancelled"` — user dismissed picker; return to idle.
+ *   - `kind: "error"`     — write failure; show error row.
+ */
+async function exportReceiptToDisk(
+  receipt: EapReceiptDto,
+): Promise<ExportFeedback> {
+  const result = await exportEapReceipt(receipt.remediationSessionId);
+  if (result.kind === "ok") {
+    return {
+      kind: "saved",
+      path: result.path,
+      merkleOnly: !result.hasPublicKey,
+    };
+  }
+  if (result.kind === "cancelled") {
+    return { kind: "idle" };
+  }
+  return { kind: "error", message: result.message };
 }
 
 /**
@@ -27,6 +59,14 @@ interface EAPReceiptChipProps {
  */
 export function EAPReceiptChip({ receipt, compact = false }: EAPReceiptChipProps) {
   const [open, setOpen] = useState(false);
+  const [exportState, setExportState] = useState<ExportFeedback>({ kind: "idle" });
+
+  async function handleExport() {
+    if (!receipt) return;
+    setExportState({ kind: "saving" });
+    const next = await exportReceiptToDisk(receipt);
+    setExportState(next);
+  }
 
   if (!receipt) {
     return (
@@ -84,24 +124,41 @@ export function EAPReceiptChip({ receipt, compact = false }: EAPReceiptChipProps
       >
         <ReceiptDetail receipt={receipt} />
         <div className="mt-4 flex items-center justify-between gap-2">
-          <a
-            href={`https://verify.inariwatch.com/r/${encodeURIComponent(receipt.receiptId)}`}
-            target="_blank"
-            rel="noreferrer"
-            data-testid="eap-receipt-chip-verify-link"
-            className={cn(
-              "inline-flex items-center gap-1 text-xs text-[var(--color-primary)]",
-              "hover:underline",
-            )}
-          >
-            <ExternalLink className="h-3 w-3" aria-hidden /> Open in verifier
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href={`https://verify.inariwatch.com/r/${encodeURIComponent(receipt.receiptId)}`}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="eap-receipt-chip-verify-link"
+              className={cn(
+                "inline-flex items-center gap-1 text-xs text-[var(--color-primary)]",
+                "hover:underline",
+              )}
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden /> Open in verifier
+            </a>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exportState.kind === "saving"}
+              data-testid="eap-receipt-chip-export"
+              className={cn(
+                "inline-flex items-center gap-1 text-xs text-[var(--muted)]",
+                "hover:text-[var(--color-primary)] hover:underline",
+                "disabled:opacity-60 disabled:cursor-progress",
+              )}
+            >
+              <Download className="h-3 w-3" aria-hidden />
+              {exportState.kind === "saving" ? "Saving…" : "Export receipt"}
+            </button>
+          </div>
           <DialogClose asChild>
             <Button size="sm" variant="ghost">
               Close
             </Button>
           </DialogClose>
         </div>
+        <ExportStatusLine state={exportState} />
       </Dialog>
     </>
   );
@@ -231,6 +288,39 @@ function useParsedJsonArray(raw: string): unknown[] {
       return [];
     }
   }, [raw]);
+}
+
+/**
+ * Sesión 28 — small status row under the action buttons. Surfaces the
+ * outcome of the most recent Export click so the user knows whether
+ * the file was written and whether it carries a verifiable signature
+ * (or is Merkle-only because the EAP server's pubkey was unavailable
+ * at export time).
+ */
+function ExportStatusLine({ state }: { state: ExportFeedback }) {
+  if (state.kind === "idle" || state.kind === "saving") return null;
+
+  if (state.kind === "saved") {
+    return (
+      <p
+        data-testid="eap-receipt-chip-export-status"
+        className="mt-2 text-[0.65rem] text-[var(--muted)] break-all"
+      >
+        {state.merkleOnly
+          ? `Saved (Merkle-only — attestor pubkey unavailable). ${state.path}`
+          : `Saved. Verify offline: \`inari verify "${state.path}"\``}
+      </p>
+    );
+  }
+  return (
+    <p
+      data-testid="eap-receipt-chip-export-status"
+      className="mt-2 text-[0.65rem] text-red-500 break-all"
+      role="alert"
+    >
+      Export failed: {state.message}
+    </p>
+  );
 }
 
 function summarizeTool(tool: unknown): string {

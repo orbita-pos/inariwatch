@@ -83,6 +83,13 @@ pub use memory::fingerprint;
 // `tests/lsp_*` can reach `crate::lsp::{LspState, start_lsp_server_for_test, ...}`.
 pub mod lsp;
 
+// Sesión 28 (v0.2) — EAP receipt verifier (shared between the
+// `inari-verify` standalone CLI binary and any future in-app
+// verification surface). Pure-crypto module — no DB, no network. The
+// `inari-verify` bin in `src/bin/inari_verify.rs` reaches this via
+// `inariwatch_desktop_lib::lib_eap_verify`.
+pub mod lib_eap_verify;
+
 pub const LSP_DEFAULT_PORT: u16 = 9877;
 
 const INARI_WINDOW_LABEL: &str = "inari";
@@ -186,6 +193,8 @@ pub fn run() {
             // Sesión 27 — EAP receipt chip + Replay button
             ipc::eap::get_receipt_for_session,
             ipc::replay::replay_against_patch,
+            // Sesión 28 — export receipt as `.eap.json`
+            ipc::eap::export_eap_receipt,
             // Sesión 17 — sensor toggles + power-up stubs
             ipc::sensors::get_sensors_state,
             ipc::sensors::set_sensor_enabled,

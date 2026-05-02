@@ -27,6 +27,17 @@ path = "src/bin/inari_mcp_stdio.rs"
 name = "inari-lsp-stdio"
 path = "src/bin/inari_lsp_stdio.rs"
 
+# Sesión 28 (v0.2) — standalone receipt verifier. Reads a `.eap.json`
+# file written by the dock's "Export receipt" button, validates the
+# Ed25519 signature over SHA-256(receipt_id), prints PASS/FAIL + a
+# summary, exits 0 on PASS / 1 on FAIL / 2 on file-error. No daemon,
+# no DB, no network — self-contained crypto verification so this
+# binary can be distributed standalone (Mac/Win/Linux) for users who
+# don't have Inari Live installed.
+[[bin]]
+name = "inari-verify"
+path = "src/bin/inari_verify.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -170,6 +181,14 @@ bytes                    = "1"
 # `users` add ~30 transitive deps for nothing we use.
 blake3                   = "1"
 sysinfo                  = { version = "0.30", default-features = false }
+
+# Sesión 28 — EAP receipt Ed25519 verification (shared between the
+# `inari-verify` standalone binary and the `lib_eap_verify` module).
+# Pinned to the maintained 2.x line. `default-features = false` keeps
+# the dep tree slim — `verify_strict` lives in the default feature set
+# (`zeroize`, `rand_core`, etc. would be needed only for keypair
+# generation, which we only do in tests).
+ed25519-dalek            = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
