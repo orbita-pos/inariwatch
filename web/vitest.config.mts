@@ -17,6 +17,10 @@ export default defineConfig({
       // SDK changes are tested before publish. Runtime (Next) still resolves
       // the published npm version.
       "@inariwatch/capture": path.resolve(__dirname, "../capture/dist/index.js"),
+      // v0.3 S1 — internal AI router package. Lives in the monorepo at
+      // packages/ai-router/, never published. Aliased to TS source so vitest
+      // doesn't need a build step.
+      "@inariwatch/ai-router": path.resolve(__dirname, "../packages/ai-router/src/index.ts"),
     },
   },
   test: {

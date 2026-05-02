@@ -33,6 +33,14 @@ function resolveService(rawKey: string, providerHint?: string): AIProvider | nul
   return null;
 }
 
+// v0.3 S1 lockdown exception: validateKey() pings each provider's `/v1/models`
+// endpoint to confirm an API key is live. It does NOT make AI inferences, so
+// the dispatch() flow doesn't apply. Tracked as a v0.3 S2 follow-up: surface
+// `validateKey()` from each provider adapter via the router so this can move
+// inside `packages/ai-router/src/providers/`. Until then, the eslint-disable
+// below is the documented carve-out.
+
+/* eslint-disable inariwatch/no-direct-ai-sdk-import */
 async function validateKey(rawKey: string, provider: AIProvider): Promise<{ error?: string }> {
   try {
     switch (provider) {

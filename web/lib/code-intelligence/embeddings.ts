@@ -48,24 +48,13 @@ async function openaiEmbed(
   texts: string[],
   apiKey: string
 ): Promise<number[][]> {
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: texts,
-      dimensions: EMBEDDING_DIMS, // OpenAI supports output dimension truncation
-    }),
-    signal: AbortSignal.timeout(30000),
+  const { callAIEmbed } = await import("@inariwatch/ai-router");
+  const r = await callAIEmbed(apiKey, texts, {
+    model: "text-embedding-3-small",
+    dimensions: EMBEDDING_DIMS,
+    timeout: 30000,
   });
-
-  if (!res.ok) throw new Error(`OpenAI Embedding API error (${res.status})`);
-
-  const data = await res.json();
-  return (data.data as { embedding: number[] }[]).map((d) => d.embedding);
+  return r.vectors;
 }
 
 // ── Auto-detect provider from API key ────────────────────────────────────────

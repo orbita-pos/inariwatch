@@ -1,5 +1,12 @@
+/* eslint-disable inariwatch/no-direct-ai-sdk-import */
 /**
  * OpenAI Graders API integration (Fase 1 — Telemetry Foundation).
+ *
+ * v0.3 S1 lockdown exception: Graders is `/v1/fine_tuning/alpha/graders/run`
+ * — a fine-tune evaluation endpoint, not part of the standard chat /
+ * embeddings / responses surface dispatch() handles. Tracked as a v0.3 S2
+ * follow-up: model Graders as task `gate.golden-eval` and wire through the
+ * router. Until then, the file-level eslint-disable above is the carve-out.
  *
  * Thin adapter around `POST /v1/fine_tuning/alpha/graders/run` that scores
  * every row in a golden-dataset file against a grader config and returns a

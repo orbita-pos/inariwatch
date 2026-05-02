@@ -119,6 +119,14 @@ export async function POST(req: NextRequest) {
 }
 
 // ── Streaming AI calls ──────────────────────────────────────────────────────
+//
+// NOTE — v0.3 S1 lockdown exception: streaming dispatch isn't part of the
+// `@inariwatch/ai-router` public surface yet. The functions below talk to
+// provider URLs directly so the chat stream survives Phase 1 unchanged.
+// Tracked as a v0.3 S2 follow-up: add `mode: "stream"` to dispatch() and
+// migrate this file. Until then, keep the eslint-disable below in place.
+
+/* eslint-disable inariwatch/no-direct-ai-sdk-import */
 
 async function* streamAI(
   apiKey: string,

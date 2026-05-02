@@ -24,6 +24,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@inariwatch/ai-router": [
+        "../packages/ai-router/src/index.ts"
+      ],
+      "@inariwatch/ai-router/eslint": [
+        "../packages/ai-router/src/lockdown/eslint-rule.js"
       ]
     },
     "target": "ES2017"
@@ -32,7 +38,8 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "../packages/ai-router/src/**/*.ts"
   ],
   "exclude": [
     "node_modules"

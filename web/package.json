@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "demo:record": "npx tsx scripts/record-demo.ts"
+    "demo:record": "npx tsx scripts/record-demo.ts",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

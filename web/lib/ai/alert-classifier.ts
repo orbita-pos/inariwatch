@@ -105,39 +105,26 @@ async function classifyByModel(
   severity: string,
   source: string[],
 ): Promise<ClassificationResult> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const { callAI } = await import("./client");
+  const { TASKS } = await import("@inariwatch/ai-router");
+  const raw = await callAI(
+    apiKey,
+    'Classify this alert into one of: auto_fix, triage_only, full_remediation. Respond with JSON: {"class":"...","confidence":0.0-1.0,"reason":"..."}',
+    [
+      {
+        role: "user",
+        content: `severity: ${severity}\nsource: ${source.join(",")}\ntitle: ${title}\nbody: ${body.slice(0, 500)}`,
+      },
+    ],
+    {
+      task: TASKS.ALERT_CLASSIFY,
       model: CLASSIFIER_MODEL,
-      messages: [
-        {
-          role: "system",
-          content: "Classify this alert into one of: auto_fix, triage_only, full_remediation. Respond with JSON: {\"class\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}",
-        },
-        {
-          role: "user",
-          content: `severity: ${severity}\nsource: ${source.join(",")}\ntitle: ${title}\nbody: ${body.slice(0, 500)}`,
-        },
-      ],
-      max_tokens: 80,
+      maxTokens: 80,
       temperature: 0,
-    }),
-    signal: AbortSignal.timeout(5000),
-  });
+      timeout: 5000,
+    },
+  );
 
-  if (!response.ok) {
-    throw new Error(`Classifier API error: ${response.status}`);
-  }
-
-  const data = await response.json() as {
-    choices: { message: { content: string } }[];
-  };
-
-  const raw = data.choices[0]?.message?.content ?? "";
   const parsed = JSON.parse(raw) as {
     class: string;
     confidence: number;

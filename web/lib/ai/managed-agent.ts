@@ -1,5 +1,15 @@
+/* eslint-disable inariwatch/no-direct-ai-sdk-import */
 /**
  * Claude Managed Agent integration for InariWatch remediation.
+ *
+ * v0.3 S1 lockdown exception: Managed Agents is the Anthropic beta endpoint
+ * family (/v1/agents, /v1/environments, /v1/sessions) — distinct from the
+ * messages endpoint dispatch() handles. The feature is gated off in
+ * production (MANAGED_AGENT_ENABLED=false, see CLAUDE.md AI layer) until the
+ * beta API stabilizes. Tracked as a v0.3 S7 follow-up: when the beta exits,
+ * model Managed Agents as task `code.fix.managed-agent` and wire it into
+ * a new substrate adapter. Until then, the file-level eslint-disable above
+ * is the carve-out.
  *
  * Runs the AI fix generation in an Anthropic-managed container with
  * full access to git, npm, tsc, and the project's build tools.
