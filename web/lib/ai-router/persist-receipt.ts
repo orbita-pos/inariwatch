@@ -14,7 +14,6 @@
 //     duplicate function references, so re-importing this module across
 //     HMR / vitest reloads is safe.
 
-import { db, aiRouterReceipts } from "@/lib/db";
 import {
   registerReceiptSink,
   type RouterReceipt,
@@ -31,6 +30,11 @@ export function persistRouterReceipt(receipt: RouterReceipt): void {
 }
 
 async function doInsert(receipt: RouterReceipt): Promise<void> {
+  // Lazy import: lib/db throws synchronously at module-load when DATABASE_URL
+  // is unset. Resolving the handle here means callers like web/lib/ai/client.ts
+  // can import persist-receipt unconditionally — the dispatch path only hits
+  // the DB when a real receipt actually fires.
+  const { db, aiRouterReceipts } = await import("@/lib/db");
   const usage = inferUsage(receipt);
   await db.insert(aiRouterReceipts).values({
     workspaceId: receipt.workspaceId ?? null,
