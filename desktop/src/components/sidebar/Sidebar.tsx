@@ -103,12 +103,14 @@ export function Sidebar() {
             "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
           )}
         >
-          <span
-            className="w-5 h-5 rounded-[var(--radius-sm)] bg-[var(--accent)] inline-flex items-center justify-center text-[10px] font-semibold text-white shrink-0"
+          <img
+            src="/favicon.png"
+            alt=""
+            width={20}
+            height={20}
+            className="w-5 h-5 rounded-[var(--radius-sm)] shrink-0 object-contain"
             aria-hidden
-          >
-            i
-          </span>
+          />
           <span className="text-[13px] font-medium text-[var(--text)] truncate">
             Inari Live
           </span>
