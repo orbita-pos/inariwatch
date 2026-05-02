@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.inariwatch.desktop",
   "build": {
-    "frontendDist": "../dist"
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
   },
   "bundle": {
     "active": true,

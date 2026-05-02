@@ -421,9 +421,14 @@ pub fn run() {
             // kill it on disconnect / second connect.
             app.manage(Arc::new(cli::run::ConnectState::default()));
 
-            // Auto-open Inari Live on startup so the floating fox is the
-            // ambient signal — closing it just hides; reopen via tray menu.
-            open_inari_window(&app.handle().clone());
+            // Legacy Session-0 "inari" window (visual prototype HTML at
+            // dist/inari/index.html) is intentionally NOT auto-opened in v0.2 —
+            // it pre-dates the Vite-served `dock.html` (S15) and `main.html`
+            // (S17) and would 404 in dev mode (no Vite entry for inari/*).
+            // The tray menu still exposes it via the "Open InariWatch" item
+            // for users who want to reach the prototype manually.
+            //
+            // Pre-S17 call (kept for reference): open_inari_window(&app.handle().clone());
 
             // Background alert poller (extracted to cloud/alert_poller.rs).
             cloud::alert_poller::start(app.handle().clone(), store.clone());
@@ -466,10 +471,13 @@ pub fn run() {
 // ── Window ────────────────────────────────────────────────────────────────────
 
 fn setup_window(app: &tauri::App) -> tauri::Result<()> {
+    // In debug mode, load the local Inari Live main window (S17 onboarding +
+    // settings React shell). Vite serves it at the devUrl in tauri.conf.json.
+    // In release, point at the InariWatch web dashboard (api_url setting →
+    // production fallback) so the bundled binary opens the user's cloud UI.
     let url = if cfg!(debug_assertions) {
-        WebviewUrl::External("http://localhost:3000".parse().unwrap())
+        WebviewUrl::App("main.html".into())
     } else {
-        // Read api_url from the SQL settings store, fall back to production.
         let store = app.state::<Arc<store::Store>>();
         let raw = store::settings::get(&store, "api_url")
             .ok()
