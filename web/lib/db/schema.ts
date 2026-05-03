@@ -2265,3 +2265,37 @@ export const codeImports = pgTable(
 
 export type CodeImport = typeof codeImports.$inferSelect;
 export type NewCodeImport = typeof codeImports.$inferInsert;
+
+// ── Code Intelligence v2 — A/B shadow log (migration 0080) ──────────────────
+//
+// One row per `searchCode()` call when the engine flag is "shadow". Drives the
+// /admin/ops widget that compares v1 vs v2 retrieval. Rows are short-lived;
+// Phase 3 may add a daily summary aggregator before cutover.
+
+export const codeIntelShadowLog = pgTable(
+  "code_intel_shadow_log",
+  {
+    id:             uuid("id").primaryKey().defaultRandom(),
+    repoId:         uuid("repo_id")
+                      .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    projectId:      uuid("project_id"),
+    query:          text("query").notNull(),
+    v1ResultCount:  integer("v1_result_count").notNull(),
+    v2ResultCount:  integer("v2_result_count").notNull(),
+    v1TopFqns:      jsonb("v1_top_fqns").notNull().default(sql`'[]'::jsonb`),
+    v2TopFqns:      jsonb("v2_top_fqns").notNull().default(sql`'[]'::jsonb`),
+    v1DurationMs:   integer("v1_duration_ms").notNull(),
+    v2DurationMs:   integer("v2_duration_ms").notNull(),
+    v1Error:        text("v1_error"),
+    v2Error:        text("v2_error"),
+    createdAt:      timestamp("created_at", { withTimezone: true })
+                      .defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_intel_shadow_repo_created").on(table.repoId, table.createdAt),
+    index("idx_code_intel_shadow_project_created").on(table.projectId, table.createdAt),
+  ],
+);
+
+export type CodeIntelShadowLog = typeof codeIntelShadowLog.$inferSelect;
+export type NewCodeIntelShadowLog = typeof codeIntelShadowLog.$inferInsert;

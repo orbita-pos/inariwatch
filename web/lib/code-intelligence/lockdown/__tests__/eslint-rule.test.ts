@@ -26,10 +26,20 @@ tester.run("no-direct-code-intel-db", lockdown.rule, {
       filename: "/repo/web/lib/services/code-intelligence.service.ts",
       code: `import { codeRepositories, codeChunks } from "@/lib/db";`,
     },
-    // The module that owns the tables.
+    // The v1 module that owns the legacy tables.
     {
       filename: "/repo/web/lib/code-intelligence/indexer.ts",
       code: `import { codeChunks, codeRepositories, codeDependencies } from "@/lib/db";`,
+    },
+    // The v2 module that owns the new semantic-graph tables (Phase 1.5).
+    {
+      filename: "/repo/web/lib/code-intelligence-v2/persist.ts",
+      code: `import { codeSymbols, codeReferences, codeTypeFacts, codeImports } from "@/lib/db/schema";`,
+    },
+    // The v2 module also owns the shadow log.
+    {
+      filename: "/repo/web/lib/code-intelligence-v2/queries.ts",
+      code: `import { codeIntelShadowLog } from "@/lib/db";`,
     },
     // Schema definition site.
     {
@@ -38,13 +48,13 @@ tester.run("no-direct-code-intel-db", lockdown.rule, {
     },
     // Migration tests.
     {
-      filename: "/repo/web/lib/db/__tests__/migration-0078.test.ts",
-      code: `import { codeChunks } from "@/lib/db";`,
+      filename: "/repo/web/lib/db/__tests__/migration-0079.test.ts",
+      code: `import { codeSymbols } from "@/lib/db";`,
     },
     // Generic __tests__ folders may stub the tables.
     {
       filename: "/repo/web/app/api/foo/__tests__/route.test.ts",
-      code: `import { codeChunks } from "@/lib/db";`,
+      code: `import { codeChunks, codeSymbols } from "@/lib/db";`,
     },
     // Importing OTHER tables from @/lib/db is fine.
     {
@@ -83,6 +93,26 @@ tester.run("no-direct-code-intel-db", lockdown.rule, {
     {
       filename: "/repo/web/app/api/webhooks/foo/route.ts",
       code: `async function f() { const { codeRepositories } = await import("@/lib/db"); }`,
+      errors: [{ messageId: "directTableImport" }],
+    },
+    // v2 tables blocked outside the v2 module (Phase 1.5).
+    {
+      filename: "/repo/web/app/api/admin/route.ts",
+      code: `import { codeSymbols } from "@/lib/db";`,
+      errors: [{ messageId: "directTableImport" }],
+    },
+    {
+      filename: "/repo/web/app/api/admin/route.ts",
+      code: `import { codeReferences, codeTypeFacts, codeImports } from "@/lib/db";`,
+      errors: [
+        { messageId: "directTableImport" },
+        { messageId: "directTableImport" },
+        { messageId: "directTableImport" },
+      ],
+    },
+    {
+      filename: "/repo/web/app/api/admin/ops/route.ts",
+      code: `import { codeIntelShadowLog } from "@/lib/db";`,
       errors: [{ messageId: "directTableImport" }],
     },
   ],

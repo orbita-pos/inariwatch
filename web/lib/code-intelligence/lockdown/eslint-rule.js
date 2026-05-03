@@ -5,13 +5,19 @@
  * code_chunks / code_repositories / code_dependencies tables must go
  * through `web/lib/services/code-intelligence.service.ts`.
  *
+ * Phase 1.5 extends the rule to v2 tables (code_symbols / code_references /
+ * code_type_facts / code_imports / code_intel_shadow_log) — same boundary,
+ * same SSOT — and adds `web/lib/code-intelligence-v2/**` to the allowlist
+ * since that module owns those tables.
+ *
  * Without this boundary, v2 cannot replace the underlying schema in-place
  * (see `radar/CODE_INTELLIGENCE_V2_HANDOFF.md`) — every direct caller would
  * be a hidden migration site. This rule is the spine that lets the service
  * swap engines (v1 statistical → v2 semantic) without touching consumers.
  *
  * Allowlist (anywhere on the path):
- *   - web/lib/code-intelligence/**            (the module that owns the tables)
+ *   - web/lib/code-intelligence/**            (v1 module owns code_chunks etc.)
+ *   - web/lib/code-intelligence-v2/**         (v2 module owns code_symbols etc.)
  *   - web/lib/services/code-intelligence.service.ts (the service layer SSOT)
  *   - web/lib/db/schema.ts                    (the table definitions themselves)
  *   - web/lib/db/index.ts                     (re-export of the schema)
@@ -20,9 +26,16 @@
  */
 
 const FORBIDDEN_NAMED_IMPORTS = new Set([
+  // v1 (Phase 0.2)
   "codeChunks",
   "codeRepositories",
   "codeDependencies",
+  // v2 (Phase 1.5)
+  "codeSymbols",
+  "codeReferences",
+  "codeTypeFacts",
+  "codeImports",
+  "codeIntelShadowLog",
 ]);
 
 const FORBIDDEN_SOURCES = new Set([
@@ -32,6 +45,7 @@ const FORBIDDEN_SOURCES = new Set([
 
 const ALLOWLIST_PATH_FRAGMENTS = [
   "web/lib/code-intelligence/",
+  "web/lib/code-intelligence-v2/",
   "web/lib/services/code-intelligence.service.ts",
   "web/lib/db/schema.ts",
   "web/lib/db/index.ts",
