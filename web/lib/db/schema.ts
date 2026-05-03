@@ -115,6 +115,14 @@ export const organizations = pgTable("organizations", {
    * Settings → AI Preferences. Migration 0077.
    */
   localNotifyEnabled: boolean("local_notify_enabled").notNull().default(false),
+  /**
+   * v0.3 S5 — opt-in to running `voice.tts.*` on Inari Live (Piper TTS).
+   * Independent from `localNotifyEnabled` because voice has different
+   * infra requirements (download voice models on first use, ≈30 MB
+   * each). Cloud fallback (OpenAI tts-1) kicks in when sidecar is
+   * offline. Default false. Migration 0078.
+   */
+  localVoiceEnabled: boolean("local_voice_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

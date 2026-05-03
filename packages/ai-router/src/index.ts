@@ -109,3 +109,26 @@ export type {
   JudgeFn,
 } from "./eval/judge";
 export { runEval } from "./eval/run";
+
+// v0.3 S5 — WhatsApp eval corpus + judge + voice WAV smoke check.
+export {
+  NOTIFY_COMPOSE_WHATSAPP_CORPUS,
+} from "./eval/whatsapp-corpus";
+export type {
+  ComposeWhatsappEvalInput,
+  ComposeWhatsappEvalRubric,
+  ComposeWhatsappEvalItem,
+} from "./eval/whatsapp-corpus";
+export {
+  buildWhatsappJudgePrompt,
+  makeWhatsappGpt4oMiniJudge,
+  scoreWhatsappItem,
+  scoreWhatsappRubric,
+  checkVoiceWav,
+} from "./eval/whatsapp-judge";
+export type {
+  ComposeWhatsappEvalOutput,
+  WhatsappItemScore,
+  WhatsappJudgeFn,
+  VoiceSmokeResult,
+} from "./eval/whatsapp-judge";

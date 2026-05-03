@@ -129,13 +129,17 @@ export default async function SettingsPage() {
   const orgRow = activeOrgId
     ? (
         await db
-          .select({ localNotifyEnabled: organizations.localNotifyEnabled })
+          .select({
+            localNotifyEnabled: organizations.localNotifyEnabled,
+            localVoiceEnabled: organizations.localVoiceEnabled,
+          })
           .from(organizations)
           .where(eq(organizations.id, activeOrgId))
           .limit(1)
       )[0]
     : null;
   const localNotifyEnabled = orgRow?.localNotifyEnabled ?? false;
+  const localVoiceEnabled = orgRow?.localVoiceEnabled ?? false;
 
   return (
     <div className="mx-auto max-w-[680px] space-y-8">
@@ -267,9 +271,10 @@ export default async function SettingsPage() {
       </Section>
       </ProGate>
 
-      {/* ── AI Preferences (v0.3 S3) ─────────────────────────────────────── */}
+      {/* ── AI Preferences (v0.3 S3 + S5) ────────────────────────────────── */}
       <AIPreferencesSection
         initial={localNotifyEnabled}
+        initialVoice={localVoiceEnabled}
         hasWorkspace={!!activeOrgId}
       />
 

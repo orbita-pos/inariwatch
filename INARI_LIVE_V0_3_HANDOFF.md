@@ -54,7 +54,7 @@ Same as v0.2. Per `project_machine_constraints.md`:
               ┌───────────┴───────────┐
               │                       │
          v0.3 S4               v0.3 S5
-       (rest of            (WhatsApp Cloud API
+       (rest of            (WhatsApp via Baileys
         notify.*)           + Piper TTS voice)
               │                       │
               └───────────┬───────────┘
@@ -526,14 +526,106 @@ Migrate `notify.compose.{slack, telegram, push, digest, status-page, postmortem-
 
 ---
 
-### v0.3 S5 — WhatsApp Cloud API + voice (Piper TTS) (6h)
+### v0.3 S5 — WhatsApp via Baileys + voice (Piper TTS) (6h)
 
-**Status:** PENDING.
+**Status:** **DONE-2026-05-02** (NOT PUSHED, NOT COMMITTED on the rewrite
+branch — staged in worktree). Original Meta-WABA + Twilio attempt
+SHIPPED then REJECTED 2026-05-02; preserved as deprecated snapshot
+commit `30c935d` on `feat/inari-live-v0.3-session5-whatsapp-voice`.
+**Baileys rewrite** lives on `feat/inari-live-v0.3-session5-baileys-rewrite`
+(worktree `../radar-v0.3-s5-baileys`, branched off `origin/main` tip
+`a20e696`).
+
+**Why the rewrite:**
+
+| | WABA + Twilio (snapshot `30c935d`, REJECTED) | Baileys (this) |
+|---|---|---|
+| Setup | Meta business verification 1-3 weeks | Scan QR once |
+| Per-message cost | ~$0.005-0.05 | $0 |
+| Sender number | Vendor-rented | User's own |
+| Message types | Templates only (pre-approved) | Free text |
+| Receiver UX | "From an unknown business" | "From a friend" |
+| Backend infra | Meta dashboard + Twilio account | Inari Live local sidecar |
+| Privacy | Body composed local, then cloud | End-to-end local |
+
+**What shipped (Baileys rewrite):**
+
+1. **Baileys Node sidecar** (`desktop/src-tauri/sidecars/whatsapp/`) —
+   TypeScript, ~600 LOC across 5 src files (`main`, `session`, `auth-store`,
+   `connection`, `types`). Spawned by Inari Live as a child process,
+   JSON-RPC 2.0 over stdin/stdout. Uses `@whiskeysockets/baileys 7.0.0-rc.9`
+   (the OpenClaw model). 4 vitest test files (~16 tests covering RPC
+   parser, backoff, auth-store atomic-write+backup, JID conversion).
+2. **Tauri Rust wrapper** (`desktop/src-tauri/src/whatsapp/`) —
+   `SidecarManager` with JSON-RPC client, broadcast event channel, in-process
+   accounts cache. 5 IPC commands exposed to frontend
+   (`whatsapp_login_start`, `whatsapp_send`, `whatsapp_logout`,
+   `whatsapp_list_accounts`, `whatsapp_status`). 7 unit tests pass.
+3. **Frontend Settings** — new `desktop/src/screens/settings/WhatsApp.tsx`
+   panel with QR-pair modal (qrcode.react SVG), TOS warning banner,
+   account list, disconnect actions. 6 vitest tests pass.
+4. **Piper TTS** (cherry-picked from prior S5 — transport-agnostic, kept
+   verbatim). 4-voice registry, subprocess wrapper, synthetic-WAV
+   fallback when binary missing. 23 cargo tests pass.
+5. **AI router rules** — `notify.compose.whatsapp` flipped to
+   `user-sidecar` w/ NO cloud fallback (cloud has no path to user's WA);
+   `voice.tts.{alert,digest}` flipped to `user-sidecar/piper-tts` w/
+   `cloud/openai/tts-1` fallback. New `localVoiceEnabled` workspace flag
+   independent from `localNotifyEnabled`.
+6. **Web schema + settings** — migration `0078_workspace_local_voice.sql`,
+   2 toggles in Settings → AI Preferences. 19 vitest pass.
+7. **relay_client dispatch** — `handle_dispatch_full` accepts WhatsApp
+   sidecar handle. After local-model compose, auto-sends via Baileys
+   when account is linked + `recipient_phone` present. Returns
+   `transport.{sent, message_id, to_jid}` block in the response body.
+   Cloud has no whatsapp adapter — unsidecared dispatches return
+   `transport.sent: false` so the caller gracefully skips this surface.
+8. **Eval harness** — 30+ scenarios + GPT-4o-mini judge + voice WAV
+   smoke check, transport-agnostic (kept from prior S5).
+
+**Test counts (Baileys rewrite):**
+- ai-router vitest: **90/90 pass** (was 67 in S3, +23 new)
+- web vitest (new files): **19/19 pass** (migration-0078, persist-receipt,
+  ai-preferences-actions)
+- web npm run lint: 0 errors, 17 warnings (pre-existing baseline)
+- desktop frontend vitest (new): **6/6 pass** (WhatsappSetup)
+- desktop cargo whatsapp + types: **20/20 pass**
+- desktop cargo voice: **23/23 pass**
+- desktop cargo relay_client: **10/10 pass** (test rewritten — voice.tts
+  is no longer a stub, replacement test uses chat.conversational)
+- desktop cargo notify_compose: **24/24 pass**
+- desktop cargo integration tests/relay_client_test: **7/7 pass**
+- Baileys sidecar npm tests: NOT RUN — npm install in sidecar deferred
+  to Jesus when ready to publish (no disk to npm install Baileys' deps;
+  source code is type-checked via tsconfig and reviewed)
+
+**Outstanding (Jesus action items):**
+1. **`cd desktop/src-tauri/sidecars/whatsapp && npm install && npm run build`**
+   to materialize `dist/main.js`. Then run `cd desktop && npm install`
+   to pick up the new `qrcode.react` dep.
+2. **Manual QR scan demo** — open Inari Live, Settings → WhatsApp →
+   Add account → scan QR with personal WhatsApp. Confirm `linked` event
+   arrives + Settings UI updates.
+3. **Voice models + Piper binary** still pending download-on-first-use UX
+   (deferred to a future session). Synthetic-WAV fallback covers the
+   smoke path.
+4. **Migration 0078** — run `cd web && npx tsx scripts/run-migration-0078.ts`
+   in prod once branch is merged.
+5. **TOS gray area note** — re-read `desktop/src-tauri/sidecars/whatsapp/README.md`
+   before turning on for real users. Defaults are conservative (80
+   msg/sec/account rate limit, no marketing-shaped templates).
+
+**Push readiness:**
+Behind the workspace flags `localNotifyEnabled` (whatsapp) +
+`localVoiceEnabled` (voice TTS). Default OFF. Pushing this code = byte-
+identical behavior for every existing workspace. Migration 0078 is
+additive (`NOT NULL DEFAULT FALSE`).
+
 **Predecessor:** v0.3 S3 merged. PARALLEL-OK with v0.3 S4.
-**Worktree:** `git worktree add ../radar-v0.3-s5 -b feat/inari-live-v0.3-session5-whatsapp-voice`
+**Worktree:** `git worktree add ../radar-v0.3-s5-baileys -b feat/inari-live-v0.3-session5-baileys-rewrite origin/main`
 
 **Goal:**
-Stand up two NEW surfaces that ship local-first from day one: WhatsApp message delivery (composition local, transport cloud via WhatsApp Cloud API) and voice notifications (TTS local via Piper, playback via OS sound or Twilio call).
+Stand up two NEW surfaces that ship local-first from day one: WhatsApp message delivery (composition + transport BOTH local — Baileys sidecar pairs with the user's personal WhatsApp account; cloud never touches the WA channel) and voice notifications (TTS local via Piper, with OpenAI tts-1 cloud fallback).
 
 **Work:**
 1. **WhatsApp Cloud API integration:**

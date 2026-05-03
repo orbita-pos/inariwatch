@@ -2,19 +2,27 @@
 
 // v0.3 S3 — AI Preferences settings card.
 //
-// Single toggle for now: "Use my Inari Live to compose alert emails".
-// When the user flips it ON, every `notify.compose.email` dispatch the
-// workspace makes routes through their local Inari Live (user-sidecar)
-// instead of OpenAI cloud. If the sidecar is offline, the router falls
-// back to cloud transparently — the user never sees a hard failure.
+// "Compose alert emails on my machine" toggle: routes notify.compose.email
+// (and, since v0.3 S5, notify.compose.whatsapp) through the user's Inari
+// Live instead of OpenAI cloud. Sidecar offline → cloud fallback,
+// transparent.
+//
+// v0.3 S5 — second toggle: "Speak alerts on my machine" routes
+// voice.tts.* (Piper) on Inari Live. Independent flag — workspaces can
+// opt into voice without changing notify routing.
 
 import { useState, useTransition } from "react";
 import { Bot, AlertCircle } from "lucide-react";
 
-import { setLocalNotifyEnabled } from "./ai-preferences-actions";
+import {
+  setLocalNotifyEnabled,
+  setLocalVoiceEnabled,
+} from "./ai-preferences-actions";
 
 interface Props {
   initial: boolean;
+  /** v0.3 S5 — initial state for the voice toggle. */
+  initialVoice: boolean;
   /**
    * Whether the active workspace is resolvable. When false (solo user
    * with no org row), we render the toggle disabled with a helper hint.
@@ -22,8 +30,13 @@ interface Props {
   hasWorkspace: boolean;
 }
 
-export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
+export function AIPreferencesSection({
+  initial,
+  initialVoice,
+  hasWorkspace,
+}: Props) {
   const [enabled, setEnabled] = useState<boolean>(initial);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(initialVoice);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +46,18 @@ export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
       const res = await setLocalNotifyEnabled(next);
       if (res.ok) {
         setEnabled(next);
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  function onVoiceToggle(next: boolean) {
+    setError(null);
+    startTransition(async () => {
+      const res = await setLocalVoiceEnabled(next);
+      if (res.ok) {
+        setVoiceEnabled(next);
       } else {
         setError(res.error);
       }
@@ -52,13 +77,13 @@ export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
       <div className="flex items-start justify-between gap-6">
         <div className="space-y-1">
           <p className="text-sm font-medium">
-            Compose alert emails on my machine (Inari Live)
+            Compose alert messages on my machine (Inari Live)
           </p>
           <p className="text-xs text-muted-foreground">
-            When on, alert email bodies are written by your local model
-            (Qwen2.5-Coder-1.5B). Stack traces never leave your computer
-            for prose composition. Falls back to cloud if Inari Live is
-            offline — you'll never miss an alert.
+            When on, alert email <em>and WhatsApp</em> bodies are written by
+            your local model (Qwen2.5-Coder-1.5B). Stack traces never leave
+            your computer for prose composition. Falls back to cloud if
+            Inari Live is offline — you'll never miss an alert.
           </p>
           <p className="text-xs text-muted-foreground">
             Requires Inari Live installed and connected. Default OFF.
@@ -69,7 +94,7 @@ export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
           type="button"
           role="switch"
           aria-checked={enabled}
-          aria-label="Compose alert emails on my machine"
+          aria-label="Compose alert messages on my machine"
           disabled={pending || !hasWorkspace}
           onClick={() => onToggle(!enabled)}
           className={
@@ -83,6 +108,45 @@ export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
             className={
               "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform " +
               (enabled ? "translate-x-5" : "translate-x-0.5")
+            }
+          />
+        </button>
+      </div>
+
+      {/* v0.3 S5 — voice toggle. Separate from the notify toggle so opting
+          into one doesn't enable the other. */}
+      <div className="mt-6 flex items-start justify-between gap-6 border-t border-border/40 pt-6">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">
+            Speak alerts on my machine (Piper TTS)
+          </p>
+          <p className="text-xs text-muted-foreground">
+            When on, voice notifications are synthesized locally via Piper
+            on your Inari Live. Cloud fallback uses OpenAI tts-1 — always
+            audible. Requires voice models downloaded to Inari Live (≈
+            30 MB per voice).
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Default OFF.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={voiceEnabled}
+          aria-label="Speak alerts on my machine"
+          disabled={pending || !hasWorkspace}
+          onClick={() => onVoiceToggle(!voiceEnabled)}
+          className={
+            "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+            (voiceEnabled ? "bg-emerald-500" : "bg-muted")
+          }
+        >
+          <span
+            className={
+              "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform " +
+              (voiceEnabled ? "translate-x-5" : "translate-x-0.5")
             }
           />
         </button>

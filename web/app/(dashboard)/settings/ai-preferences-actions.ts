@@ -58,3 +58,29 @@ export async function setLocalNotifyEnabled(
   revalidatePath("/settings");
   return { ok: true };
 }
+
+/**
+ * v0.3 S5 — toggles `voice.tts.*` routing to Inari Live (Piper). Separate
+ * action from `setLocalNotifyEnabled` so the toggles in the UI map 1:1 to
+ * server effects. The router (`packages/ai-router/src/rules.ts`) reads
+ * this flag against the rule's `workspaceFlag: "localVoiceEnabled"`.
+ */
+export async function setLocalVoiceEnabled(
+  enabled: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as SessionUser | undefined)?.id;
+  if (!userId) {
+    return { ok: false, error: "not authenticated" };
+  }
+  const orgId = await resolveActiveOrgId(userId);
+  if (!orgId) {
+    return { ok: false, error: "no active workspace" };
+  }
+  await db
+    .update(organizations)
+    .set({ localVoiceEnabled: enabled })
+    .where(eq(organizations.id, orgId));
+  revalidatePath("/settings");
+  return { ok: true };
+}

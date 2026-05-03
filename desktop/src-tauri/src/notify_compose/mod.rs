@@ -435,6 +435,14 @@ pub fn build_signed_receipt(
     })
 }
 
+// v0.3 S5 — WhatsApp composition handler. Same prompt → local-model →
+// JSON pipeline as email, but tuned to WhatsApp's plain-text body cap.
+// Transport-agnostic: the body it produces is sent by `crate::whatsapp`
+// (Baileys sidecar) on the user's machine. Cloud never sees a transport
+// secret because there isn't one — the user's own WhatsApp account is
+// the channel.
+pub mod whatsapp;
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -10,12 +10,14 @@ import { SettingsNotifications } from "@/screens/settings/Notifications";
 import { SettingsPrivacy } from "@/screens/settings/Privacy";
 import { SettingsRepos } from "@/screens/settings/Repos";
 import { SettingsSensors } from "@/screens/settings/Sensors";
+import { SettingsWhatsApp } from "@/screens/settings/WhatsApp";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string }> = [
   { id: "general",       label: "General"       },
   { id: "repos",         label: "Repos"         },
   { id: "sensors",       label: "Sensors"       },
   { id: "notifications", label: "Notifications" },
+  { id: "whatsapp",      label: "WhatsApp"      },
   { id: "ai",            label: "AI"            },
   { id: "privacy",       label: "Privacy"       },
   { id: "about",         label: "About"         },
@@ -89,6 +91,7 @@ export function Settings() {
             {activeSection === "repos"         ? <SettingsRepos /> : null}
             {activeSection === "sensors"       ? <SettingsSensors /> : null}
             {activeSection === "notifications" ? <SettingsNotifications /> : null}
+            {activeSection === "whatsapp"      ? <SettingsWhatsApp /> : null}
             {activeSection === "ai"            ? <SettingsAi /> : null}
             {activeSection === "privacy"       ? <SettingsPrivacy /> : null}
             {activeSection === "about"         ? <SettingsAbout /> : null}

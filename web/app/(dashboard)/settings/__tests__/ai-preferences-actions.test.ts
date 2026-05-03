@@ -48,7 +48,10 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { setLocalNotifyEnabled } from "@/app/(dashboard)/settings/ai-preferences-actions";
+import {
+  setLocalNotifyEnabled,
+  setLocalVoiceEnabled,
+} from "@/app/(dashboard)/settings/ai-preferences-actions";
 
 beforeEach(() => {
   selectMock.mockReset();
@@ -108,5 +111,40 @@ describe("setLocalNotifyEnabled", () => {
     const r = await setLocalNotifyEnabled(false);
     expect(r).toEqual({ ok: true });
     expect(setMock).toHaveBeenCalledWith({ localNotifyEnabled: false });
+  });
+});
+
+// v0.3 S5 — voice toggle action mirrors notify behavior.
+describe("setLocalVoiceEnabled", () => {
+  it("rejects when not authenticated", async () => {
+    getServerSessionMock.mockResolvedValueOnce(null);
+    const r = await setLocalVoiceEnabled(true);
+    expect(r).toEqual({ ok: false, error: "not authenticated" });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the user has no resolvable workspace", async () => {
+    getServerSessionMock.mockResolvedValueOnce({ user: { id: "u-1" } });
+    limitMock.mockResolvedValueOnce([{ activeOrgId: null }]);
+    limitMock.mockResolvedValueOnce([]);
+    const r = await setLocalVoiceEnabled(true);
+    expect(r).toEqual({ ok: false, error: "no active workspace" });
+  });
+
+  it("updates the organization row with localVoiceEnabled column", async () => {
+    getServerSessionMock.mockResolvedValueOnce({ user: { id: "u-1" } });
+    limitMock.mockResolvedValueOnce([{ activeOrgId: "org-1" }]);
+    const r = await setLocalVoiceEnabled(true);
+    expect(r).toEqual({ ok: true });
+    expect(setMock).toHaveBeenCalledWith({ localVoiceEnabled: true });
+    expect(revalidatePathMock).toHaveBeenCalledWith("/settings");
+  });
+
+  it("flips the column off independently of notify", async () => {
+    getServerSessionMock.mockResolvedValueOnce({ user: { id: "u-1" } });
+    limitMock.mockResolvedValueOnce([{ activeOrgId: "org-1" }]);
+    const r = await setLocalVoiceEnabled(false);
+    expect(r).toEqual({ ok: true });
+    expect(setMock).toHaveBeenCalledWith({ localVoiceEnabled: false });
   });
 });

@@ -7,7 +7,8 @@
 //! response contract that web's user-sidecar provider falls back from.
 
 use inariwatch_desktop_lib::relay_client::{
-    build_stub_response, handle_dispatch, RelayConfig, RelayState, CAPABILITIES,
+    build_stub_response, handle_dispatch, handle_dispatch_full, RelayConfig,
+    RelayState, CAPABILITIES,
 };
 use serde_json::json;
 
@@ -46,6 +47,8 @@ fn ws_url_constructs_correctly() {
         app_version: "0.3.0".into(),
         initial_backoff: None,
         local_ai: None,
+        app_local_data_dir: None,
+        whatsapp: None,
     };
     assert_eq!(cfg.ws_url(), "wss://relay.inariwatch.com/ws");
 }
@@ -113,4 +116,50 @@ async fn handle_dispatch_email_falls_back_when_no_local_ai() {
         note.contains("local_ai not initialized"),
         "expected fallback note, got {note:?}",
     );
+}
+
+// v0.3 S5 (Baileys rewrite) — whatsapp + voice plumbing.
+//
+// We can't spawn the Baileys sidecar (no npm install in CI), so we
+// exercise the dispatch-routing branches that DON'T require it:
+// LocalAI=None plus whatsapp=None routes whatsapp to the same
+// "local_ai not initialized" stub as email (matches the rule's
+// no-cloud-fallback contract — caller decides graceful degradation).
+#[tokio::test]
+async fn handle_dispatch_full_whatsapp_falls_back_when_no_local_ai() {
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame = serde_json::from_value(json!({
+        "type": "dispatch",
+        "request_id": "rid-wa",
+        "task": "notify.compose.whatsapp",
+        "payload": {"alert": {"title": "Boom"}, "recipient_phone": "5215551234567"},
+    }))
+    .unwrap();
+    let resp = handle_dispatch_full(None, None, None, &df).await;
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["status"], "ok");
+    let note = v["body"]["note"].as_str().unwrap_or("");
+    assert!(
+        note.contains("local_ai not initialized"),
+        "expected local_ai fallback, got {note:?}",
+    );
+}
+
+#[tokio::test]
+async fn handle_dispatch_full_voice_works_without_local_ai() {
+    // Voice doesn't need LocalAI — Piper subprocess + synthetic fallback.
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame = serde_json::from_value(json!({
+        "type": "dispatch",
+        "request_id": "rid-voice",
+        "task": "voice.tts.alert",
+        "payload": {"text": "hello"},
+    }))
+    .unwrap();
+    let resp = handle_dispatch_full(None, None, None, &df).await;
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["status"], "ok");
+    // Either real Piper succeeded (unlikely in CI) or the synthetic
+    // fallback fired — both produce an audio_wav_b64 + audio_format=wav.
+    let body = &v["body"];
+    assert_eq!(body["audio_format"], "wav");
+    assert!(body["audio_wav_b64"].is_string());
 }
