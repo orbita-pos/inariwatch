@@ -123,7 +123,13 @@ async function runV2(params: SearchParams): Promise<V2SearchOutcome | null> {
   };
 }
 
-async function firstReadyRepoForProject(projectId: string): Promise<string | null> {
+/**
+ * Returns the first `ready` v2-indexed repo for a project, or null. Used by
+ * the v2 search dispatcher AND by `/api/code-intel-v2/*` endpoints that
+ * accept a projectId from the container agent. Phase 3 may evolve this to
+ * "best-matching repo" once a project can have multiple connected repos.
+ */
+export async function firstReadyRepoForProject(projectId: string): Promise<string | null> {
   const [row] = await db
     .select({ id: codeRepositories.id })
     .from(codeRepositories)
