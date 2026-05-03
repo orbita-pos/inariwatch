@@ -123,6 +123,15 @@ export const organizations = pgTable("organizations", {
    * offline. Default false. Migration 0078.
    */
   localVoiceEnabled: boolean("local_voice_enabled").notNull().default(false),
+  /**
+   * Code Intel v2 Phase 3.1 — per-workspace override of the global
+   * `SHADOW_SAMPLE_RATE` env var. NULL = inherit the env (default 1.0).
+   * 0..100 = the percentage of `searchCode()` calls that get the v2 shadow
+   * run. Lets a single workspace ramp shadow up or down without flipping
+   * the global flag. Migration 0082 (renumbered from 0081 — S5 voice took
+   * 0081 first during integration merge).
+   */
+  codeIntelV2ShadowPct: integer("code_intel_v2_shadow_pct"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -2296,6 +2305,12 @@ export const codeIntelShadowLog = pgTable(
     v2DurationMs:   integer("v2_duration_ms").notNull(),
     v1Error:        text("v1_error"),
     v2Error:        text("v2_error"),
+    /**
+     * Code Intel v2 Phase 3.1 — true when the v2 attempt exceeded the
+     * 2× v1 wall-clock guard. Caller still received v1; v2 was abandoned.
+     * Drives the cutover dashboard's "v2 slow" metric.
+     */
+    v2TimedOut:     boolean("v2_timed_out").notNull().default(false),
     createdAt:      timestamp("created_at", { withTimezone: true })
                       .defaultNow().notNull(),
   },

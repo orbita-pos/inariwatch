@@ -8,6 +8,14 @@
  * runs v2 in the background and writes one row to `code_intel_shadow_log`
  * per call (Phase 1.7 widget reads from there). With `=on` it returns v2
  * results (adapted to the v1 CodeSearchResult shape).
+ *
+ * Phase 3.1 adds three operator knobs on top of the shadow path:
+ *   - `SHADOW_SAMPLE_RATE` env (default 1.0) — fraction of shadow calls
+ *     that actually run v2 in parallel.
+ *   - `organizations.code_intel_v2_shadow_pct` — per-workspace override.
+ *   - `CODE_INTEL_V2_KILL_SHADOW=1` — forces shadow to behave like v1.
+ *   - 2× wall-clock timeout guard — abandons v2 when it overshoots and
+ *     records `v2_timed_out=true` on the shadow log row.
  */
 
 import { db, codeRepositories, codeChunks, codeIntelShadowLog } from "@/lib/db";
@@ -24,6 +32,11 @@ import {
   topFqns as topV2Fqns,
   topFqnsFromV1,
 } from "@/lib/code-intelligence-v2/adapter";
+import {
+  isShadowKilled,
+  shouldShadowSample,
+  v2AdditionalBudgetMs,
+} from "@/lib/code-intelligence-v2/sampling";
 import { logCodeIntelEvent } from "@/lib/code-intelligence/logger";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -64,35 +77,123 @@ export async function searchCode(params: SearchParams): Promise<CodeSearchResult
     return runV1(params);
   }
 
-  // Shadow: run BOTH, return v1, log the comparison.
-  const [v1Outcome, v2Outcome] = await Promise.allSettled([
-    timed(() => runV1(params)),
-    timed(() => runV2(params)),
-  ]);
+  // Shadow: kill switch first (cheapest — env-only, zero I/O).
+  if (isShadowKilled()) {
+    return runV1(params);
+  }
 
-  const v1 = v1Outcome.status === "fulfilled" ? v1Outcome.value : null;
-  const v2 = v2Outcome.status === "fulfilled" ? v2Outcome.value : null;
-  const v1Error = v1Outcome.status === "rejected" ? errMessage(v1Outcome.reason) : null;
-  const v2Error = v2Outcome.status === "rejected" ? errMessage(v2Outcome.reason) : null;
+  // Sampling decision. Reads the global env + the per-workspace pct
+  // override; rolls a uniform [0,1) random against the resolved rate.
+  // When the dice say "skip", behave exactly like engine=off — no v2,
+  // no shadow log row.
+  const sample = await shouldShadowSample(params.projectId);
+  if (!sample) {
+    return runV1(params);
+  }
 
-  // Await the shadow log so logging failures stay in front of the caller's
-  // event loop tick — Phase 1.7 widget is the only consumer and the row
-  // must be observable before the next request lands. We swallow logging
-  // errors below; the caller never sees them.
-  await logShadowSample({
-    params,
-    v1Results: v1?.value ?? null,
-    v1DurationMs: v1?.durationMs ?? 0,
-    v1Error,
-    v2: v2?.value ?? null,
-    v2DurationMs: v2?.durationMs ?? 0,
-    v2Error,
+  // Run BOTH engines in parallel. Wrap v2 so it can never reject — the
+  // race below abandons it on timeout and a late rejection would
+  // surface as an unhandled promise rejection otherwise.
+  const v1Started = timed(() => runV1(params));
+
+  const v2Outcome: {
+    value: V2SearchOutcome | null;
+    durationMs: number;
+    error: string | null;
+  } = { value: null, durationMs: 0, error: null };
+
+  const v2Tracker = (async () => {
+    const t0 = Date.now();
+    try {
+      v2Outcome.value = await runV2(params);
+    } catch (err) {
+      v2Outcome.error = errMessage(err);
+    }
+    v2Outcome.durationMs = Date.now() - t0;
+  })();
+
+  // Await v1 (capture both fulfilled and rejected paths).
+  let v1Value: CodeSearchResult[] | null = null;
+  let v1DurationMs = 0;
+  let v1Error: string | null = null;
+  let v1Throw: unknown = null;
+  try {
+    const v1 = await v1Started;
+    v1Value = v1.value;
+    v1DurationMs = v1.durationMs;
+  } catch (err) {
+    v1Throw = err;
+    v1Error = errMessage(err);
+  }
+
+  // Race v2 against the timeout budget. Total v2 budget ≈ 2× v1Ms; the
+  // helper takes care of the floor + the in-parallel time already spent.
+  const additionalMs = v2AdditionalBudgetMs(v1DurationMs);
+  const v2FinishedInBudget = await raceWithTimeout(v2Tracker, additionalMs);
+
+  if (v2FinishedInBudget) {
+    await logShadowSample({
+      params,
+      v1Results: v1Value,
+      v1DurationMs,
+      v1Error,
+      v2: v2Outcome.value,
+      v2DurationMs: v2Outcome.durationMs,
+      v2Error: v2Outcome.error,
+      v2TimedOut: false,
+    });
+  } else {
+    // v2 missed the budget. Log the slow event now so the cutover
+    // dashboard sees it on the next read tick. The v2 attempt keeps
+    // running in the background; we drain it with a no-op catch so a
+    // late rejection doesn't leak as an unhandled rejection.
+    v2Tracker.catch(() => undefined);
+    await logShadowSample({
+      params,
+      v1Results: v1Value,
+      v1DurationMs,
+      v1Error,
+      v2: null,
+      v2DurationMs: 0,
+      v2Error: `v2_slow: budget=${additionalMs}ms exceeded`,
+      v2TimedOut: true,
+    });
+  }
+
+  // v1 is the source of truth in shadow mode. If v1 itself failed,
+  // surface the failure to the caller (we don't silently substitute v2).
+  if (v1Throw) throw v1Throw;
+  return v1Value!;
+}
+
+/**
+ * Resolve `true` when `p` settles before `ms` elapses, `false` otherwise.
+ * Never rejects. Caller is responsible for any cleanup / draining of `p`
+ * after a timeout.
+ */
+function raceWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(false);
+    }, ms);
+    p.then(
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(true);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(true);
+      },
+    );
   });
-
-  // v1 is the source of truth in shadow mode. If v1 itself failed, surface
-  // the failure to the caller (we don't silently substitute v2).
-  if (v1Outcome.status === "rejected") throw v1Outcome.reason;
-  return v1!.value;
 }
 
 interface V2SearchOutcome {
@@ -146,6 +247,12 @@ interface ShadowSampleParams {
   v2: V2SearchOutcome | null;
   v2DurationMs: number;
   v2Error: string | null;
+  /**
+   * Phase 3.1 — true when the v2 attempt was abandoned because it missed
+   * the 2× wall-clock budget. The cutover dashboard reads this column to
+   * surface "v2 too slow on N% of calls" without scraping `v2Error` text.
+   */
+  v2TimedOut: boolean;
 }
 
 async function logShadowSample(s: ShadowSampleParams): Promise<void> {
@@ -163,6 +270,7 @@ async function logShadowSample(s: ShadowSampleParams): Promise<void> {
       v2DurationMs: Math.round(s.v2DurationMs),
       v1Error: s.v1Error,
       v2Error: s.v2Error,
+      v2TimedOut: s.v2TimedOut,
     });
   } catch (err) {
     // Shadow logging must never break the caller. Failures get logged
