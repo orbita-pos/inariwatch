@@ -282,23 +282,17 @@ export async function POST(
 
 async function triggerCodeIndex(projectId: string, owner: string, repo: string) {
   try {
-    const { db, projectIntegrations, codeRepositories } = await import("@/lib/db");
+    const { db, projectIntegrations } = await import("@/lib/db");
     const { eq, and } = await import("drizzle-orm");
     const { decryptConfig } = await import("@/lib/crypto");
+    const { findIndexedRepoIdentity, triggerReindex } = await import(
+      "@/lib/services/code-intelligence.service"
+    );
 
-    // Only trigger if this repo is already indexed (don't auto-index on first push)
-    const [existing] = await db
-      .select({ id: codeRepositories.id })
-      .from(codeRepositories)
-      .where(
-        and(
-          eq(codeRepositories.projectId, projectId),
-          eq(codeRepositories.githubOwner, owner),
-          eq(codeRepositories.githubRepo, repo)
-        )
-      )
-      .limit(1);
-
+    // Only trigger if this repo is already indexed (don't auto-index on first push).
+    // Goes through the service layer so this file never touches `codeRepositories`
+    // directly — Phase 0.2 service boundary.
+    const existing = await findIndexedRepoIdentity({ projectId, owner, repo });
     if (!existing) return;
 
     // Get GitHub token from the project's integration
@@ -321,9 +315,9 @@ async function triggerCodeIndex(projectId: string, owner: string, repo: string) 
       if (aiKey && aiKey.provider === "openai") openaiKey = aiKey.key;
     } catch { /* optional */ }
 
-    // Call indexer directly — no HTTP, no auth issues
-    const { indexRepository } = await import("@/lib/code-intelligence/indexer");
-    await indexRepository({ ghToken, owner, repo, projectId, openaiKey });
+    // Call the service — keeps the indexing surface centralized so future
+    // routing (BullMQ queue, container worker) only changes one place.
+    await triggerReindex({ ghToken, owner, repo, projectId, openaiKey });
   } catch (err) {
     console.error(`[webhook] Code re-indexation failed for ${owner}/${repo}:`, err);
   }

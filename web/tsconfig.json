@@ -30,6 +30,12 @@
       ],
       "@inariwatch/ai-router/eslint": [
         "../packages/ai-router/src/lockdown/eslint-rule.js"
+      ],
+      "@inariwatch/code-intel-extractor-ts": [
+        "../packages/code-intel-extractor-ts/src/index.ts"
+      ],
+      "@inariwatch/code-intel-extractor-py": [
+        "../packages/code-intel-extractor-py/src/index.ts"
       ]
     },
     "target": "ES2017"
@@ -39,7 +45,9 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "../packages/ai-router/src/**/*.ts"
+    "../packages/ai-router/src/**/*.ts",
+    "../packages/code-intel-extractor-ts/src/**/*.ts",
+    "../packages/code-intel-extractor-py/src/**/*.ts"
   ],
   "exclude": [
     "node_modules"

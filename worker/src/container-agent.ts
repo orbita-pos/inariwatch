@@ -24,6 +24,12 @@ import {
 } from "./sandbox/validators.js";
 import { runSandbox } from "./sandbox/runner.js";
 import type { ContainerShell } from "./sandbox/tool-bindings.js";
+import {
+  appendCodeIntelV2Tools,
+  executeCodeIntelTool,
+  isCodeIntelV2ToolsEnabled,
+  type CodeIntelToolName,
+} from "./tools/code-intel.js";
 
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
@@ -128,10 +134,13 @@ const CODEACT_MIN_TURN = 3;
  * mocking a full container roundtrip.
  */
 export function buildToolsForTurn(turn: number): ToolDefinition[] {
+  let tools = CONTAINER_TOOLS;
   if (isCodeActEnabled() && turn >= CODEACT_MIN_TURN) {
-    return [...CONTAINER_TOOLS, EXECUTE_PLAN_TOOL];
+    tools = [...tools, EXECUTE_PLAN_TOOL];
   }
-  return CONTAINER_TOOLS;
+  // Phase 1.6 — Code Intelligence v2 tools (find_references / type_at /
+  // blast_radius). Gated by CODE_INTEL_V2_TOOLS=on; default off.
+  return appendCodeIntelV2Tools(tools);
 }
 
 // ── Container API (localhost Go server) ──────────────────────────────────────
@@ -349,9 +358,52 @@ async function executeContainerTool(
       }
     }
 
+    case "find_references":
+    case "type_at":
+    case "blast_radius": {
+      // Defense-in-depth: tool list builder gates on the flag, but a model
+      // could fabricate a tool name. Reject when the flag is off.
+      if (!isCodeIntelV2ToolsEnabled()) {
+        return `Error: ${tool.name} is not enabled (CODE_INTEL_V2_TOOLS=off).`;
+      }
+      const session = await loadSessionContext(ctx.sessionId);
+      const webUrl = process.env.WEB_BASE_URL ?? process.env.APP_URL ?? "";
+      if (!webUrl) {
+        return `Error: ${tool.name} requires WEB_BASE_URL (or APP_URL) to be set in worker env.`;
+      }
+      return executeCodeIntelTool(tool.name as CodeIntelToolName, tool.input as Record<string, unknown>, {
+        webUrl,
+        cronSecret: process.env.CRON_SECRET ?? "",
+        projectId: session.projectId,
+        repoId: session.repoId,
+      });
+    }
+
     default:
       return `Unknown tool: ${tool.name}`;
   }
+}
+
+interface SessionContext {
+  projectId: string | null;
+  repoId: string | null;
+}
+
+async function loadSessionContext(sessionId: string): Promise<SessionContext> {
+  const [row] = await db
+    .select({
+      projectId: remediationSessions.projectId,
+    })
+    .from(remediationSessions)
+    .where(eq(remediationSessions.id, sessionId))
+    .limit(1);
+  return {
+    projectId: row?.projectId ?? null,
+    // The worker's remediationSessions schema doesn't carry repoId today —
+    // when it lands (Phase 1 follow-up) wire it in here. For now leave null
+    // and let the web side resolve via projectId.
+    repoId: null,
+  };
 }
 
 // ── System prompt ───────────────────────────────────────────────────────────

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { replaySessions, projects, organizationMembers, organizations, codeRepositories } from "@/lib/db/schema";
+import { replaySessions, projects, organizationMembers, organizations } from "@/lib/db/schema";
+import { getRepoIdentityForProject } from "@/lib/services/code-intelligence.service";
 import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { getSessionBlockUrls } from "@/lib/storage/replay-storage";
@@ -263,15 +264,9 @@ async function buildRepoPayload(
   projectId: string | null,
 ): Promise<ManifestResponse["repo"]> {
   if (!projectId) return null;
-  const [row] = await db
-    .select({
-      githubOwner: codeRepositories.githubOwner,
-      githubRepo: codeRepositories.githubRepo,
-      defaultBranch: codeRepositories.defaultBranch,
-    })
-    .from(codeRepositories)
-    .where(eq(codeRepositories.projectId, projectId))
-    .limit(1);
+  // Goes through the code-intelligence service so this route never touches
+  // `codeRepositories` directly — Phase 0.2 service boundary.
+  const row = await getRepoIdentityForProject(projectId);
   if (!row) return null;
   return {
     githubOwner: row.githubOwner,

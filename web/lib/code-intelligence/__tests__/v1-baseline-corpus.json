@@ -1,0 +1,82 @@
+{
+  "$comment": "Phase 0.5 — Code Intelligence v1 baseline corpus. 50 synthetic queries representative of the remediation pipeline's typical retrieval workload. Used by search-contract.test.ts to pin the v1 API surface so v2 cannot regress consumer expectations during shadow A/B.",
+  "$generated": "2026-05-02",
+  "$consumers": [
+    "web/lib/services/code-intelligence.service.ts (searchCode)",
+    "web/lib/code-intelligence/search.ts (searchCodeByProject)",
+    "web/app/api/mcp/tools/search-codebase.ts",
+    "web/lib/ai/remediate.ts (via context-gatherer)"
+  ],
+  "categories": {
+    "auth": [
+      "validate user credentials",
+      "session token expiration handling",
+      "OAuth callback handler",
+      "password hash comparison",
+      "two factor authentication setup",
+      "JWT signing and verification",
+      "auth middleware bypass check"
+    ],
+    "database": [
+      "transaction rollback on error",
+      "connection pool exhausted",
+      "drizzle query builder where clause",
+      "migration rollback strategy",
+      "deadlock retry logic",
+      "prepared statement parameter injection"
+    ],
+    "errors": [
+      "uncaught promise rejection handler",
+      "null pointer in user object",
+      "stack trace fingerprint generator",
+      "error sanitization before logging",
+      "graceful degradation on third party outage"
+    ],
+    "api": [
+      "rate limit middleware sliding window",
+      "request validation with zod",
+      "json response with error envelope",
+      "SSE streaming chunk encoder",
+      "CORS preflight options handler"
+    ],
+    "ai": [
+      "prompt template assembly",
+      "token counting before completion call",
+      "streaming completion adapter",
+      "tool use loop with retries",
+      "embedding similarity threshold"
+    ],
+    "deployment": [
+      "vercel deploy webhook handler",
+      "rollback to previous deployment",
+      "health check endpoint",
+      "container restart on failure"
+    ],
+    "frontend": [
+      "react server component fetcher",
+      "form validation with react hook form",
+      "websocket reconnect with backoff",
+      "image upload with progress",
+      "dark mode toggle persistence"
+    ],
+    "performance": [
+      "memoize expensive selector",
+      "virtualized list scroll handler",
+      "debounce search input",
+      "cache invalidation on mutation"
+    ],
+    "monitoring": [
+      "structured log emit on retry",
+      "metric counter increment",
+      "tracing span propagation",
+      "alert dedup by fingerprint",
+      "uptime probe interval scheduler"
+    ],
+    "security": [
+      "input sanitization for SSRF",
+      "csrf token check",
+      "secret rotation procedure",
+      "audit log append only"
+    ]
+  }
+}

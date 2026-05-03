@@ -9,10 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, projectIntegrations, codeRepositories, getUserProjectIds } from "@/lib/db";
+import { db, projectIntegrations, getUserProjectIds } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { decryptConfig } from "@/lib/crypto";
-import { indexRepository } from "@/lib/code-intelligence/indexer";
+import { triggerReindex } from "@/lib/services/code-intelligence.service";
 
 // Rate limit: 1 indexation per repo per 5 minutes
 const lastIndexTime = new Map<string, number>();
@@ -85,8 +85,10 @@ export async function POST(req: NextRequest) {
   // Mark rate limit
   lastIndexTime.set(rateKey, Date.now());
 
-  // Start indexation in background (fire-and-forget)
-  indexRepository({
+  // Start indexation in background (fire-and-forget). Routes through the
+  // service so the indexing surface stays centralized — same path used by
+  // the GitHub webhook auto-reindex (Phase 0.2 service boundary).
+  triggerReindex({
     ghToken,
     owner: ghOwner,
     repo: ghRepo,

@@ -588,7 +588,9 @@ commit `30c935d` on `feat/inari-live-v0.3-session5-whatsapp-voice`.
    `voice.tts.{alert,digest}` flipped to `user-sidecar/piper-tts` w/
    `cloud/openai/tts-1` fallback. New `localVoiceEnabled` workspace flag
    independent from `localNotifyEnabled`.
-6. **Web schema + settings** — migration `0078_workspace_local_voice.sql`,
+6. **Web schema + settings** — migration `0081_workspace_local_voice.sql`
+   (renumbered from 0078 during integration merge — code-intel-v2 took
+   slots 0078/0079/0080),
    2 toggles in Settings → AI Preferences. 19 vitest pass.
 7. **relay_client dispatch** — `handle_dispatch_full` accepts WhatsApp
    sidecar handle. After local-model compose, auto-sends via Baileys
@@ -625,7 +627,7 @@ commit `30c935d` on `feat/inari-live-v0.3-session5-whatsapp-voice`.
 3. **Voice models + Piper binary** still pending download-on-first-use UX
    (deferred to a future session). Synthetic-WAV fallback covers the
    smoke path.
-4. **Migration 0078** — run `cd web && npx tsx scripts/run-migration-0078.ts`
+4. **Migration 0081** — run `cd web && npx tsx scripts/run-migration-0081.ts`
    in prod once branch is merged.
 5. **TOS gray area note** — re-read `desktop/src-tauri/sidecars/whatsapp/README.md`
    before turning on for real users. Defaults are conservative (80

@@ -10,7 +10,12 @@
 
 export const EMBEDDING_DIMS = 1024;
 
-type EmbeddingResult = { embeddings: number[][]; model: string };
+// Stable labels stamped on `code_chunks.embedding_model_version`.
+// Bump when the model changes — never silently. Used for v1↔v2 A/B parity
+// checks and to keep older embeddings queryable when a future migration
+// introduces a different vector space.
+export const EMBEDDING_MODEL_VOYAGE_CODE_3 = "voyage-code-3";
+export const EMBEDDING_MODEL_OPENAI_TES_SMALL = "openai-text-embedding-3-small";
 
 // ── Voyage Code 3 (primary) ─────────────────────────────────────────────────
 
@@ -35,6 +40,15 @@ async function voyageEmbed(
   });
 
   if (!res.ok) {
+    // Surface the HTTP status so /admin/ops can correlate Voyage outages
+    // with embedding-coverage drops on the baseline widget.
+    const { logCodeIntelEvent } = await import("./logger");
+    logCodeIntelEvent({
+      event: "embedding.failure",
+      severity: "warn",
+      provider: EMBEDDING_MODEL_VOYAGE_CODE_3,
+      detail: { httpStatus: res.status, batchSize: texts.length, inputType },
+    });
     throw new Error(`Voyage API error (${res.status})`);
   }
 
@@ -66,7 +80,22 @@ export function detectEmbeddingProvider(key: string): EmbeddingProvider {
   return "openai";
 }
 
+/**
+ * Stable identifier for the embedding model that will be used with this key.
+ * Persisted on `code_chunks.embedding_model_version`.
+ */
+export function resolveEmbeddingModelLabel(apiKey: string): string {
+  return detectEmbeddingProvider(apiKey) === "voyage"
+    ? EMBEDDING_MODEL_VOYAGE_CODE_3
+    : EMBEDDING_MODEL_OPENAI_TES_SMALL;
+}
+
 // ── Unified API ──────────────────────────────────────────────────────────────
+
+export type EmbeddingBatchResult = {
+  vectors: number[][];
+  modelVersion: string;
+};
 
 /**
  * Generate embeddings for a batch of texts.
@@ -86,6 +115,21 @@ export async function embedTexts(
 }
 
 /**
+ * Generate embeddings AND surface the model label used. Indexers should
+ * call this so the resulting `code_chunks.embedding_model_version` is
+ * always in sync with the actual vector that was written.
+ */
+export async function embedTextsWithModel(
+  texts: string[],
+  apiKey: string,
+  inputType: "document" | "query" = "document"
+): Promise<EmbeddingBatchResult> {
+  const modelVersion = resolveEmbeddingModelLabel(apiKey);
+  const vectors = await embedTexts(texts, apiKey, inputType);
+  return { vectors, modelVersion };
+}
+
+/**
  * Generate embedding for a single query (for search).
  */
 export async function embedQuery(
@@ -95,7 +139,17 @@ export async function embedQuery(
   try {
     const results = await embedTexts([query], apiKey, "query");
     return results[0] ?? null;
-  } catch {
+  } catch (err) {
+    // Search will fall back to BM25-only retrieval. Logged so the baseline
+    // widget can flag "vector search silently disabled" — same blind spot
+    // as the rerank failure path in search.ts.
+    const { logCodeIntelEvent } = await import("./logger");
+    logCodeIntelEvent({
+      event: "search.embedding_unavailable",
+      severity: "warn",
+      provider: resolveEmbeddingModelLabel(apiKey),
+      error: err,
+    });
     return null;
   }
 }

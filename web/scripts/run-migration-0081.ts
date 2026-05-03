@@ -1,17 +1,20 @@
 /**
- * One-off migration runner for 0078_workspace_local_voice.sql.
+ * One-off migration runner for 0081_workspace_local_voice.sql.
  *
  * Adds organizations.local_voice_enabled (BOOLEAN NOT NULL DEFAULT FALSE).
  * v0.3 S5 — workspace flag for routing voice.tts.* (Piper) to user-sidecar
  * (Inari Live). Default off → byte-identical to pre-S5 behavior.
  *
+ * Renumbered from 0078 → 0081 during v0.3 integration merge — code-intel-v2
+ * had already taken slots 0078/0079/0080.
+ *
  * Idempotent (ADD COLUMN IF NOT EXISTS), safe to re-run.
  *
  * Bypasses drizzle-kit migrate because the on-disk journal is out of sync
  * with the prod DB (see project_v0_3_docker_fix.md and the per-script
- * pattern in scripts/run-migration-0040.ts ... 0077.ts).
+ * pattern in scripts/run-migration-0040.ts ... 0080.ts).
  *
- * Usage: cd web && npx tsx scripts/run-migration-0078.ts
+ * Usage: cd web && npx tsx scripts/run-migration-0081.ts
  */
 
 import { readFileSync } from "fs";
