@@ -33,6 +33,12 @@ export interface CodeIntelLogContext {
   /** Stable event identifier — keep in CodeIntelLogEvent so consumers can filter. */
   event: CodeIntelLogEvent;
   severity: CodeIntelLogSeverity;
+  /**
+   * Which engine emitted the event — defaults to "v1" (statistical retrieval).
+   * Phase 1.3 introduces v2 (semantic graph); callers there pass "v2" so log
+   * aggregators can filter without parsing event names.
+   */
+  phase?: "v1" | "v2";
   /** Repo / project / chunk identifiers when known. Strip everything else. */
   repoId?: string;
   projectId?: string;
@@ -81,7 +87,7 @@ function describeError(err: unknown): string | undefined {
 export function logCodeIntelEvent(ctx: CodeIntelLogContext): void {
   const payload = {
     module: "code-intelligence",
-    phase: "v1",
+    phase: ctx.phase ?? "v1",
     event: ctx.event,
     severity: ctx.severity,
     timestamp: new Date().toISOString(),

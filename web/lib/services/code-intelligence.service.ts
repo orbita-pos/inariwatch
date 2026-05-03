@@ -165,3 +165,58 @@ export async function getCodeStats(projectId: string): Promise<{
     languages: languages.rows,
   };
 }
+
+// ── Indexer status helpers (consumed by Code Intel v2 indexer) ────────────────
+//
+// Phase 1.3 of Code Intelligence v2 introduces an indexer module at
+// `web/lib/code-intelligence-v2/indexer.ts`. It needs to flip the
+// `code_repositories.status` column as it works through extraction. Per the
+// Phase 0 lockdown rule, only this service file may touch the table — so the
+// indexer calls these helpers instead of importing `codeRepositories` directly.
+
+export type IndexerRepoStatus = "indexing" | "ready" | "failed";
+
+/**
+ * Move a repo into a transient state (e.g. `indexing` while the extractor runs,
+ * or `failed` with a sanitized error message). For the success path use
+ * `markRepoIndexed()` instead — it bumps `last_indexed_*` and the symbol count.
+ */
+export async function updateRepoIndexingStatus(params: {
+  repoId: string;
+  status: IndexerRepoStatus;
+  errorMessage: string | null;
+}): Promise<void> {
+  await db
+    .update(codeRepositories)
+    .set({
+      status: params.status,
+      errorMessage: params.errorMessage,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(codeRepositories.id, params.repoId));
+}
+
+/**
+ * Successful-completion marker. Sets status=ready, clears any error message,
+ * stamps `last_indexed_at` + `last_indexed_commit`, and updates the count.
+ *
+ * Phase 1 stores symbol counts in `total_chunks` for v1/v2 coexistence. Phase 3
+ * cutover decides whether to rename the column (`total_symbols`).
+ */
+export async function markRepoIndexed(params: {
+  repoId: string;
+  commit?: string;
+  totalSymbols: number;
+}): Promise<void> {
+  await db
+    .update(codeRepositories)
+    .set({
+      status: "ready",
+      errorMessage: null,
+      lastIndexedCommit: params.commit ?? sql`last_indexed_commit`,
+      lastIndexedAt: sql`now()`,
+      totalChunks: params.totalSymbols,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(codeRepositories.id, params.repoId));
+}

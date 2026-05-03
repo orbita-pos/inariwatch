@@ -21,6 +21,10 @@ export default defineConfig({
       // packages/ai-router/, never published. Aliased to TS source so vitest
       // doesn't need a build step.
       "@inariwatch/ai-router": path.resolve(__dirname, "../packages/ai-router/src/index.ts"),
+      // Code Intelligence v2 (Phase 1.2) — internal extractor binary. Same
+      // alias pattern as the AI router. CLI at src/cli.ts is the spawn entry;
+      // persist.ts imports the in-process API from src/index.ts.
+      "@inariwatch/code-intel-extractor-ts": path.resolve(__dirname, "../packages/code-intel-extractor-ts/src/index.ts"),
     },
   },
   test: {
