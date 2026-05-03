@@ -221,6 +221,24 @@ env:
     # checked at every call site, so flipping off resumes the previous
     # server-side-only behavior with zero deploy.
     EAP_LOCAL_VERIFY_ENABLED: "true"
+    # ── Code Intelligence v2 — shadow + container-agent A/B activation ──
+    # Activated 2026-05-02 after Phase 0+1+2+3 shipped (commits 51a7ce6 →
+    # 96555dc3). v1 statistical retrieval stays the default; v2 semantic
+    # engine runs in parallel via `getCodeIntelEngine()` in
+    # `web/lib/services/code-intelligence.service.ts` and writes per-call
+    # divergence rows to `code_intel_shadow_log`. Container agent A/B
+    # routes 50% of remediations through the v2 worker tools (find_references,
+    # type_at, blast_radius) and writes turn/success/cost rows to
+    # `code_intel_remediation_ab`. The cutover dashboard at
+    # /admin/ops → "Code Intelligence Cutover Decision" reads both tables
+    # and emits GO / WAIT / ABORT against CUTOVER_MIN_SAMPLES=100 +
+    # CUTOVER_TURN_REDUCTION_PCT=30 + CUTOVER_SUCCESS_PARITY_PCT=-2 +
+    # CUTOVER_DIVERGENCE_MAX_PCT=25. Rollback: set CODE_INTEL_V2 to "off"
+    # (or remove both lines) and trigger env-push-web.yml — ~30s, no
+    # rebuild. Both flags are read at every dispatch, so flipping resumes
+    # the v1 default with zero deploy.
+    CODE_INTEL_V2: "shadow"
+    CONTAINER_AGENT_AB_PCT: "50"
   secret:
     # Core
     - DATABASE_URL
