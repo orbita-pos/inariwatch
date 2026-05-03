@@ -27,9 +27,15 @@
 --
 -- 3. **Incremental indexing key = `ast_hash`.** The extractor SHA-256s the
 --    declaration's normalized AST node and stores the hex digest. Phase 1.3
---    indexer compares hashes per FQN and skips re-extraction when unchanged.
---    Stable across whitespace / comment edits because the hash sees the
---    AST, not the source text.
+--    indexer compares hashes per (FQN, kind) and skips re-extraction when
+--    unchanged. Stable across whitespace / comment edits because the hash
+--    sees the AST, not the source text.
+--
+-- 4. **Uniqueness = `(repo_id, fqn, kind)`** — TypeScript declaration
+--    merging is first-class. An interface, a namespace, and a value can share
+--    the same FQN; each is one row, distinguished by `kind`. The extractor
+--    MUST NOT suffix FQNs to disambiguate; callers query by FQN and get the
+--    merged set naturally.
 --
 -- ── Coexistence invariant ──────────────────────────────────────────────────
 -- v1 tables (`code_chunks`, `code_dependencies`) are NOT touched. Existing
@@ -49,10 +55,15 @@
 
 -- ── code_symbols ────────────────────────────────────────────────────────────
 -- Every named entity the extractor decides is "top-level enough" to navigate.
--- One row per declaration site. Declaration merging (interface + namespace
--- with the same source-level name) is disambiguated at the extractor level
--- by appending a stable suffix to the FQN (e.g. `…#decl-1`); the schema
--- treats FQNs as opaque under the (repo_id, fqn) UNIQUE constraint.
+-- One row per declaration site.
+--
+-- Uniqueness is `(repo_id, fqn, kind)`, NOT `(repo_id, fqn)`. TypeScript
+-- supports declaration merging — an interface, a namespace, and a value
+-- declaration can share the same source-level name and FQN, each contributing
+-- a distinct facet (type members, namespace members, runtime value). Each
+-- facet is one row; queries by FQN naturally return the merged set, which is
+-- what `findReferences()` and `blastRadius()` need (callers don't care which
+-- branch they hit). The extractor MUST NOT suffix FQNs to disambiguate.
 
 CREATE TABLE IF NOT EXISTS "code_symbols" (
   "id"            uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -77,7 +88,7 @@ CREATE TABLE IF NOT EXISTS "code_symbols" (
   "language"      text NOT NULL,
   "ast_hash"      text NOT NULL,
   "indexed_at"    timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "code_symbols_fqn_unique" UNIQUE ("repo_id", "fqn")
+  CONSTRAINT "code_symbols_fqn_unique" UNIQUE ("repo_id", "fqn", "kind")
 );
 
 CREATE INDEX IF NOT EXISTS "idx_code_symbols_repo_kind"

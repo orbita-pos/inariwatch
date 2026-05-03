@@ -77,9 +77,9 @@ describe("migration 0079 — code intelligence v2 schema", () => {
       );
     });
 
-    it("declares the UNIQUE (repo_id, fqn) constraint", () => {
+    it("declares the UNIQUE (repo_id, fqn, kind) constraint for TS declaration merging", () => {
       expect(SQL).toMatch(
-        /CONSTRAINT\s+"code_symbols_fqn_unique"\s+UNIQUE\s+\(\s*"repo_id"\s*,\s*"fqn"\s*\)/i
+        /CONSTRAINT\s+"code_symbols_fqn_unique"\s+UNIQUE\s+\(\s*"repo_id"\s*,\s*"fqn"\s*,\s*"kind"\s*\)/i
       );
     });
 

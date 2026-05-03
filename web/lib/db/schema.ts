@@ -2184,7 +2184,10 @@ export const codeSymbols = pgTable(
                     .defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("code_symbols_fqn_unique").on(table.repoId, table.fqn),
+    // Uniqueness is `(repo_id, fqn, kind)` to accommodate TypeScript declaration
+    // merging — interface + namespace + value can share an FQN, each one row,
+    // distinguished by kind. Phase 1.2 extractor relies on this contract.
+    uniqueIndex("code_symbols_fqn_unique").on(table.repoId, table.fqn, table.kind),
     index("idx_code_symbols_repo_kind").on(table.repoId, table.kind),
     index("idx_code_symbols_repo_file").on(table.repoId, table.filePath),
     index("idx_code_symbols_name").on(table.repoId, table.name),
