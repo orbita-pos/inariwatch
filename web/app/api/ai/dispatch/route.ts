@@ -194,13 +194,30 @@ export async function POST(req: NextRequest) {
   const task = parsed.task as TaskName;
   const provider = (parsed.provider ?? undefined) as AIProvider | undefined;
 
+  // ai-router's AIMessage only allows "user" | "assistant"; "system" lives
+  // in `systemPrompt`. The proxy's wire format accepts {role: "system"}
+  // for parity with OpenAI's chat shape — concatenate any system entries
+  // onto the explicit system_prompt before dispatch.
+  const systemFromMessages = parsed.messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n");
+  const dispatchMessages = parsed.messages
+    .filter((m): m is { role: "user" | "assistant"; content: string } =>
+      m.role === "user" || m.role === "assistant",
+    );
+  const dispatchSystemPrompt =
+    systemFromMessages.length > 0
+      ? [parsed.system_prompt, systemFromMessages].filter(Boolean).join("\n")
+      : parsed.system_prompt;
+
   if (parsed.mode === "complete") {
     const input: DispatchComplete = {
       mode: "complete",
       task,
       apiKey: apiKey.key,
-      systemPrompt: parsed.system_prompt,
-      messages: parsed.messages,
+      systemPrompt: dispatchSystemPrompt,
+      messages: dispatchMessages,
       maxTokens: parsed.max_tokens,
       model: parsed.model ?? undefined,
       temperature: parsed.temperature ?? undefined,
@@ -242,8 +259,8 @@ export async function POST(req: NextRequest) {
     mode: "stream",
     task,
     apiKey: apiKey.key,
-    systemPrompt: parsed.system_prompt,
-    messages: parsed.messages,
+    systemPrompt: dispatchSystemPrompt,
+    messages: dispatchMessages,
     maxTokens: parsed.max_tokens,
     model: parsed.model ?? undefined,
     temperature: parsed.temperature ?? undefined,
