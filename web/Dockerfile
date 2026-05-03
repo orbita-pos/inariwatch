@@ -59,11 +59,18 @@ RUN npm ci
 WORKDIR /repo
 COPY web/ ./web/
 COPY packages/ai-router/ ./packages/ai-router/
-# Code Intel v2 (Phase 1+2): the web app resolves these via tsconfig path
-# aliases so they need to land in the build context too. node_modules/ from
-# each package isn't needed at build time — tsc + next compile from src/.
+# Code Intel v2 (Phase 1+2): web resolves these via tsconfig path aliases.
+# Install each package's node_modules — even though TS compiles from src/,
+# the extractor src imports peer deps like `typescript` that only resolve
+# from the package's OWN node_modules (not web's, because Node module
+# resolution starts at the importing file's directory).
 COPY packages/code-intel-extractor-ts/ ./packages/code-intel-extractor-ts/
+WORKDIR /repo/packages/code-intel-extractor-ts
+RUN npm ci --no-audit --no-fund
+WORKDIR /repo
 COPY packages/code-intel-extractor-py/ ./packages/code-intel-extractor-py/
+WORKDIR /repo/packages/code-intel-extractor-py
+RUN npm ci --no-audit --no-fund
 WORKDIR /repo/web
 ENV NODE_ENV=production
 # Next build needs these public env vars baked in at build time. Set them via
