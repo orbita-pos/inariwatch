@@ -66,6 +66,22 @@ tester.run("no-direct-code-intel-db", lockdown.rule, {
       filename: "/repo/web/app/api/foo/route.ts",
       code: `import { findIndexedRepoIdentity } from "@/lib/services/code-intelligence.service";`,
     },
+    // Phase 3.2 / 3.3 — admin code-intel routes can read telemetry tables.
+    {
+      filename: "/repo/web/app/api/admin/code-intel/cutover-status/route.ts",
+      code: `import { codeIntelRemediationAb, codeIntelShadowLog } from "@/lib/db";`,
+    },
+    // Phase 3.2 / 3.3 — cutover eval script (one-off CLI) reads telemetry directly.
+    {
+      filename: "/repo/web/scripts/code-intel-v2-cutover-eval.ts",
+      code: `import { codeIntelRemediationAb } from "@/lib/db";`,
+    },
+    // Phase 3.1 — shadow seed script reads through the service, but the
+    // dedicated allowlist entry exists for symmetry with the cutover script.
+    {
+      filename: "/repo/web/scripts/seed-shadow-run.ts",
+      code: `import { codeIntelShadowLog } from "@/lib/db";`,
+    },
   ],
   invalid: [
     // Direct named import in a route — the canonical violation.
@@ -113,6 +129,18 @@ tester.run("no-direct-code-intel-db", lockdown.rule, {
     {
       filename: "/repo/web/app/api/admin/ops/route.ts",
       code: `import { codeIntelShadowLog } from "@/lib/db";`,
+      errors: [{ messageId: "directTableImport" }],
+    },
+    // Phase 3.2 — codeIntelRemediationAb is forbidden outside the allowlist.
+    {
+      filename: "/repo/web/app/api/admin/route.ts",
+      code: `import { codeIntelRemediationAb } from "@/lib/db";`,
+      errors: [{ messageId: "directTableImport" }],
+    },
+    // Other scripts (not the cutover prefix) cannot import telemetry tables.
+    {
+      filename: "/repo/web/scripts/some-other-script.ts",
+      code: `import { codeIntelRemediationAb } from "@/lib/db";`,
       errors: [{ messageId: "directTableImport" }],
     },
   ],

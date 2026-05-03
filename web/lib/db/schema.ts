@@ -132,6 +132,14 @@ export const organizations = pgTable("organizations", {
    * 0081 first during integration merge).
    */
   codeIntelV2ShadowPct: integer("code_intel_v2_shadow_pct"),
+  /**
+   * Code Intel v2 Phase 3.2 — per-workspace override of the global
+   * `CONTAINER_AGENT_AB_PCT` env var. NULL = inherit the env (default 0).
+   * 0..100 = the percentage of remediations whose container agent gets the
+   * v2 tool set (find_references / type_at / blast_radius). Sticky per
+   * session — same alert never sees both engines mid-flight. Migration 0082.
+   */
+  codeIntelV2AgentAbPct: integer("code_intel_v2_agent_ab_pct"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -2322,3 +2330,45 @@ export const codeIntelShadowLog = pgTable(
 
 export type CodeIntelShadowLog = typeof codeIntelShadowLog.$inferSelect;
 export type NewCodeIntelShadowLog = typeof codeIntelShadowLog.$inferInsert;
+
+// ── Code Intel v2 Phase 3.2 — container-agent A/B telemetry ─────────────────
+//
+// One row per `runAgentJob` (worker/src/container-agent.ts). Engine = which
+// tool set the agent saw — v1 (existing read/grep/list) or v2 (existing +
+// find_references / type_at / blast_radius). Cutover dashboard (Phase 3.3)
+// aggregates this table to compute the "v2 reduces avg turns by ≥30% AND
+// success rate ≥ v1 - 2pp" gate before flipping CODE_INTEL_V2 default.
+
+export const codeIntelRemediationAb = pgTable(
+  "code_intel_remediation_ab",
+  {
+    id:                    uuid("id").primaryKey().defaultRandom(),
+    alertId:               uuid("alert_id")
+                              .references(() => alerts.id, { onDelete: "cascade" })
+                              .notNull(),
+    remediationSessionId:  uuid("remediation_session_id")
+                              .references(() => remediationSessions.id, { onDelete: "set null" }),
+    /** 'v1' | 'v2' — enforced by CHECK constraint at the SQL level. */
+    engine:                text("engine").notNull(),
+    /** Captured at decision time; NULL = global env was used. Audit trail for the cutover script. */
+    workspacePct:          integer("workspace_pct"),
+    turnCount:             integer("turn_count").notNull(),
+    success:               boolean("success").notNull(),
+    /** Aggregate AI cost in USD. Worker writes NULL today; Phase 3.4 may backfill from ai_usage_logs. */
+    costUsd:               numeric("cost_usd", { precision: 12, scale: 6 }),
+    durationMs:            integer("duration_ms").notNull(),
+    startedAt:             timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt:            timestamp("finished_at", { withTimezone: true }).notNull(),
+    failureReason:         text("failure_reason"),
+    createdAt:             timestamp("created_at", { withTimezone: true })
+                              .defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_intel_remediation_ab_alert").on(table.alertId),
+    index("idx_code_intel_remediation_ab_engine_created").on(table.engine, table.createdAt),
+    index("idx_code_intel_remediation_ab_session").on(table.remediationSessionId),
+  ],
+);
+
+export type CodeIntelRemediationAb = typeof codeIntelRemediationAb.$inferSelect;
+export type NewCodeIntelRemediationAb = typeof codeIntelRemediationAb.$inferInsert;

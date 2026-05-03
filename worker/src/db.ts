@@ -8,7 +8,7 @@
 
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { pgTable, uuid, text, jsonb, integer, boolean, timestamp, doublePrecision, numeric } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, integer, boolean, timestamp, doublePrecision, numeric, index } from "drizzle-orm/pg-core";
 
 // ── Remediation Sessions (container agent) ──────────────────────────────────
 
@@ -17,6 +17,12 @@ export const remediationSessions = pgTable("remediation_sessions", {
   // Fase 4 — userId is required by ai_usage_logs; the worker writes
   // prepush telemetry rows and needs to resolve userId from the session.
   userId: uuid("user_id"),
+  // Phase 3.2 (Code Intel v2) — A/B telemetry needs alertId so it can
+  // satisfy the NOT NULL FK on code_intel_remediation_ab.
+  alertId: uuid("alert_id"),
+  // Phase 3.2 — projectId is the lookup key for the per-workspace pct
+  // override; existing pool path also uses it.
+  projectId: uuid("project_id"),
   status: text("status").notNull().default("analyzing"),
   steps: jsonb("steps").notNull().default([]),
   error: text("error"),
@@ -334,6 +340,55 @@ export const organizationMembers = pgTable("organization_members", {
   userId: uuid("user_id").notNull(),
   role: text("role").notNull().default("member"),
 });
+
+// Phase 3.2 — worker subset of `organizations`. Only the columns the A/B
+// router needs: id (for the lookup) + the per-workspace pct override
+// (migration 0082). The web-side schema is the SSOT.
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  codeIntelV2AgentAbPct: integer("code_intel_v2_agent_ab_pct"),
+});
+
+// Phase 3.2 — `projects` is already exported above (line ~289) with the
+// columns the A/B router needs (id + organizationId). The Phase 3.2 work
+// only reads those two columns; no extra subset is required here.
+
+// ── Code Intel v2 A/B telemetry (Phase 3.2) ─────────────────────────────────
+//
+// One row per `runAgentJob`. Engine = which tool set the agent saw. The
+// cutover dashboard (Phase 3.3) aggregates this table to decide GO/WAIT/
+// ABORT on flipping CODE_INTEL_V2 default.
+//
+// Worker is a write-mostly consumer; only the cutover script + endpoint
+// READ this table, both on the web side. Keep in sync with
+// `web/lib/db/schema.ts::codeIntelRemediationAb`.
+
+export const codeIntelRemediationAb = pgTable(
+  "code_intel_remediation_ab",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    alertId: uuid("alert_id").notNull(),
+    remediationSessionId: uuid("remediation_session_id"),
+    /** 'v1' | 'v2' — enforced by CHECK constraint on the SQL side. */
+    engine: text("engine").notNull(),
+    /** Captured at decision time; NULL = global env was used. */
+    workspacePct: integer("workspace_pct"),
+    turnCount: integer("turn_count").notNull(),
+    success: boolean("success").notNull(),
+    /** Aggregate AI cost in USD. Worker writes NULL today. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    durationMs: integer("duration_ms").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_intel_remediation_ab_alert").on(table.alertId),
+    index("idx_code_intel_remediation_ab_engine_created").on(table.engine, table.createdAt),
+    index("idx_code_intel_remediation_ab_session").on(table.remediationSessionId),
+  ],
+);
 
 // ── Deploy Monitors ─────────────────────────────────────────────────────────
 

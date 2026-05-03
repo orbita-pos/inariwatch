@@ -30,6 +30,12 @@ import {
   isCodeIntelV2ToolsEnabled,
   type CodeIntelToolName,
 } from "./tools/code-intel.js";
+import {
+  resolveAgentEngine,
+  type AgentEngine,
+  type AgentEngineDecision,
+} from "./tools/code-intel-ab.js";
+import { writeAbTelemetry } from "./tools/code-intel-ab-telemetry.js";
 
 const MAX_TURNS = 40; // More turns than Vercel (was 15)
 const MAX_FILE_SIZE = 15_000;
@@ -132,15 +138,26 @@ const CODEACT_MIN_TURN = 3;
  * Tool list shown to the model on a given turn. Pure of side effects so
  * tests can assert which tools the model sees per turn / per flag without
  * mocking a full container roundtrip.
+ *
+ * Phase 3.2 — `agentEngine` lets the A/B router force the v2 tools on or
+ * off for the whole session, regardless of the global env. When undefined
+ * (legacy callers / Phase 1.6 path) the env decides.
  */
-export function buildToolsForTurn(turn: number): ToolDefinition[] {
+export function buildToolsForTurn(
+  turn: number,
+  agentEngine?: AgentEngine,
+): ToolDefinition[] {
   let tools = CONTAINER_TOOLS;
   if (isCodeActEnabled() && turn >= CODEACT_MIN_TURN) {
     tools = [...tools, EXECUTE_PLAN_TOOL];
   }
   // Phase 1.6 — Code Intelligence v2 tools (find_references / type_at /
   // blast_radius). Gated by CODE_INTEL_V2_TOOLS=on; default off.
-  return appendCodeIntelV2Tools(tools);
+  // Phase 3.2 — A/B routing supersedes the env when the decision is in.
+  let v2ToolsOverride: boolean | undefined;
+  if (agentEngine === "v2") v2ToolsOverride = true;
+  else if (agentEngine === "v1") v2ToolsOverride = false;
+  return appendCodeIntelV2Tools(tools, v2ToolsOverride);
 }
 
 // ── Container API (localhost Go server) ──────────────────────────────────────
@@ -229,7 +246,7 @@ function buildContainerShell(containerId: string): ContainerShell {
 async function executeContainerTool(
   tool: ToolUseBlock,
   containerId: string,
-  ctx: { sessionId: string; turn: number },
+  ctx: { sessionId: string; turn: number; agentEngine?: AgentEngine },
 ): Promise<string> {
   const input = tool.input as Record<string, string>;
 
@@ -361,9 +378,12 @@ async function executeContainerTool(
     case "find_references":
     case "type_at":
     case "blast_radius": {
-      // Defense-in-depth: tool list builder gates on the flag, but a model
-      // could fabricate a tool name. Reject when the flag is off.
-      if (!isCodeIntelV2ToolsEnabled()) {
+      // Phase 3.2 — defense-in-depth gating. The A/B router decides per
+      // session; the env decides for legacy callers (Phase 1.6).
+      const forceEnabled =
+        ctx.agentEngine === "v2" ? true : ctx.agentEngine === "v1" ? false : undefined;
+      const enabled = typeof forceEnabled === "boolean" ? forceEnabled : isCodeIntelV2ToolsEnabled();
+      if (!enabled) {
         return `Error: ${tool.name} is not enabled (CODE_INTEL_V2_TOOLS=off).`;
       }
       const session = await loadSessionContext(ctx.sessionId);
@@ -376,6 +396,7 @@ async function executeContainerTool(
         cronSecret: process.env.CRON_SECRET ?? "",
         projectId: session.projectId,
         repoId: session.repoId,
+        forceEnabled,
       });
     }
 
@@ -386,24 +407,34 @@ async function executeContainerTool(
 
 interface SessionContext {
   projectId: string | null;
+  alertId: string | null;
   repoId: string | null;
 }
 
 async function loadSessionContext(sessionId: string): Promise<SessionContext> {
-  const [row] = await db
-    .select({
-      projectId: remediationSessions.projectId,
-    })
-    .from(remediationSessions)
-    .where(eq(remediationSessions.id, sessionId))
-    .limit(1);
-  return {
-    projectId: row?.projectId ?? null,
-    // The worker's remediationSessions schema doesn't carry repoId today —
-    // when it lands (Phase 1 follow-up) wire it in here. For now leave null
-    // and let the web side resolve via projectId.
-    repoId: null,
-  };
+  try {
+    const [row] = await db
+      .select({
+        projectId: remediationSessions.projectId,
+        alertId: remediationSessions.alertId,
+      })
+      .from(remediationSessions)
+      .where(eq(remediationSessions.id, sessionId))
+      .limit(1);
+    return {
+      projectId: row?.projectId ?? null,
+      alertId: row?.alertId ?? null,
+      // The worker's remediationSessions schema doesn't carry repoId today —
+      // when it lands (Phase 1 follow-up) wire it in here. For now leave
+      // null and let the web side resolve via projectId.
+      repoId: null,
+    };
+  } catch {
+    // Session lookup must not break the remediation. The A/B router
+    // copes with null projectId (falls through to global env) and the
+    // telemetry writer copes with null alertId (skips the row).
+    return { projectId: null, alertId: null, repoId: null };
+  }
 }
 
 // ── System prompt ───────────────────────────────────────────────────────────
@@ -718,6 +749,18 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
   // the agent ever calls submit_fix (error paths return early).
   let lastPrepush: PrepushResult | null = null;
 
+  // Phase 3.2 — A/B telemetry state. Captured at the top so the finally
+  // block can write a row regardless of which exit path the loop takes.
+  // Engine resolution is sticky for the whole session.
+  const sessionCtx = await loadSessionContext(sessionId);
+  const agentDecision: AgentEngineDecision = await resolveAgentEngine({
+    sessionId,
+    projectId: sessionCtx.projectId,
+  });
+  const jobStartedAt = new Date();
+  let turnsCompleted = 0;
+  let runFailureReason: string | null = null;
+
   try {
     // 2. Run AI loop
     const basePrompt = buildBasePrompt();
@@ -750,6 +793,8 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
     const retryMemory = new RetryMemory();
 
     for (let turn = 1; turn <= maxTurns; turn++) {
+      // Phase 3.2 — track turns completed for the A/B telemetry row.
+      turnsCompleted = turn;
       await updateProgress(sessionId, {
         name: "container_turn",
         status: "in_progress",
@@ -785,7 +830,7 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
       // overlays applied when the active model is GPT-like.
       const systemPrompt = buildGPTRemediationSystemPrompt(basePrompt, currentModel);
 
-      const response = await callAIWithTools(aiKey, systemPrompt, messages, buildToolsForTurn(turn), {
+      const response = await callAIWithTools(aiKey, systemPrompt, messages, buildToolsForTurn(turn, agentDecision.engine), {
         maxTokens: 4096,
         model: currentModel,
         timeout: 120_000, // Responses API reasoning can run longer
@@ -815,7 +860,11 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
 
       for (const toolUse of toolUses) {
         try {
-          let result = await executeContainerTool(toolUse, containerId, { sessionId, turn });
+          let result = await executeContainerTool(toolUse, containerId, {
+            sessionId,
+            turn,
+            agentEngine: agentDecision.engine,
+          });
 
           // Augment apply_patch failures with retry-memory hint (PR #5).
           if (toolUse.name === "apply_patch") {
@@ -963,7 +1012,28 @@ export async function runAgentJob(params: AgentJobParams): Promise<AgentJobResul
     }
 
     throw new Error(`Agent did not submit fix after ${maxTurns} turns`);
+  } catch (err) {
+    // Phase 3.2 — capture the failure reason for the A/B telemetry row.
+    // Re-throw so the existing caller behavior is preserved.
+    runFailureReason = err instanceof Error ? err.message : String(err);
+    throw err;
   } finally {
+    // Phase 3.2 — A/B telemetry. Fire-and-forget — `writeAbTelemetry`
+    // swallows DB errors so a Neon hiccup never breaks a remediation.
+    void writeAbTelemetry({
+      sessionId,
+      alertId: sessionCtx.alertId,
+      engine: agentDecision.engine,
+      workspacePct: agentDecision.workspacePct,
+      turnCount: turnsCompleted,
+      success: runHealthy,
+      costUsd: null, // Phase 3.4 may aggregate from ai_usage_logs.
+      durationMs: Date.now() - jobStartedAt.getTime(),
+      startedAt: jobStartedAt,
+      finishedAt: new Date(),
+      failureReason: runFailureReason,
+    });
+
     if (source === "pool") {
       // The pool owns destruction for pool-origin containers so it can
       // record the health outcome before teardown. We report "healthy"

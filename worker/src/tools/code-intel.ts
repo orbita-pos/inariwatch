@@ -90,6 +90,13 @@ interface ExecCtx {
   cronSecret: string;   // shared with web; same secret as other internal endpoints
   projectId: string | null;
   repoId?: string | null;
+  /**
+   * Phase 3.2 — when present, overrides the env-only enable check. The
+   * A/B router passes `true` for the v2 cohort so the tools fire even
+   * when the global `CODE_INTEL_V2_TOOLS` flag is off, and `false` for
+   * the v1 cohort (defense-in-depth — the tool list builder also blocks).
+   */
+  forceEnabled?: boolean;
 }
 
 export interface ToolInputFindReferences {
@@ -115,7 +122,8 @@ export async function executeCodeIntelTool(
   input: Record<string, unknown>,
   ctx: ExecCtx,
 ): Promise<string> {
-  if (!isCodeIntelV2ToolsEnabled()) {
+  const enabled = typeof ctx.forceEnabled === "boolean" ? ctx.forceEnabled : isCodeIntelV2ToolsEnabled();
+  if (!enabled) {
     return `Error: ${name} is not enabled (CODE_INTEL_V2_TOOLS=off).`;
   }
   if (!ctx.cronSecret) {
@@ -184,7 +192,17 @@ async function callWebApi(
  * Helper for tests: build the full tool list for a worker turn given the
  * current flag state. Production wiring should compose this with the main
  * tool-list builder in container-agent.ts.
+ *
+ * Phase 3.2 — `forceEnabled` lets the A/B router override the env. When
+ * the worker has decided this session belongs to the v2 cohort the v2
+ * tools must appear regardless of the global `CODE_INTEL_V2_TOOLS` flag;
+ * conversely the v1 cohort must never see the v2 tools even if the env
+ * is on. Undefined keeps the Phase 1.6 behavior (env decides).
  */
-export function appendCodeIntelV2Tools(base: ToolDefinition[]): ToolDefinition[] {
-  return isCodeIntelV2ToolsEnabled() ? [...base, ...CODE_INTEL_V2_TOOLS] : base;
+export function appendCodeIntelV2Tools(
+  base: ToolDefinition[],
+  forceEnabled?: boolean,
+): ToolDefinition[] {
+  const enabled = typeof forceEnabled === "boolean" ? forceEnabled : isCodeIntelV2ToolsEnabled();
+  return enabled ? [...base, ...CODE_INTEL_V2_TOOLS] : base;
 }

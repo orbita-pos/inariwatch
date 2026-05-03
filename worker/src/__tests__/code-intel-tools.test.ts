@@ -101,6 +101,28 @@ describe("appendCodeIntelV2Tools", () => {
     assert.ok(names.includes("type_at"));
     assert.ok(names.includes("blast_radius"));
   });
+
+  // Phase 3.2 — A/B router force override
+  it("forceEnabled=true appends tools regardless of env (v2 cohort path)", () => {
+    delete process.env.CODE_INTEL_V2_TOOLS;
+    const base = [{ name: "x", description: "", input_schema: { type: "object" as const } }];
+    const out = appendCodeIntelV2Tools(base, true);
+    assert.equal(out.length, 4);
+  });
+
+  it("forceEnabled=false suppresses tools regardless of env (v1 cohort path)", () => {
+    process.env.CODE_INTEL_V2_TOOLS = "on";
+    const base = [{ name: "x", description: "", input_schema: { type: "object" as const } }];
+    const out = appendCodeIntelV2Tools(base, false);
+    assert.equal(out.length, 1);
+  });
+
+  it("forceEnabled=undefined falls through to the env (legacy path)", () => {
+    process.env.CODE_INTEL_V2_TOOLS = "on";
+    const base = [{ name: "x", description: "", input_schema: { type: "object" as const } }];
+    const out = appendCodeIntelV2Tools(base, undefined);
+    assert.equal(out.length, 4);
+  });
 });
 
 describe("executeCodeIntelTool — gating + arg validation", () => {
@@ -110,6 +132,37 @@ describe("executeCodeIntelTool — gating + arg validation", () => {
       "find_references",
       { symbol_fqn: "src/a.ts::foo" },
       { webUrl: "http://x", cronSecret: "s", projectId: "p1" },
+    );
+    assert.match(out, /not enabled/);
+  });
+
+  // Phase 3.2 — A/B router force override
+  it("forceEnabled=true bypasses env (v2 cohort can run when env is off)", async () => {
+    delete process.env.CODE_INTEL_V2_TOOLS;
+    let called = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }) as typeof globalThis.fetch;
+    try {
+      await executeCodeIntelTool(
+        "find_references",
+        { symbol_fqn: "src/a.ts::foo" },
+        { webUrl: "http://x", cronSecret: "s", projectId: "p1", forceEnabled: true },
+      );
+      assert.equal(called, true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("forceEnabled=false rejects even when env is on (v1 cohort defense)", async () => {
+    process.env.CODE_INTEL_V2_TOOLS = "on";
+    const out = await executeCodeIntelTool(
+      "find_references",
+      { symbol_fqn: "src/a.ts::foo" },
+      { webUrl: "http://x", cronSecret: "s", projectId: "p1", forceEnabled: false },
     );
     assert.match(out, /not enabled/);
   });

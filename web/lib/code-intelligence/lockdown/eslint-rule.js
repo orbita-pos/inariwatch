@@ -10,6 +10,11 @@
  * same SSOT — and adds `web/lib/code-intelligence-v2/**` to the allowlist
  * since that module owns those tables.
  *
+ * Phase 3.2 adds `code_intel_remediation_ab` (container-agent A/B telemetry)
+ * and pre-allowlists the Phase 3.3 cutover endpoint + script paths so the
+ * cutover dashboard can read directly without an extra service layer for
+ * a pure-read aggregation.
+ *
  * Without this boundary, v2 cannot replace the underlying schema in-place
  * (see `radar/CODE_INTELLIGENCE_V2_HANDOFF.md`) — every direct caller would
  * be a hidden migration site. This rule is the spine that lets the service
@@ -22,6 +27,9 @@
  *   - web/lib/db/schema.ts                    (the table definitions themselves)
  *   - web/lib/db/index.ts                     (re-export of the schema)
  *   - web/lib/db/__tests__/**                 (migration shape tests)
+ *   - web/app/api/admin/code-intel/**         (admin dashboards, read-only)
+ *   - web/scripts/code-intel-v2-*.ts          (cutover eval + seed scripts)
+ *   - web/scripts/seed-shadow-run.ts          (Phase 3.1 seeder)
  *   - any **\/__tests__\/**                   (general unit tests with mocks)
  */
 
@@ -36,6 +44,8 @@ const FORBIDDEN_NAMED_IMPORTS = new Set([
   "codeTypeFacts",
   "codeImports",
   "codeIntelShadowLog",
+  // v2 (Phase 3.2)
+  "codeIntelRemediationAb",
 ]);
 
 const FORBIDDEN_SOURCES = new Set([
@@ -50,6 +60,12 @@ const ALLOWLIST_PATH_FRAGMENTS = [
   "web/lib/db/schema.ts",
   "web/lib/db/index.ts",
   "web/lib/db/__tests__/",
+  // Phase 3.2 / 3.3 — admin dashboards + cutover scripts read telemetry
+  // tables directly. They are read-only aggregations; a service layer
+  // would just be a passthrough.
+  "web/app/api/admin/code-intel/",
+  "web/scripts/code-intel-v2-",
+  "web/scripts/seed-shadow-run.ts",
   "/__tests__/",
 ];
 
