@@ -113,18 +113,74 @@ describe("routing rules — S3 (post-flip)", () => {
     expect(r.substrate).toBe("user-sidecar");
   });
 
-  it("other notify.* tasks remain cloud (S4 work, not S3)", () => {
+  // v0.3 S4 — slack / telegram / push joined the local-routing set
+  // behind the SAME workspace flag. Same proofs as email: cloud when
+  // off, user-sidecar when on, fallback contract preserved.
+  it.each([
+    TASKS.NOTIFY_COMPOSE_SLACK,
+    TASKS.NOTIFY_COMPOSE_TELEGRAM,
+    TASKS.NOTIFY_COMPOSE_PUSH,
+  ] as const)(
+    "%s routes to user-sidecar when localNotifyEnabled=true (S4)",
+    (task) => {
+      const r = resolvePrimary(task, { localNotifyEnabled: true });
+      expect(r.substrate).toBe("user-sidecar");
+      if (r.substrate === "user-sidecar") {
+        expect(r.model).toBe("qwen2.5-coder-1.5b");
+      }
+    },
+  );
+
+  it.each([
+    TASKS.NOTIFY_COMPOSE_SLACK,
+    TASKS.NOTIFY_COMPOSE_TELEGRAM,
+    TASKS.NOTIFY_COMPOSE_PUSH,
+  ] as const)(
+    "%s falls back to cloud when localNotifyEnabled is undefined (S4)",
+    (task) => {
+      // S4 zero-regression invariant — same as the S3 email check. A
+      // workspace that never flips the toggle keeps seeing cloud
+      // dispatches for slack/telegram/push.
+      const r = resolvePrimary(task);
+      expect(r.substrate).toBe("cloud");
+    },
+  );
+
+  it.each([
+    TASKS.NOTIFY_COMPOSE_SLACK,
+    TASKS.NOTIFY_COMPOSE_TELEGRAM,
+    TASKS.NOTIFY_COMPOSE_PUSH,
+  ] as const)("%s declares fallback + triggers like email (S4)", (task) => {
+    const r = getRule(task);
+    expect(r.workspaceFlag).toBe("localNotifyEnabled");
+    expect(r.fallback?.substrate).toBe("cloud");
+    expect(r.fallbackTriggers).toContain("sidecar-offline");
+    expect(r.fallbackTriggers).toContain("sidecar-timeout");
+    expect(r.fallbackTriggers).toContain("workspace-flag-cloud-only");
+  });
+
+  it("forceCloudOnly wins over localNotifyEnabled for S4 channels too", () => {
     for (const task of [
       TASKS.NOTIFY_COMPOSE_SLACK,
       TASKS.NOTIFY_COMPOSE_TELEGRAM,
       TASKS.NOTIFY_COMPOSE_PUSH,
+    ]) {
+      const r = resolvePrimary(task, {
+        localNotifyEnabled: true,
+        forceCloudOnly: true,
+      });
+      expect(r.substrate, `task ${task}`).toBe("cloud");
+    }
+  });
+
+  // Remaining notify.* tasks stay cloud until S5+ wires their surfaces.
+  it("notify.compose.{whatsapp,digest,status-page,postmortem-prose} remain cloud after S4", () => {
+    for (const task of [
+      TASKS.NOTIFY_COMPOSE_WHATSAPP,
       TASKS.NOTIFY_COMPOSE_DIGEST,
       TASKS.NOTIFY_COMPOSE_STATUS_PAGE,
       TASKS.NOTIFY_COMPOSE_POSTMORTEM_PROSE,
-      TASKS.NOTIFY_COMPOSE_WHATSAPP,
     ]) {
-      // Even with localNotifyEnabled=true these stay cloud — they're not
-      // gated on a workspaceFlag yet.
       const r = resolvePrimary(task, { localNotifyEnabled: true });
       expect(r.substrate, `task ${task}`).toBe("cloud");
     }

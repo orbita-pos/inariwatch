@@ -1,23 +1,11 @@
-// v0.3 S3 — eval corpus for `notify.compose.email`.
-// v0.3 S4 — extended with sibling corpora for slack / telegram / push.
+// v0.3 S4 — eval corpus for `notify.compose.slack`.
 //
-// Every per-task corpus has 30 representative alert scenarios + per-item
-// rubric. The runner scores each output against:
-//   - hard rubric checks (subject/title/text keywords, body/text must
-//     contain / must-not contain, length window, format-specific
-//     validators) → 60% of total
-//   - LLM-as-judge soft score (tone, factual accuracy, action
-//     specificity) → 40% of total
-//
-// Final score is the weighted average. ≥ 85 means "ship it"; <85 means
-// "tune prompt or pick a stronger model".
-//
-// Channel-specific rubric extensions:
-//   - slack: blocks count + mrkdwn lint (no fences, balanced markers)
-//   - telegram: parse_mode pinned + reserved chars escaped
-//   - push: title length cap, body length cap, action validators
+// 30 alert scenarios mirroring the email corpus's coverage matrix:
+// FE/BE/deploy/db/auth/perf/manager/stakeholder/Spanish/long-tail. The
+// rubric extends `ComposeEmailEvalRubric` with Slack-specific checks
+// (block count window, mrkdwn lint, channel-mention guard).
 
-export interface ComposeEmailEvalInput {
+export interface ComposeSlackEvalInput {
   alert: {
     title: string;
     severity: "critical" | "high" | "warning" | "info";
@@ -28,46 +16,38 @@ export interface ComposeEmailEvalInput {
   recipient_role: "developer" | "manager" | "stakeholder";
   tone: "concise" | "detailed";
   language: "en" | "es";
+  channel_hint?: string;
+  /** When true, the rubric tolerates `<!here>`. Default false → any
+   * `<!here>` / `<!channel>` is a hard fail (-30). */
+  allow_here_mention?: boolean;
 }
 
-export interface ComposeEmailEvalRubric {
-  /**
-   * Optional list — if present at least ONE keyword (case-insensitive) must
-   * appear in the subject. Use proper-noun fragments and severity words.
-   * Skip when the alert title is generic enough that any reasonable subject
-   * would do.
-   */
-  subjectKeywords?: string[];
-  /**
-   * Substrings that MUST appear in body (case-insensitive). The judge
-   * counts each missing one as a 5-point deduction (max 30).
-   */
-  bodyMustContain?: string[];
-  /**
-   * Substrings that must NEVER appear in body (case-insensitive). Each
-   * occurrence is a 10-point deduction (max 30).
-   */
-  bodyMustNotContain?: string[];
-  /** Hard upper bound on body length in chars. Default 1500. */
-  maxLengthChars?: number;
-  /** Hard lower bound on body length. Default 30. */
-  minLengthChars?: number;
-  /**
-   * Number of suggested actions expected. Default range 1-4. Scored as a
-   * pass/fail — out-of-range deducts 10 points.
-   */
-  expectedActionsRange?: [number, number];
+export interface ComposeSlackEvalRubric {
+  /** At least one match in the section text (case-insensitive). */
+  textKeywords?: string[];
+  /** Must appear in section text (case-insensitive). */
+  textMustContain?: string[];
+  /** Must NEVER appear in section text. Channel mentions, etc. */
+  textMustNotContain?: string[];
+  /** Allowed block-count window. Defaults to [1, 4]. */
+  expectedBlocksRange?: [number, number];
+  /** Cap on the section text length. Default 1500. */
+  maxTextChars?: number;
+  /** Min section text length. Default 20. */
+  minTextChars?: number;
+  /** When true, the eval rejects `<!here>` / `<!channel>` outright. */
+  forbidHereMention?: boolean;
 }
 
-export interface ComposeEmailEvalItem {
+export interface ComposeSlackEvalItem {
   id: string;
-  input: ComposeEmailEvalInput;
-  rubric: ComposeEmailEvalRubric;
+  input: ComposeSlackEvalInput;
+  rubric: ComposeSlackEvalRubric;
 }
 
-/** v0.3 S3 corpus — 30 representative alert scenarios. */
-export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
-  // ── Frontend / TypeScript errors ─────────────────────────────────────────
+/** v0.3 S4 corpus — 30 Slack alert scenarios. */
+export const NOTIFY_COMPOSE_SLACK_CORPUS: ComposeSlackEvalItem[] = [
+  // ── Frontend / TypeScript ────────────────────────────────────────────────
   {
     id: "fe-typeerror-undef",
     input: {
@@ -81,13 +61,12 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       recipient_role: "developer",
       tone: "concise",
       language: "en",
+      channel_hint: "#alerts-prod",
     },
     rubric: {
-      subjectKeywords: ["typeerror", "undefined", "form"],
-      bodyMustContain: ["form.tsx", "TypeError"],
-      bodyMustNotContain: [],
-      maxLengthChars: 800,
-      minLengthChars: 30,
+      textKeywords: ["typeerror", "form.tsx"],
+      textMustContain: ["form.tsx"],
+      forbidHereMention: true,
     },
   },
   {
@@ -98,16 +77,16 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
         severity: "high",
         source: "sentry",
         message: "Component repeatedly calls setState inside componentDidUpdate",
-        url: "https://app.inariwatch.com/alerts/render-loop",
       },
       recipient_role: "developer",
       tone: "detailed",
       language: "en",
+      channel_hint: "#alerts-fe",
     },
     rubric: {
-      subjectKeywords: ["update", "depth", "render"],
-      bodyMustContain: ["setState"],
-      maxLengthChars: 1500,
+      textKeywords: ["update", "depth", "render", "setstate"],
+      textMustContain: ["setState"],
+      forbidHereMention: true,
     },
   },
   {
@@ -123,12 +102,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["hydration"],
-      bodyMustContain: ["hydration"],
+      textKeywords: ["hydration"],
+      textMustContain: ["hydration"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Backend Node / TypeScript errors ─────────────────────────────────────
+  // ── Backend ──────────────────────────────────────────────────────────────
   {
     id: "be-prisma-conn-pool",
     input: {
@@ -141,12 +121,12 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       recipient_role: "developer",
       tone: "detailed",
       language: "en",
+      channel_hint: "#alerts-prod",
     },
     rubric: {
-      subjectKeywords: ["pool", "connection", "prisma"],
-      bodyMustContain: ["pool"],
-      bodyMustNotContain: ["mysql"],
-      maxLengthChars: 1500,
+      textKeywords: ["pool", "prisma", "connection"],
+      textMustContain: ["pool"],
+      forbidHereMention: true,
     },
   },
   {
@@ -161,10 +141,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       recipient_role: "developer",
       tone: "concise",
       language: "en",
+      channel_hint: "#alerts-payments",
+      allow_here_mention: true,
     },
     rubric: {
-      subjectKeywords: ["stripe", "503", "timeout"],
-      bodyMustContain: ["stripe"],
+      textKeywords: ["stripe", "503", "timeout"],
+      textMustContain: ["stripe"],
+      // here_mention allowed — no forbidHereMention.
     },
   },
   {
@@ -180,12 +163,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["memory", "heap", "leak"],
-      bodyMustContain: ["memory"],
+      textKeywords: ["memory", "heap", "leak"],
+      textMustContain: ["memory"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Deploy / CI failures ─────────────────────────────────────────────────
+  // ── Deploy ──────────────────────────────────────────────────────────────
   {
     id: "deploy-vercel-build-fail",
     input: {
@@ -200,8 +184,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["build", "vercel"],
-      bodyMustContain: ["@/lib/db", "build"],
+      textKeywords: ["build", "vercel"],
+      textMustContain: ["@/lib/db"],
+      forbidHereMention: true,
     },
   },
   {
@@ -217,12 +202,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["rollback", "deploy", "rolled back"],
-      bodyMustNotContain: ["stack trace"],
+      textKeywords: ["rollback", "rolled back"],
+      textMustNotContain: ["stack trace"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Database errors ──────────────────────────────────────────────────────
+  // ── Database ────────────────────────────────────────────────────────────
   {
     id: "db-deadlock",
     input: {
@@ -236,8 +222,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["deadlock"],
-      bodyMustContain: ["deadlock"],
+      textKeywords: ["deadlock"],
+      textMustContain: ["deadlock"],
+      forbidHereMention: true,
     },
   },
   {
@@ -253,12 +240,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["disk", "94"],
-      bodyMustContain: ["disk"],
+      textKeywords: ["disk", "94"],
+      textMustContain: ["disk"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Auth / security ──────────────────────────────────────────────────────
+  // ── Auth ────────────────────────────────────────────────────────────────
   {
     id: "auth-brute-force",
     input: {
@@ -272,8 +260,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["login", "brute", "failed"],
-      bodyMustContain: ["1.2.3.4"],
+      textKeywords: ["login", "brute", "failed"],
+      textMustContain: ["1.2.3.4"],
+      forbidHereMention: true,
     },
   },
   {
@@ -289,12 +278,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["jwt", "signature", "auth"],
-      bodyMustContain: ["jwt"],
+      textKeywords: ["jwt", "signature"],
+      textMustContain: ["jwt"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Performance ──────────────────────────────────────────────────────────
+  // ── Performance ─────────────────────────────────────────────────────────
   {
     id: "perf-p99-spike",
     input: {
@@ -308,12 +298,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["latency", "p99", "/api/dispatch"],
-      bodyMustContain: ["latency"],
+      textKeywords: ["latency", "p99", "/api/dispatch"],
+      textMustContain: ["latency"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Manager-targeted alerts ──────────────────────────────────────────────
+  // ── Manager-targeted ────────────────────────────────────────────────────
   {
     id: "mgr-revenue-impact",
     input: {
@@ -326,11 +317,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       recipient_role: "manager",
       tone: "concise",
       language: "en",
+      channel_hint: "#leadership",
     },
     rubric: {
-      subjectKeywords: ["checkout", "error"],
-      bodyMustContain: ["checkout"],
-      bodyMustNotContain: ["stack", "PrismaClient", "TypeError"],
+      textKeywords: ["checkout", "error"],
+      textMustContain: ["checkout"],
+      textMustNotContain: ["stack", "PrismaClient", "TypeError"],
+      forbidHereMention: true,
     },
   },
   {
@@ -346,13 +339,14 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["sla", "uptime"],
-      bodyMustContain: ["uptime"],
-      bodyMustNotContain: ["stack"],
+      textKeywords: ["sla", "uptime"],
+      textMustContain: ["uptime"],
+      textMustNotContain: ["stack"],
+      forbidHereMention: true,
     },
   },
 
-  // ── Stakeholder-targeted ─────────────────────────────────────────────────
+  // ── Stakeholder ─────────────────────────────────────────────────────────
   {
     id: "stk-public-status",
     input: {
@@ -366,13 +360,14 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["outage", "investigating"],
-      bodyMustNotContain: ["stack", "TypeError", "PrismaClient", "503", "syscall"],
-      maxLengthChars: 600,
+      textKeywords: ["outage", "investigating"],
+      textMustNotContain: ["stack", "TypeError", "PrismaClient", "syscall"],
+      maxTextChars: 600,
+      forbidHereMention: true,
     },
   },
 
-  // ── Spanish-language scenarios ───────────────────────────────────────────
+  // ── Spanish ─────────────────────────────────────────────────────────────
   {
     id: "es-fe-typeerror",
     input: {
@@ -386,8 +381,8 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "es",
     },
     rubric: {
-      bodyMustContain: ["TypeError"],
-      // Looser keywords for Spanish — model phrasing varies.
+      textMustContain: ["TypeError"],
+      forbidHereMention: true,
     },
   },
   {
@@ -403,7 +398,8 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "es",
     },
     rubric: {
-      bodyMustContain: ["Vercel"],
+      textMustContain: ["Vercel"],
+      forbidHereMention: true,
     },
   },
   {
@@ -419,12 +415,13 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "es",
     },
     rubric: {
-      bodyMustNotContain: ["stack trace"],
-      maxLengthChars: 800,
+      textMustNotContain: ["stack trace"],
+      maxTextChars: 800,
+      forbidHereMention: true,
     },
   },
 
-  // ── Long-tail (10 misc scenarios) ────────────────────────────────────────
+  // ── Long-tail (10) ──────────────────────────────────────────────────────
   {
     id: "misc-cron-skipped",
     input: {
@@ -438,8 +435,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["cron", "digest"],
-      bodyMustContain: ["cron"],
+      textKeywords: ["cron", "digest"],
+      textMustContain: ["cron"],
+      forbidHereMention: true,
     },
   },
   {
@@ -455,8 +453,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["rate", "openai"],
-      bodyMustContain: ["rate"],
+      textKeywords: ["rate", "openai"],
+      textMustContain: ["rate"],
+      forbidHereMention: true,
     },
   },
   {
@@ -470,10 +469,12 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       recipient_role: "developer",
       tone: "detailed",
       language: "en",
+      channel_hint: "#alerts-payments",
+      allow_here_mention: true,
     },
     rubric: {
-      subjectKeywords: ["stripe", "503"],
-      bodyMustContain: ["stripe"],
+      textKeywords: ["stripe", "503"],
+      textMustContain: ["stripe"],
     },
   },
   {
@@ -489,8 +490,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["cve", "lodash"],
-      bodyMustContain: ["lodash"],
+      textKeywords: ["cve", "lodash"],
+      textMustContain: ["lodash"],
+      forbidHereMention: true,
     },
   },
   {
@@ -506,8 +508,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["ci", "test", "failed"],
-      bodyMustContain: ["test"],
+      textKeywords: ["ci", "test"],
+      textMustContain: ["test"],
+      forbidHereMention: true,
     },
   },
   {
@@ -523,8 +526,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["tls", "certificate", "expir"],
-      bodyMustContain: ["certificate"],
+      textKeywords: ["tls", "certificate", "expir"],
+      textMustContain: ["certificate"],
+      forbidHereMention: true,
     },
   },
   {
@@ -540,8 +544,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      bodyMustContain: ["quota"],
-      maxLengthChars: 600,
+      textMustContain: ["quota"],
+      maxTextChars: 600,
+      forbidHereMention: true,
     },
   },
   {
@@ -557,8 +562,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["rollback", "auto-heal", "rolled"],
-      bodyMustNotContain: ["stack trace"],
+      textKeywords: ["rollback", "rolled back", "auto-heal"],
+      textMustNotContain: ["stack trace"],
+      forbidHereMention: true,
     },
   },
   {
@@ -574,15 +580,16 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["cors", "blocked"],
-      bodyMustContain: ["cors"],
+      textKeywords: ["cors", "blocked"],
+      textMustContain: ["cors"],
+      forbidHereMention: true,
     },
   },
   {
     id: "misc-graphql-n1",
     input: {
       alert: {
-        title: "GraphQL N+1 query detected: User.posts loaded 312 times in single request",
+        title: "GraphQL N+1 query detected: User.posts loaded 312 times",
         severity: "warning",
         source: "datadog",
       },
@@ -591,8 +598,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["graphql", "n+1", "query"],
-      bodyMustContain: ["graphql"],
+      textKeywords: ["graphql", "n+1", "query"],
+      textMustContain: ["graphql"],
+      forbidHereMention: true,
     },
   },
   {
@@ -608,8 +616,9 @@ export const NOTIFY_COMPOSE_EMAIL_CORPUS: ComposeEmailEvalItem[] = [
       language: "en",
     },
     rubric: {
-      subjectKeywords: ["flag", "rollout", "onboarding"],
-      bodyMustContain: ["flag"],
+      textKeywords: ["flag", "rollout", "onboarding"],
+      textMustContain: ["flag"],
+      forbidHereMention: true,
     },
   },
 ];

@@ -487,7 +487,23 @@ Migrate the first user-visible task to local. Build the shared eval harness (use
 
 ### v0.3 S4 — Rest of `notify.*` migrations (6h)
 
-**Status:** PENDING.
+**Status:** **DONE-2026-05-02** (NOT PUSHED). Worktree `../radar-v0.3-s4`,
+branch `feat/inari-live-v0.3-session4-notify-rest`. Slack + Telegram +
+push handlers, rules flipped behind same `localNotifyEnabled` flag,
+eval harness extended (90 new corpus items + channel-specific rubrics
++ judges + generic `runEval`). Tests: 113/113 ai-router (was 67),
+49/49 desktop notify_compose (was 14), 12/12 relay_client lib (was 9),
+8/8 relay_client integration (was 5), 4/4 web ai-preferences-actions,
+6/6 web persist-receipt. Web lint 0 errors. `next build` blocked on
+disk-full (C: 100%) — re-run after cleanup. Real-model eval pass +
+smoke E2E pendientes (same gating as S3). Remaining
+`notify.compose.{whatsapp, digest, status-page, postmortem-prose}`
+deferred — whatsapp + voice ship in parallel S5; digest + status-page
++ postmortem-prose are explicit non-goals here (S5+ adds cloud
+surfaces first or splits postmortem differently).
+
+**Original brief (preserved for context):**
+
 **Predecessor:** v0.3 S3 merged. PARALLEL-OK with v0.3 S5.
 **Worktree:** `git worktree add ../radar-v0.3-s4 -b feat/inari-live-v0.3-session4-notify-rest`
 

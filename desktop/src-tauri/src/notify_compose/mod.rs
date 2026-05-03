@@ -1,10 +1,20 @@
-//! v0.3 S3 — `notify.compose.email` handler (first local task).
+//! v0.3 S3/S4 — `notify.compose.*` handlers (local notify surface).
+//!
+//! S3 shipped `notify.compose.email`. S4 adds `notify.compose.slack`,
+//! `notify.compose.telegram`, and `notify.compose.push` as sibling
+//! submodules — same pipeline (build_prompt → stream tokens → parse JSON
+//! → sign receipt) but channel-specific prompt + response shape. The
+//! shared types ([`AlertContext`], [`ComposeError`], [`UsageHint`]) and
+//! the shared JSON-extraction + receipt-signing helpers stay defined
+//! here so every channel signs receipts the same way and parses fenced
+//! model output the same way. Each child module owns its own request /
+//! response types because the surface payloads differ per channel.
 //!
 //! Per `INARI_AI_ARCHITECTURE.md` §1 (LOCKED 2026-05-02): "cómo decirlo"
 //! tasks (notification composition) run on the user's local model. This
 //! module is the desktop-side handler the relay invokes when the
 //! workspace flag `localNotifyEnabled` is on AND the cloud router decides
-//! `notify.compose.email` should land on user-sidecar.
+//! `notify.compose.*` should land on user-sidecar.
 //!
 //! ## Pipeline
 //!
@@ -45,6 +55,14 @@ use thiserror::Error;
 
 use crate::lib_eap_verify::{signed_digest, EAP_FORMAT_VERSION};
 use crate::local_ai::{GenerateOptions, LocalAI, LocalAiError};
+
+// v0.3 S4 — sibling task handlers. Each owns its prompt + response shape.
+// Common shared types (AlertContext / ComposeError / UsageHint) and the
+// receipt signing helper live here in mod.rs so every channel signs
+// receipts the same way.
+pub mod push;
+pub mod slack;
+pub mod telegram;
 
 /// Default model id for `notify.compose.email`. The 1.5B Qwen-Coder-Instruct
 /// is in the v0.2 catalogue and instruction-follows JSON output well at low
@@ -375,16 +393,22 @@ fn compute_receipt_id(canonical_body: &[u8]) -> String {
     ed25519_hex(&digest[..])
 }
 
-/// Build a signed Ed25519 receipt for a notify.compose.email run. Output
+/// Build a signed Ed25519 receipt for any notify.compose.* run. Output
 /// shape matches `lib_eap_verify::EapReceipt` so the existing `inari-verify`
 /// CLI + the web `/api/eap/verify/[receiptId]` endpoint can validate it
 /// without changes. Web's user-sidecar provider stores this raw in the
 /// `user_sidecar_receipt` JSONB column (no re-signing).
-pub fn build_signed_receipt(
+///
+/// Generic over the response type so each channel's handler — email,
+/// slack, telegram, push — can pass its own response struct (any
+/// `serde::Serialize`). The receipt's `response_hash` is a BLAKE3 of the
+/// JSON serialization, so tampering with the body invalidates the
+/// receipt regardless of channel.
+pub fn build_signed_receipt<T: serde::Serialize>(
     request_id: &str,
     task: &str,
     model: &str,
-    response: &ComposeEmailResponse,
+    response: &T,
 ) -> serde_json::Value {
     let signer = load_signing_key();
     let public_key = signer.verifying_key();

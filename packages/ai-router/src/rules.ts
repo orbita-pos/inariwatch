@@ -107,10 +107,16 @@ export const RULES: Record<TaskName, Rule> = {
   // path uses Groq Llama-8B as Tier 0.
   [TASKS.ALERT_CLASSIFY]:     { primary: CLOUD_GROQ, fallback: CLOUD_OPENAI, fallbackTriggers: ["cloud-error"] },
 
-  // 5.3 notify.* — S3 flips notify.compose.email to user-sidecar behind
-  // `localNotifyEnabled`. Default OFF — workspaces opt in via Settings →
-  // Notifications. Sidecar timeout / disconnect / offline => fallback to
-  // cloud transparently. The remaining notify.* tasks flip in S4.
+  // 5.3 notify.* — S3 flipped notify.compose.email to user-sidecar
+  // behind `localNotifyEnabled`. S4 flips slack / telegram / push
+  // behind the SAME flag (one toggle, four channels — keeps the
+  // settings card single-switch and re-uses S3's fallback machinery).
+  // Default OFF — workspaces opt in via Settings → AI Preferences.
+  // Sidecar timeout / disconnect / offline => fallback to cloud
+  // transparently. The remaining 4 notify.* tasks (whatsapp, digest,
+  // status-page, postmortem-prose) stay on cloud until S5+ wires their
+  // surfaces. Adding a new local notify.* rule = mirror this shape:
+  // same workspaceFlag, same fallback, same triggers.
   [TASKS.NOTIFY_COMPOSE_EMAIL]: {
     primary: { substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" },
     fallback: CLOUD,
@@ -121,10 +127,37 @@ export const RULES: Record<TaskName, Rule> = {
     ],
     workspaceFlag: "localNotifyEnabled",
   },
-  [TASKS.NOTIFY_COMPOSE_SLACK]:           { primary: CLOUD },
-  [TASKS.NOTIFY_COMPOSE_TELEGRAM]:        { primary: CLOUD },
+  [TASKS.NOTIFY_COMPOSE_SLACK]: {
+    primary: { substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" },
+    fallback: CLOUD,
+    fallbackTriggers: [
+      "sidecar-offline",
+      "sidecar-timeout",
+      "workspace-flag-cloud-only",
+    ],
+    workspaceFlag: "localNotifyEnabled",
+  },
+  [TASKS.NOTIFY_COMPOSE_TELEGRAM]: {
+    primary: { substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" },
+    fallback: CLOUD,
+    fallbackTriggers: [
+      "sidecar-offline",
+      "sidecar-timeout",
+      "workspace-flag-cloud-only",
+    ],
+    workspaceFlag: "localNotifyEnabled",
+  },
+  [TASKS.NOTIFY_COMPOSE_PUSH]: {
+    primary: { substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" },
+    fallback: CLOUD,
+    fallbackTriggers: [
+      "sidecar-offline",
+      "sidecar-timeout",
+      "workspace-flag-cloud-only",
+    ],
+    workspaceFlag: "localNotifyEnabled",
+  },
   [TASKS.NOTIFY_COMPOSE_WHATSAPP]:        { primary: CLOUD },
-  [TASKS.NOTIFY_COMPOSE_PUSH]:            { primary: CLOUD },
   [TASKS.NOTIFY_COMPOSE_DIGEST]:          { primary: CLOUD },
   [TASKS.NOTIFY_COMPOSE_STATUS_PAGE]:     { primary: CLOUD },
   [TASKS.NOTIFY_COMPOSE_POSTMORTEM_PROSE]: { primary: CLOUD },

@@ -1,12 +1,17 @@
 "use client";
 
 // v0.3 S3 — AI Preferences settings card.
+// v0.3 S4 — toggle now covers email + Slack + Telegram + push (4
+// channels, 1 flag). The router's S4 rules in `packages/ai-router/src/
+// rules.ts` re-use S3's `localNotifyEnabled` workspaceFlag for all four
+// `notify.compose.*` channels, so the UI surface stays a single switch.
 //
-// Single toggle for now: "Use my Inari Live to compose alert emails".
-// When the user flips it ON, every `notify.compose.email` dispatch the
-// workspace makes routes through their local Inari Live (user-sidecar)
-// instead of OpenAI cloud. If the sidecar is offline, the router falls
-// back to cloud transparently — the user never sees a hard failure.
+// When the user flips it ON, every `notify.compose.{email|slack|
+// telegram|push}` dispatch the workspace makes routes through their
+// local Inari Live (user-sidecar) instead of cloud. If the sidecar is
+// offline / disconnected / times out, the router falls back to cloud
+// transparently per the rules' `fallbackTriggers` — the user never
+// sees a hard failure.
 
 import { useState, useTransition } from "react";
 import { Bot, AlertCircle } from "lucide-react";
@@ -52,13 +57,23 @@ export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
       <div className="flex items-start justify-between gap-6">
         <div className="space-y-1">
           <p className="text-sm font-medium">
-            Compose alert emails on my machine (Inari Live)
+            Compose notifications on my machine (Inari Live)
           </p>
           <p className="text-xs text-muted-foreground">
-            When on, alert email bodies are written by your local model
-            (Qwen2.5-Coder-1.5B). Stack traces never leave your computer
-            for prose composition. Falls back to cloud if Inari Live is
-            offline — you'll never miss an alert.
+            When on, the prose for your alert notifications is written
+            by your local model (Qwen2.5-Coder-1.5B) instead of the
+            cloud. Stack traces never leave your computer for prose
+            composition. Falls back to cloud if Inari Live is offline —
+            you'll never miss an alert.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Covers <span className="font-medium">email</span>,{" "}
+            <span className="font-medium">Slack</span>,{" "}
+            <span className="font-medium">Telegram</span>, and{" "}
+            <span className="font-medium">push</span> notifications. The
+            block layouts (Slack blocks, Telegram inline buttons) and
+            transports stay cloud-side; only the human-facing text is
+            local.
           </p>
           <p className="text-xs text-muted-foreground">
             Requires Inari Live installed and connected. Default OFF.
@@ -69,7 +84,7 @@ export function AIPreferencesSection({ initial, hasWorkspace }: Props) {
           type="button"
           role="switch"
           aria-checked={enabled}
-          aria-label="Compose alert emails on my machine"
+          aria-label="Compose notifications on my machine"
           disabled={pending || !hasWorkspace}
           onClick={() => onToggle(!enabled)}
           className={

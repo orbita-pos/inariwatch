@@ -114,3 +114,56 @@ async fn handle_dispatch_email_falls_back_when_no_local_ai() {
         "expected fallback note, got {note:?}",
     );
 }
+
+// v0.3 S4 — same fallback path proof for the 3 newly wired notify.compose.*
+// dispatchers. Without LocalAI we should NOT 500 — we should reply with the
+// same `local_ai not initialized` note the cloud's user-sidecar provider
+// telemeters as a graceful fallback.
+
+#[tokio::test]
+async fn handle_dispatch_slack_falls_back_when_no_local_ai() {
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame = serde_json::from_value(json!({
+        "type": "dispatch",
+        "request_id": "rid-slack-fb",
+        "task": "notify.compose.slack",
+        "payload": {"alert": {"title": "Boom"}},
+    }))
+    .unwrap();
+    let resp = handle_dispatch(None, &df).await;
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["status"], "ok");
+    let note = v["body"]["note"].as_str().unwrap_or("");
+    assert!(note.contains("local_ai not initialized"));
+}
+
+#[tokio::test]
+async fn handle_dispatch_telegram_falls_back_when_no_local_ai() {
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame = serde_json::from_value(json!({
+        "type": "dispatch",
+        "request_id": "rid-tg-fb",
+        "task": "notify.compose.telegram",
+        "payload": {"alert": {"title": "Boom"}},
+    }))
+    .unwrap();
+    let resp = handle_dispatch(None, &df).await;
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["status"], "ok");
+    let note = v["body"]["note"].as_str().unwrap_or("");
+    assert!(note.contains("local_ai not initialized"));
+}
+
+#[tokio::test]
+async fn handle_dispatch_push_falls_back_when_no_local_ai() {
+    let df: inariwatch_desktop_lib::relay_client::DispatchFrame = serde_json::from_value(json!({
+        "type": "dispatch",
+        "request_id": "rid-push-fb",
+        "task": "notify.compose.push",
+        "payload": {"alert": {"title": "Boom"}},
+    }))
+    .unwrap();
+    let resp = handle_dispatch(None, &df).await;
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["status"], "ok");
+    let note = v["body"]["note"].as_str().unwrap_or("");
+    assert!(note.contains("local_ai not initialized"));
+}
