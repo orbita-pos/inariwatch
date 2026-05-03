@@ -674,7 +674,95 @@ Add optional in-process AI to `@inariwatch/capture` (Node SDK first) for PII red
 
 ### v0.3 S7 — CLI Rust + MCP integration + cargo-deny lockdown (4h)
 
-**Status:** PENDING.
+**Status:** **DONE-2026-05-02 — NOT PUSHED, NOT COMMITTED.** Worktree
+`../radar-v0.3-s7` on branch
+`feat/inari-live-v0.3-session7-cli-mcp-cargo-deny` off `a20e696`.
+
+**What shipped:**
+- New crate `crates/ai-router-rs/` (Rust mirror of `@inariwatch/ai-router`):
+  `tasks.rs` (30 TaskName variants, byte-identical wire strings),
+  `rules.rs` (Rule + Target + WorkspacePreferences + `resolve_primary`),
+  `receipts.rs` (RouterReceipt + sink registry, metadata-only matching
+  TS Phase 1), `dispatch.rs` (`dispatch()` + `dispatch_stream()` with
+  fallback policy + receipt emission), `providers/openai_compat.rs`
+  (OpenAI / Grok / Gemini / DeepSeek / Groq), `providers/anthropic.rs`
+  (Claude `/v1/messages`), `adapters/cloud_proxy.rs` (dual-mode Direct
+  + Proxy per Jesus's S7 directive), `adapters/llamacpp.rs`
+  (`LocalSidecar` trait — Inari Live wires its own impl).
+- 65 lib unit tests + 3 integration lockdown tests = **68/68 pass**.
+  `RUST_TEST_THREADS=1` locked via `.cargo/config.toml` (global state
+  in sink registry / sidecar slot / env vars).
+- `cli/src/ai/mod.rs` refactored: `analyze` / `diagnose` / `generate_fix`
+  / `self_review` / `generate_postmortem` keep their public signatures
+  but route through `ai_router_rs::dispatch()`. The four direct provider
+  URLs that lived in `Provider::api_url` are gone. **36/36 cli tests
+  still pass.** `cargo check` clean.
+- `desktop/src-tauri/src/ai/openai.rs` collapsed to a thin shim:
+  `OpenAIClient::chat_complete` / `chat_stream` translate desktop's
+  `ChatMessage` / `Model` to `ai_router_rs::AIMessage` and call
+  `dispatch()` / `dispatch_stream()`. The `DEFAULT_BASE_URL` const,
+  the SSE parser, the retry logic, and the build_request_body helpers
+  all moved into the router crate. The S18 dock chat streaming path
+  is preserved end-to-end (`ChatChunk` type unchanged for callers).
+  `cargo check --lib` clean.
+- New web route `/api/ai/dispatch` (`web/app/api/ai/dispatch/route.ts`)
+  — Bearer auth against `apiKeys` (service in {desktop, cli}), forwards
+  to TS `dispatch()` / `dispatchStream()`, returns JSON for
+  mode=complete and SSE for mode=stream.
+- `tests/lockdown.rs` integration test walks `cli/src/**` and
+  `desktop/src-tauri/src/**` and panics if any file outside the router
+  crate contains a literal provider URL. Catches comments + strings
+  alike (we strip URLs from doc comments instead of carving exceptions).
+- `deny.toml` at the crate root scoped to `[advisories]` + `[licenses]`
+  only. The source-grep lockdown is owned by the integration test
+  (cargo-deny is the wrong tool for source greps in multi-crate
+  path-dep trees without a workspace root).
+- New CI workflow `.github/workflows/ai-router-rs-ci.yml` runs three
+  jobs on PRs that touch the crate or its consumers: crate tests,
+  cli + desktop `cargo check`, `cargo deny check advisories licenses`.
+- `CLAUDE.md` AI layer section now points to `INARI_AI_ARCHITECTURE.md`
+  as SSOT and adds the Rust crate row.
+- `crates/ai-router-rs/README.md` documents the dual-mode cloud
+  routing, lockdown policy, receipts metadata-only contract, and
+  "how to add a new task" for future contributors.
+
+**Audit grep final:**
+```
+rg "api\.openai\.com|api\.anthropic\.com|api\.groq\.com|api\.x\.ai|api\.deepseek\.com|generativelanguage\.googleapis\.com" --type rust
+```
+returns 4 files — all inside `crates/ai-router-rs/`
+(`providers/anthropic.rs`, `providers/openai_compat.rs`,
+`tests/lockdown.rs`, `lib.rs` doc comment).
+
+**Decisions taken (per Jesus's S7 correction 2026-05-02):**
+- Cloud routing is **dual-mode** (`cloud_proxy.rs`), not just direct.
+  `INARI_AI_DIRECT=true` keeps CLI standalone with BYOK lossless;
+  `INARI_WEB_URL`+`INARI_WEB_TOKEN` opts the caller into the canonical
+  web router. v0.4 wires the device-flow auth that flips desktop +
+  CLI into proxy mode by default.
+- Receipts stay metadata-only (no Ed25519). Verified against
+  `web/lib/ai-router/persist-receipt.ts:60-62` — the TS sink also
+  leaves `signature` undefined and `cloudReceipt: null`. When TS
+  starts signing in Phase 4+, the Rust crate will too.
+- Lockdown enforcement = **integration test** + cargo-deny licenses /
+  advisories. Cargo-deny full source-grep was rejected for multi-crate
+  path-dep tree fragility. Documented in
+  `crates/ai-router-rs/README.md`.
+- Workspace structure: standalone crate consumed via `path = "../crates/ai-router-rs"`
+  from `cli/Cargo.toml` and `desktop/src-tauri/Cargo.toml`. No Cargo
+  workspace root introduced (would conflict with `desktop/src-tauri/`'s
+  Tauri-CLI expectations).
+
+**Pending (Jesus drives — NOT done in S7):**
+- `git push` — branch is committed locally only, per
+  `feedback_commit_workflow.md`.
+- Manual smoke tests against real providers (mock-only coverage in
+  the crate). When run, `INARI_AI_DIRECT=true` with a real key should
+  exercise both cli/ and desktop/ paths end-to-end.
+- Merging S4 (radar-v0.3-s4) + S5 (radar-v0.3-s5-baileys) +
+  Dashboard Phase A worktrees + this S7 into a single integration
+  branch is the next session's job.
+
 **Predecessor:** v0.3 S1 merged. (Recommended: also after S2, S3 so the Rust crate has real substrates to wire.)
 **Worktree:** `git worktree add ../radar-v0.3-s7 -b feat/inari-live-v0.3-session7-cli-mcp-cargo-deny`
 
