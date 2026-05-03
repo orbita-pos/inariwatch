@@ -17,6 +17,7 @@ import { RelayWidget } from "./widgets/relay";
 import { RouterReceiptsWidget } from "./widgets/router-receipts";
 import { CodeIntelBaselineWidget } from "./widgets/code-intel-baseline";
 import { CodeIntelShadowWidget } from "./widgets/code-intel-shadow";
+import { CodeIntelCutoverWidget } from "./widgets/code-intel-cutover";
 
 export const metadata: Metadata = { title: "Admin — Ops" };
 
@@ -117,6 +118,10 @@ export default async function OpsPage() {
 
         <Suspense fallback={<Skeleton title="Code Intelligence v1 vs v2 Shadow" />}>
           <CodeIntelShadowWidget />
+        </Suspense>
+
+        <Suspense fallback={<Skeleton title="Code Intelligence Cutover Decision" />}>
+          <CodeIntelCutoverWidget />
         </Suspense>
 
         <Suspense fallback={<Skeleton title="staging — fail2ban" />}>
