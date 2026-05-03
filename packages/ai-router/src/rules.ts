@@ -55,6 +55,7 @@ export type Target =
  */
 export type WorkspaceFlag =
   | "localNotifyEnabled"
+  | "localVoiceEnabled"
   | "localChatEnabled"
   | "captureRedactEnabled";
 
@@ -147,6 +148,21 @@ export const RULES: Record<TaskName, Rule> = {
     ],
     workspaceFlag: "localNotifyEnabled",
   },
+  // v0.3 S5 (Baileys rewrite) — `notify.compose.whatsapp` runs ONLY on
+  // user-sidecar. NO cloud fallback because the cloud has no path to the
+  // user's personal WhatsApp account: the Baileys sidecar in Inari Live
+  // owns the QR-paired session and the outbound transport. If the
+  // sidecar is offline OR no account is linked, the dispatch throws
+  // and the caller (web's notification fan-out) skips this surface +
+  // logs an audit entry. Default OFF — gated by `localNotifyEnabled`.
+  // Meta WABA / Twilio approach REJECTED 2026-05-02 (zero paperwork,
+  // zero per-msg cost, alerts come FROM the user's own number).
+  [TASKS.NOTIFY_COMPOSE_WHATSAPP]: {
+    primary: { substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" },
+    // No `fallback` — when sidecar is unreachable, dispatch() rethrows
+    // the sidecar error and the caller decides graceful degradation.
+    workspaceFlag: "localNotifyEnabled",
+  },
   [TASKS.NOTIFY_COMPOSE_PUSH]: {
     primary: { substrate: "user-sidecar", model: "qwen2.5-coder-1.5b" },
     fallback: CLOUD,
@@ -157,14 +173,33 @@ export const RULES: Record<TaskName, Rule> = {
     ],
     workspaceFlag: "localNotifyEnabled",
   },
-  [TASKS.NOTIFY_COMPOSE_WHATSAPP]:        { primary: CLOUD },
   [TASKS.NOTIFY_COMPOSE_DIGEST]:          { primary: CLOUD },
   [TASKS.NOTIFY_COMPOSE_STATUS_PAGE]:     { primary: CLOUD },
   [TASKS.NOTIFY_COMPOSE_POSTMORTEM_PROSE]: { primary: CLOUD },
 
-  // 5.4 voice.* — local only on desktop. Phase 1 stub.
-  [TASKS.VOICE_TTS_ALERT]:  { primary: CLOUD },
-  [TASKS.VOICE_TTS_DIGEST]: { primary: CLOUD },
+  // 5.4 voice.* — v0.3 S5 flips voice TTS to user-sidecar (Piper) behind
+  // `localVoiceEnabled`. Cloud fallback = OpenAI tts-1 so users without
+  // Inari Live or with the flag off still hear voice. Default OFF.
+  [TASKS.VOICE_TTS_ALERT]: {
+    primary: { substrate: "user-sidecar", model: "piper-tts" },
+    fallback: { substrate: "cloud", provider: "openai", model: "tts-1" },
+    fallbackTriggers: [
+      "sidecar-offline",
+      "sidecar-timeout",
+      "workspace-flag-cloud-only",
+    ],
+    workspaceFlag: "localVoiceEnabled",
+  },
+  [TASKS.VOICE_TTS_DIGEST]: {
+    primary: { substrate: "user-sidecar", model: "piper-tts" },
+    fallback: { substrate: "cloud", provider: "openai", model: "tts-1" },
+    fallbackTriggers: [
+      "sidecar-offline",
+      "sidecar-timeout",
+      "workspace-flag-cloud-only",
+    ],
+    workspaceFlag: "localVoiceEnabled",
+  },
 
   // 5.5 chat.* — Phase 1 cloud. Conversational moves to local in Phase 3+.
   [TASKS.CHAT_CONVERSATIONAL]:   { primary: CLOUD },
@@ -196,8 +231,21 @@ export interface WorkspacePreferences {
    * Default false; existing workspaces remain on cloud until the user
    * flips the toggle in Settings → Notifications. Required *and* the
    * sidecar must be online for routing to resolve to user-sidecar.
+   *
+   * v0.3 S4 expanded to slack/telegram/push.
+   * v0.3 S5 (Baileys rewrite) expanded to whatsapp — the Baileys sidecar
+   * sends FROM the user's own WhatsApp account. No cloud fallback for
+   * whatsapp; surfaces gracefully degrade when sidecar is offline.
    */
   localNotifyEnabled?: boolean;
+  /**
+   * v0.3 S5 — opt in to running `voice.tts.*` on Inari Live (Piper TTS).
+   * Default false. Cloud fallback (OpenAI tts-1) kicks in transparently
+   * when the sidecar is offline or voice models are missing. Separate
+   * flag from `localNotifyEnabled` because voice has different infra
+   * requirements (download voice models on first use).
+   */
+  localVoiceEnabled?: boolean;
   /**
    * Reserved for S4: gates `chat.conversational` on user-sidecar. Off in S3.
    */

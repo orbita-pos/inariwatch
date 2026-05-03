@@ -104,7 +104,26 @@ pub mod relay_client;
 // (LOCKED 2026-05-02). `pub` so unit tests + the relay_client dispatcher
 // can reach the prompt builder, response parser, and signed-receipt
 // helpers without going through the streaming model path.
+//
+// v0.3 S5 — extends with `notify_compose::whatsapp` (transport-agnostic
+// body composer; the Baileys sidecar in `crate::whatsapp` actually sends).
 pub mod notify_compose;
+
+// v0.3 S5 — voice.tts.* surface. Piper-backed local TTS with synthetic
+// WAV fallback when the binary isn't installed yet. `pub` so the
+// integration tests + the IPC layer can both reach `synthesize`,
+// `models::lookup`, and `handle_voice_tts_dispatch`.
+pub mod voice;
+
+// v0.3 S5 — Baileys WhatsApp sidecar manager. Spawns a Node child process
+// (sidecars/whatsapp/dist/main.js, bundled at build time) at app start,
+// JSON-RPC over stdin/stdout. Per-account QR-paired sessions live under
+// `<app_local_data_dir>/whatsapp/<account_id>/`. NO Meta Cloud API,
+// NO Twilio — alerts go FROM the user's own WhatsApp account.
+//
+// `pub` so the relay dispatcher (`relay_client::handle_dispatch_with_voice`)
+// + IPC layer can both reach `SidecarManager::send_message`.
+pub mod whatsapp;
 
 pub const LSP_DEFAULT_PORT: u16 = 9877;
 
@@ -230,6 +249,16 @@ pub fn run() {
             ipc::cloud::cloud_get_oncall,
             ipc::cloud::cloud_get_community_trending,
             ipc::cloud::cloud_get_status_summary,
+            // v0.3 S5 — Piper TTS local synthesis with synthetic-WAV fallback
+            ipc::voice::voice_synthesize,
+            ipc::voice::voice_list_voices,
+            ipc::voice::voice_status,
+            // v0.3 S5 — Baileys WhatsApp sidecar control surface
+            ipc::whatsapp::whatsapp_login_start,
+            ipc::whatsapp::whatsapp_send,
+            ipc::whatsapp::whatsapp_logout,
+            ipc::whatsapp::whatsapp_list_accounts,
+            ipc::whatsapp::whatsapp_status,
         ])
         .setup(|app| {
             // Tracing: rotating file appender at app_log_dir + 7-day
@@ -483,6 +512,23 @@ pub fn run() {
             let local_ai_handle = build_local_ai(&app.handle(), store.clone());
             app.manage::<Option<local_ai::LocalAI>>(local_ai_handle.clone());
             start_lsp_listener(local_ai_handle);
+
+            // v0.3 S5 — boot the Baileys WhatsApp sidecar manager. It's
+            // built unconditionally (so `Option<SidecarManager>` is
+            // `Some` from the IPC perspective) but only spawns the Node
+            // child process if `sidecars/whatsapp/dist/main.js` exists.
+            // First-launch users with no Node installed see "WhatsApp
+            // sidecar not running" if they try to send before the binary
+            // is bundled. Per the v0.3 S5 brief, that's acceptable —
+            // production builds bundle a Node runtime in a future
+            // session; until then the dev path requires `node` on PATH.
+            let whatsapp_mgr = build_whatsapp_manager(&app.handle());
+            app.manage::<std::sync::Arc<whatsapp::SidecarManager>>(whatsapp_mgr.clone());
+            tauri::async_runtime::spawn(async move {
+                if let Err(err) = whatsapp_mgr.start().await {
+                    tracing::warn!(error = %err, "[whatsapp] sidecar boot failed");
+                }
+            });
 
             // Local Capture ingest server (was `local_ingest::start`)
             // moves to `sensors/substrate/local_ai/local_ingest.rs` (Session 10).
@@ -754,6 +800,46 @@ fn start_lsp_listener(local_ai: Option<local_ai::LocalAI>) {
             Err(e) => eprintln!("[lsp] failed to bind: {e}"),
         }
     });
+}
+
+/// v0.3 S5 — build the Baileys WhatsApp sidecar manager. Always returns
+/// an Arc — the sidecar may or may not actually spawn (depends on whether
+/// `node` is on PATH and `sidecars/whatsapp/dist/main.js` is built), and
+/// failures surface lazily via `whatsapp_*` IPC commands rather than
+/// failing app boot.
+fn build_whatsapp_manager(
+    app: &AppHandle,
+) -> std::sync::Arc<whatsapp::SidecarManager> {
+    let app_local_data = app.path().app_local_data_dir().ok();
+    let resource_dir = app.path().resource_dir().ok();
+
+    // Script lookup order:
+    //   1. `<resource_dir>/sidecars/whatsapp/dist/main.js` (release bundle)
+    //   2. `<repo>/desktop/src-tauri/sidecars/whatsapp/dist/main.js` (dev)
+    //
+    // Path #2 is computed relative to CARGO_MANIFEST_DIR at compile time
+    // so dev runs from `cargo tauri dev` resolve correctly without
+    // needing a release build of the sidecar.
+    let script_path = resource_dir
+        .as_ref()
+        .map(|r| r.join("sidecars/whatsapp/dist/main.js"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| {
+            let manifest_dir =
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            manifest_dir.join("sidecars/whatsapp/dist/main.js")
+        });
+
+    let auth_root = app_local_data
+        .map(|p| p.join("inari-live").join("whatsapp"))
+        .unwrap_or_else(|| {
+            std::env::temp_dir()
+                .join("inari-live")
+                .join("whatsapp")
+        });
+
+    let cfg = whatsapp::sidecar::SidecarConfig::new(script_path, auth_root);
+    std::sync::Arc::new(whatsapp::SidecarManager::new(cfg))
 }
 
 /// Sesión 23 — build the LocalAI facade. Non-fatal failure: returns

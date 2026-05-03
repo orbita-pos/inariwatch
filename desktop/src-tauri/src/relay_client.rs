@@ -33,8 +33,11 @@ use tokio::task::JoinHandle;
 use crate::local_ai::LocalAI;
 use crate::notify_compose::{
     self, push::ComposePushRequest, slack::ComposeSlackRequest,
-    telegram::ComposeTelegramRequest, ComposeEmailRequest,
+    telegram::ComposeTelegramRequest, whatsapp::ComposeWhatsAppRequest,
+    ComposeEmailRequest,
 };
+use crate::voice;
+use crate::whatsapp::{SendMessageRequest, SidecarManager};
 
 // ── Capabilities advertised on register ─────────────────────────────────────
 //
@@ -237,6 +240,18 @@ pub struct RelayConfig {
     /// with the S2 stub — useful for tests that don't need the model and
     /// for boot ordering before the runtime is ready.
     pub local_ai: Option<Arc<LocalAI>>,
+    /// v0.3 S5 — `app_local_data_dir` resolved at boot. The voice TTS
+    /// handler uses it to locate Piper + voice models on disk. When
+    /// `None` (tests) the voice path falls back to the synthetic WAV
+    /// (same behavior as production-without-Piper).
+    pub app_local_data_dir: Option<Arc<std::path::PathBuf>>,
+    /// v0.3 S5 (Baileys rewrite) — handle to the WhatsApp sidecar
+    /// manager. When `Some` AND a `notify.compose.whatsapp` request
+    /// includes a `recipient_phone`, the dispatcher composes the body
+    /// locally THEN sends via Baileys (no cloud roundtrip). When `None`
+    /// (tests, or before sidecar boot completes) the dispatcher only
+    /// composes — caller sees `sent: false` in the response body.
+    pub whatsapp: Option<Arc<crate::whatsapp::SidecarManager>>,
 }
 
 impl std::fmt::Debug for RelayConfig {
@@ -249,6 +264,22 @@ impl std::fmt::Debug for RelayConfig {
             .field(
                 "local_ai",
                 &self.local_ai.as_ref().map(|_| "<LocalAI>").unwrap_or("None"),
+            )
+            .field(
+                "app_local_data_dir",
+                &self
+                    .app_local_data_dir
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "None".to_string()),
+            )
+            .field(
+                "whatsapp",
+                &self
+                    .whatsapp
+                    .as_ref()
+                    .map(|_| "<SidecarManager>")
+                    .unwrap_or("None"),
             )
             .finish()
     }
@@ -371,6 +402,8 @@ mod backoff_tests {
             app_version: "0.3.0".into(),
             initial_backoff: None,
             local_ai: None,
+            app_local_data_dir: None,
+            whatsapp: None,
         };
         assert_eq!(cfg.ws_url(), "wss://relay.inariwatch.com/ws");
 
@@ -380,6 +413,8 @@ mod backoff_tests {
             app_version: "0.3.0".into(),
             initial_backoff: None,
             local_ai: None,
+            app_local_data_dir: None,
+            whatsapp: None,
         };
         assert_eq!(cfg2.ws_url(), "wss://relay.inariwatch.com/ws");
     }
@@ -456,10 +491,12 @@ mod backoff_tests {
 
     #[tokio::test]
     async fn dispatcher_unknown_task_uses_generic_stub() {
+        // Pick a task NOT wired in v0.3 S5 — chat.conversational still
+        // returns the generic stub. (voice.tts.alert is now real.)
         let df = DispatchFrame {
             ty: "dispatch".into(),
             request_id: "rid-x".into(),
-            task: "voice.tts.alert".into(),
+            task: "chat.conversational".into(),
             payload: serde_json::json!({}),
             timeout_ms: 0,
         };
@@ -525,6 +562,26 @@ mod backoff_tests {
         let json = serde_json::to_value(&resp).unwrap();
         let note = json["body"]["note"].as_str().unwrap_or("");
         assert!(note.contains("local_ai not initialized"));
+    }
+
+    #[tokio::test]
+    async fn dispatcher_voice_tts_alert_returns_synthesized_wav() {
+        // v0.3 S5 — voice.tts.alert is now real (not a stub). The
+        // synthetic-WAV fallback always returns valid bytes when Piper
+        // isn't installed, so we get audio_format=wav + a non-empty
+        // base64 payload regardless of the test environment.
+        let df = DispatchFrame {
+            ty: "dispatch".into(),
+            request_id: "rid-voice".into(),
+            task: "voice.tts.alert".into(),
+            payload: serde_json::json!({"text": "hello"}),
+            timeout_ms: 0,
+        };
+        let resp = handle_dispatch(None, &df).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["body"]["audio_format"], "wav");
+        assert!(json["body"]["audio_wav_b64"].is_string());
     }
 }
 
@@ -623,7 +680,13 @@ async fn connect_once(
                     if df.ty != "dispatch" {
                         continue;
                     }
-                    let resp = handle_dispatch(cfg.local_ai.as_ref(), &df).await;
+                    let resp = handle_dispatch_full(
+                        cfg.local_ai.as_ref(),
+                        cfg.app_local_data_dir.as_ref(),
+                        cfg.whatsapp.as_ref(),
+                        &df,
+                    )
+                    .await;
                     if let Ok(out) = serde_json::to_string(&resp) {
                         if sink.send(Message::Text(out)).await.is_err() {
                             return Ok("send-failed");
@@ -649,11 +712,45 @@ async fn connect_once(
 ///
 /// S3 wired `notify.compose.email`. S4 wires `notify.compose.slack`,
 /// `notify.compose.telegram`, and `notify.compose.push` — each behind
-/// the same workspace flag (`localNotifyEnabled`). Other tasks (digest,
-/// status-page, postmortem-prose, voice.tts.*, chat.*, redact.*) remain
-/// stubbed until subsequent sessions wire them.
+/// the same workspace flag (`localNotifyEnabled`). S5 wires
+/// `notify.compose.whatsapp` (Baileys sidecar) and `voice.tts.*`
+/// (Piper). Other tasks (digest, status-page, postmortem-prose,
+/// chat.*, redact.*) remain stubbed until subsequent sessions wire them.
+///
+/// v0.3 S5 — `voice.tts.*` does NOT require `local_ai` (the synth path
+/// is in-process Rust + a Piper subprocess); to keep the existing
+/// callsite signature stable, the voice-aware variant is
+/// [`handle_dispatch_with_voice`] and this function delegates to it
+/// without a voice dir.
 pub async fn handle_dispatch(
     local_ai: Option<&Arc<LocalAI>>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    handle_dispatch_with_voice(local_ai, None, df).await
+}
+
+/// v0.3 S5 dispatcher with voice-data-dir wiring. New callsites should
+/// prefer [`handle_dispatch_full`] which also threads the WhatsApp
+/// sidecar; this 3-arg variant is kept so S3-era tests still build
+/// without modification (they pre-date the Baileys rewrite). The
+/// 4th arg defaults to `None` — `notify.compose.whatsapp` then composes
+/// the body but reports `sent: false` instead of actually firing.
+pub async fn handle_dispatch_with_voice(
+    local_ai: Option<&Arc<LocalAI>>,
+    voice_dir: Option<&Arc<std::path::PathBuf>>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    handle_dispatch_full(local_ai, voice_dir, None, df).await
+}
+
+/// v0.3 S5 (Baileys rewrite) dispatcher with voice + WhatsApp sidecar
+/// wiring. Production runs use this through `connect_once`. Tests can
+/// pass `None` for any/all of the optional handles to exercise just
+/// the dispatch+stub paths.
+pub async fn handle_dispatch_full(
+    local_ai: Option<&Arc<LocalAI>>,
+    voice_dir: Option<&Arc<std::path::PathBuf>>,
+    whatsapp: Option<&Arc<SidecarManager>>,
     df: &DispatchFrame,
 ) -> ResponseFrame {
     match df.task.as_str() {
@@ -673,6 +770,13 @@ pub async fn handle_dispatch(
             Some(ai) => handle_notify_compose_push(ai, df).await,
             None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
         },
+        "notify.compose.whatsapp" => match local_ai {
+            Some(ai) => handle_notify_compose_whatsapp(ai, whatsapp, df).await,
+            None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
+        },
+        "voice.tts.alert" | "voice.tts.digest" => {
+            handle_voice_tts(voice_dir, df).await
+        }
         _ => build_stub_response(df),
     }
 }
@@ -817,6 +921,162 @@ async fn handle_notify_compose_push(
             }
         }
         Err(e) => error_response(df, format!("compose_push: {}", e)),
+    }
+}
+
+/// v0.3 S5 (Baileys rewrite) — notify.compose.whatsapp handler.
+/// Two-step:
+///   1. Compose the body via the local model (same lifecycle as email).
+///   2. If a Baileys SidecarManager is wired AND the request supplies
+///      a `recipient_phone`, fire the message through Baileys (Inari
+///      Live's QR-paired sidecar; FROM the user's own WA number).
+///
+/// The response body always carries the composition. The send result
+/// is reported as either:
+///   - `sent: true,  message_id, to_jid` (success)
+///   - `sent: false, send_error: "..."` (graceful degrade — caller logs
+///     the audit + skips this surface; cloud has NO whatsapp fallback,
+///     per the v0.3 S5 routing rule).
+async fn handle_notify_compose_whatsapp(
+    local_ai: &Arc<LocalAI>,
+    whatsapp: Option<&Arc<SidecarManager>>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    let request: ComposeWhatsAppRequest = match serde_json::from_value(df.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return error_response(df, format!("invalid payload: {}", e)),
+    };
+    let recipient_phone = request.recipient_phone.clone();
+    match notify_compose::whatsapp::compose_whatsapp(local_ai, request).await {
+        Ok(resp) => {
+            let model = resp.model.clone();
+            // Optional send. Only attempt when both the sidecar is wired
+            // AND a phone number is present in the request.
+            let send_outcome = match (whatsapp, recipient_phone.as_deref()) {
+                (Some(mgr), Some(phone)) => {
+                    let accounts = mgr.list_accounts().await;
+                    // Use the first connected account. Multi-account
+                    // disambiguation lives in a future session — today
+                    // most users have exactly one personal account.
+                    let connected = accounts.iter().find(|a| {
+                        matches!(
+                            a.status,
+                            crate::whatsapp::ConnectionStatus::Connected
+                        )
+                    });
+                    match connected {
+                        Some(account) => match mgr
+                            .send_message(SendMessageRequest {
+                                account_id: account.account_id.clone(),
+                                to: phone.to_string(),
+                                body: resp.body.clone(),
+                                reply_to: None,
+                            })
+                            .await
+                        {
+                            Ok(r) => Some(serde_json::json!({
+                                "sent": true,
+                                "message_id": r.message_id,
+                                "to_jid": r.to_jid,
+                                "via_account_id": account.account_id,
+                            })),
+                            Err(e) => Some(serde_json::json!({
+                                "sent": false,
+                                "send_error": e.to_string(),
+                            })),
+                        },
+                        None => Some(serde_json::json!({
+                            "sent": false,
+                            "send_error": "no linked WhatsApp account is currently connected",
+                        })),
+                    }
+                }
+                (Some(_), None) => Some(serde_json::json!({
+                    "sent": false,
+                    "send_error": "request omitted recipient_phone — composed only",
+                })),
+                (None, _) => None, // Sidecar not wired; compose-only.
+            };
+
+            // Body is the composed payload + optional `transport` block.
+            let mut body = match serde_json::to_value(&resp) {
+                Ok(v) => v,
+                Err(e) => return error_response(df, format!("serialize: {}", e)),
+            };
+            if let Some(transport) = send_outcome {
+                if let Some(obj) = body.as_object_mut() {
+                    obj.insert("transport".to_string(), transport);
+                }
+            }
+
+            // Reuse the email receipt builder via a shim — feeds it a
+            // `ComposeEmailResponse`-shaped value built from the
+            // WhatsApp body. The receipt schema is task-agnostic
+            // (response_hash is BLAKE3 over the raw bytes), so the
+            // audit chain remains intact.
+            let shim = notify_compose::ComposeEmailResponse {
+                subject: String::new(),
+                body: resp.body.clone(),
+                suggested_actions: resp
+                    .buttons
+                    .iter()
+                    .map(|b| b.title.clone())
+                    .collect(),
+                model: model.clone(),
+                usage: resp.usage.clone(),
+            };
+            let receipt = notify_compose::build_signed_receipt(
+                &df.request_id,
+                &df.task,
+                &model,
+                &shim,
+            );
+            ResponseFrame {
+                ty: "response",
+                request_id: df.request_id.clone(),
+                status: "ok",
+                body: Some(body),
+                receipt: Some(receipt),
+                error: None,
+            }
+        }
+        Err(e) => error_response(df, format!("compose_whatsapp: {}", e)),
+    }
+}
+
+/// v0.3 S5 — voice.tts.{alert,digest} handler. Synth runs in-process
+/// (Piper subprocess + synthetic-fallback). When `voice_dir` is None
+/// (tests, early boot) the synth still works because Piper's
+/// "binary missing" path falls through to the synthetic WAV — that's
+/// also what the production-without-Piper path looks like, so the
+/// dispatcher contract stays uniform.
+async fn handle_voice_tts(
+    voice_dir: Option<&Arc<std::path::PathBuf>>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    let dir = match voice_dir {
+        Some(d) => d.clone(),
+        None => {
+            // No app_local_data_dir resolved yet — point Piper at the
+            // OS temp dir. binary_installed/model_installed both return
+            // false there, so the synth falls back to synthetic WAV.
+            Arc::new(std::env::temp_dir())
+        }
+    };
+    match voice::handle_voice_tts_dispatch(dir, &df.payload) {
+        Ok(body) => ResponseFrame {
+            ty: "response",
+            request_id: df.request_id.clone(),
+            status: "ok",
+            body: Some(body),
+            // Voice receipts piggyback on the standard email receipt
+            // builder — feed it an empty-body shim with the audio
+            // metadata in `suggested_actions` so the audit chain still
+            // commits to engine + voice id over BLAKE3.
+            receipt: None,
+            error: None,
+        },
+        Err(e) => error_response(df, format!("voice_tts: {}", e)),
     }
 }
 

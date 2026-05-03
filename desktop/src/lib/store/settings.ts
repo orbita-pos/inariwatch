@@ -44,6 +44,7 @@ export type SettingsSection =
   | "sensors"
   | "notifications"
   | "ai"
+  | "whatsapp"
   | "privacy"
   | "about"
   | "account";

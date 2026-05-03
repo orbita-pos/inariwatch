@@ -41,6 +41,14 @@ pub mod replay;
 pub mod saves;
 pub mod sensors;
 pub mod settings;
+// v0.3 S5 — `voice_synthesize` / `voice_list_voices` / `voice_status`.
+// Piper TTS with synthetic-WAV fallback when the binary isn't installed.
+pub mod voice;
+// v0.3 S5 — Baileys WhatsApp sidecar control surface
+// (`whatsapp_login_start`, `whatsapp_send`, `whatsapp_logout`,
+// `whatsapp_list_accounts`, `whatsapp_status`). Manages a Node sidecar
+// per `desktop/src-tauri/sidecars/whatsapp/` over JSON-RPC stdio.
+pub mod whatsapp;
 pub mod window;
 
 pub use error::IpcError;
