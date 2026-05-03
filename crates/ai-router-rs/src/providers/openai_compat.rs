@@ -93,9 +93,12 @@ impl OpenAICompatAdapter {
         }
     }
 
-    /// Test-only override of the base URL so unit tests can point at
-    /// `mockito` without the URL strings leaking outside this module.
-    #[cfg(test)]
+    /// Override the base URL so callers can point the adapter at a
+    /// mock server. Reachable from production code via
+    /// [`crate::dispatch::DispatchInput::base_url_override`] — production
+    /// callers leave that `None` and the adapter keeps its pinned
+    /// provider URL. The lockdown still holds: no provider URL strings
+    /// appear outside this module.
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self

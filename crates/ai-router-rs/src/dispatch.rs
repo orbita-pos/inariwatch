@@ -73,6 +73,12 @@ pub struct DispatchInput<'a> {
     /// Test-only override. Production callers leave this `None` and the
     /// dispatcher reads env vars via [`CloudMode::from_env`].
     pub cloud_mode_override: Option<CloudMode>,
+    /// Test-only override that points the direct-mode HTTP call at a
+    /// different host (e.g. `http://127.0.0.1:1234` from a mockito
+    /// fixture). Ignored in proxy mode and on local substrates.
+    /// Production callers leave this `None` so the adapter uses the
+    /// pinned provider URL from `providers/*::default()`.
+    pub base_url_override: Option<&'a str>,
 }
 
 impl<'a> DispatchInput<'a> {
@@ -98,6 +104,7 @@ impl<'a> DispatchInput<'a> {
             provider: None,
             workspace: None,
             cloud_mode_override: None,
+            base_url_override: None,
         }
     }
 }
@@ -203,6 +210,7 @@ async fn run_on_target_complete(
                 timeout: input.timeout,
                 json_mode: input.json_mode,
                 provider_override: input.provider,
+                base_url_override: input.base_url_override,
             };
             let resp = cloud_proxy::run_complete(call, target, &mode).await?;
             let provider_label = resp.provider.as_str().to_string();
@@ -271,6 +279,7 @@ async fn run_on_target_stream(
                 timeout: input.timeout,
                 json_mode: false,
                 provider_override: input.provider,
+                base_url_override: input.base_url_override,
             };
             let inner = cloud_proxy::run_stream(call, target, &mode).await?;
             let provider_label = input

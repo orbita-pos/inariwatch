@@ -110,6 +110,12 @@ pub struct ChatResponse {
 #[derive(Clone)]
 pub struct OpenAIClient {
     api_key: String,
+    /// Optional override that points the underlying ai-router-rs
+    /// direct-mode adapter at a different host. Used by integration
+    /// tests to wire mock servers (`OpenAIClient::with_key("sk-test")
+    /// .with_base_url(format!("http://{addr}"))`). `None` in production —
+    /// the adapter then resolves the pinned provider URL.
+    base_url: Option<String>,
 }
 
 impl OpenAIClient {
@@ -126,7 +132,18 @@ impl OpenAIClient {
     pub fn with_key(key: impl Into<String>) -> Self {
         Self {
             api_key: key.into(),
+            base_url: None,
         }
+    }
+
+    /// Override the upstream HTTP host for the next dispatch. Used by
+    /// integration tests to point chat_complete/chat_stream at a
+    /// mockito server. The override is plumbed through ai-router-rs's
+    /// `DispatchInput::base_url_override`; the lockdown stays intact
+    /// because no provider URL leaks outside the router crate.
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = Some(url.into());
+        self
     }
 
     /// Streaming chat. Returns a stream of [`ChatChunk`]s; the terminal
@@ -153,6 +170,7 @@ impl OpenAIClient {
         );
         input.model = Some(model_name.as_str());
         input.provider = Some(AIProvider::Openai);
+        input.base_url_override = self.base_url.as_deref();
 
         let inner = dispatch_stream(input).await?;
         let mapped_stream = inner.map(|res| match res {
@@ -179,6 +197,7 @@ impl OpenAIClient {
         );
         input.model = Some(model_name.as_str());
         input.provider = Some(AIProvider::Openai);
+        input.base_url_override = self.base_url.as_deref();
 
         let resp = dispatch(input).await?;
         Ok(ChatResponse {

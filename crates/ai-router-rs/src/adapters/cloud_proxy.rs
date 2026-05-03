@@ -61,6 +61,12 @@ pub struct CloudCallInput<'a> {
     /// Caller-supplied provider override. Wins over rule hints +
     /// `detect_provider`. Mirrors the TS `pickProvider` precedence.
     pub provider_override: Option<AIProvider>,
+    /// Test-only host override. When `Some`, direct-mode adapters point
+    /// their HTTP calls at this URL instead of the pinned provider URL
+    /// (`https://api.openai.com`, etc.). Surfaces use this from
+    /// `OpenAIClient::with_base_url(...)` to wire mockito fixtures.
+    /// Lockdown stays intact — no provider URL leaks outside this crate.
+    pub base_url_override: Option<&'a str>,
 }
 
 /// Errors surfaced from the cloud adapter. Distinguishes proxy-side
@@ -228,7 +234,10 @@ async fn run_complete_direct(
     let provider = pick_direct_provider(&input, target);
     match provider {
         AIProvider::Claude => {
-            let adapter = AnthropicAdapter::default();
+            let mut adapter = AnthropicAdapter::default();
+            if let Some(url) = input.base_url_override {
+                adapter = adapter.with_base_url(url);
+            }
             adapter
                 .complete(
                     input.api_key,
@@ -243,7 +252,10 @@ async fn run_complete_direct(
                 .map_err(CloudError::Provider)
         }
         other => {
-            let adapter = OpenAICompatAdapter::for_provider(other);
+            let mut adapter = OpenAICompatAdapter::for_provider(other);
+            if let Some(url) = input.base_url_override {
+                adapter = adapter.with_base_url(url);
+            }
             adapter
                 .complete(
                     input.api_key,
@@ -280,7 +292,10 @@ async fn run_stream_direct(
             "stream-not-supported: Claude streaming not wired in v0.3".to_string(),
         )));
     }
-    let adapter = OpenAICompatAdapter::for_provider(provider);
+    let mut adapter = OpenAICompatAdapter::for_provider(provider);
+    if let Some(url) = input.base_url_override {
+        adapter = adapter.with_base_url(url);
+    }
     let inner = adapter
         .stream_complete(
             input.api_key,
@@ -539,6 +554,7 @@ mod tests {
             timeout: Some(Duration::from_secs(2)),
             json_mode: false,
             provider_override: None,
+            base_url_override: None,
         }
     }
 

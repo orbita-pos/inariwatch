@@ -40,8 +40,9 @@ impl Default for AnthropicAdapter {
 }
 
 impl AnthropicAdapter {
-    /// Test-only override of the base URL.
-    #[cfg(test)]
+    /// Override the base URL so callers can point the adapter at a
+    /// mock server. Reachable from production code via
+    /// [`crate::dispatch::DispatchInput::base_url_override`].
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self
