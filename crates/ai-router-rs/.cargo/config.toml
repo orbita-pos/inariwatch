@@ -1,0 +1,11 @@
+# Per `project_machine_constraints.md` — serial test execution avoids
+# the global-state bleed between tests that touch the receipts sink
+# registry, the local-sidecar slot, or `INARI_*` env vars.
+#
+# This config applies only when cargo is invoked from inside this crate
+# (it is the closest config.toml to the build directory). Workspace
+# consumers (cli/, desktop/src-tauri/) keep their own threading
+# settings.
+
+[env]
+RUST_TEST_THREADS = "1"

@@ -1,0 +1,51 @@
+[package]
+name        = "ai-router-rs"
+version     = "0.1.0"
+edition     = "2021"
+description = "Rust mirror of @inariwatch/ai-router. Single dispatch entry point for every AI call from cli/ and desktop/src-tauri/. Per INARI_AI_ARCHITECTURE.md (LOCKED 2026-05-02)."
+publish     = false
+
+# v0.3 S7 — this crate is the lockdown boundary for Rust surfaces. The
+# integration test in `tests/lockdown.rs` walks cli/src/** and
+# desktop/src-tauri/src/** and fails if it finds api.openai.com /
+# api.anthropic.com / api.groq.com / api.x.ai / api.deepseek.com /
+# generativelanguage.googleapis.com OUTSIDE this crate. Every Rust call
+# to a cloud LLM provider goes through `dispatch()` here.
+#
+# Workspace structure: standalone crate consumed via `path =` from cli/
+# and desktop/src-tauri/. We do not introduce a Cargo workspace root —
+# desktop/src-tauri/ has its own tauri-cli + Cargo.lock expectations
+# that would break under a multi-crate workspace.
+
+[lib]
+name = "ai_router_rs"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime + reqwest stack — same versions as cli/ and desktop/src-tauri/
+# so the shared CARGO_TARGET_DIR cache stays warm across all 3 build trees.
+tokio        = { version = "1", features = ["full"] }
+reqwest      = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+anyhow       = "1"
+thiserror    = "1"
+async-trait  = "0.1"
+futures-util = "0.3"
+tracing      = "0.1"
+bytes        = "1"
+
+# `once_cell` for the receipt-sink registry singleton + the activeSidecarUser
+# slot mirror (matches packages/ai-router/src/providers/user-sidecar.ts).
+once_cell    = "1"
+
+# Note: NO ed25519-dalek. v0.3 S7 emits metadata-only receipts to mirror
+# packages/ai-router/src/receipts.ts (Phase 1 contract). Web's
+# `persistRouterReceipt` sink also does not sign — the `signature` field
+# stays None on every dispatch. Phase 4+ adds Ed25519; Rust will follow
+# whenever TS does.
+
+[dev-dependencies]
+tokio    = { version = "1", features = ["full", "test-util", "macros"] }
+mockito  = "1"
+tempfile = "3"
