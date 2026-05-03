@@ -161,7 +161,24 @@ The Hetzner server runs 5 services alongside each other:
 
 ## AI layer
 
-All AI modules live in `web/lib/ai/`. Key files:
+**SSOT:** `INARI_AI_ARCHITECTURE.md` (LOCKED 2026-05-02) is the canonical
+architecture document. The router lives in two mirrored crates:
+
+| Surface | Crate | Entry point |
+|---|---|---|
+| Web (Node) | `packages/ai-router/` (TypeScript) | `dispatch()` in `src/dispatch.ts` |
+| CLI + Inari Live (Rust) | `crates/ai-router-rs/` (Rust, v0.3 S7) | `dispatch()` in `src/dispatch.rs` |
+
+After v0.3 S7, no Rust source under `cli/src/` or `desktop/src-tauri/src/`
+contains a literal provider URL. The integration test
+`crates/ai-router-rs/tests/lockdown.rs` enforces this. The Rust crate
+runs in dual-mode: **Direct** (BYOK → in-crate provider adapter) or
+**Proxy** (`INARI_WEB_URL` + `INARI_WEB_TOKEN` → POST to web's
+`/api/ai/dispatch`).
+
+The TS modules below remain the day-to-day implementation surface for
+web; they consume `dispatch()` from `packages/ai-router` rather than
+the legacy in-tree `client.ts`.
 
 | Module | File | Purpose |
 |---|---|---|

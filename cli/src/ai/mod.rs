@@ -1,7 +1,9 @@
 pub mod prompts;
 
 use anyhow::Result;
-use serde::Deserialize;
+use ai_router_rs::{
+    dispatch, detect_provider as router_detect, AIMessage, AIProvider, DispatchInput, TaskName,
+};
 
 use crate::config::GlobalConfig;
 use crate::orchestrator::RawEvent;
@@ -16,8 +18,9 @@ pub struct AiAnalysis {
     pub suggested_action: Option<String>,
 }
 
-/// Call Claude or OpenAI depending on the key prefix.
-/// Returns None if no AI key is configured.
+/// Correlate raw events into a single alert. Originally hand-rolled
+/// `call_claude` / `call_openai`; v0.3 S7 routes through `ai-router-rs`
+/// with `TaskName::AlertCorrelate`.
 pub async fn analyze(
     global: &GlobalConfig,
     events: &[RawEvent],
@@ -27,37 +30,32 @@ pub async fn analyze(
         None => return Ok(None),
     };
 
-    let prompt = build_prompt(events);
-
-    let analysis = if key.starts_with("sk-ant-") {
-        call_claude(key, &global.ai_model, &prompt).await?
-    } else {
-        call_openai(key, &prompt).await?
-    };
-
-    Ok(Some(analysis))
+    let prompt = build_correlation_prompt(events);
+    let messages = vec![AIMessage::user(prompt)];
+    let mut input = DispatchInput::new(
+        TaskName::AlertCorrelate,
+        key,
+        "", // legacy correlation prompt embeds its own instructions
+        &messages,
+        512,
+    );
+    input.model = Some(global.ai_model.as_str()).filter(|m| !m.is_empty());
+    let resp = dispatch(input).await?;
+    Ok(Some(parse_response(&resp.text)))
 }
 
 // ── v2: Configurable AI calls ────────────────────────────────────────────────
 
-/// Detect the AI provider from the API key prefix.
-/// Ported from web/lib/ai/client.ts detectProvider().
+/// Detect the AI provider from the API key prefix. Thin wrapper over
+/// the router's [`router_detect`] so callers do not need to import the
+/// router type directly.
 pub fn detect_provider(key: &str) -> Provider {
-    if key.starts_with("sk-ant-") {
-        Provider::Claude
-    } else if key.starts_with("gsk_") {
-        Provider::Grok
-    } else if key.starts_with("AIza") {
-        Provider::Gemini
-    } else if key.starts_with("sk-") && key.len() > 40 {
-        // DeepSeek keys are also sk- but tend to be shorter
-        Provider::OpenAI
-    } else {
-        // Default to OpenAI-compatible for unknown prefixes
-        Provider::OpenAI
-    }
+    Provider::from_router(router_detect(key))
 }
 
+/// Mirror of the router's [`AIProvider`] surface, kept in the cli crate
+/// so existing call sites that match on `Provider` still compile. New
+/// code should prefer the router's enum directly.
 #[derive(Debug, Clone, Copy)]
 pub enum Provider {
     Claude,
@@ -67,6 +65,18 @@ pub enum Provider {
 }
 
 impl Provider {
+    fn from_router(r: AIProvider) -> Self {
+        match r {
+            AIProvider::Claude => Provider::Claude,
+            AIProvider::Grok => Provider::Grok,
+            AIProvider::Gemini => Provider::Gemini,
+            // Groq + DeepSeek collapse to OpenAI for cli's coarser
+            // taxonomy; the router still routes them correctly via
+            // `detect_provider` on the api_key prefix.
+            AIProvider::Openai | AIProvider::Groq | AIProvider::Deepseek => Provider::OpenAI,
+        }
+    }
+
     /// Default model for this provider.
     pub fn default_model(&self) -> &'static str {
         match self {
@@ -76,20 +86,11 @@ impl Provider {
             Provider::Gemini => "gemini-2.0-flash",
         }
     }
-
-    /// API base URL.
-    fn api_url(&self) -> &'static str {
-        match self {
-            Provider::Claude => "https://api.anthropic.com/v1/messages",
-            Provider::OpenAI => "https://api.openai.com/v1/chat/completions",
-            Provider::Grok => "https://api.x.ai/v1/chat/completions",
-            Provider::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        }
-    }
 }
 
-/// Generic AI call with configurable parameters.
-/// Returns the raw text response from the model.
+/// Generic AI call with configurable parameters. Delegates to
+/// `ai-router-rs` `dispatch()` — the actual HTTP call (and the URL
+/// strings that drive it) live inside the router crate.
 pub async fn call_ai(
     key: &str,
     model: Option<&str>,
@@ -97,13 +98,25 @@ pub async fn call_ai(
     prompt: &str,
     max_tokens: u32,
 ) -> Result<String> {
-    let provider = detect_provider(key);
-    let model = model.unwrap_or(provider.default_model());
+    call_ai_with_task(TaskName::CodeFingerprint, key, model, system, prompt, max_tokens).await
+}
 
-    match provider {
-        Provider::Claude => call_claude_raw(key, model, system, prompt, max_tokens).await,
-        _ => call_openai_compat(key, provider.api_url(), model, system, prompt, max_tokens).await,
-    }
+/// Same as [`call_ai`] but with explicit task taxonomy. Receipts get the
+/// correct task attribution; `/admin/ops` cost columns line up with the
+/// caller's intent.
+pub async fn call_ai_with_task(
+    task: TaskName,
+    key: &str,
+    model: Option<&str>,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> Result<String> {
+    let messages = vec![AIMessage::user(prompt.to_string())];
+    let mut input = DispatchInput::new(task, key, system, &messages, max_tokens);
+    input.model = model;
+    let resp = dispatch(input).await?;
+    Ok(resp.text)
 }
 
 /// Call AI and parse the response as JSON, stripping markdown fences.
@@ -114,20 +127,45 @@ pub async fn call_ai_json(
     prompt: &str,
     max_tokens: u32,
 ) -> Result<serde_json::Value> {
-    let text = call_ai(key, model, system, prompt, max_tokens).await?;
+    call_ai_json_with_task(
+        TaskName::CodeFingerprint,
+        key,
+        model,
+        system,
+        prompt,
+        max_tokens,
+    )
+    .await
+}
+
+pub async fn call_ai_json_with_task(
+    task: TaskName,
+    key: &str,
+    model: Option<&str>,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> Result<serde_json::Value> {
+    let text = call_ai_with_task(task, key, model, system, prompt, max_tokens).await?;
     let clean = text
         .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
-    serde_json::from_str(clean)
-        .map_err(|e| anyhow::anyhow!("Failed to parse AI response as JSON: {}. Raw: {}", e, &clean[..clean.len().min(200)]))
+    serde_json::from_str(clean).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse AI response as JSON: {}. Raw: {}",
+            e,
+            &clean[..clean.len().min(200)]
+        )
+    })
 }
 
 // ── v2: High-level AI functions ──────────────────────────────────────────────
 
 /// Diagnose an alert and identify files to read (step 2 of trigger_fix).
+#[allow(clippy::too_many_arguments)]
 pub async fn diagnose(
     key: &str,
     model: Option<&str>,
@@ -148,7 +186,15 @@ pub async fn diagnose(
         ai_reasoning,
         past_incidents,
     );
-    call_ai_json(key, model, prompts::SYSTEM_REMEDIATOR, &prompt, 600).await
+    call_ai_json_with_task(
+        TaskName::CodeFixSingleShot,
+        key,
+        model,
+        prompts::SYSTEM_REMEDIATOR,
+        &prompt,
+        600,
+    )
+    .await
 }
 
 /// Generate a code fix (step 4 of trigger_fix).
@@ -161,7 +207,15 @@ pub async fn generate_fix(
     previous_attempt: Option<(&[String], &str)>,
 ) -> Result<serde_json::Value> {
     let prompt = prompts::build_fix_prompt(diagnosis, files, error_details, previous_attempt);
-    call_ai_json(key, model, prompts::SYSTEM_REMEDIATOR, &prompt, 4096).await
+    call_ai_json_with_task(
+        TaskName::CodeFixSingleShot,
+        key,
+        model,
+        prompts::SYSTEM_REMEDIATOR,
+        &prompt,
+        4096,
+    )
+    .await
 }
 
 /// Self-review a generated fix (step 5 of trigger_fix).
@@ -173,11 +227,21 @@ pub async fn self_review(
     fixed_files: &[(&str, &str)],
     error_details: &str,
 ) -> Result<serde_json::Value> {
-    let prompt = prompts::build_self_review_prompt(diagnosis, original_files, fixed_files, error_details);
-    call_ai_json(key, model, prompts::SYSTEM_REVIEWER, &prompt, 1024).await
+    let prompt =
+        prompts::build_self_review_prompt(diagnosis, original_files, fixed_files, error_details);
+    call_ai_json_with_task(
+        TaskName::CodeReviewSelf,
+        key,
+        model,
+        prompts::SYSTEM_REVIEWER,
+        &prompt,
+        1024,
+    )
+    .await
 }
 
 /// Generate a post-mortem document after successful remediation.
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_postmortem(
     key: &str,
     model: Option<&str>,
@@ -195,17 +259,33 @@ pub async fn generate_postmortem(
     steps: &[(String, String)],
 ) -> Result<String> {
     let prompt = prompts::build_postmortem_prompt(
-        alert_title, alert_body, alert_sources,
-        alert_severity, alert_created_at,
-        diagnosis, fix_explanation, files_changed,
-        confidence, pr_url, auto_merged, steps,
+        alert_title,
+        alert_body,
+        alert_sources,
+        alert_severity,
+        alert_created_at,
+        diagnosis,
+        fix_explanation,
+        files_changed,
+        confidence,
+        pr_url,
+        auto_merged,
+        steps,
     );
-    call_ai(key, model, prompts::SYSTEM_POSTMORTEM, &prompt, 2048).await
+    call_ai_with_task(
+        TaskName::NotifyComposePostmortemProse,
+        key,
+        model,
+        prompts::SYSTEM_POSTMORTEM,
+        &prompt,
+        2048,
+    )
+    .await
 }
 
 // ── Prompt builder (v1 — existing) ──────────────────────────────────────────
 
-fn build_prompt(events: &[RawEvent]) -> String {
+fn build_correlation_prompt(events: &[RawEvent]) -> String {
     let mut lines = vec![
         "You are a developer monitoring assistant. \
          Correlate the events below and produce one concise alert."
@@ -241,138 +321,7 @@ fn build_prompt(events: &[RawEvent]) -> String {
     lines.join("\n")
 }
 
-// ── Claude (v2 — with system prompt + configurable max_tokens) ──────────────
-
-async fn call_claude_raw(
-    key: &str,
-    model: &str,
-    system: &str,
-    prompt: &str,
-    max_tokens: u32,
-) -> Result<String> {
-    let client = reqwest::Client::new();
-    let resp = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&serde_json::json!({
-            "model": model,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": prompt}]
-        }))
-        .send()
-        .await?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        let preview: String = body.chars().take(200).collect();
-        anyhow::bail!("Claude API error ({}): {}", status, preview);
-    }
-
-    let raw: ClaudeResponse = resp.json().await?;
-    Ok(raw.content.first().map(|b| b.text.clone()).unwrap_or_default())
-}
-
-// ── OpenAI-compatible (v2 — works for OpenAI, Grok, Gemini) ────────────────
-
-async fn call_openai_compat(
-    key: &str,
-    api_url: &str,
-    model: &str,
-    system: &str,
-    prompt: &str,
-    max_tokens: u32,
-) -> Result<String> {
-    let client = reqwest::Client::new();
-
-    let auth_header = if api_url.contains("googleapis.com") {
-        // Gemini uses API key as query param, but also accepts Bearer
-        format!("Bearer {}", key)
-    } else {
-        format!("Bearer {}", key)
-    };
-
-    let resp = client
-        .post(api_url)
-        .header("Authorization", &auth_header)
-        .json(&serde_json::json!({
-            "model": model,
-            "max_tokens": max_tokens,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt}
-            ]
-        }))
-        .send()
-        .await?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        let preview: String = body.chars().take(200).collect();
-        // Strip query params from URL to avoid leaking API keys in error messages
-        let safe_url = api_url.split('?').next().unwrap_or(api_url);
-        anyhow::bail!("AI API error ({}, {}): {}", safe_url, status, preview);
-    }
-
-    let raw: OpenAIResponse = resp.json().await?;
-    Ok(raw
-        .choices
-        .first()
-        .map(|c| c.message.content.clone())
-        .unwrap_or_default())
-}
-
-// ── v1 legacy wrappers (kept for backwards compat with analyze()) ───────────
-
-async fn call_claude(key: &str, model: &str, prompt: &str) -> Result<AiAnalysis> {
-    let text = call_claude_raw(key, model, "", prompt, 512).await?;
-    parse_response(&text)
-}
-
-async fn call_openai(key: &str, prompt: &str) -> Result<AiAnalysis> {
-    let text = call_openai_compat(
-        key,
-        "https://api.openai.com/v1/chat/completions",
-        "gpt-4o-mini",
-        "",
-        prompt,
-        512,
-    )
-    .await?;
-    parse_response(&text)
-}
-
-// ── Response types ───────────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct ClaudeResponse {
-    content: Vec<ClaudeBlock>,
-}
-
-#[derive(Deserialize)]
-struct ClaudeBlock {
-    text: String,
-}
-
-#[derive(Deserialize)]
-struct OpenAIResponse {
-    choices: Vec<OpenAIChoice>,
-}
-
-#[derive(Deserialize)]
-struct OpenAIChoice {
-    message: OpenAIMessage,
-}
-
-#[derive(Deserialize)]
-struct OpenAIMessage {
-    content: String,
-}
-
-fn parse_response(text: &str) -> Result<AiAnalysis> {
+fn parse_response(text: &str) -> AiAnalysis {
     let clean = text
         .trim()
         .trim_start_matches("```json")
@@ -383,7 +332,7 @@ fn parse_response(text: &str) -> Result<AiAnalysis> {
     let v: serde_json::Value =
         serde_json::from_str(clean).unwrap_or_else(|_| serde_json::json!({}));
 
-    Ok(AiAnalysis {
+    AiAnalysis {
         severity: v["severity"]
             .as_str()
             .unwrap_or("warning")
@@ -395,5 +344,5 @@ fn parse_response(text: &str) -> Result<AiAnalysis> {
         body: v["body"].as_str().unwrap_or(clean).to_string(),
         root_cause: v["root_cause"].as_str().map(String::from),
         suggested_action: v["suggested_action"].as_str().map(String::from),
-    })
+    }
 }

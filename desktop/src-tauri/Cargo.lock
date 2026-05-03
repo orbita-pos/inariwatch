@@ -38,6 +38,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-router-rs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "once_cell",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aligned"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2711,6 +2728,7 @@ checksum = "40fac9d56ed6437b198fddba683305e8e2d651aa42647f00f5ae542e7f5c94a2"
 name = "inariwatch-desktop"
 version = "0.1.0"
 dependencies = [
+ "ai-router-rs",
  "axum",
  "blake3",
  "bytes",

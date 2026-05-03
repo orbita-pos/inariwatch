@@ -1,0 +1,47 @@
+# `cargo deny` configuration for `ai-router-rs`. v0.3 S7.
+#
+# Scope: dependency-graph constraints only (advisories + licenses).
+# Source-level lockdown (no provider URLs outside this crate) is enforced
+# by the integration test in `tests/lockdown.rs`; cargo-deny is the
+# wrong tool for source greps and has known false positives in
+# multi-crate path-dep trees without a workspace root.
+
+[advisories]
+version = 2
+# Fail on any unfixed advisory in the dependency graph. The CI workflow
+# `.github/workflows/ai-router-rs-ci.yml` runs `cargo deny check
+# advisories` on every PR that touches this crate / cli/ / desktop/.
+# `db-urls` defaults to the official advisory-db.
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "0BSD",
+]
+confidence-threshold = 0.8
+# Crates that ship without a clear SPDX expression but are
+# license-clean per source review.
+[[licenses.exceptions]]
+name = "ring"
+allow = ["ISC", "OpenSSL", "MIT"]
+
+[bans]
+multiple-versions = "warn"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

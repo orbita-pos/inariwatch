@@ -1,35 +1,34 @@
-//! OpenAI Chat Completions client.
+//! OpenAI Chat Completions client — v0.3 S7 shim.
 //!
-//! Two surfaces:
-//!   - [`OpenAIClient::chat_stream`] — streaming chat. Returns a
-//!     [`futures_util::Stream`] of [`ChatChunk`] items so the dock can
-//!     paint tokens as they arrive (TTFT is the headline UX metric).
-//!   - [`OpenAIClient::chat_complete`] — one-shot non-streaming chat,
-//!     used by `auto_analyze` and `diagnose` paths.
+//! Originally (Sesión 18) this file owned the full Chat Completions HTTP
+//! stack: bearer auth, retry, SSE parsing, key redaction, the OpenAI
+//! base URL, etc. v0.3 S7 moved every byte of that plumbing into
+//! [`ai_router_rs`] so there is exactly **one** Rust router for cloud
+//! LLM calls. This file is now a thin shim that:
 //!
-//! Plus an `embeddings` stub that returns
-//! [`OpenAIError::NotImplemented`] until Sesión 13 wires it into the
-//! indexer.
+//! - Resolves the API key from settings (BYOK) or `PLATFORM_AI_KEY`.
+//! - Translates desktop's [`super::prompts::ChatMessage`] +
+//!   [`super::budget::Model`] into the router's
+//!   [`ai_router_rs::AIMessage`] + model name.
+//! - Calls [`ai_router_rs::dispatch`] / [`ai_router_rs::dispatch_stream`].
+//! - Converts the router's response back into the [`ChatResponse`] /
+//!   [`ChatChunk`] / [`UsageReport`] shapes the rest of `desktop/`
+//!   already consumes.
 //!
-//! Key resolution: BYOK from the settings store → `PLATFORM_AI_KEY`
-//! env var → fail-closed [`OpenAIError::NoKey`].
+//! Provider URL strings live ONLY inside the router crate —
+//! `crates/ai-router-rs/tests/lockdown.rs` enforces it.
 //!
-//! SSE parsing is hand-rolled (no `eventsource-stream` dep). OpenAI's
-//! framing is `data: <line>\n\n` blocks with optional retry comments
-//! we ignore + a `data: [DONE]` terminator. ~40 lines below.
-//!
-//! Retries: 3 attempts on 429 / 5xx with exponential backoff (1s / 2s).
-//! Other 4xx never retries — surfaces immediately. The retry only
-//! covers the request-establishment phase; once we've produced a
-//! [`Stream`] the caller owns its lifecycle.
+//! `embeddings(...)` keeps its existing local-fastembed delegation; it
+//! never touched OpenAI in tree (Sesión 13 made that explicit).
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 
-use futures_util::stream::Stream;
-use serde::{Deserialize, Serialize};
-use serde_json::Value as Json;
+use ai_router_rs::{
+    dispatch, dispatch_stream, AIMessage as RouterMessage, AIProvider, ChatChunk as RouterChatChunk,
+    DispatchInput, Role as RouterRole, TaskName,
+};
+use futures_util::stream::{Stream, StreamExt};
 use thiserror::Error;
 
 use crate::store::{settings, Store};
@@ -37,13 +36,8 @@ use crate::store::{settings, Store};
 use super::budget::Model;
 use super::prompts::{ChatMessage, Role};
 
-/// Default OpenAI base URL. Tests override via [`OpenAIClient::with_base_url`].
-pub const DEFAULT_BASE_URL: &str = "https://api.openai.com";
-
 /// Env var the platform key lives under. Synced from the web onto disk
-/// (Sesión 4 device-flow auth) — eventually we can read it from
-/// `auth.json`; for now `std::env::var` is enough since the desktop
-/// inherits it through Tauri's environment.
+/// (Sesión 4 device-flow auth).
 pub const PLATFORM_KEY_ENV: &str = "PLATFORM_AI_KEY";
 
 #[derive(Debug, Error)]
@@ -57,27 +51,42 @@ pub enum OpenAIError {
     #[error("invalid JSON in stream chunk: {0}")]
     BadChunk(String),
     /// Retained for source compatibility — Sesión 13 wired
-    /// [`OpenAIClient::embeddings`] to the local fastembed model so
-    /// nothing in tree raises this anymore. Kept (instead of removed)
-    /// so that downstream callers compiled against earlier shapes do
-    /// not see an exhaustive-match break.
+    /// [`OpenAIClient::embeddings`] to local fastembed so nothing in
+    /// tree raises this anymore. Kept (instead of removed) so
+    /// downstream callers compiled against earlier shapes do not see
+    /// an exhaustive-match break.
     #[error("not implemented in this build")]
     NotImplemented,
     #[error("store error: {0}")]
     Store(#[from] crate::store::StoreError),
+    #[error("router dispatch: {0}")]
+    Router(String),
 }
 
-/// One streamed chunk from the chat completion. Mirrors OpenAI's
-/// `chat.completion.chunk` schema, narrowed to the fields we care
-/// about. The trailing chunk's `usage` is populated when we asked for
-/// it in the request body (`stream_options.include_usage = true`).
+impl From<ai_router_rs::DispatchError> for OpenAIError {
+    fn from(e: ai_router_rs::DispatchError) -> Self {
+        // Map provider HTTP errors back into [`OpenAIError::Api`] so
+        // callers that pattern-match on `status` keep working.
+        if let ai_router_rs::DispatchError::Cloud(ref ce) = e {
+            if let Some(status) = ce.http_status() {
+                return OpenAIError::Api {
+                    status,
+                    body: ce.to_string(),
+                };
+            }
+        }
+        OpenAIError::Router(e.to_string())
+    }
+}
+
+/// One streamed chunk from the chat completion. Field set is unchanged
+/// from Sesión 18 so the dock's `installChatStreamDriver` consumer
+/// keeps compiling.
 #[derive(Debug, Clone)]
 pub struct ChatChunk {
-    /// Delta token. Empty on the very first chunk (which only carries
-    /// the `role` field) and on the final chunk (which only carries
-    /// `finish_reason` / `usage`).
+    /// Delta token. Empty on the very first chunk and the closing one.
     pub delta:         String,
-    /// `"stop"` / `"length"` / `"content_filter"` / `"tool_calls"` —
+    /// `"stop"` / `"length"` / `"content_filter"` / `"tool_calls"`.
     /// `Some(_)` on the chunk that closes the stream.
     pub finish_reason: Option<String>,
     /// Optional usage block carried by the final chunk.
@@ -100,15 +109,13 @@ pub struct ChatResponse {
 
 #[derive(Clone)]
 pub struct OpenAIClient {
-    http:     reqwest::Client,
-    api_key:  String,
-    base_url: String,
+    api_key: String,
 }
 
 impl OpenAIClient {
     /// Build a client by resolving the active key from the settings
-    /// store. Falls back to [`PLATFORM_KEY_ENV`]; returns [`NoKey`] if
-    /// neither source is populated.
+    /// store. Falls back to [`PLATFORM_KEY_ENV`]; returns
+    /// [`OpenAIError::NoKey`] when neither source is populated.
     pub fn from_store(store: &Arc<Store>) -> Result<Self, OpenAIError> {
         let key = resolve_key(store)?;
         Ok(Self::with_key(key))
@@ -117,98 +124,84 @@ impl OpenAIClient {
     /// Build a client from a literal key. Used in tests + by callers
     /// that already resolved the key (e.g. budget gate).
     pub fn with_key(key: impl Into<String>) -> Self {
-        let http = reqwest::Client::builder()
-            // 30 s socket timeout. SSE keeps the response open longer
-            // than this — the timeout applies to TCP connect + headers,
-            // not the total stream duration. reqwest 0.12 documents
-            // this behavior.
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("reqwest client builds with default config");
-
         Self {
-            http,
-            api_key:  key.into(),
-            base_url: DEFAULT_BASE_URL.to_string(),
+            api_key: key.into(),
         }
     }
 
-    /// Override the base URL. Tests use this to point the client at a
-    /// local mock server.
-    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
-        self.base_url = url.into();
-        self
-    }
-
-    /// Streaming chat. Caller awaits the returned future to get a
-    /// [`Stream`] of [`ChatChunk`] items. The stream ends when OpenAI
-    /// emits `data: [DONE]` (translated into a final chunk with
-    /// `finish_reason: Some(_)`) or the connection drops.
-    ///
-    /// Retries the *request kickoff* (headers + first byte of body) up
-    /// to 3 times on 429 / 5xx with 1 s / 2 s backoff. Once we have a
-    /// successful 200 the stream is the caller's lifecycle.
+    /// Streaming chat. Returns a stream of [`ChatChunk`]s; the terminal
+    /// chunk carries `finish_reason: Some(_)` (and, when the upstream
+    /// provider exposes it, `usage`).
     pub async fn chat_stream(
         &self,
         messages: &[ChatMessage],
         model:    Model,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatChunk, OpenAIError>> + Send>>, OpenAIError> {
-        let body = build_request_body(messages, model, true);
-        let url  = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<ChatChunk, OpenAIError>> + Send>>,
+        OpenAIError,
+    > {
+        let mapped = map_messages(messages);
+        let model_name = model.api_name().to_string();
+        let mut input = DispatchInput::new(
+            TaskName::ChatCode,
+            self.api_key.as_str(),
+            "",
+            &mapped,
+            // ai-router-rs requires u32; mirror Sesión 18's
+            // open-ended-stream behavior by passing a generous cap.
+            4096,
+        );
+        input.model = Some(model_name.as_str());
+        input.provider = Some(AIProvider::Openai);
 
-        let resp = self.send_with_retry(&url, &body).await?;
-
-        let bytes_stream = resp.bytes_stream();
-        let chunk_stream = sse_chunks(bytes_stream);
-        Ok(Box::pin(chunk_stream))
+        let inner = dispatch_stream(input).await?;
+        let mapped_stream = inner.map(|res| match res {
+            Ok(c) => Ok(map_chunk(c)),
+            Err(e) => Err(OpenAIError::from(e)),
+        });
+        Ok(Box::pin(mapped_stream))
     }
 
-    /// One-shot non-streaming chat. Returns the assembled response
-    /// content + token usage.
+    /// One-shot non-streaming chat.
     pub async fn chat_complete(
         &self,
         messages: &[ChatMessage],
         model:    Model,
     ) -> Result<ChatResponse, OpenAIError> {
-        let body = build_request_body(messages, model, false);
-        let url  = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let mapped = map_messages(messages);
+        let model_name = model.api_name().to_string();
+        let mut input = DispatchInput::new(
+            TaskName::ChatCode,
+            self.api_key.as_str(),
+            "",
+            &mapped,
+            4096,
+        );
+        input.model = Some(model_name.as_str());
+        input.provider = Some(AIProvider::Openai);
 
-        let resp = self.send_with_retry(&url, &body).await?;
-        let parsed: ChatCompletion = resp.json().await?;
-
-        let content = parsed
-            .choices
-            .into_iter()
-            .next()
-            .map(|c| c.message.content)
-            .unwrap_or_default();
-        let usage = parsed.usage.unwrap_or_default();
-
+        let resp = dispatch(input).await?;
         Ok(ChatResponse {
-            content,
-            usage:   UsageReport {
-                prompt_tokens:     usage.prompt_tokens,
-                completion_tokens: usage.completion_tokens,
+            content: resp.text,
+            usage: UsageReport {
+                prompt_tokens: resp.usage.input_tokens.max(0) as u32,
+                completion_tokens: resp.usage.output_tokens.max(0) as u32,
             },
-            model:   parsed.model,
+            model: resp.model,
         })
     }
 
     /// Embed `texts` into 384-dim vectors via the bundled fastembed
     /// MiniLM-L6-v2 model. Sesión 13 deliberately resolves embeddings
-    /// locally instead of calling OpenAI's `text-embedding-3-small`:
-    /// the fastembed model is already loaded for the indexer's code
-    /// search, the dimension matches the existing
-    /// `code_embeddings FLOAT[384]` schema, and routing every embed
-    /// through the network would burn budget on a workload that runs
-    /// fine on the user's CPU. See `INARI_LIVE_DECISIONS.md` 2026-05-01
-    /// for the rationale + the migration path if we ever need
-    /// 1536-dim semantics.
+    /// locally — the model is already loaded for the indexer's code
+    /// search and the dimension matches the existing
+    /// `code_embeddings FLOAT[384]` schema. See
+    /// `INARI_LIVE_DECISIONS.md` 2026-05-01 for the rationale.
     ///
     /// Returns an empty vector for empty input. Bubbles fastembed
     /// model-load failures through [`OpenAIError::Api`] so the caller
-    /// can surface "no embeddings — running offline?" without
-    /// inventing a new error variant.
+    /// can surface "no embeddings — running offline?" without a new
+    /// error variant.
     pub async fn embeddings(
         &self,
         texts: Vec<String>,
@@ -230,91 +223,31 @@ impl OpenAIClient {
         })?;
         Ok(arrays.into_iter().map(|a| a.to_vec()).collect())
     }
-
-    async fn send_with_retry(
-        &self,
-        url:  &str,
-        body: &Json,
-    ) -> Result<reqwest::Response, OpenAIError> {
-        const MAX_ATTEMPTS: u32 = 3;
-        let mut attempt: u32 = 0;
-        loop {
-            attempt += 1;
-            let resp_res = self.http
-                .post(url)
-                .bearer_auth(&self.api_key)
-                .json(body)
-                .send()
-                .await;
-
-            match resp_res {
-                Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        return Ok(resp);
-                    }
-                    let code = status.as_u16();
-                    let retryable = code == 429 || (500..=599).contains(&code);
-                    if retryable && attempt < MAX_ATTEMPTS {
-                        backoff(attempt).await;
-                        continue;
-                    }
-                    let body_text = resp.text().await.unwrap_or_default();
-                    return Err(OpenAIError::Api { status: code, body: redact_key_in_error(&body_text, &self.api_key) });
-                }
-                Err(e) => {
-                    if attempt < MAX_ATTEMPTS && (e.is_timeout() || e.is_connect()) {
-                        backoff(attempt).await;
-                        continue;
-                    }
-                    return Err(OpenAIError::Http(e));
-                }
-            }
-        }
-    }
 }
 
-async fn backoff(attempt: u32) {
-    // 1s, 2s, 4s — capped naturally by MAX_ATTEMPTS = 3.
-    let delay_ms = 1000u64 << (attempt - 1).min(3);
-    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+fn map_messages(messages: &[ChatMessage]) -> Vec<RouterMessage> {
+    messages
+        .iter()
+        .map(|m| RouterMessage {
+            role: match m.role {
+                Role::System => RouterRole::System,
+                Role::User => RouterRole::User,
+                Role::Assistant => RouterRole::Assistant,
+            },
+            content: m.content.clone(),
+        })
+        .collect()
 }
 
-fn build_request_body(messages: &[ChatMessage], model: Model, stream: bool) -> Json {
-    let msgs: Vec<Json> = messages.iter().map(|m| serde_json::json!({
-        "role":    role_str(m.role),
-        "content": m.content,
-    })).collect();
-    let mut body = serde_json::json!({
-        "model":    model.api_name(),
-        "messages": msgs,
-        "stream":   stream,
-    });
-    if stream {
-        // Ask OpenAI to include token usage in the FINAL chunk so the
-        // budget tracker can record actual spend without falling back
-        // to the chars/4 heuristic. Documented under stream_options.
-        body["stream_options"] = serde_json::json!({ "include_usage": true });
+fn map_chunk(c: RouterChatChunk) -> ChatChunk {
+    ChatChunk {
+        delta: c.delta,
+        finish_reason: c.finish_reason,
+        usage: c.usage.map(|u| UsageReport {
+            prompt_tokens: u.input_tokens.max(0) as u32,
+            completion_tokens: u.output_tokens.max(0) as u32,
+        }),
     }
-    body
-}
-
-fn role_str(role: Role) -> &'static str {
-    match role {
-        Role::System    => "system",
-        Role::User      => "user",
-        Role::Assistant => "assistant",
-    }
-}
-
-/// Best-effort redaction so error bodies bubbled up from the API
-/// path don't accidentally embed the key. tracing redaction is the
-/// belt-and-suspenders of this crate; this is the suspenders.
-fn redact_key_in_error(body: &str, key: &str) -> String {
-    if key.is_empty() {
-        return body.to_string();
-    }
-    body.replace(key, "<redacted>")
 }
 
 fn resolve_key(store: &Arc<Store>) -> Result<String, OpenAIError> {
@@ -331,259 +264,66 @@ fn resolve_key(store: &Arc<Store>) -> Result<String, OpenAIError> {
     Err(OpenAIError::NoKey)
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// SSE parsing (hand-rolled — see module-level docs)
-// ─────────────────────────────────────────────────────────────────────
-
-/// Convert a reqwest byte stream into an SSE-aware [`ChatChunk`] stream.
-/// Buffers across packet boundaries until a complete `data: ...\n\n`
-/// frame is available. Skips `:` heartbeat comments + the literal
-/// `data: [DONE]` terminator (we instead synthesize a `Done` chunk
-/// from the OpenAI-marked `finish_reason`).
-fn sse_chunks(
-    bytes: impl Stream<Item = reqwest::Result<bytes::Bytes>> + Send + 'static,
-) -> impl Stream<Item = Result<ChatChunk, OpenAIError>> + Send + 'static {
-    use futures_util::stream::{self, StreamExt};
-
-    let buf:   Vec<u8> = Vec::new();
-    let state = (buf, false /* done_seen */);
-
-    stream::unfold(
-        (Box::pin(bytes), state),
-        |(mut bytes, (mut buf, mut done_seen))| async move {
-            loop {
-                // Drain any complete frames already in `buf` first.
-                if let Some((emit, next_buf)) = next_frame(&buf) {
-                    buf = next_buf;
-                    match parse_frame(&emit) {
-                        Ok(Some(chunk)) => {
-                            if chunk.finish_reason.is_some() { done_seen = true; }
-                            return Some((Ok(chunk), (bytes, (buf, done_seen))));
-                        }
-                        Ok(None) => continue, // [DONE] / ping comment
-                        Err(e)   => return Some((Err(e), (bytes, (buf, done_seen)))),
-                    }
-                }
-
-                // No complete frame buffered — fetch more bytes.
-                match bytes.next().await {
-                    Some(Ok(packet)) => {
-                        buf.extend_from_slice(&packet);
-                    }
-                    Some(Err(e)) => {
-                        return Some((Err(OpenAIError::Http(e)), (bytes, (buf, done_seen))));
-                    }
-                    None => {
-                        // Stream over. Drain a final frame if buffered.
-                        if !done_seen {
-                            if let Some((emit, _)) = next_frame_or_partial(&buf) {
-                                if let Ok(Some(chunk)) = parse_frame(&emit) {
-                                    return Some((Ok(chunk), (bytes, (Vec::new(), true))));
-                                }
-                            }
-                        }
-                        return None;
-                    }
-                }
-            }
-        },
-    )
-}
-
-/// Pull the first complete `event\n\n` frame from `buf`. Returns the
-/// frame body (without the trailing `\n\n`) + the remainder. Returns
-/// `None` if no complete frame is buffered.
-fn next_frame(buf: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-    // Look for `\n\n` (two LFs in a row); we don't need CR support
-    // because reqwest 0.12 + axum 0.7 + OpenAI itself emit LF-only.
-    for i in 1..buf.len() {
-        if buf[i] == b'\n' && buf[i - 1] == b'\n' {
-            let frame = buf[..i - 1].to_vec();
-            let rest  = buf[i + 1..].to_vec();
-            return Some((frame, rest));
-        }
-    }
-    None
-}
-
-/// Same as [`next_frame`] but accepts a buffer with a trailing
-/// incomplete frame at end-of-stream.
-fn next_frame_or_partial(buf: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-    if buf.is_empty() {
-        return None;
-    }
-    // Already complete?
-    if let Some(frame) = next_frame(buf) {
-        return Some(frame);
-    }
-    // Partial — emit whatever's in buf as the frame; remainder empty.
-    Some((buf.to_vec(), Vec::new()))
-}
-
-fn parse_frame(frame: &[u8]) -> Result<Option<ChatChunk>, OpenAIError> {
-    let s = std::str::from_utf8(frame).map_err(|e| OpenAIError::BadChunk(e.to_string()))?;
-    // SSE frames may carry multiple `data:` lines. OpenAI's chat
-    // streaming emits exactly one — we only handle that case but
-    // tolerate the extra blank line.
-    let trimmed = s.trim();
-    if trimmed.is_empty() || trimmed.starts_with(':') {
-        return Ok(None);
-    }
-    let payload = trimmed
-        .strip_prefix("data:")
-        .map(str::trim_start)
-        .unwrap_or(trimmed);
-
-    if payload == "[DONE]" {
-        return Ok(None);
-    }
-
-    let parsed: ChunkPayload = serde_json::from_str(payload)
-        .map_err(|e| OpenAIError::BadChunk(format!("{}; payload was: {}", e, payload)))?;
-
-    let mut chunk = ChatChunk {
-        delta:         String::new(),
-        finish_reason: None,
-        usage:         None,
-    };
-
-    if let Some(choice) = parsed.choices.into_iter().next() {
-        chunk.delta = choice.delta.content.unwrap_or_default();
-        chunk.finish_reason = choice.finish_reason;
-    }
-    if let Some(u) = parsed.usage {
-        chunk.usage = Some(UsageReport {
-            prompt_tokens:     u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-        });
-    }
-
-    Ok(Some(chunk))
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Deserialization shapes — kept private to the module
-// ─────────────────────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct ChunkPayload {
-    #[serde(default)]
-    choices: Vec<ChunkChoice>,
-    #[serde(default)]
-    usage:   Option<RawUsage>,
-}
-
-#[derive(Deserialize)]
-struct ChunkChoice {
-    #[serde(default)]
-    delta:         ChunkDelta,
-    #[serde(default)]
-    finish_reason: Option<String>,
-}
-
-#[derive(Default, Deserialize)]
-struct ChunkDelta {
-    #[serde(default)]
-    content: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ChatCompletion {
-    #[serde(default)]
-    choices: Vec<CompletionChoice>,
-    #[serde(default)]
-    usage:   Option<RawUsage>,
-    #[serde(default)]
-    model:   String,
-}
-
-#[derive(Deserialize)]
-struct CompletionChoice {
-    message: CompletionMessage,
-}
-
-#[derive(Deserialize)]
-struct CompletionMessage {
-    #[serde(default)]
-    content: String,
-}
-
-#[derive(Default, Deserialize, Serialize, Clone, Copy)]
-struct RawUsage {
-    #[serde(default)]
-    prompt_tokens:     u32,
-    #[serde(default)]
-    completion_tokens: u32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn build_request_body_includes_stream_options_when_streaming() {
-        let msgs = vec![ChatMessage::user("hi")];
-        let body = build_request_body(&msgs, Model::Gpt54, true);
-        assert_eq!(body["model"], "gpt-5.4");
-        assert_eq!(body["stream"], true);
-        assert_eq!(body["stream_options"]["include_usage"], true);
+    fn map_messages_preserves_role_and_content() {
+        let m = vec![
+            ChatMessage::system("be terse"),
+            ChatMessage::user("hi"),
+            ChatMessage::assistant("hello"),
+        ];
+        let r = map_messages(&m);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].role, RouterRole::System);
+        assert_eq!(r[0].content, "be terse");
+        assert_eq!(r[1].role, RouterRole::User);
+        assert_eq!(r[1].content, "hi");
+        assert_eq!(r[2].role, RouterRole::Assistant);
+        assert_eq!(r[2].content, "hello");
     }
 
     #[test]
-    fn build_request_body_omits_stream_options_when_not_streaming() {
-        let msgs = vec![ChatMessage::user("hi")];
-        let body = build_request_body(&msgs, Model::Gpt4oMini, false);
-        assert_eq!(body["stream"], false);
-        assert!(body.get("stream_options").is_none());
+    fn map_chunk_translates_usage() {
+        let c = RouterChatChunk {
+            delta: "hi".to_string(),
+            finish_reason: Some("stop".to_string()),
+            usage: Some(ai_router_rs::AIUsage {
+                input_tokens: 10,
+                output_tokens: 4,
+                cached_input_tokens: 0,
+            }),
+        };
+        let m = map_chunk(c);
+        assert_eq!(m.delta, "hi");
+        assert_eq!(m.finish_reason.as_deref(), Some("stop"));
+        let u = m.usage.unwrap();
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 4);
     }
 
     #[test]
-    fn parse_frame_extracts_delta() {
-        let frame = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}";
-        let chunk = parse_frame(frame).expect("ok").expect("some");
-        assert_eq!(chunk.delta, "Hello");
-        assert!(chunk.finish_reason.is_none());
+    fn from_dispatch_error_maps_api_status() {
+        // Synthetic: the conversion path matters more than fidelity
+        // to a real upstream — production tests live in
+        // ai-router-rs/src/providers.
+        use ai_router_rs::DispatchError;
+        let e = DispatchError::Cloud(ai_router_rs::adapters::cloud_proxy::CloudError::ProxyApi {
+            status: 429,
+            body: "rate limited".to_string(),
+        });
+        let mapped: OpenAIError = e.into();
+        match mapped {
+            OpenAIError::Api { status, .. } => assert_eq!(status, 429),
+            other => panic!("expected Api, got {other:?}"),
+        }
     }
 
     #[test]
-    fn parse_frame_marks_finish_reason() {
-        let frame = b"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}";
-        let chunk = parse_frame(frame).expect("ok").expect("some");
-        assert_eq!(chunk.finish_reason.as_deref(), Some("stop"));
-    }
-
-    #[test]
-    fn parse_frame_skips_done_terminator() {
-        let frame = b"data: [DONE]";
-        let chunk = parse_frame(frame).expect("ok");
-        assert!(chunk.is_none());
-    }
-
-    #[test]
-    fn parse_frame_skips_comment_heartbeat() {
-        let frame = b": ping";
-        let chunk = parse_frame(frame).expect("ok");
-        assert!(chunk.is_none());
-    }
-
-    #[test]
-    fn next_frame_pulls_one_block_with_remainder() {
-        let buf = b"data: a\n\ndata: b\n\n";
-        let (frame, rest) = next_frame(buf).unwrap();
-        assert_eq!(frame, b"data: a");
-        assert_eq!(rest, b"data: b\n\n");
-    }
-
-    #[test]
-    fn next_frame_returns_none_on_partial_block() {
-        let buf = b"data: a";
-        assert!(next_frame(buf).is_none());
-    }
-
-    #[test]
-    fn redacts_key_in_error_body() {
-        let body = "auth failed: sk-secret-key";
-        let red  = redact_key_in_error(body, "sk-secret-key");
-        assert_eq!(red, "auth failed: <redacted>");
+    fn with_key_stores_api_key() {
+        let c = OpenAIClient::with_key("sk-test");
+        assert_eq!(c.api_key, "sk-test");
     }
 }
