@@ -1,0 +1,14 @@
+{
+  "name": "@inariwatch/code-intel-extractor-py",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Python semantic extractor for Code Intelligence v2 (Phase 2). Spawns pyright as subprocess and writes symbols/references/type_facts/imports rows tagged language='python' into the same tables Phase 1 created.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "pyright": "1.1.380",
+    "vitest": "^4.1.0"
+  }
+}
