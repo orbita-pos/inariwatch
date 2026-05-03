@@ -207,6 +207,13 @@ ed25519-dalek            = { version = "2", default-features = false, features =
 tokio-tungstenite        = { version = "0.23", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 rand                     = "0.8"
 
+# v0.3 S7 — every cloud-LLM HTTP call from desktop/src-tauri/ now goes
+# through this crate. Replaces the in-tree OpenAI HTTP stack that
+# previously lived in `src/ai/openai.rs`. Consumed via `path =` (not
+# workspace member); see crates/ai-router-rs/Cargo.toml top comment for
+# the full rationale.
+ai-router-rs             = { path = "../../crates/ai-router-rs" }
+
 [dev-dependencies]
 tokio                    = { version = "1", features = ["full", "test-util"] }
 tempfile                 = "3"
