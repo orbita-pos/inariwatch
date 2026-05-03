@@ -31,7 +31,10 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::local_ai::LocalAI;
-use crate::notify_compose::{self, ComposeEmailRequest};
+use crate::notify_compose::{
+    self, push::ComposePushRequest, slack::ComposeSlackRequest,
+    telegram::ComposeTelegramRequest, ComposeEmailRequest,
+};
 
 // ── Capabilities advertised on register ─────────────────────────────────────
 //
@@ -467,6 +470,62 @@ mod backoff_tests {
         let note = json["body"]["note"].as_str().unwrap_or("");
         assert!(note.contains("not yet wired"));
     }
+
+    // v0.3 S4 — fallback path tests for the 3 new notify.compose.* tasks.
+    // Same shape as the email dispatcher fallback test: when local_ai is
+    // None we must NOT call into the real handler (which would need a
+    // model spawned), and we DO need the "local_ai not initialized" note
+    // so the cloud router's fallback observability lines up.
+
+    #[tokio::test]
+    async fn dispatcher_slack_falls_back_when_local_ai_missing() {
+        let df = DispatchFrame {
+            ty: "dispatch".into(),
+            request_id: "rid-slack".into(),
+            task: "notify.compose.slack".into(),
+            payload: serde_json::json!({"alert": {"title": "boom"}}),
+            timeout_ms: 0,
+        };
+        let resp = handle_dispatch(None, &df).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["body"]["stub"], true);
+        let note = json["body"]["note"].as_str().unwrap_or("");
+        assert!(
+            note.contains("local_ai not initialized"),
+            "expected fallback note, got {note:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatcher_telegram_falls_back_when_local_ai_missing() {
+        let df = DispatchFrame {
+            ty: "dispatch".into(),
+            request_id: "rid-tg".into(),
+            task: "notify.compose.telegram".into(),
+            payload: serde_json::json!({"alert": {"title": "boom"}}),
+            timeout_ms: 0,
+        };
+        let resp = handle_dispatch(None, &df).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        let note = json["body"]["note"].as_str().unwrap_or("");
+        assert!(note.contains("local_ai not initialized"));
+    }
+
+    #[tokio::test]
+    async fn dispatcher_push_falls_back_when_local_ai_missing() {
+        let df = DispatchFrame {
+            ty: "dispatch".into(),
+            request_id: "rid-push".into(),
+            task: "notify.compose.push".into(),
+            payload: serde_json::json!({"alert": {"title": "boom"}}),
+            timeout_ms: 0,
+        };
+        let resp = handle_dispatch(None, &df).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        let note = json["body"]["note"].as_str().unwrap_or("");
+        assert!(note.contains("local_ai not initialized"));
+    }
 }
 
 // ── Supervisor loop ─────────────────────────────────────────────────────────
@@ -583,10 +642,16 @@ async fn connect_once(
     Ok("stream-ended")
 }
 
-/// v0.3 S3 dispatcher. Picks the per-task handler. When `local_ai` is
+/// v0.3 S3/S4 dispatcher. Picks the per-task handler. When `local_ai` is
 /// `None` we fall back to the S2 stub for every task — production runs
 /// supply a `LocalAI` via `RelayConfig::local_ai`, tests pass `None` to
 /// keep the WS contract observable without a model.
+///
+/// S3 wired `notify.compose.email`. S4 wires `notify.compose.slack`,
+/// `notify.compose.telegram`, and `notify.compose.push` — each behind
+/// the same workspace flag (`localNotifyEnabled`). Other tasks (digest,
+/// status-page, postmortem-prose, voice.tts.*, chat.*, redact.*) remain
+/// stubbed until subsequent sessions wire them.
 pub async fn handle_dispatch(
     local_ai: Option<&Arc<LocalAI>>,
     df: &DispatchFrame,
@@ -594,6 +659,18 @@ pub async fn handle_dispatch(
     match df.task.as_str() {
         "notify.compose.email" => match local_ai {
             Some(ai) => handle_notify_compose_email(ai, df).await,
+            None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
+        },
+        "notify.compose.slack" => match local_ai {
+            Some(ai) => handle_notify_compose_slack(ai, df).await,
+            None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
+        },
+        "notify.compose.telegram" => match local_ai {
+            Some(ai) => handle_notify_compose_telegram(ai, df).await,
+            None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
+        },
+        "notify.compose.push" => match local_ai {
+            Some(ai) => handle_notify_compose_push(ai, df).await,
             None => stub_with_note(df, "local_ai not initialized — falling back to stub"),
         },
         _ => build_stub_response(df),
@@ -633,6 +710,113 @@ async fn handle_notify_compose_email(
             }
         }
         Err(e) => error_response(df, format!("compose_email: {}", e)),
+    }
+}
+
+/// v0.3 S4 — notify.compose.slack. Same pipeline as email but the
+/// payload deserialises into the slack-specific request shape and the
+/// handler returns Block-Kit JSON.
+async fn handle_notify_compose_slack(
+    local_ai: &Arc<LocalAI>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    let request: ComposeSlackRequest = match serde_json::from_value(df.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return error_response(df, format!("invalid payload: {}", e)),
+    };
+    match notify_compose::slack::compose_slack(local_ai, request).await {
+        Ok(resp) => {
+            let model = resp.model.clone();
+            let body = match serde_json::to_value(&resp) {
+                Ok(v) => v,
+                Err(e) => return error_response(df, format!("serialize: {}", e)),
+            };
+            let receipt = notify_compose::build_signed_receipt(
+                &df.request_id,
+                &df.task,
+                &model,
+                &resp,
+            );
+            ResponseFrame {
+                ty: "response",
+                request_id: df.request_id.clone(),
+                status: "ok",
+                body: Some(body),
+                receipt: Some(receipt),
+                error: None,
+            }
+        }
+        Err(e) => error_response(df, format!("compose_slack: {}", e)),
+    }
+}
+
+/// v0.3 S4 — notify.compose.telegram.
+async fn handle_notify_compose_telegram(
+    local_ai: &Arc<LocalAI>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    let request: ComposeTelegramRequest = match serde_json::from_value(df.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return error_response(df, format!("invalid payload: {}", e)),
+    };
+    match notify_compose::telegram::compose_telegram(local_ai, request).await {
+        Ok(resp) => {
+            let model = resp.model.clone();
+            let body = match serde_json::to_value(&resp) {
+                Ok(v) => v,
+                Err(e) => return error_response(df, format!("serialize: {}", e)),
+            };
+            let receipt = notify_compose::build_signed_receipt(
+                &df.request_id,
+                &df.task,
+                &model,
+                &resp,
+            );
+            ResponseFrame {
+                ty: "response",
+                request_id: df.request_id.clone(),
+                status: "ok",
+                body: Some(body),
+                receipt: Some(receipt),
+                error: None,
+            }
+        }
+        Err(e) => error_response(df, format!("compose_telegram: {}", e)),
+    }
+}
+
+/// v0.3 S4 — notify.compose.push.
+async fn handle_notify_compose_push(
+    local_ai: &Arc<LocalAI>,
+    df: &DispatchFrame,
+) -> ResponseFrame {
+    let request: ComposePushRequest = match serde_json::from_value(df.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return error_response(df, format!("invalid payload: {}", e)),
+    };
+    match notify_compose::push::compose_push(local_ai, request).await {
+        Ok(resp) => {
+            let model = resp.model.clone();
+            let body = match serde_json::to_value(&resp) {
+                Ok(v) => v,
+                Err(e) => return error_response(df, format!("serialize: {}", e)),
+            };
+            let receipt = notify_compose::build_signed_receipt(
+                &df.request_id,
+                &df.task,
+                &model,
+                &resp,
+            );
+            ResponseFrame {
+                ty: "response",
+                request_id: df.request_id.clone(),
+                status: "ok",
+                body: Some(body),
+                receipt: Some(receipt),
+                error: None,
+            }
+        }
+        Err(e) => error_response(df, format!("compose_push: {}", e)),
     }
 }
 

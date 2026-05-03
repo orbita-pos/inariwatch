@@ -86,6 +86,7 @@ export type { RouterReceipt, ReceiptSink } from "./receipts";
 
 // v0.3 S3 — eval harness. Surfaces (web/scripts/run-eval.ts, /admin/ai-eval)
 // import these to drive cross-substrate quality measurement.
+// v0.3 S4 — extends with slack / telegram / push corpora + judges.
 export {
   NOTIFY_COMPOSE_EMAIL_CORPUS,
 } from "./eval/corpus";
@@ -100,6 +101,7 @@ export {
   buildReport,
   makeGpt4oMiniJudge,
   scoreItem,
+  scoreItemWith,
   scoreRubric,
 } from "./eval/judge";
 export type {
@@ -108,4 +110,42 @@ export type {
   ItemScore,
   JudgeFn,
 } from "./eval/judge";
-export { runEval } from "./eval/run";
+export { runEval, SUPPORTED_TASKS } from "./eval/run";
+
+// v0.3 S4 — channel-specific exports for slack/telegram/push.
+export { NOTIFY_COMPOSE_SLACK_CORPUS } from "./eval/corpus-slack";
+export type {
+  ComposeSlackEvalInput,
+  ComposeSlackEvalRubric,
+  ComposeSlackEvalItem,
+} from "./eval/corpus-slack";
+export { NOTIFY_COMPOSE_TELEGRAM_CORPUS } from "./eval/corpus-telegram";
+export type {
+  ComposeTelegramEvalInput,
+  ComposeTelegramEvalRubric,
+  ComposeTelegramEvalItem,
+} from "./eval/corpus-telegram";
+export { NOTIFY_COMPOSE_PUSH_CORPUS } from "./eval/corpus-push";
+export type {
+  ComposePushEvalInput,
+  ComposePushEvalRubric,
+  ComposePushEvalItem,
+} from "./eval/corpus-push";
+export {
+  buildPushJudgePrompt,
+  buildSlackJudgePrompt,
+  buildTelegramJudgePrompt,
+  countUnescapedReserved,
+  extractSlackSectionText,
+  findFenceMarkers,
+  findHereMention,
+  scoreRubricPush,
+  scoreRubricSlack,
+  scoreRubricTelegram,
+  MARKDOWNV2_RESERVED,
+} from "./eval/judge-channels";
+export type {
+  ComposeSlackEvalOutput,
+  ComposeTelegramEvalOutput,
+  ComposePushEvalOutput,
+} from "./eval/judge-channels";

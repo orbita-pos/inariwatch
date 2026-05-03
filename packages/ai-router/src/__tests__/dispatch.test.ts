@@ -296,6 +296,93 @@ describe("dispatch() — Phase 1 cloud routing", () => {
     expect(receipts.length).toBe(0);
   });
 
+  // v0.3 S4 — token usage for the 3 new notify.compose.* cloud paths.
+  // Same plumbing proof as the email test above — a quick check that
+  // each task name gets normal cloud routing + receipt usage when the
+  // workspace flag is off (which is the default).
+  it.each([
+    TASKS.NOTIFY_COMPOSE_SLACK,
+    TASKS.NOTIFY_COMPOSE_TELEGRAM,
+    TASKS.NOTIFY_COMPOSE_PUSH,
+  ] as const)(
+    "%s plumbs token usage onto receipt (cloud, flag off)",
+    async (task) => {
+      const { spy } = makeFetchStub({
+        "api.openai.com": {
+          body: {
+            choices: [{ message: { content: "ok" } }],
+            usage: { prompt_tokens: 31, completion_tokens: 13 },
+          },
+        },
+      });
+      globalThis.fetch = spy;
+      await dispatch({
+        mode: "complete",
+        task,
+        apiKey: "sk-test",
+        systemPrompt: "system",
+        messages: [{ role: "user", content: "hi" }],
+        workspace: { userId: "u-1", workspaceId: "ws-1" },
+      });
+      expect(receipts.length).toBe(1);
+      const r = receipts[0];
+      expect(r.task).toBe(task);
+      expect(r.namespace).toBe("notify");
+      expect(r.substrate).toBe("cloud");
+      expect(r.inputTokens).toBe(31);
+      expect(r.outputTokens).toBe(13);
+    },
+  );
+
+  // v0.3 S4 — sidecar-offline → cloud fallback proof for each new
+  // channel. Forces the user-sidecar primary via `preferences.taskOverrides`
+  // (the eval harness escape hatch — bypasses the workspaceFlag gate).
+  // RELAY_URL isn't set in tests, so the user-sidecar provider throws
+  // "sidecar-offline:" → `shouldFallback` matches → router re-runs on
+  // cloud → receipt's `fallbackUsed` is true.
+  it.each([
+    TASKS.NOTIFY_COMPOSE_SLACK,
+    TASKS.NOTIFY_COMPOSE_TELEGRAM,
+    TASKS.NOTIFY_COMPOSE_PUSH,
+  ] as const)(
+    "%s falls back to cloud when sidecar is offline",
+    async (task) => {
+      const { spy, routes } = makeFetchStub({
+        "api.openai.com": {
+          body: {
+            choices: [{ message: { content: "fallback" } }],
+            usage: {},
+          },
+        },
+      });
+      globalThis.fetch = spy;
+      const out = await dispatch({
+        mode: "complete",
+        task,
+        apiKey: "sk-test",
+        systemPrompt: "system",
+        messages: [{ role: "user", content: "hi" }],
+        workspace: {
+          preferences: {
+            taskOverrides: {
+              [task]: {
+                substrate: "user-sidecar",
+                model: "qwen2.5-coder-1.5b",
+              },
+            },
+          },
+        },
+      });
+      expect(out.mode).toBe("complete");
+      if (out.mode === "complete") {
+        expect(out.response.text).toBe("fallback");
+      }
+      expect(routes["api.openai.com"].hits).toBe(1);
+      expect(receipts[0].fallbackUsed).toBe(true);
+      expect(receipts[0].substrate).toBe("cloud");
+    },
+  );
+
   it("user-sidecar substrate falls back to cloud when sidecar errors", async () => {
     // S3 wires `notify.compose.email` to user-sidecar with a cloud fallback.
     // We force the primary via `taskOverrides` (so the test doesn't depend

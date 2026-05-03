@@ -37,10 +37,18 @@ export interface ItemScore {
   judgeReasoning?: string;
 }
 
-/** LLM-as-judge interface. Production wires `gpt4oMiniJudge`. */
-export type JudgeFn = (
-  item: ComposeEmailEvalItem,
-  output: ComposeEmailEvalOutput,
+/**
+ * LLM-as-judge interface. Production wires `gpt4oMiniJudge`. Generic so
+ * S4 channel-specific runners (slack/telegram/push) can re-use the
+ * same type with their item + output shapes. Defaults to email types
+ * so pre-S4 call sites resolve to exactly the shape they always had.
+ */
+export type JudgeFn<
+  TItem = ComposeEmailEvalItem,
+  TOutput = ComposeEmailEvalOutput,
+> = (
+  item: TItem,
+  output: TOutput,
 ) => Promise<{ score: number; reasoning: string }>;
 
 // ── Hard rubric (deterministic) ────────────────────────────────────────────
@@ -228,6 +236,34 @@ export async function scoreItem(
     rubricScore,
     judgeScore,
     rubricFailures: failures,
+    judgeReasoning: judgement.reasoning,
+  };
+}
+
+/**
+ * v0.3 S4 — generic scoreItem that takes a precomputed rubric result.
+ *
+ * The S3 [`scoreItem`] is locked to email (it knows how to call
+ * `scoreRubric` against the email rubric shape). The S4 channels each
+ * have their own rubric scorer (`scoreRubricSlack`, `scoreRubricTelegram`,
+ * `scoreRubricPush` in `judge-channels.ts`). They precompute the rubric
+ * score and call this helper to apply the LLM-as-judge layer + assemble
+ * the final `ItemScore`.
+ */
+export async function scoreItemWith<TItem extends { id: string }, TOutput>(
+  item: TItem,
+  output: TOutput,
+  rubric: { score: number; failures: string[] },
+  judge: JudgeFn<TItem, TOutput>,
+): Promise<ItemScore> {
+  const judgement = await judge(item, output);
+  const judgeScore = clamp(judgement.score, 0, 40);
+  return {
+    id: item.id,
+    score: rubric.score + judgeScore,
+    rubricScore: rubric.score,
+    judgeScore,
+    rubricFailures: rubric.failures,
     judgeReasoning: judgement.reasoning,
   };
 }
