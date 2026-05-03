@@ -4,13 +4,15 @@
 # Multi-stage Dockerfile for InariWatch web (Next.js 15, standalone output).
 #
 # Build context = repo ROOT (set via `builder.context: ..` in
-# web/config/deploy.yml). The web app pulls in the workspace-internal package
-# `packages/ai-router/` through a TypeScript path alias in web/tsconfig.json
-# ("@inariwatch/ai-router" → "../packages/ai-router/src/index.ts"), so the
-# build needs both web/ and packages/ai-router/ inside the image.
+# web/config/deploy.yml). The web app pulls in the workspace-internal packages
+# through TypeScript path aliases in web/tsconfig.json:
+#   "@inariwatch/ai-router"               → "../packages/ai-router/src/index.ts"
+#   "@inariwatch/code-intel-extractor-ts" → "../packages/code-intel-extractor-ts/src/index.ts"
+#   "@inariwatch/code-intel-extractor-py" → "../packages/code-intel-extractor-py/src/index.ts"
+# Each one needs its own COPY in the build stage.
 #
 # All COPY source paths below are therefore prefixed with `web/` or
-# `packages/ai-router/` — they resolve relative to the repo root, not to web/.
+# `packages/<name>/` — they resolve relative to the repo root, not to web/.
 #
 # Stages:
 #   base    — Debian slim with the OS libs Node + sharp + openssl need
@@ -57,6 +59,11 @@ RUN npm ci
 WORKDIR /repo
 COPY web/ ./web/
 COPY packages/ai-router/ ./packages/ai-router/
+# Code Intel v2 (Phase 1+2): the web app resolves these via tsconfig path
+# aliases so they need to land in the build context too. node_modules/ from
+# each package isn't needed at build time — tsc + next compile from src/.
+COPY packages/code-intel-extractor-ts/ ./packages/code-intel-extractor-ts/
+COPY packages/code-intel-extractor-py/ ./packages/code-intel-extractor-py/
 WORKDIR /repo/web
 ENV NODE_ENV=production
 # Next build needs these public env vars baked in at build time. Set them via
