@@ -2140,3 +2140,125 @@ export const aiRouterReceipts = pgTable(
 
 export type AiRouterReceipt = typeof aiRouterReceipts.$inferSelect;
 export type NewAiRouterReceipt = typeof aiRouterReceipts.$inferInsert;
+
+// ── Code Intelligence v2 — semantic graph (migration 0079) ──────────────────
+//
+// Per CODE_INTELLIGENCE_V2_HANDOFF.md §1.1. Coexists with v1 (`codeChunks`,
+// `codeDependencies`) behind the CODE_INTEL_V2 service-layer flag. Phase 1.2
+// extractor populates these; Phase 1.4 queries read from them.
+//
+// FQN format: `<file_path>::<owner_chain>` — opaque string, extractor is the
+// canonical producer. Granularity = top-level + class members only.
+//
+// `parent_id` self-reference is declared at the SQL level (migration 0079).
+// We do not encode it via Drizzle's `.references()` to avoid the circular
+// type-inference dance; consumers join via explicit `eq(parent.id, child.parentId)`.
+
+export const codeSymbols = pgTable(
+  "code_symbols",
+  {
+    id:           uuid("id").primaryKey().defaultRandom(),
+    repoId:       uuid("repo_id")
+                    .notNull()
+                    .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    fqn:          text("fqn").notNull(),
+    kind:         text("kind").notNull(),
+    name:         text("name").notNull(),
+    filePath:     text("file_path").notNull(),
+    startLine:    integer("start_line").notNull(),
+    endLine:      integer("end_line").notNull(),
+    startCol:     integer("start_col"),
+    endCol:       integer("end_col"),
+    signature:    text("signature"),
+    returnType:   text("return_type"),
+    isAsync:      boolean("is_async").notNull().default(false),
+    isExported:   boolean("is_exported").notNull().default(false),
+    isStatic:     boolean("is_static").notNull().default(false),
+    isAbstract:   boolean("is_abstract").notNull().default(false),
+    visibility:   text("visibility"),
+    docComment:   text("doc_comment"),
+    parentId:     uuid("parent_id"),
+    language:     text("language").notNull(),
+    astHash:      text("ast_hash").notNull(),
+    indexedAt:    timestamp("indexed_at", { withTimezone: true })
+                    .defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("code_symbols_fqn_unique").on(table.repoId, table.fqn),
+    index("idx_code_symbols_repo_kind").on(table.repoId, table.kind),
+    index("idx_code_symbols_repo_file").on(table.repoId, table.filePath),
+    index("idx_code_symbols_name").on(table.repoId, table.name),
+  ],
+);
+
+export type CodeSymbol = typeof codeSymbols.$inferSelect;
+export type NewCodeSymbol = typeof codeSymbols.$inferInsert;
+
+export const codeReferences = pgTable(
+  "code_references",
+  {
+    id:               uuid("id").primaryKey().defaultRandom(),
+    repoId:           uuid("repo_id")
+                        .notNull()
+                        .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    sourceSymbolId:   uuid("source_symbol_id")
+                        .references(() => codeSymbols.id, { onDelete: "cascade" }),
+    targetSymbolId:   uuid("target_symbol_id")
+                        .notNull()
+                        .references(() => codeSymbols.id, { onDelete: "cascade" }),
+    filePath:         text("file_path").notNull(),
+    line:             integer("line").notNull(),
+    col:              integer("col"),
+    kind:             text("kind").notNull(),
+  },
+  (table) => [
+    index("idx_code_references_target").on(table.targetSymbolId),
+    index("idx_code_references_source").on(table.sourceSymbolId),
+    index("idx_code_references_repo").on(table.repoId),
+  ],
+);
+
+export type CodeReference = typeof codeReferences.$inferSelect;
+export type NewCodeReference = typeof codeReferences.$inferInsert;
+
+export const codeTypeFacts = pgTable(
+  "code_type_facts",
+  {
+    id:            uuid("id").primaryKey().defaultRandom(),
+    symbolId:      uuid("symbol_id")
+                     .notNull()
+                     .references(() => codeSymbols.id, { onDelete: "cascade" }),
+    paramTypes:    jsonb("param_types"),
+    returnType:    text("return_type"),
+    genericParams: jsonb("generic_params"),
+    throws:        jsonb("throws"),
+    sideEffects:   jsonb("side_effects"),
+  },
+  (table) => [
+    index("idx_code_type_facts_symbol").on(table.symbolId),
+  ],
+);
+
+export type CodeTypeFact = typeof codeTypeFacts.$inferSelect;
+export type NewCodeTypeFact = typeof codeTypeFacts.$inferInsert;
+
+export const codeImports = pgTable(
+  "code_imports",
+  {
+    id:            uuid("id").primaryKey().defaultRandom(),
+    repoId:        uuid("repo_id")
+                     .notNull()
+                     .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    sourceFile:    text("source_file").notNull(),
+    targetModule:  text("target_module").notNull(),
+    resolvedFile:  text("resolved_file"),
+    importedNames: jsonb("imported_names"),
+  },
+  (table) => [
+    index("idx_code_imports_source").on(table.repoId, table.sourceFile),
+    index("idx_code_imports_target").on(table.repoId, table.resolvedFile),
+  ],
+);
+
+export type CodeImport = typeof codeImports.$inferSelect;
+export type NewCodeImport = typeof codeImports.$inferInsert;
