@@ -217,8 +217,7 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
     window.location.href = url;
   };
 
-  const handleLookup = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleLookup = async () => {
     setError("");
     setLookup(null);
     if (!lookupLogin.trim()) {
@@ -328,23 +327,33 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
                           </button>
                         </div>
                       ) : (
-                        <form onSubmit={handleLookup} className="flex gap-2">
+                        // NOT a nested <form> — HTML disallows that and browsers
+                        // bubble the inner submit up to the outer form, which would
+                        // close the modal. Plain div + Enter-key handler on the input.
+                        <div className="flex gap-2">
                           <input
                             type="text"
                             value={lookupLogin}
                             onChange={(e) => setLookupLogin(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (!lookupBusy) handleLookup();
+                              }
+                            }}
                             placeholder="GitHub username or org"
                             autoComplete="off"
                             className="min-w-0 flex-1 rounded-md border border-line-medium bg-surface-dim px-2.5 py-1.5 font-mono text-[12px] text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                           />
                           <button
-                            type="submit"
+                            type="button"
+                            onClick={handleLookup}
                             disabled={lookupBusy}
                             className="rounded-md border border-line-medium bg-surface-dim px-3 py-1.5 text-[12px] text-fg-base hover:border-fg-base/30 disabled:opacity-50"
                           >
                             {lookupBusy ? "…" : "Find"}
                           </button>
-                        </form>
+                        </div>
                       )}
                     </div>
 
