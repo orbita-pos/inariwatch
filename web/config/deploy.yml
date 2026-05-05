@@ -295,6 +295,20 @@ env:
     # Key in sops 2026-04-26. Rotation: replace in sops + `kamal env push`
     # — `loadTombstoneKey()` invalidates its cache when the env value changes.
     - INARIWATCH_TOMBSTONE_KEY_HEX
+    # Self-dogfood: capture SDK (v0.11.0) ships server-render errors from
+    # `app.inariwatch.com` to the `inariwatch-prod` project's webhook.
+    # Format: `https://<plaintext-secret>@app.inariwatch.com/capture/<integration-id>`.
+    # Provisioned via `web/scripts/dogfood-dsn.ts` (rotates on re-run).
+    # Without this var, `@inariwatch/capture/auto` silently runs in
+    # local-dev mode and emits nothing — that's exactly the regression
+    # that masked migration 0081 missing on 2026-05-05.
+    - INARIWATCH_DSN
+    # Opt-in regex PII / secret redaction in the capture pipeline (v0.3 S6).
+    # Matches keys, JWTs, emails, credit card numbers, etc. Stripped before
+    # the event leaves the user process. Default off in 0.11.0 — set to
+    # "true" in prod so dogfood alerts can never carry user PII even if a
+    # stack trace happens to include one.
+    - INARIWATCH_REDACT
     # Email + push
     # Transactional email (signup verify, password reset, digests) uses
     # nodemailer against Resend's SMTP relay — see lib/notifications/email.ts.
