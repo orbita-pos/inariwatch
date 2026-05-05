@@ -13,14 +13,19 @@ import { cronLog, pingCronHealth } from "@/lib/cron-utils";
 const CRON_SECRET = process.env.CRON_SECRET;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
+// 2026-05-05 — sole-integration cut. Capture (the @inariwatch/capture SDK)
+// is the wedge for runtime errors; GitHub stays as the only inbound poller
+// for repo events the AI loop needs (PRs, runs, issues). The other six
+// pollers are commented (not deleted) so flipping any back on is a
+// one-line revert.
 const SUB_ROUTES = [
   "github",
-  "vercel",
-  "sentry",
-  "uptime",
-  "postgres",
-  "npm",
-  "expo",
+  // "vercel",
+  // "sentry",
+  // "uptime",
+  // "postgres",
+  // "npm",
+  // "expo",
 ] as const;
 
 type SubRouteResult = { ok: boolean; created: number; errors: string[] };

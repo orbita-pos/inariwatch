@@ -21,10 +21,21 @@ import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
  * that matches the integration's stored webhookSecret.
  * Users configure this token as a custom header in Datadog webhook settings.
  */
+// 2026-05-05 — sole-integration cut. See sentry/[integrationId]/route.ts
+// for rationale. Flip DISABLED to false to revive.
+const DISABLED = true;
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ integrationId: string }> }
 ) {
+  if (DISABLED) {
+    return NextResponse.json({
+      error: "Webhook deprecated",
+      message: "InariWatch ingests runtime errors via @inariwatch/capture. Datadog inbound disabled 2026-05-05.",
+    }, { status: 410 });
+  }
+
   const { integrationId } = await params;
 
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))

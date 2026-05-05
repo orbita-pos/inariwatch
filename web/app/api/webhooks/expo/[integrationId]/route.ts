@@ -11,10 +11,21 @@ import crypto from "crypto";
  * Receives webhook events from Expo (EAS Build, EAS Update).
  * Expo webhooks use HMAC-SHA1 signing via expo-webhook-secret header.
  */
+// 2026-05-05 — sole-integration cut. See sentry/[integrationId]/route.ts
+// for rationale. Flip DISABLED to false to revive.
+const DISABLED = true;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ integrationId: string }> }
 ) {
+  if (DISABLED) {
+    return NextResponse.json({
+      error: "Webhook deprecated",
+      message: "InariWatch ingests runtime errors via @inariwatch/capture. Expo inbound disabled 2026-05-05.",
+    }, { status: 410 });
+  }
+
   const { integrationId } = await params;
 
   // Validate UUID format

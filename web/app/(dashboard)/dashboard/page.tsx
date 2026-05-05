@@ -254,7 +254,7 @@ export default async function DashboardPage() {
               done={false}
               step={2}
               title="Connect an integration"
-              description="Connect GitHub, Vercel, Sentry, PostgreSQL, npm, Datadog, or set up uptime monitoring."
+              description="Install @inariwatch/capture in your app and connect GitHub. That's the whole setup."
               href="/integrations"
               cta="Connect now"
               highlight={true}
