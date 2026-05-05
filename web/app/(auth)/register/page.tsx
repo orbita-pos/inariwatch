@@ -3,7 +3,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,6 @@ import bgDesktopSrc from "@/public/login-new-3.webp";
 import bgMobileSrc from "@/public/login-side-mobile.webp";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [name, setName]         = useState("");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
@@ -29,25 +27,36 @@ export default function RegisterPage() {
     formData.set("email", email);
     formData.set("password", password);
 
-    const result = await registerUser(formData);
+    try {
+      const result = await registerUser(formData);
 
-    if (!result.success) {
-      setError(result.error ?? "Something went wrong.");
+      if (!result.success) {
+        setError(result.error ?? "Something went wrong.");
+        return;
+      }
+
+      // Use a hard navigation instead of router.push so NextAuth's
+      // client-side CSRF/session cache (stale right after a signOut on
+      // the same tab) gets reset. Without this, signIn() can hang
+      // silently and the button stays on "Creating account…" forever.
+      // The cookie set by signIn is read on the next full page load.
+      const signInResult = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (signInResult?.error) {
+        setError("Account created but sign-in failed. Try logging in.");
+        return;
+      }
+
+      window.location.href = "/dashboard";
+    } catch (err) {
+      console.error("register: unexpected error:", err);
+      setError("Something went wrong. Please try again.");
+    } finally {
       setLoading(false);
-      return;
-    }
-
-    const signInResult = await signIn("credentials", {
-      email,
-      password,
-      callbackUrl: "/dashboard",
-      redirect: false,
-    });
-
-    if (signInResult?.url) {
-      router.push(signInResult.url);
-    } else {
-      router.push("/dashboard");
     }
   };
 
