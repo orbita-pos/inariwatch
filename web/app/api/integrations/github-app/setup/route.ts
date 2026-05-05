@@ -98,6 +98,17 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL("/integrations?error=no_org", APP_BASE));
   }
 
+  // Pre-existing user whose activeOrgId is still null (older accounts +
+  // anyone who joined an org but never explicitly switched into it). Pin
+  // the workspace so /projects + /integrations + dashboard queries that
+  // filter by activeOrgId find the projects we're about to import. NULL
+  // would make them fall through to the personal-mode branch which only
+  // matches projects with organizationId IS NULL.
+  await db
+    .update(users)
+    .set({ activeOrgId: orgRow.id })
+    .where(and(eq(users.id, orgRow.userId), sql`${users.activeOrgId} IS NULL`));
+
   // Persist the installation row first so failures in the auto-PR step
   // don't lose the link.
   await db
@@ -473,6 +484,16 @@ async function createPersonalOrgFor(
       userId:         user.id,
       role:           "owner",
     });
+
+    // Pin the new org as the user's active workspace. Without this the
+    // dashboard + /projects + /integrations pages keep filtering by
+    // "personal mode" (organizationId IS NULL) and the just-imported
+    // projects stay invisible until the user manually picks the org
+    // from the workspace switcher.
+    await db
+      .update(users)
+      .set({ activeOrgId: org.id })
+      .where(eq(users.id, user.id));
 
     return { id: org.id, userId: user.id };
   } catch (err) {
