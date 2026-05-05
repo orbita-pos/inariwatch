@@ -25,7 +25,7 @@ import {
 } from "@/lib/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
-import { getInstallationToken, ghFetchApp } from "@/lib/github-app/octokit";
+import { getInstallationToken, ghFetchApp, ghFetch } from "@/lib/github-app/octokit";
 import { openSetupPRForInstallation } from "@/lib/github-app/open-setup-pr";
 import { encrypt, encryptConfig } from "@/lib/crypto";
 import { generateWebhookSecret } from "@/lib/webhooks/shared";
@@ -113,6 +113,28 @@ export async function GET(req: Request) {
         updatedAt:     new Date(),
       },
     });
+
+  // ── Bulk import (when no projectId in state) ────────────────────────────
+  // "Import from GitHub" model — Vercel-style. The user comes from the
+  // empty-state CTA on /dashboard or /integrations and we create one
+  // project per repo they granted us access to, all backed by the same
+  // installation. Existing projects (matched by `default_repo`) are
+  // adopted in place rather than duplicated, so re-running the install
+  // is idempotent.
+  let importedProjectCount = 0;
+  if (!stateProjectId) {
+    try {
+      const importedIds = await importProjectsFromInstallation({
+        token,
+        organizationId: orgRow.id,
+        installerUserId: orgRow.userId,
+        installationId,
+      });
+      importedProjectCount = importedIds.length;
+    } catch (err) {
+      console.warn("[github-app] bulk import failed:", err instanceof Error ? err.message : err);
+    }
+  }
 
   // ── Per-project link (when the user came from /integrations) ────────────
   // The dashboard install button passes `state=<projectId>`. Verify the
@@ -212,9 +234,162 @@ export async function GET(req: Request) {
     return NextResponse.redirect(back);
   }
 
+  // Bulk-import path — land on /dashboard so the user sees their newly
+  // created projects right away. The legacy success page is kept for
+  // re-installs that didn't import anything new (count === 0).
+  if (importedProjectCount > 0) {
+    const back = new URL("/dashboard", APP_BASE);
+    back.searchParams.set("github", "imported");
+    back.searchParams.set("count", String(importedProjectCount));
+    if (firstPrUrl) back.searchParams.set("pr", firstPrUrl);
+    return NextResponse.redirect(back);
+  }
+
   const redirect = new URL("/integrations/github-app/installed", APP_BASE);
   if (firstPrUrl) redirect.searchParams.set("pr", firstPrUrl);
   return NextResponse.redirect(redirect);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bulk import helper — creates one project per accessible repo. Returns
+// the IDs of *newly created* projects (existing ones still get the
+// installation_id linked but aren't counted). Idempotent.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ImportArgs {
+  token:           string;
+  organizationId:  string;
+  installerUserId: string;
+  installationId:  number;
+}
+
+async function importProjectsFromInstallation(args: ImportArgs): Promise<string[]> {
+  const { token, organizationId, installerUserId, installationId } = args;
+
+  const repos = await listInstallationRepositories(token);
+  if (repos.length === 0) return [];
+
+  const newProjectIds: string[] = [];
+
+  for (const repo of repos) {
+    const fullName = `${repo.ownerLogin}/${repo.name}`;
+
+    // 1. Adopt existing project if one already maps to this repo (any
+    //    user could have manually created it before installing the App).
+    const [existingProject] = await db
+      .select({ id: projects.id, userId: projects.userId, organizationId: projects.organizationId })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.organizationId, organizationId),
+          eq(projects.defaultRepo, fullName),
+        ),
+      )
+      .limit(1);
+
+    let projectId: string;
+    if (existingProject) {
+      projectId = existingProject.id;
+    } else {
+      // 2. Otherwise create a fresh one. Slug is org-scoped so two orgs
+      //    can both have a "demo-store" without colliding — but the
+      //    `slug` column has a global UNIQUE constraint, so we prefix
+      //    with the org id's first segment to keep collisions out.
+      const slugBase = repo.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+      const slug = `${slugBase}-${organizationId.slice(0, 8)}`;
+      try {
+        const inserted = await db
+          .insert(projects)
+          .values({
+            userId:         installerUserId,
+            organizationId,
+            name:           repo.name,
+            slug,
+            description:    `Imported from ${fullName} via GitHub App`,
+            defaultRepo:    fullName,
+          })
+          .returning({ id: projects.id });
+        projectId = inserted[0].id;
+        newProjectIds.push(projectId);
+      } catch (err) {
+        // Slug collision (race or pre-existing under same org) — fall
+        // back to lookup-by-defaultRepo and skip if we still can't find one.
+        const [retry] = await db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.organizationId, organizationId),
+              eq(projects.defaultRepo, fullName),
+            ),
+          )
+          .limit(1);
+        if (!retry) {
+          console.warn(`[github-app] could not create project for ${fullName}:`, err instanceof Error ? err.message : err);
+          continue;
+        }
+        projectId = retry.id;
+      }
+    }
+
+    // 3. Upsert the github project_integrations row backed by this install.
+    const [existingIntegration] = await db
+      .select({ id: projectIntegrations.id, webhookSecret: projectIntegrations.webhookSecret })
+      .from(projectIntegrations)
+      .where(
+        and(
+          eq(projectIntegrations.projectId, projectId),
+          eq(projectIntegrations.service, "github"),
+        ),
+      )
+      .limit(1);
+
+    const config = { owner: repo.ownerLogin };
+    if (existingIntegration) {
+      await db
+        .update(projectIntegrations)
+        .set({
+          configEncrypted: encryptConfig(config),
+          installationId,
+          isActive:        true,
+          errorCount:      0,
+        })
+        .where(eq(projectIntegrations.id, existingIntegration.id));
+    } else {
+      await db.insert(projectIntegrations).values({
+        projectId,
+        service:         "github",
+        configEncrypted: encryptConfig(config),
+        installationId,
+        webhookSecret:   encrypt(generateWebhookSecret()),
+        isActive:        true,
+      });
+    }
+  }
+
+  return newProjectIds;
+}
+
+async function listInstallationRepositories(
+  token: string,
+): Promise<Array<{ name: string; ownerLogin: string }>> {
+  const out: Array<{ name: string; ownerLogin: string }> = [];
+  let page = 1;
+  for (;;) {
+    const res = await ghFetch(token, `/installation/repositories?per_page=100&page=${page}`);
+    if (!res.ok) break;
+    const json = (await res.json()) as {
+      total_count: number;
+      repositories: Array<{ name: string; owner: { login: string } }>;
+    };
+    for (const r of json.repositories ?? []) {
+      out.push({ name: r.name, ownerLogin: r.owner.login });
+    }
+    if ((json.repositories?.length ?? 0) < 100) break;
+    page += 1;
+    if (page > 10) break; // safety: 1000 repos max
+  }
+  return out;
 }
 
 /**
