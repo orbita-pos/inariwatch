@@ -2090,9 +2090,9 @@ export const githubAppInstallations = pgTable(
   "github_app_installations",
   {
     id:                uuid("id").primaryKey().defaultRandom(),
+    /** Migration 0085 — nullable for personal-mode installs (no workspace). */
     organizationId:    uuid("organization_id")
-                         .references(() => organizations.id, { onDelete: "cascade" })
-                         .notNull(),
+                         .references(() => organizations.id, { onDelete: "cascade" }),
     /** GitHub installation_id (numeric, fits in BIGINT). */
     installationId:    bigint("installation_id", { mode: "number" }).notNull().unique(),
     accountLogin:      text("account_login").notNull(),
