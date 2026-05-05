@@ -239,6 +239,11 @@ env:
     # the v1 default with zero deploy.
     CODE_INTEL_V2: "shadow"
     CONTAINER_AGENT_AB_PCT: "50"
+    # GitHub App public slug — drives the "Install GitHub App" button on
+    # /integrations. When set, the GitHub card switches from PAT paste to
+    # one-click redirect to github.com/apps/<slug>/installations/new.
+    # Empty / unset → PAT path stays default. Migration 0084.
+    GITHUB_APP_SLUG: "inariwatch"
   secret:
     # Core
     - DATABASE_URL
@@ -264,11 +269,8 @@ env:
     - GITHUB_APP_PRIVATE_KEY
     - GITHUB_APP_PRIVATE_KEY_BASE64
     - GITHUB_APP_WEBHOOK_SECRET
-    # Public slug of the GitHub App (e.g. "inariwatch"). When set, the
-    # /integrations dashboard shows a one-click "Install GitHub App" button
-    # that redirects to github.com/apps/<slug>/installations/new instead of
-    # asking the user to paste a PAT. Migration 0084.
-    - GITHUB_APP_SLUG
+    # GITHUB_APP_SLUG lives in env.clear above (it's the public part of
+    # github.com/apps/<slug>) — no need to encrypt it.
     - SLACK_CLIENT_ID
     - SLACK_CLIENT_SECRET
     - SLACK_SIGNING_SECRET
