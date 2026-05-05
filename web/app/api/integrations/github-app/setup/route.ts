@@ -87,39 +87,55 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL("/integrations?error=github_app_init", APP_BASE));
   }
 
-  // Brand-new users (just signed up + clicked Import) don't have an
-  // organization yet — NextAuth's jwt callback only creates the user row.
-  // Auto-bootstrap a personal org so the install can land somewhere.
-  let orgRow = await firstOwnedOrgFor(session.user.email);
-  if (!orgRow) {
-    orgRow = await createPersonalOrgFor(session.user.email, session.user.name ?? null);
+  // Resolve the install owner. Two modes after migration 0085:
+  //   • Workspace mode — user already has at least one org; install lands
+  //     under the first owned org and projects go under that workspace.
+  //   • Personal mode — user has no org yet. We do NOT auto-create one;
+  //     the install + projects belong directly to the user (organizationId
+  //     stays NULL on both github_app_installations and projects rows).
+  // Either way the user ends up on a populated dashboard. If they later
+  // create a workspace, they can move projects into it from /settings.
+  const orgRow = await firstOwnedOrgFor(session.user.email);
+  let installerUserId: string;
+  if (orgRow) {
+    installerUserId = orgRow.userId;
+  } else {
+    const [user] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, session.user.email))
+      .limit(1);
+    if (!user) {
+      return NextResponse.redirect(new URL("/integrations?error=user_not_found", APP_BASE));
+    }
+    installerUserId = user.id;
   }
-  if (!orgRow) {
-    return NextResponse.redirect(new URL("/integrations?error=no_org", APP_BASE));
-  }
+  const installOrgId: string | null = orgRow?.id ?? null;
 
-  // Pre-existing user whose activeOrgId is still null (older accounts +
-  // anyone who joined an org but never explicitly switched into it). Pin
-  // the workspace so /projects + /integrations + dashboard queries that
-  // filter by activeOrgId find the projects we're about to import. NULL
-  // would make them fall through to the personal-mode branch which only
-  // matches projects with organizationId IS NULL.
-  await db
-    .update(users)
-    .set({ activeOrgId: orgRow.id })
-    .where(and(eq(users.id, orgRow.userId), sql`${users.activeOrgId} IS NULL`));
+  // If the user has an org but their activeOrgId is still NULL (legacy
+  // accounts created before the column existed), pin the workspace so
+  // dashboard + /projects + /integrations queries land in workspace mode
+  // and find the projects we're about to import. Personal-mode users
+  // (no org) keep activeOrgId NULL — that's how the queries fall through
+  // to "show me my personal-mode projects (organizationId IS NULL)".
+  if (orgRow) {
+    await db
+      .update(users)
+      .set({ activeOrgId: orgRow.id })
+      .where(and(eq(users.id, orgRow.userId), sql`${users.activeOrgId} IS NULL`));
+  }
 
   // Persist the installation row first so failures in the auto-PR step
-  // don't lose the link.
+  // don't lose the link. organizationId is null for personal-mode installs.
   await db
     .insert(githubAppInstallations)
     .values({
-      organizationId:  orgRow.id,
+      organizationId:  installOrgId,
       installationId,
       accountLogin:    accountInfo.login,
       accountType:     accountInfo.type,
       accountId:       accountInfo.id,
-      installedBy:     orgRow.userId,
+      installedBy:     installerUserId,
     })
     .onConflictDoUpdate({
       target: githubAppInstallations.installationId,
@@ -143,8 +159,8 @@ export async function GET(req: Request) {
     try {
       const importedIds = await importProjectsFromInstallation({
         token,
-        organizationId: orgRow.id,
-        installerUserId: orgRow.userId,
+        organizationId: installOrgId,
+        installerUserId,
         installationId,
       });
       importedProjectCount = importedIds.length;
@@ -167,8 +183,8 @@ export async function GET(req: Request) {
 
       const ownsProject =
         project &&
-        (project.userId === orgRow.userId ||
-          (project.organizationId !== null && project.organizationId === orgRow.id));
+        (project.userId === installerUserId ||
+          (installOrgId !== null && project.organizationId === installOrgId));
 
       if (ownsProject) {
         const [existing] = await db
@@ -211,8 +227,10 @@ export async function GET(req: Request) {
     }
   }
 
-  // Mint the per-org DSN once — every PR we open in this run shares it.
-  const dsn = inariwatchDsnForOrg(orgRow.id);
+  // Mint the DSN once — every PR we open in this run shares it. Workspace
+  // installs key by org id; personal installs key by user id (prefixed so
+  // it can't collide with an org uuid).
+  const dsn = inariwatchDsnFor(installOrgId, installerUserId);
 
   // Open the auto-PR — best effort, parallelized across repos. Run on
   // every setup_action: `install` opens fresh, `update` is idempotent
@@ -275,7 +293,8 @@ export async function GET(req: Request) {
 
 interface ImportArgs {
   token:           string;
-  organizationId:  string;
+  /** NULL = personal mode (project goes under userId, organizationId IS NULL). */
+  organizationId:  string | null;
   installerUserId: string;
   installationId:  number;
 }
@@ -291,14 +310,17 @@ async function importProjectsFromInstallation(args: ImportArgs): Promise<string[
   for (const repo of repos) {
     const fullName = `${repo.ownerLogin}/${repo.name}`;
 
-    // 1. Adopt existing project if one already maps to this repo (any
-    //    user could have manually created it before installing the App).
+    // 1. Adopt existing project if one already maps to this repo. Workspace
+    //    mode matches by organizationId; personal mode matches the same
+    //    user's personal projects (organizationId IS NULL AND userId = me).
     const [existingProject] = await db
       .select({ id: projects.id, userId: projects.userId, organizationId: projects.organizationId })
       .from(projects)
       .where(
         and(
-          eq(projects.organizationId, organizationId),
+          organizationId === null
+            ? and(sql`${projects.organizationId} IS NULL`, eq(projects.userId, installerUserId))
+            : eq(projects.organizationId, organizationId),
           eq(projects.defaultRepo, fullName),
         ),
       )
@@ -308,12 +330,12 @@ async function importProjectsFromInstallation(args: ImportArgs): Promise<string[
     if (existingProject) {
       projectId = existingProject.id;
     } else {
-      // 2. Otherwise create a fresh one. Slug is org-scoped so two orgs
-      //    can both have a "demo-store" without colliding — but the
-      //    `slug` column has a global UNIQUE constraint, so we prefix
-      //    with the org id's first segment to keep collisions out.
+      // 2. Otherwise create a fresh one. Slug is unique-globally on the
+      //    `slug` column, so we prefix with org id (workspace mode) or
+      //    user id (personal mode) to keep collisions out.
       const slugBase = repo.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-      const slug = `${slugBase}-${organizationId.slice(0, 8)}`;
+      const ownerKey = (organizationId ?? installerUserId).slice(0, 8);
+      const slug = `${slugBase}-${ownerKey}`;
       try {
         const inserted = await db
           .insert(projects)
@@ -329,14 +351,16 @@ async function importProjectsFromInstallation(args: ImportArgs): Promise<string[
         projectId = inserted[0].id;
         newProjectIds.push(projectId);
       } catch (err) {
-        // Slug collision (race or pre-existing under same org) — fall
-        // back to lookup-by-defaultRepo and skip if we still can't find one.
+        // Slug collision (race or pre-existing) — fall back to a
+        // lookup-by-defaultRepo and skip if still missing.
         const [retry] = await db
           .select({ id: projects.id })
           .from(projects)
           .where(
             and(
-              eq(projects.organizationId, organizationId),
+              organizationId === null
+                ? and(sql`${projects.organizationId} IS NULL`, eq(projects.userId, installerUserId))
+                : eq(projects.organizationId, organizationId),
               eq(projects.defaultRepo, fullName),
             ),
           )
@@ -410,15 +434,18 @@ async function listInstallationRepositories(
 }
 
 /**
- * Build the per-org Capture DSN. Format mirrors what the SDK expects:
- *   https://<workspace-slug>@app.inariwatch.com/capture/<org-id>
- * The trailing path segment is parsed at our /capture webhook to attribute
- * events to the right workspace; the secret part is reserved for HMAC
- * signing once we wire it up post-launch.
+ * Build the Capture DSN. Format mirrors what the SDK expects:
+ *   https://app.inariwatch.com/capture/<key>
+ * Workspace installs use the org id as the key; personal installs use
+ * the user id with a `u-` prefix so the keyspace can't collide with
+ * an org uuid (orgs and users live in separate UUID spaces but the
+ * `/capture/:key` route attributes by lookup, so the prefix is a safety
+ * belt against future schema reuse).
  */
-function inariwatchDsnForOrg(orgId: string): string {
+function inariwatchDsnFor(orgId: string | null, userId: string): string {
   const base = process.env.APP_URL ?? "https://app.inariwatch.com";
-  return `${base.replace(/\/$/, "")}/capture/${orgId}`;
+  const key = orgId ?? `u-${userId}`;
+  return `${base.replace(/\/$/, "")}/capture/${key}`;
 }
 
 async function firstOwnedOrgFor(
@@ -440,64 +467,3 @@ async function firstOwnedOrgFor(
   return { id: row.orgId, userId: row.userId };
 }
 
-/**
- * Create a personal organization for a user that doesn't have one yet.
- * Only used as a fallback in the GitHub App setup path — NextAuth's jwt
- * callback creates the `users` row but no organization, so first-time
- * importers from /onboarding hit this. Idempotent on retry: if the slug
- * collides we look up the existing membership and return that.
- */
-async function createPersonalOrgFor(
-  email: string,
-  fullName: string | null,
-): Promise<{ id: string; userId: string } | null> {
-  const [user] = await db
-    .select({ id: users.id, name: users.name })
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-  if (!user) return null;
-
-  const displayName = (fullName ?? user.name ?? email.split("@")[0] ?? "My Workspace").trim() || "My Workspace";
-  const slugBase = email
-    .split("@")[0]
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32) || "workspace";
-  // Collision-resistant slug — append the user's id prefix so two users
-  // with `jesus@…` and `jesus@othermail` don't fight over `jesus`.
-  const slug = `${slugBase}-${user.id.slice(0, 8)}`;
-
-  try {
-    const [org] = await db
-      .insert(organizations)
-      .values({
-        name:    `${displayName}'s workspace`,
-        slug,
-        ownerId: user.id,
-      })
-      .returning({ id: organizations.id });
-
-    await db.insert(organizationMembers).values({
-      organizationId: org.id,
-      userId:         user.id,
-      role:           "owner",
-    });
-
-    // Pin the new org as the user's active workspace. Without this the
-    // dashboard + /projects + /integrations pages keep filtering by
-    // "personal mode" (organizationId IS NULL) and the just-imported
-    // projects stay invisible until the user manually picks the org
-    // from the workspace switcher.
-    await db
-      .update(users)
-      .set({ activeOrgId: org.id })
-      .where(eq(users.id, user.id));
-
-    return { id: org.id, userId: user.id };
-  } catch (err) {
-    console.warn("[github-app] createPersonalOrg failed, retrying lookup:", err instanceof Error ? err.message : err);
-    return firstOwnedOrgFor(email);
-  }
-}
