@@ -60,14 +60,17 @@ const CATALOG: CatalogItem[] = [
     mode:    "web" as const,
   },
   */
-  // ── Third-party integrations ────────────────────────────────────────────
-  {
-    service: "github",
-    label:   "GitHub",
-    desc:    "Stale PRs, failed CI runs, unreviewed pull requests",
-    icon:    GitHubIcon,
-    mode:    "web" as const,
-  },
+  // GitHub is no longer a global integration — it's a per-project repo
+  // connection now (see /projects/<slug>'s "Connected repository" header,
+  // Vercel-style). Kept commented for reference; the connect modal logic
+  // around it stays in place in case we resurface it.
+  // {
+  //   service: "github",
+  //   label:   "GitHub",
+  //   desc:    "Stale PRs, failed CI runs, unreviewed pull requests",
+  //   icon:    GitHubIcon,
+  //   mode:    "web" as const,
+  // },
   // ── 2026-05-05 — sole-integration cut ──────────────────────────────────
   // Wedge is GitHub + @inariwatch/capture only. The third-party entries
   // below are commented (not deleted) so flipping any back on is a 1-line
@@ -200,7 +203,8 @@ export default async function IntegrationsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Integrations</h1>
           <p className="mt-1 text-sm text-fg-base/60">
-            Connect your services. InariWatch polls them every 1 minute and surfaces alerts automatically.
+            SDKs and agents that send events to InariWatch. Your GitHub repo connection lives on
+            each project — open a project to manage it.
           </p>
         </div>
         <CreateProjectModal organizationId={activeOrgId}>
