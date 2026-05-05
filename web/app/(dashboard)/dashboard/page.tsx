@@ -1,10 +1,10 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, notificationChannels, errorPatterns, communityFixes, getWorkspaceProjectIds } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, notificationChannels, githubAppInstallations, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { eq, desc, inArray, sql } from "drizzle-orm";
+import { eq, desc, inArray, sql, and, isNull } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Github } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
@@ -50,6 +50,29 @@ export default async function DashboardPage() {
   const hasProject      = userProjects.length > 0;
   const hasIntegrations = integrationRows.length > 0;
   const hasNotifications = notifRows.length > 0;
+
+  // GitHub install detection for the "Connect your GitHub" banner.
+  // Looks for any active install owned by the current user (personal-mode
+  // installer) or under the user's active workspace. Email-signup users
+  // who haven't connected yet see the banner; anyone with at least one
+  // live install does not.
+  const activeOrgIdForInstall = await getActiveOrgId(userId);
+  let hasGitHubInstall = false;
+  if (userId) {
+    const [installRow] = await db
+      .select({ id: githubAppInstallations.id })
+      .from(githubAppInstallations)
+      .where(
+        and(
+          activeOrgIdForInstall
+            ? eq(githubAppInstallations.organizationId, activeOrgIdForInstall)
+            : and(eq(githubAppInstallations.installedBy, userId), isNull(githubAppInstallations.organizationId)),
+          isNull(githubAppInstallations.uninstalledAt),
+        ),
+      )
+      .limit(1);
+    hasGitHubInstall = !!installRow;
+  }
   const unreadCount     = recentAlerts.filter((a) => !a.isRead).length;
   const criticalCount   = recentAlerts.filter((a) => a.severity === "critical").length;
   const openCount       = recentAlerts.filter((a) => !a.isResolved).length;
@@ -99,6 +122,33 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* GitHub-not-connected banner — shown for users who signed up via
+          email/password and haven't connected GitHub yet. Vercel-style
+          empty CTA: one click takes them to /onboarding which surfaces
+          the App install + repo selector. */}
+      {hasProject && !hasGitHubInstall && (
+        <div className="flex flex-col gap-3 rounded-xl border border-inari-accent/25 bg-inari-accent/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-inari-accent/20 bg-inari-accent/[0.08] shrink-0">
+              <Github aria-hidden="true" className="h-5 w-5 text-inari-accent" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-fg-strong">Connect your GitHub</p>
+              <p className="mt-0.5 text-[13px] text-fg-base/60">
+                Import a repository to start monitoring. We&apos;ll open a setup PR
+                automatically — one click and you&apos;re live.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/onboarding"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-inari-accent px-4 py-2 text-[13px] font-medium text-white hover:bg-inari-accent/90"
+          >
+            <Github aria-hidden="true" className="h-3.5 w-3.5" /> Connect GitHub
+          </Link>
+        </div>
+      )}
 
       {/* ── Stats ────────────────────────────────────────────────────────── */}
       {hasProject && (

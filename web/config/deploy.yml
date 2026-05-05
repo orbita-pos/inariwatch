@@ -269,6 +269,15 @@ env:
     - GITHUB_APP_PRIVATE_KEY
     - GITHUB_APP_PRIVATE_KEY_BASE64
     - GITHUB_APP_WEBHOOK_SECRET
+    # GitHub App OAuth — when set, NextAuth's "Continue with GitHub"
+    # button uses these instead of the legacy OAuth App (GITHUB_CLIENT_*).
+    # Combined with "Request user authorization (OAuth) during installation"
+    # enabled in the App settings, signing in also installs the App in
+    # one screen (Vercel-style). lib/auth.ts falls back to the OAuth App
+    # creds when these aren't set yet, so the swap is safe to ship before
+    # populating sops.
+    - GITHUB_APP_CLIENT_ID
+    - GITHUB_APP_CLIENT_SECRET
     # GITHUB_APP_SLUG lives in env.clear above (it's the public part of
     # github.com/apps/<slug>) — no need to encrypt it.
     - SLACK_CLIENT_ID
