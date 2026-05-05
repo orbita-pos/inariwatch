@@ -26,9 +26,22 @@ export const authOptions: NextAuthOptions = {
   },
 
   providers: [
+    // Vercel-style GitHub auth — when GITHUB_APP_CLIENT_ID is set, this
+    // provider uses the GitHub App's user-OAuth credentials (different
+    // from a stand-alone OAuth App). With "Request user authorization
+    // (OAuth) during installation" enabled on the App, signing in via
+    // GitHub also installs / re-uses the App in one screen, so the
+    // user's `/user/installations` already lists their accessible repos
+    // when they land on /import — zero extra "now install the App" step.
+    //
+    // Falls back to the legacy OAuth App credentials when the new ones
+    // aren't populated yet, so the swap is safe to merge before the
+    // sops update lands. After GITHUB_APP_CLIENT_ID is in sops, the
+    // App-OAuth flow takes over automatically (no rebuild — just env
+    // push). Either way the route is the same NextAuth GitHubProvider.
     GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      clientId:     process.env.GITHUB_APP_CLIENT_ID    ?? process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_APP_CLIENT_SECRET ?? process.env.GITHUB_CLIENT_SECRET!,
     }),
 
     // Google OAuth (optional — only enabled if env vars are set)
@@ -160,6 +173,35 @@ export const authOptions: NextAuthOptions = {
         }
 
         token.id = dbUser.id;
+
+        // GitHub App OAuth — when the user just signed in via the App's
+        // user-OAuth (GITHUB_APP_CLIENT_ID), the access_token in `account`
+        // can list our App's installations they have access to. Auto-link
+        // them so the user lands on /dashboard with repos already imported,
+        // skipping the separate "now install the App" step. Soft-fail: if
+        // the token is from the legacy OAuth App or the call rejects, the
+        // import is a no-op and the existing /onboarding flow takes over.
+        if (
+          account.provider === "github" &&
+          typeof account.access_token === "string" &&
+          process.env.GITHUB_APP_CLIENT_ID
+        ) {
+          try {
+            const { linkGitHubInstallationsForUser } = await import(
+              "@/lib/auth/link-github-installation"
+            );
+            await linkGitHubInstallationsForUser({
+              userId:         dbUser.id,
+              accessToken:    account.access_token,
+              organizationId: null, // Workspace selection happens later from /settings.
+            });
+          } catch (err) {
+            console.warn(
+              "[auth] linkGitHubInstallationsForUser failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
       }
 
       return token;
