@@ -27,7 +27,20 @@ export const metadata: Metadata = { title: "Integrations" };
 
 // ── Integration catalog ────────────────────────────────────────────────────────
 
-const CATALOG = [
+type CatalogItem = {
+  service: string;
+  label: string;
+  desc: string;
+  icon: ElementType;
+  mode: "web" | "cli";
+  cmd?: string;
+};
+
+// 2026-05-05 — type widened from `as const` literal-narrowing so the cli
+// branch in the renderer + CliCard intersection type still type-check
+// after the cli entries (only `git` historically) were commented during
+// the sole-integration cut.
+const CATALOG: CatalogItem[] = [
   // ── InariWatch own products (first — our differentiator) ────────────────
   {
     service: "capture",
@@ -36,6 +49,9 @@ const CATALOG = [
     icon:    CaptureIcon,
     mode:    "web" as const,
   },
+  // 2026-05-05 — InariWatch Agent (eBPF) archived. Repo dormant, no active
+  // marketing, awaiting paying-user demand. Re-list when revived.
+  /*
   {
     service: "agent",
     label:   "InariWatch Agent",
@@ -43,6 +59,7 @@ const CATALOG = [
     icon:    AgentIcon,
     mode:    "web" as const,
   },
+  */
   // ── Third-party integrations ────────────────────────────────────────────
   {
     service: "github",
@@ -51,6 +68,15 @@ const CATALOG = [
     icon:    GitHubIcon,
     mode:    "web" as const,
   },
+  // ── 2026-05-05 — sole-integration cut ──────────────────────────────────
+  // Wedge is GitHub + @inariwatch/capture only. The third-party entries
+  // below are commented (not deleted) so flipping any back on is a 1-line
+  // revert. Each one corresponds to a poller in web/lib/pollers/, a
+  // webhook route under web/app/api/webhooks/, and a cron sub-route in
+  // app/api/cron/poll/route.ts SUB_ROUTES — all three places gate the
+  // feature, so re-enabling here alone is not enough; flip the matching
+  // SUB_ROUTES entry + webhook route DISABLED const too.
+  /*
   {
     service: "vercel",
     label:   "Vercel",
@@ -129,6 +155,7 @@ const CATALOG = [
     icon:    ExpoIcon,
     mode:    "web" as const,
   },
+  */
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -217,8 +244,9 @@ export default async function IntegrationsPage() {
           const connected = allIntegrations.filter((i) => i.service === item.service);
 
           if (item.mode === "cli") {
+            const cliItem = item as CatalogItem & { mode: "cli" };
             return (
-              <CliCard key={item.service} item={item} connected={connected} />
+              <CliCard key={item.service} item={cliItem} connected={connected} />
             );
           }
 
@@ -402,7 +430,7 @@ function CliCard({
   item,
   connected,
 }: {
-  item: (typeof CATALOG)[number] & { mode: "cli"; cmd: string };
+  item: CatalogItem & { mode: "cli" };
   connected: ConnectedRow[];
 }) {
   return (

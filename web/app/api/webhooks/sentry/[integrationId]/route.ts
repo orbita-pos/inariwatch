@@ -83,10 +83,23 @@ async function fetchSentryStackTrace(
  * - action: "resolved" / "unresolved" (status change)
  * - data.issue contains the issue details
  */
+// 2026-05-05 — sole-integration cut. Sentry/Vercel/Datadog/Expo inbound
+// webhooks disabled; wedge is GitHub + Capture (@inariwatch/capture).
+// Flip to `false` (or revert the commit) to revive — the original body
+// below is intact, no logic was deleted.
+const DISABLED = true;
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ integrationId: string }> }
 ) {
+  if (DISABLED) {
+    return NextResponse.json({
+      error: "Webhook deprecated",
+      message: "InariWatch ingests runtime errors via @inariwatch/capture (https://npm.im/@inariwatch/capture). Sentry inbound disabled 2026-05-05.",
+    }, { status: 410 });
+  }
+
   const { integrationId } = await params;
 
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
