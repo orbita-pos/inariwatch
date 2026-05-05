@@ -30,7 +30,7 @@
 #     but standalone's tracer drops it; without this copy, image optimization
 #     silently falls back to a 10x-slower WASM path. See
 #     nextjs.org/docs/messages/sharp-missing-in-production.
-#   - `outputFileTracingRoot` in next.config.ts is set to the monorepo root,
+#   - `outputFileTracingRoot` in next.config.mjs is set to the monorepo root,
 #     so the standalone entrypoint lives at .next/standalone/web/server.js
 #     and the runtime CMD is `node web/server.js` (not `node server.js`).
 # ─────────────────────────────────────────────────────────────────────────────
