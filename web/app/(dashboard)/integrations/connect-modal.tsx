@@ -4,7 +4,18 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState, useTransition } from "react";
 import { X, ExternalLink, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { connectIntegration } from "./actions";
+import {
+  connectIntegration,
+  lookupGitHubInstallation,
+  connectGitHubInstallation,
+} from "./actions";
+
+type LookupResult = {
+  installationId: number;
+  accountLogin: string;
+  accountType: "User" | "Organization";
+  repositorySelection: "all" | "selected";
+};
 
 // ── Per-service config ─────────────────────────────────────────────────────────
 
@@ -175,6 +186,13 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
   const [projectId, setProjectId]  = useState("");
   const [isPending, start]         = useTransition();
 
+  // Existing-installation lookup state. `lookupLogin` is the typed input,
+  // `lookup` is the resolved installation (set after a successful query),
+  // `lookupBusy` while the server action is in flight.
+  const [lookupLogin, setLookupLogin] = useState("");
+  const [lookup, setLookup]           = useState<LookupResult | null>(null);
+  const [lookupBusy, setLookupBusy]   = useState(false);
+
   const cfg = SERVICE_CONFIG[service];
   const useGitHubApp = service === "github" && !!githubAppSlug;
 
@@ -197,6 +215,42 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
     // installation to the correct project_integrations row.
     const url = `https://github.com/apps/${encodeURIComponent(githubAppSlug ?? "")}/installations/new?state=${encodeURIComponent(projectId)}`;
     window.location.href = url;
+  };
+
+  const handleLookup = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError("");
+    setLookup(null);
+    if (!lookupLogin.trim()) {
+      setError("Enter your GitHub username or org name.");
+      return;
+    }
+    setLookupBusy(true);
+    try {
+      const result = await lookupGitHubInstallation(lookupLogin.trim());
+      if (result.error || !result.installation) {
+        setError(result.error ?? "Not found.");
+        return;
+      }
+      setLookup(result.installation);
+    } finally {
+      setLookupBusy(false);
+    }
+  };
+
+  const handleConnectExisting = () => {
+    setError("");
+    if (!projectId) { setError("Select a project first."); return; }
+    if (!lookup) return;
+    start(async () => {
+      const result = await connectGitHubInstallation(
+        projectId,
+        lookup.installationId,
+        lookup.accountLogin,
+      );
+      if (result.error) setError(result.error);
+      else setOpen(false);
+    });
   };
 
   return (
@@ -246,22 +300,74 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
                 </div>
 
                 {useGitHubApp ? (
-                  <div className="rounded-lg border border-line bg-surface-inner px-3 py-3 space-y-2">
-                    <p className="text-xs text-fg-base/60 leading-relaxed">
-                      No token to copy. We&apos;ll redirect you to GitHub to install the
-                      InariWatch App on the org/repos you want monitored. Permissions are
-                      scoped per-repo and revocable from your GitHub settings at any time.
-                    </p>
-                    <ul className="space-y-1 pt-1 text-[11px] text-fg-base/50">
-                      <li className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-green-600" />
-                        <span>Contents (read), Pull requests (read/write), Checks (read)</span>
-                      </li>
-                      <li className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-green-600" />
-                        <span>No long-lived token to expire or rotate</span>
-                      </li>
-                    </ul>
+                  <div className="space-y-3">
+                    {/* Existing installation lookup — primary path for users who
+                        already installed InariWatch on github.com previously. */}
+                    <div className="rounded-lg border border-line bg-surface-inner px-3 py-3 space-y-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
+                        Already installed?
+                      </p>
+                      {lookup ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-2.5 py-2">
+                            <div className="text-xs text-fg-base/70">
+                              <span className="font-mono text-fg-strong">{lookup.accountLogin}</span>{" "}
+                              <span className="text-fg-base/40">
+                                · {lookup.accountType.toLowerCase()} ·{" "}
+                                {lookup.repositorySelection === "all" ? "all repos" : "selected repos"}
+                              </span>
+                            </div>
+                            <Check className="h-3.5 w-3.5 text-green-600" />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setLookup(null); setLookupLogin(""); }}
+                            className="text-[11px] text-fg-base/40 underline-offset-2 hover:underline"
+                          >
+                            Use a different account
+                          </button>
+                        </div>
+                      ) : (
+                        <form onSubmit={handleLookup} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={lookupLogin}
+                            onChange={(e) => setLookupLogin(e.target.value)}
+                            placeholder="GitHub username or org"
+                            autoComplete="off"
+                            className="min-w-0 flex-1 rounded-md border border-line-medium bg-surface-dim px-2.5 py-1.5 font-mono text-[12px] text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
+                          />
+                          <button
+                            type="submit"
+                            disabled={lookupBusy}
+                            className="rounded-md border border-line-medium bg-surface-dim px-3 py-1.5 text-[12px] text-fg-base hover:border-fg-base/30 disabled:opacity-50"
+                          >
+                            {lookupBusy ? "…" : "Find"}
+                          </button>
+                        </form>
+                      )}
+                    </div>
+
+                    {/* Fallback / first-time install — same redirect as before. */}
+                    <div className="rounded-lg border border-dashed border-line bg-surface-inner px-3 py-3 space-y-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
+                        First time?
+                      </p>
+                      <p className="text-xs text-fg-base/60 leading-relaxed">
+                        We&apos;ll redirect you to GitHub to install the InariWatch App.
+                        Permissions scoped per-repo and revocable from your GitHub settings.
+                      </p>
+                      <ul className="space-y-1 pt-1 text-[11px] text-fg-base/50">
+                        <li className="flex items-center gap-1.5">
+                          <Check className="h-3 w-3 text-green-600" />
+                          <span>Contents (read), Pull requests (read/write), Checks (read)</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <Check className="h-3 w-3 text-green-600" />
+                          <span>No long-lived token to expire or rotate</span>
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 ) : cfg && (cfg.mode as string) === "capture" ? (
                   <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5">
@@ -624,14 +730,26 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
                   <Button variant="outline" className="flex-1" type="button">Cancel</Button>
                 </Dialog.Close>
                 {useGitHubApp ? (
-                  <Button
-                    variant="primary"
-                    className="flex-1"
-                    type="button"
-                    onClick={handleInstallApp}
-                  >
-                    Install GitHub App
-                  </Button>
+                  lookup ? (
+                    <Button
+                      variant="primary"
+                      className="flex-1"
+                      type="button"
+                      onClick={handleConnectExisting}
+                      disabled={isPending}
+                    >
+                      {isPending ? "Connecting…" : `Connect ${lookup.accountLogin}`}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      className="flex-1"
+                      type="button"
+                      onClick={handleInstallApp}
+                    >
+                      Install GitHub App
+                    </Button>
+                  )
                 ) : (
                   <Button variant="primary" className="flex-1" type="submit" disabled={isPending}>
                     {isPending ? "Connecting…" : `Connect ${label}`}

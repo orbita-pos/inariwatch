@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { encrypt, encryptConfig, decryptConfig } from "@/lib/crypto";
 import { validatePublicUrl } from "@/lib/url-validation";
 import { resolveGitHubAuth } from "@/lib/services/github-token";
+import { findInstallationByLogin, type FoundInstallation } from "@/lib/github-app/find-installations";
 
 // ── Token validation + auto-discovery ────────────────────────────────────────
 
@@ -363,6 +364,141 @@ export async function connectIntegration(
     if (service === "github" && config && typeof config === "object" && "owner" in config) {
       triggerFirstCodeIndex(projectId, config.owner as string).catch(() => {});
     }
+
+    revalidatePath("/integrations");
+    revalidatePath("/dashboard");
+    return {};
+  } catch {
+    return { error: "Failed to save. Please try again." };
+  }
+}
+
+// ── GitHub App: lookup + connect existing installation ──────────────────────
+//
+// Two-action flow that lets users connect a project to an existing App
+// installation without bouncing through github.com. The lookup action
+// answers "is the App installed on this account?", the connect action
+// commits the link.
+//
+// Security: `lookupGitHubInstallation` proves the install exists; it does
+// not prove the caller owns the account. Ownership is the connect action's
+// job — for now we trust the project owner's claim and audit-log the
+// connect; a v2 hardened path will add GitHub App OAuth before flipping
+// the bit. Documented inline at the connect call site.
+
+export async function lookupGitHubInstallation(
+  login: string,
+): Promise<{ installation?: FoundInstallation; error?: string }> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { error: "Not authenticated." };
+
+  const cleaned = (login ?? "").trim();
+  if (!cleaned) return { error: "Enter your GitHub username or org name." };
+
+  if (!process.env.GITHUB_APP_ID) {
+    return { error: "GitHub App not configured on this server." };
+  }
+
+  const found = await findInstallationByLogin(cleaned);
+  if (!found) {
+    return {
+      error: `InariWatch isn't installed on ${cleaned} yet — use "Install GitHub App" instead.`,
+    };
+  }
+  return { installation: found };
+}
+
+export async function connectGitHubInstallation(
+  projectId: string,
+  installationId: number,
+  expectedLogin: string,
+): Promise<{ error?: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    const userId = (session?.user as { id?: string })?.id;
+    if (!userId) return { error: "Not authenticated." };
+
+    if (!projectId || !Number.isFinite(installationId) || !expectedLogin) {
+      return { error: "Missing required fields." };
+    }
+
+    const [project] = await db
+      .select()
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1);
+    if (!project) return { error: "Project not found." };
+
+    // Re-verify the installation still exists + the login on file matches
+    // what the user picked. This catches uninstall-since-lookup races and
+    // a tampered installationId in the form payload.
+    const found = await findInstallationByLogin(expectedLogin);
+    if (!found || found.installationId !== installationId) {
+      return { error: "Installation not found or changed — re-run the lookup." };
+    }
+
+    // Plan-limit check (mirrors connectIntegration). Counts integrations
+    // across all of the user's projects unless this is an update.
+    const userProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.userId, userId));
+    const userProjectIds = userProjects.map((p) => p.id);
+
+    const [existing] = await db
+      .select({ id: projectIntegrations.id, webhookSecret: projectIntegrations.webhookSecret })
+      .from(projectIntegrations)
+      .where(
+        and(
+          eq(projectIntegrations.projectId, projectId),
+          eq(projectIntegrations.service, "github"),
+        ),
+      )
+      .limit(1);
+
+    if (!existing && userProjectIds.length > 0) {
+      const plan = BETA_PLAN ?? "free";
+      const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+      const [result] = await db
+        .select({ count: count() })
+        .from(projectIntegrations)
+        .where(inArray(projectIntegrations.projectId, userProjectIds));
+      if (result.count >= limits.maxIntegrations) {
+        return {
+          error: `Your ${plan} plan allows ${limits.maxIntegrations} integrations. Upgrade to Pro for ${PLAN_LIMITS.pro.maxIntegrations}.`,
+        };
+      }
+    }
+
+    const config = { owner: found.accountLogin };
+    const webhookSecret = existing?.webhookSecret ?? encrypt(generateWebhookSecret());
+
+    if (existing) {
+      await db
+        .update(projectIntegrations)
+        .set({
+          configEncrypted: encryptConfig(config),
+          installationId: found.installationId,
+          isActive: true,
+          errorCount: 0,
+        })
+        .where(eq(projectIntegrations.id, existing.id));
+    } else {
+      await db.insert(projectIntegrations).values({
+        projectId,
+        service: "github",
+        configEncrypted: encryptConfig(config),
+        installationId: found.installationId,
+        webhookSecret,
+        isActive: true,
+      });
+    }
+
+    logAudit({
+      userId,
+      action: "integration.connect",
+      resource: "integration",
+      metadata: { service: "github", source: "app_existing", installationId: found.installationId, accountLogin: found.accountLogin },
+    });
+
+    triggerFirstCodeIndex(projectId, found.accountLogin).catch(() => {});
 
     revalidatePath("/integrations");
     revalidatePath("/dashboard");
