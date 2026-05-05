@@ -166,6 +166,11 @@ export default async function IntegrationsPage() {
 
   const activeOrgId = await getActiveOrgId();
 
+  // App-OAuth migration: when the App is provisioned (slug + private key in
+  // env), the GitHub card switches to a one-click install instead of a PAT
+  // paste field. Empty / unset → existing PAT path stays the default.
+  const githubAppSlug = process.env.GITHUB_APP_SLUG ?? "";
+
   const userProjects = userId
     ? activeOrgId
       ? await db.select().from(projects).where(eq(projects.organizationId, activeOrgId))
@@ -256,6 +261,7 @@ export default async function IntegrationsPage() {
               item={item}
               connected={connected}
               projectOptions={projectOptions}
+              githubAppSlug={githubAppSlug}
             />
           );
         })}
@@ -334,10 +340,12 @@ function WebCard({
   item,
   connected,
   projectOptions,
+  githubAppSlug,
 }: {
   item: (typeof CATALOG)[number];
   connected: ConnectedRow[];
   projectOptions: { id: string; name: string }[];
+  githubAppSlug?: string;
 }) {
   return (
     <CardShell item={item} connected={connected}>
@@ -410,7 +418,12 @@ function WebCard({
 
       {/* Connect button */}
       <div className="mt-auto">
-        <ConnectModal service={item.service} label={item.label} projects={projectOptions}>
+        <ConnectModal
+          service={item.service}
+          label={item.label}
+          projects={projectOptions}
+          githubAppSlug={item.service === "github" ? githubAppSlug : undefined}
+        >
           <Button
             variant={connected.length > 0 ? "outline" : "primary"}
             size="sm"

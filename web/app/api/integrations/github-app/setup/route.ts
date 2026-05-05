@@ -14,11 +14,21 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
-import { db, organizations, organizationMembers, users, githubAppInstallations } from "@/lib/db";
+import {
+  db,
+  organizations,
+  organizationMembers,
+  users,
+  githubAppInstallations,
+  projects,
+  projectIntegrations,
+} from "@/lib/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import { getInstallationToken, ghFetchApp } from "@/lib/github-app/octokit";
 import { openSetupPRForInstallation } from "@/lib/github-app/open-setup-pr";
+import { encrypt, encryptConfig } from "@/lib/crypto";
+import { generateWebhookSecret } from "@/lib/webhooks/shared";
 
 /**
  * Public base URL the app thinks it lives at. Inside the kamal-proxy'd
@@ -38,6 +48,12 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const installationIdRaw = url.searchParams.get("installation_id");
   const setupAction       = url.searchParams.get("setup_action");
+  // `state` round-trips the dashboard's projectId through GitHub so we can
+  // attach this installation to the right project_integrations row. When
+  // unset (e.g. user installs from github.com directly, not from our
+  // dashboard) we still persist the org-level installation but skip the
+  // per-project link.
+  const stateProjectId    = url.searchParams.get("state");
 
   if (!installationIdRaw) {
     return NextResponse.redirect(new URL("/integrations?error=missing_installation", APP_BASE));
@@ -98,6 +114,64 @@ export async function GET(req: Request) {
       },
     });
 
+  // ── Per-project link (when the user came from /integrations) ────────────
+  // The dashboard install button passes `state=<projectId>`. Verify the
+  // project belongs to the same user/org (defense against tampered state),
+  // then upsert a project_integrations row backed by this installation.
+  if (stateProjectId) {
+    try {
+      const [project] = await db
+        .select({ id: projects.id, organizationId: projects.organizationId, userId: projects.userId })
+        .from(projects)
+        .where(eq(projects.id, stateProjectId))
+        .limit(1);
+
+      const ownsProject =
+        project &&
+        (project.userId === orgRow.userId ||
+          (project.organizationId !== null && project.organizationId === orgRow.id));
+
+      if (ownsProject) {
+        const [existing] = await db
+          .select({ id: projectIntegrations.id, webhookSecret: projectIntegrations.webhookSecret })
+          .from(projectIntegrations)
+          .where(
+            and(
+              eq(projectIntegrations.projectId, project.id),
+              eq(projectIntegrations.service, "github"),
+            ),
+          )
+          .limit(1);
+
+        const config = { owner: accountInfo.login };
+        const webhookSecret = existing?.webhookSecret ?? encrypt(generateWebhookSecret());
+
+        if (existing) {
+          await db
+            .update(projectIntegrations)
+            .set({
+              configEncrypted: encryptConfig(config),
+              installationId,
+              isActive: true,
+              errorCount: 0,
+            })
+            .where(eq(projectIntegrations.id, existing.id));
+        } else {
+          await db.insert(projectIntegrations).values({
+            projectId: project.id,
+            service: "github",
+            configEncrypted: encryptConfig(config),
+            installationId,
+            webhookSecret,
+            isActive: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[github-app] project_integrations upsert failed:", err instanceof Error ? err.message : err);
+    }
+  }
+
   // Mint the per-org DSN once — every PR we open in this run shares it.
   const dsn = inariwatchDsnForOrg(orgRow.id);
 
@@ -127,8 +201,17 @@ export async function GET(req: Request) {
     console.warn("[github-app] auto-PR generation failed:", err instanceof Error ? err.message : err);
   }
 
-  // Land on the dedicated success page — shows the DSN, the PR link,
-  // and "now go set INARIWATCH_DSN in your hosting provider" guidance.
+  // When the install was triggered from /integrations (state=<projectId>),
+  // bounce the user straight back there so the new card row shows up
+  // without an extra hop. Other paths (e.g. github.com → "Install" button)
+  // still land on the dedicated success page with PR + DSN guidance.
+  if (stateProjectId) {
+    const back = new URL("/integrations", APP_BASE);
+    back.searchParams.set("github", "installed");
+    if (firstPrUrl) back.searchParams.set("pr", firstPrUrl);
+    return NextResponse.redirect(back);
+  }
+
   const redirect = new URL("/integrations/github-app/installed", APP_BASE);
   if (firstPrUrl) redirect.searchParams.set("pr", firstPrUrl);
   return NextResponse.redirect(redirect);
