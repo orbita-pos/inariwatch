@@ -325,9 +325,16 @@ function Celebration() {
 
 // ── Main wizard component ─────────────────────────────────────────────────────
 
-export function OnboardingWizard({ userName }: { userName: string }) {
+export function OnboardingWizard({
+  userName,
+  githubAppSlug,
+}: {
+  userName: string;
+  githubAppSlug?: string;
+}) {
   const router = useRouter();
   const TOTAL_STEPS = 4;
+  const canImportFromGithub = !!githubAppSlug;
 
   const [currentStep, setCurrentStep] = useState(1);
   const [projectName, setProjectName] = useState("");
@@ -404,9 +411,37 @@ export function OnboardingWizard({ userName }: { userName: string }) {
                 Welcome, {userName}
               </h2>
               <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
-                Let&apos;s set up your first project. A project groups your integrations
-                and alerts together.
+                Import your repos from GitHub — we&apos;ll create one project per repo
+                and open a setup PR. Or create a blank project to wire up later.
               </p>
+
+              {canImportFromGithub && (
+                <div className="w-full max-w-sm space-y-2 mb-5">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                    onClick={() => {
+                      // No `state` here — the setup callback's bulk-import path
+                      // creates one project per repo the user grants access to.
+                      window.location.href = `https://github.com/apps/${encodeURIComponent(
+                        githubAppSlug ?? "",
+                      )}/installations/new`;
+                    }}
+                  >
+                    <Github aria-hidden="true" className="h-4 w-4" /> Import from GitHub
+                    <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                  </Button>
+                  <p className="text-[11px] text-fg-base/40">
+                    One click — pick the repos you want monitored on github.com.
+                  </p>
+                  <div className="flex items-center gap-3 pt-2 text-[11px] text-fg-base/40">
+                    <span className="h-px flex-1 bg-line" />
+                    <span>or create a blank project</span>
+                    <span className="h-px flex-1 bg-line" />
+                  </div>
+                </div>
+              )}
 
               <div className="w-full max-w-sm space-y-3">
                 <div className="text-left">
