@@ -5,6 +5,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { pollGitHub, type GithubAlertConfig } from "@/lib/pollers/github";
 import { createAlertIfNew, markIntegrationSuccess } from "@/lib/webhooks/shared";
 import { decryptConfig } from "@/lib/crypto";
+import { resolveGitHubAuth } from "@/lib/services/github-token";
 import type { NewAlert } from "@/lib/db";
 
 import crypto from "crypto";
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
       projectId:       projectIntegrations.projectId,
       service:         projectIntegrations.service,
       configEncrypted: projectIntegrations.configEncrypted,
+      installationId:  projectIntegrations.installationId,
       errorCount:      projectIntegrations.errorCount,
       lastCheckedAt:   projectIntegrations.lastCheckedAt,
       orgOwnerPlan:    orgUsers.plan,
@@ -64,11 +66,14 @@ export async function GET(req: Request) {
 
   async function pollIntegration(integ: typeof integrations[number]) {
     const cfg = decryptConfig(integ.configEncrypted);
-    const token = cfg.token as string | undefined;
-    if (!token) return [];
-
     const alertConfig = (cfg.alertConfig ?? {}) as Record<string, unknown>;
-    const owner = (cfg.owner as string) ?? "";
+
+    // Resolver returns either a fresh App installation token (when
+    // installation_id is set) or the legacy PAT from configEncrypted.token.
+    // Owner is sourced from the same place either way.
+    const { token, owner } = await resolveGitHubAuth(integ);
+    if (!token || !owner) return [];
+
     const newAlerts: Omit<NewAlert, "projectId">[] = await pollGitHub(
       token,
       owner,

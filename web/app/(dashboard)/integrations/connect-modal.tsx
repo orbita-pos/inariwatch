@@ -159,14 +159,24 @@ interface Props {
   label: string;
   projects: { id: string; name: string }[];
   children: React.ReactNode;
+  /**
+   * When set, the github card switches from PAT-paste UX to a one-click
+   * "Install GitHub App" redirect. Threaded down from the server component
+   * (page.tsx reads it from env and passes the slug, NOT a NEXT_PUBLIC_*
+   * which would expose it on every page in the app). Empty / undefined →
+   * falls back to the PAT path.
+   */
+  githubAppSlug?: string;
 }
 
-export function ConnectModal({ service, label, projects, children }: Props) {
-  const [open, setOpen]    = useState(false);
-  const [error, setError]  = useState("");
-  const [isPending, start] = useTransition();
+export function ConnectModal({ service, label, projects, children, githubAppSlug }: Props) {
+  const [open, setOpen]            = useState(false);
+  const [error, setError]          = useState("");
+  const [projectId, setProjectId]  = useState("");
+  const [isPending, start]         = useTransition();
 
   const cfg = SERVICE_CONFIG[service];
+  const useGitHubApp = service === "github" && !!githubAppSlug;
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -177,6 +187,16 @@ export function ConnectModal({ service, label, projects, children }: Props) {
       if (result.error) setError(result.error);
       else setOpen(false);
     });
+  };
+
+  const handleInstallApp = () => {
+    setError("");
+    if (!projectId) { setError("Select a project first."); return; }
+    // GitHub forwards `state` to the App's redirect URL — we round-trip
+    // the projectId so /api/integrations/github-app/setup can attach the
+    // installation to the correct project_integrations row.
+    const url = `https://github.com/apps/${encodeURIComponent(githubAppSlug ?? "")}/installations/new?state=${encodeURIComponent(projectId)}`;
+    window.location.href = url;
   };
 
   return (
@@ -214,6 +234,8 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                   <select
                     name="projectId"
                     required
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
                     className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2 text-sm text-fg-base focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
                   >
                     <option value="">Select a project…</option>
@@ -223,7 +245,25 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                   </select>
                 </div>
 
-                {cfg && (cfg.mode as string) === "capture" ? (
+                {useGitHubApp ? (
+                  <div className="rounded-lg border border-line bg-surface-inner px-3 py-3 space-y-2">
+                    <p className="text-xs text-fg-base/60 leading-relaxed">
+                      No token to copy. We&apos;ll redirect you to GitHub to install the
+                      InariWatch App on the org/repos you want monitored. Permissions are
+                      scoped per-repo and revocable from your GitHub settings at any time.
+                    </p>
+                    <ul className="space-y-1 pt-1 text-[11px] text-fg-base/50">
+                      <li className="flex items-center gap-1.5">
+                        <Check className="h-3 w-3 text-green-600" />
+                        <span>Contents (read), Pull requests (read/write), Checks (read)</span>
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <Check className="h-3 w-3 text-green-600" />
+                        <span>No long-lived token to expire or rotate</span>
+                      </li>
+                    </ul>
+                  </div>
+                ) : cfg && (cfg.mode as string) === "capture" ? (
                   <div className="rounded-lg border border-line bg-surface-inner px-3 py-2.5">
                     <p className="text-xs text-fg-base/60 leading-relaxed">
                       No token needed. Click Connect and we&apos;ll generate a DSN for your app.
@@ -583,9 +623,20 @@ export function ConnectModal({ service, label, projects, children }: Props) {
                 <Dialog.Close asChild>
                   <Button variant="outline" className="flex-1" type="button">Cancel</Button>
                 </Dialog.Close>
-                <Button variant="primary" className="flex-1" type="submit" disabled={isPending}>
-                  {isPending ? "Connecting…" : `Connect ${label}`}
-                </Button>
+                {useGitHubApp ? (
+                  <Button
+                    variant="primary"
+                    className="flex-1"
+                    type="button"
+                    onClick={handleInstallApp}
+                  >
+                    Install GitHub App
+                  </Button>
+                ) : (
+                  <Button variant="primary" className="flex-1" type="submit" disabled={isPending}>
+                    {isPending ? "Connecting…" : `Connect ${label}`}
+                  </Button>
+                )}
               </div>
             </form>
           )}

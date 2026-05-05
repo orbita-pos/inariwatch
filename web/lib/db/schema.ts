@@ -328,6 +328,9 @@ export const projectIntegrations = pgTable("project_integrations", {
   lastErrorAt: timestamp("last_error_at"),
   lastErrorMessage: text("last_error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Migration 0084 — when set, this github row authenticates via the App
+  // installation token (lib/services/github-token.ts) instead of a PAT.
+  installationId: bigint("installation_id", { mode: "number" }),
 });
 
 // ── Project Access Control ──────────────────────────────────────────────────
