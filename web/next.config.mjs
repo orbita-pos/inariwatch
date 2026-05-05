@@ -1,14 +1,16 @@
-import type { NextConfig } from "next";
+// Renamed from next.config.ts → next.config.mjs (2026-05-05) so Next.js
+// loads the config as native ESM and the `@inariwatch/capture/next` plugin
+// (which only ships an ESM `import` condition, no `require`) can be loaded
+// without the legacy CJS-config-transpiler dance. Type-safety preserved
+// via the JSDoc `@type` annotation below — same IntelliSense, no .ts
+// compilation step.
+import { withInariWatch } from "@inariwatch/capture/next";
 import path from "path";
-// withInariWatch wrapper intentionally NOT imported here — the published
-// @inariwatch/capture@0.9.0's `./next` subpath exports only `import`/`default`
-// conditions, no `require`. Next.js's config transpiler compiles this file
-// to CJS and `require`s the plugin, which fails on ESM-only subpaths under
-// Node 20. Dogfood capture continues to work via `instrumentation.ts` at
-// runtime, which uses native ESM import. Re-add the wrapper once the
-// capture package publishes with a `require` condition (next patch release).
+import { fileURLToPath } from "url";
 
-// Security headers applied uniformly via next.config.ts.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Security headers applied uniformly via next.config.
 // Per-request CSP (with strict-dynamic + nonce), COOP, CORP, and the
 // X-XSS-Protection=0 override are injected by `web/middleware.ts`; those
 // are intentionally NOT duplicated here to avoid double-header issues.
@@ -39,7 +41,8 @@ const securityHeaders = [
     : []),
 ];
 
-const config: NextConfig = {
+/** @type {import("next").NextConfig} */
+const config = {
   // Standalone output keeps the production image tiny (~80MB vs ~400MB) by
   // tracing only the dependencies the built bundle actually imports. Required
   // for the Hetzner Docker build. No effect on Vercel — Vercel uses its own
@@ -141,4 +144,4 @@ const config: NextConfig = {
   },
 };
 
-export default config;
+export default withInariWatch(config);
