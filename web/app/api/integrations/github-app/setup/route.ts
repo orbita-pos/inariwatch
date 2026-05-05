@@ -87,7 +87,13 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL("/integrations?error=github_app_init", APP_BASE));
   }
 
-  const orgRow = await firstOwnedOrgFor(session.user.email);
+  // Brand-new users (just signed up + clicked Import) don't have an
+  // organization yet — NextAuth's jwt callback only creates the user row.
+  // Auto-bootstrap a personal org so the install can land somewhere.
+  let orgRow = await firstOwnedOrgFor(session.user.email);
+  if (!orgRow) {
+    orgRow = await createPersonalOrgFor(session.user.email, session.user.name ?? null);
+  }
   if (!orgRow) {
     return NextResponse.redirect(new URL("/integrations?error=no_org", APP_BASE));
   }
@@ -421,4 +427,56 @@ async function firstOwnedOrgFor(
   const row = rows[0];
   if (!row) return null;
   return { id: row.orgId, userId: row.userId };
+}
+
+/**
+ * Create a personal organization for a user that doesn't have one yet.
+ * Only used as a fallback in the GitHub App setup path — NextAuth's jwt
+ * callback creates the `users` row but no organization, so first-time
+ * importers from /onboarding hit this. Idempotent on retry: if the slug
+ * collides we look up the existing membership and return that.
+ */
+async function createPersonalOrgFor(
+  email: string,
+  fullName: string | null,
+): Promise<{ id: string; userId: string } | null> {
+  const [user] = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  if (!user) return null;
+
+  const displayName = (fullName ?? user.name ?? email.split("@")[0] ?? "My Workspace").trim() || "My Workspace";
+  const slugBase = email
+    .split("@")[0]
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32) || "workspace";
+  // Collision-resistant slug — append the user's id prefix so two users
+  // with `jesus@…` and `jesus@othermail` don't fight over `jesus`.
+  const slug = `${slugBase}-${user.id.slice(0, 8)}`;
+
+  try {
+    const [org] = await db
+      .insert(organizations)
+      .values({
+        name:    `${displayName}'s workspace`,
+        slug,
+        ownerId: user.id,
+      })
+      .returning({ id: organizations.id });
+
+    await db.insert(organizationMembers).values({
+      organizationId: org.id,
+      userId:         user.id,
+      role:           "owner",
+    });
+
+    return { id: org.id, userId: user.id };
+  } catch (err) {
+    console.warn("[github-app] createPersonalOrg failed, retrying lookup:", err instanceof Error ? err.message : err);
+    return firstOwnedOrgFor(email);
+  }
 }
