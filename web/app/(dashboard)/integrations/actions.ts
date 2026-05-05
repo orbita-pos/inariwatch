@@ -9,6 +9,7 @@ import { generateWebhookSecret } from "@/lib/webhooks/shared";
 import { logAudit } from "@/lib/audit";
 import { encrypt, encryptConfig, decryptConfig } from "@/lib/crypto";
 import { validatePublicUrl } from "@/lib/url-validation";
+import { resolveGitHubAuth } from "@/lib/services/github-token";
 
 // ── Token validation + auto-discovery ────────────────────────────────────────
 
@@ -463,7 +464,12 @@ export async function fetchIntegrationOptions(
   if (!userId) return [];
 
   const [integ] = await db
-    .select({ service: projectIntegrations.service, configEncrypted: projectIntegrations.configEncrypted, projectId: projectIntegrations.projectId })
+    .select({
+      service: projectIntegrations.service,
+      configEncrypted: projectIntegrations.configEncrypted,
+      installationId: projectIntegrations.installationId,
+      projectId: projectIntegrations.projectId,
+    })
     .from(projectIntegrations)
     .where(eq(projectIntegrations.id, integrationId))
     .limit(1);
@@ -478,10 +484,32 @@ export async function fetchIntegrationOptions(
   if (!project) return [];
 
   const cfg = decryptConfig(integ.configEncrypted);
-  const token = cfg.token as string;
 
   try {
     if (integ.service === "github") {
+      // App-backed rows scope to the installation's accessible repos —
+      // /installation/repositories — which respects the per-repo grant the
+      // user picked at install time. PAT-backed rows fall through to the
+      // /user/repos path, which is what they had access to before.
+      if (integ.installationId) {
+        const { token } = await resolveGitHubAuth(integ);
+        const res = await fetch(
+          "https://api.github.com/installation/repositories?per_page=100",
+          {
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "InariWatch-Monitor/1.0",
+            },
+          }
+        );
+        if (!res.ok) return [];
+        const data = (await res.json()) as { repositories?: { full_name: string }[] };
+        return (data.repositories ?? []).map((r) => ({ label: r.full_name, value: r.full_name }));
+      }
+
+      const token = cfg.token as string;
       const res = await fetch(
         "https://api.github.com/user/repos?affiliation=owner,collaborator&per_page=50&sort=pushed",
         {
@@ -492,20 +520,23 @@ export async function fetchIntegrationOptions(
       const repos: { full_name: string; name: string }[] = await res.json();
       return repos.map((r) => ({ label: r.full_name, value: r.full_name }));
     }
-    if (integ.service === "vercel") {
+    // Non-github services still authenticate with the PAT they pasted at
+    // connect time; the App swap only applies to github.
+    const legacyToken = cfg.token as string | undefined;
+    if (integ.service === "vercel" && legacyToken) {
       const teamId = cfg.teamId as string | undefined;
       const teamQuery = teamId ? `?teamId=${teamId}` : "";
       const res = await fetch(`https://api.vercel.com/v9/projects${teamQuery}&limit=50`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${legacyToken}` },
       });
       if (!res.ok) return [];
       const data: { projects: { name: string }[] } = await res.json();
       return (data.projects ?? []).map((p) => ({ label: p.name, value: p.name }));
     }
-    if (integ.service === "sentry") {
+    if (integ.service === "sentry" && legacyToken) {
       const org = cfg.org as string;
       const res = await fetch(`https://sentry.io/api/0/organizations/${org}/projects/`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${legacyToken}` },
       });
       if (!res.ok) return [];
       const sentryProjects: { slug: string; name: string }[] = await res.json();
@@ -521,16 +552,24 @@ async function triggerFirstCodeIndex(projectId: string, owner: string) {
   try {
     // List repos for this owner to auto-detect the main repo
     const [integ] = await db
-      .select({ configEncrypted: projectIntegrations.configEncrypted })
+      .select({
+        configEncrypted: projectIntegrations.configEncrypted,
+        installationId: projectIntegrations.installationId,
+      })
       .from(projectIntegrations)
       .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.service, "github")))
       .limit(1);
     if (!integ) return;
 
     const cfg = decryptConfig(integ.configEncrypted);
-    const token = cfg.token as string;
     const repo = cfg.repo as string | undefined;
 
+    let token: string;
+    try {
+      ({ token } = await resolveGitHubAuth(integ));
+    } catch {
+      return;
+    }
     if (!token || !owner) return;
 
     // If repo is already configured, use it. Otherwise pick the most recently pushed one.

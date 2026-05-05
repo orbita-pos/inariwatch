@@ -19,6 +19,7 @@ import { getProjectOwnerAIKey } from "./get-key";
 import { resolveModel } from "./models";
 import { decryptConfig } from "@/lib/crypto";
 import * as gh from "@/lib/services/github-api";
+import { resolveGitHubAuth } from "@/lib/services/github-token";
 import { gatherRemediationContext } from "./context-gatherer";
 import { evaluateAutoMergeGates, type SelfReviewResult } from "./auto-merge-gates";
 import { runGateDag } from "./gates-executor";
@@ -384,9 +385,18 @@ export async function runRemediation(sessionId: string, emit: Emit): Promise<voi
   const ghInteg = integrations.find((i) => i.service === "github");
   if (!ghInteg) { await fail(sessionId, emit, "No GitHub integration connected for this project."); return; }
 
+  // `config` is still consumed downstream (alertConfig.repoFilter, etc.) —
+  // keep the decrypt. The auth resolver picks App installation token when
+  // ghInteg.installationId is set, otherwise falls back to config.token.
   const config = decryptConfig(ghInteg.configEncrypted);
-  const token = config.token as string;
-  const owner = config.owner as string;
+  let token: string;
+  let owner: string;
+  try {
+    ({ token, owner } = await resolveGitHubAuth(ghInteg));
+  } catch (err) {
+    await fail(sessionId, emit, err instanceof Error ? err.message : "GitHub integration auth failed.");
+    return;
+  }
   if (!token || !owner) { await fail(sessionId, emit, "GitHub integration missing token or owner."); return; }
 
   // ── Canonical repo resolution (migration 0068) ────────────────────────
