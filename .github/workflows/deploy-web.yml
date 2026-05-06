@@ -138,6 +138,59 @@ jobs:
         run: |
           kamal deploy --version "${GITHUB_SHA}" --verbose
 
+      # Public Next.js pages reply with `Cache-Control: s-maxage=86400`, so
+      # Cloudflare keeps serving the previous build's HTML for up to 24h
+      # after a deploy. The HTML references content-hashed bundle filenames,
+      # so a stale page also pins users to a stale JS bundle even after the
+      # origin has rolled forward. Symptom: the register-page TypeError that
+      # PR #72 fixed kept reaching users for ~6h after the deploy because
+      # Cloudflare wouldn't refetch /register from origin.
+      #
+      # Surgical purge — only the auth/marketing surfaces that actually
+      # cache. Static assets are content-hashed + immutable, so Cloudflare
+      # doesn't need invalidation for them; new HTML naturally points at
+      # the new hashes. Plain curl (not `npx tsx scripts/cf-purge.ts`) so
+      # this step doesn't have to wait on a node_modules install — the
+      # script is kept for local one-off purges.
+      - name: Purge Cloudflare cache
+        if: success()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN not set — skipping cache purge. Stale CDN HTML may persist for up to 24h. Add a Zone:Cache Purge:Edit token + the zone id as repo secrets to enable."
+            exit 0
+          fi
+          ZONE_ID="${CLOUDFLARE_ZONE_ID:-}"
+          if [ -z "$ZONE_ID" ]; then
+            ZONE_ID=$(curl -fsS \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones?name=inariwatch.com" \
+              | jq -r '.result[0].id')
+            if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" = "null" ]; then
+              echo "::error::Could not resolve Cloudflare zone id for inariwatch.com"
+              exit 1
+            fi
+          fi
+          BODY='{"files":[
+            "https://app.inariwatch.com/register",
+            "https://app.inariwatch.com/login",
+            "https://app.inariwatch.com/forgot-password",
+            "https://app.inariwatch.com/reset-password",
+            "https://inariwatch.com/",
+            "https://inariwatch.com/pricing",
+            "https://inariwatch.com/docs",
+            "https://inariwatch.com/blog"
+          ]}'
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache" \
+            --data "${BODY}" \
+            | jq '{success, errors}'
+
       - name: Notify on failure
         if: failure()
         run: |
