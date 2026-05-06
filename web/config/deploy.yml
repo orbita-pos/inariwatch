@@ -345,6 +345,12 @@ env:
     - PREVIEW_FIX_ORGS
     - PREVIEW_FIX_USERS
     - REPLAY_V2_ORGS
+    # Personal-workspace axis for Replay V2. Mirrors REPLAY_V2_ORGS but
+    # gates on the project owner's user id instead of the org id, so
+    # personal-mode viewers (no `activeOrgId`) can opt into the feature.
+    # `*` enables every personal viewer; comma-separated UUIDs enable a
+    # subset. Default behaviour is unchanged when this is unset.
+    - REPLAY_V2_USERS
     # /admin/ops dashboard → ops-agent on each box + GH Actions API for deploys widget
     - OPS_AGENT_SECRET
     - OPS_URL_STAGING
