@@ -96,24 +96,23 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL("/integrations?error=github_app_init", APP_BASE));
   }
 
-  // Resolve the install owner. Two modes after migration 0085:
-  //   • Workspace mode — user already has at least one org; install lands
-  //     under the first owned org and projects go under that workspace.
-  //   • Personal mode — user has no org yet. We do NOT auto-create one;
-  //     the install belongs directly to the user (organizationId stays
-  //     NULL on the github_app_installations row).
-  const orgRow = await firstOwnedOrgFor(userId);
-  const installOrgId: string | null = orgRow?.id ?? null;
-
-  // If the user has an org but their activeOrgId is still NULL (legacy
-  // accounts created before the column existed), pin the workspace so
-  // dashboard + /projects + /integrations queries land in workspace mode.
-  if (orgRow) {
-    await db
-      .update(users)
-      .set({ activeOrgId: orgRow.id })
-      .where(and(eq(users.id, userId), sql`${users.activeOrgId} IS NULL`));
-  }
+  // Personal-first install ownership — matches the OAuth path in
+  // lib/auth.ts (jwt callback always passes organizationId:null to
+  // linkGitHubInstallationsForUser). The previous behavior auto-attached
+  // the install to the user's first owned org, which then propagated to
+  // every imported project via addProjectFromRepo (projects.organization_id
+  // = install.organization_id). Result: a user with a stale legacy
+  // workspace would see all their imports land there silently.
+  //
+  // We do NOT auto-pin activeOrgId here either — that flips the dashboard
+  // into workspace mode for users who never asked for it. Workspace
+  // selection is an explicit choice from /settings or the workspace
+  // switcher; the install stays personal until the user moves it.
+  //
+  // Legacy state-based path below (`if (stateProjectId)`) still uses
+  // `firstOwnedOrgFor` to validate project ownership when the project
+  // already belongs to a workspace — that branch is unaffected.
+  const installOrgId: string | null = null;
 
   // Persist the installation row first so failures further down don't
   // lose the link. organizationId is null for personal-mode installs.
@@ -150,10 +149,22 @@ export async function GET(req: Request) {
         .where(eq(projects.id, stateProjectId))
         .limit(1);
 
+      // Personal-owned projects: direct user match. Workspace-owned
+      // projects: the user must own (or be a member of) the workspace
+      // the project belongs to. We resolve workspace membership lazily
+      // here because the install itself stays personal — the workspace
+      // check is only needed for legacy state-based linking.
+      const userWorkspace =
+        project && project.organizationId !== null
+          ? await firstOwnedOrgFor(userId)
+          : null;
+
       const ownsProject =
         project &&
         (project.userId === userId ||
-          (installOrgId !== null && project.organizationId === installOrgId));
+          (project.organizationId !== null &&
+            userWorkspace !== null &&
+            project.organizationId === userWorkspace.id));
 
       if (ownsProject) {
         const [existing] = await db
