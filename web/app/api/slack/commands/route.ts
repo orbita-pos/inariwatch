@@ -615,7 +615,7 @@ async function handleIntegrations(userId: string) {
   const projectMap = new Map(userProjects.map((p) => [p.id, p.name]));
 
   if (integrations.length === 0) {
-    return NextResponse.json({ response_type: "ephemeral", text: "No integrations connected. Visit app.inariwatch.com/integrations to set up." });
+    return NextResponse.json({ response_type: "ephemeral", text: "No integrations connected. Open a project at app.inariwatch.com/projects and enable Capture from there." });
   }
 
   const lines = integrations.map((i) => {

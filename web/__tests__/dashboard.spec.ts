@@ -51,14 +51,14 @@ test.describe("Dashboard (authenticated)", () => {
     await expect(heading).toBeVisible({ timeout: 8000 });
   });
 
-  test("Navigate to /integrations — shows integrations page", async ({ page }) => {
-    await page.goto("/integrations");
+  test("Navigate to /projects — shows projects page", async ({ page }) => {
+    await page.goto("/projects");
     await page.waitForLoadState("networkidle");
 
-    expect(page.url()).toContain("/integrations");
+    expect(page.url()).toContain("/projects");
 
-    // Integrations page should render some content
-    const content = page.locator("h1, h2, [data-testid='integrations']").first();
+    // Projects page should render the heading or the empty-state CTA
+    const content = page.locator("h1, h2, [data-testid='projects-empty']").first();
     await expect(content).toBeVisible({ timeout: 8000 });
   });
 });

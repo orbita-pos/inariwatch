@@ -1,31 +1,25 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import {
   FolderPlus,
   Github,
-  Zap,
-  AlertTriangle,
   Check,
   ArrowRight,
   Bell,
   Sparkles,
-  ExternalLink,
-  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { connectIntegration } from "../integrations/actions";
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
 function StepIndicator({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) {
   const steps = [
     { num: 1, label: "Project" },
-    { num: 2, label: "Integrations" },
-    { num: 3, label: "Notifications" },
-    { num: 4, label: "Done" },
+    { num: 2, label: "Notifications" },
+    { num: 3, label: "Done" },
   ];
 
   return (
@@ -112,169 +106,6 @@ function StepContainer({
   );
 }
 
-// ── Service config for integration cards ──────────────────────────────────────
-
-const SERVICES = [
-  {
-    service: "github",
-    label: "GitHub",
-    desc: "Monitor CI failures, stale PRs, and unreviewed pull requests",
-    icon: Github,
-    placeholder: "github_pat_...",
-    tokenUrl: "https://github.com/settings/personal-access-tokens/new",
-    tokenLabel: "Fine-grained Personal Access Token",
-  },
-  {
-    service: "vercel",
-    label: "Vercel",
-    desc: "Track failed deployments and build errors",
-    icon: Zap,
-    placeholder: "xxxxxxxxxxxxxxxxxxxxxxxx",
-    tokenUrl: "https://vercel.com/account/tokens",
-    tokenLabel: "Account Token",
-  },
-  {
-    service: "sentry",
-    label: "Sentry",
-    desc: "Catch new errors and regressions in real-time",
-    icon: AlertTriangle,
-    placeholder: "sntrys_...",
-    tokenUrl: "https://sentry.io/settings/account/api/auth-tokens/",
-    tokenLabel: "User Auth Token",
-  },
-] as const;
-
-// ── Integration card ──────────────────────────────────────────────────────────
-
-function IntegrationCard({
-  service,
-  projectId,
-  connected,
-  onConnected,
-}: {
-  service: (typeof SERVICES)[number];
-  projectId: string;
-  connected: boolean;
-  onConnected: (svc: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [token, setToken] = useState("");
-  const [error, setError] = useState("");
-  const [isPending, startTransition] = useTransition();
-  const Icon = service.icon;
-
-  const handleConnect = () => {
-    if (!token.trim()) {
-      setError("Please enter a token.");
-      return;
-    }
-    setError("");
-    const formData = new FormData();
-    formData.set("projectId", projectId);
-    formData.set("service", service.service);
-    formData.set("token", token.trim());
-
-    startTransition(async () => {
-      const result = await connectIntegration(formData);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        onConnected(service.service);
-        setExpanded(false);
-        setToken("");
-      }
-    });
-  };
-
-  if (connected) {
-    return (
-      <div className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/[0.04] p-4 transition-all">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-green-500/20 bg-green-500/10 shrink-0">
-          <Check className="h-5 w-5 text-green-500" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-fg-base">{service.label}</p>
-          <p className="text-xs text-green-500/70">Connected</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-line bg-surface transition-all">
-      {/* Header (clickable to expand) */}
-      <button
-        type="button"
-        onClick={() => { setExpanded(!expanded); setError(""); }}
-        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-dim text-fg-base/50 shrink-0">
-          <Icon aria-hidden="true" className="h-5 w-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-fg-base">{service.label}</p>
-          <p className="text-xs text-fg-base/60">{service.desc}</p>
-        </div>
-        <ArrowRight
-          aria-hidden="true"
-          className={`h-4 w-4 text-fg-base/40 transition-transform duration-200 ${
-            expanded ? "rotate-90" : ""
-          }`}
-        />
-      </button>
-
-      {/* Expanded token input */}
-      {expanded && (
-        <div className="border-t border-line px-4 pb-4 pt-3 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-1">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-fg-base/50">
-              {service.tokenLabel}
-            </label>
-            <a
-              href={service.tokenUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 text-[11px] text-inari-accent hover:text-inari-accent/80 transition-colors"
-            >
-              Get token <ExternalLink aria-hidden="true" className="h-3 w-3" />
-            </a>
-          </div>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={service.placeholder}
-            autoComplete="off"
-            className="w-full rounded-lg border border-line-medium bg-surface-dim px-3 py-2.5 font-mono text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/40 focus:outline-none focus:ring-1 focus:ring-inari-accent/20 transition-colors"
-          />
-
-          {error && (
-            <p className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-600 dark:text-red-400 font-mono">
-              {error}
-            </p>
-          )}
-
-          <Button
-            variant="primary"
-            size="sm"
-            className="w-full"
-            onClick={handleConnect}
-            disabled={isPending}
-          >
-            {isPending ? (
-              <>
-                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> Connecting...
-              </>
-            ) : (
-              `Connect ${service.label}`
-            )}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Celebration particles ─────────────────────────────────────────────────────
 
 function Celebration() {
@@ -333,17 +164,11 @@ export function OnboardingWizard({
   githubAppSlug?: string;
 }) {
   const router = useRouter();
-  const TOTAL_STEPS = 4;
+  const TOTAL_STEPS = 3;
   const canImportFromGithub = !!githubAppSlug;
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [projectId, _setProjectId] = useState<string | null>(null);
-  const [connectedServices, setConnectedServices] = useState<Set<string>>(new Set());
   const [projectError] = useState("");
-
-  const handleServiceConnected = (svc: string) => {
-    setConnectedServices((prev) => new Set(prev).add(svc));
-  };
 
   const goToDashboard = () => {
     router.push("/dashboard");
@@ -377,7 +202,7 @@ export function OnboardingWizard({
               <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
                 Import your repos from GitHub — we&apos;ll create one project per
                 repo and open a setup PR. Without GitHub a project has nothing
-                to monitor, so the manual "blank project" path is gone.
+                to monitor, so the manual &quot;blank project&quot; path is gone.
               </p>
 
               {canImportFromGithub ? (
@@ -415,59 +240,8 @@ export function OnboardingWizard({
             </div>
           </StepContainer>
 
-          {/* ── Step 2: Connect Integrations ────────────────────────────────── */}
+          {/* ── Step 2: Notifications ───────────────────────────────────────── */}
           <StepContainer active={currentStep === 2}>
-            <div className="flex flex-col items-center text-center">
-              <h2 className="text-xl font-semibold text-fg-strong mb-2">
-                Connect your services
-              </h2>
-              <p className="text-sm text-fg-base/60 mb-6 max-w-sm">
-                InariWatch polls these services every 1 minute and surfaces alerts
-                when something needs attention.
-              </p>
-
-              <div className="w-full space-y-3 mb-6">
-                {SERVICES.map((svc) => (
-                  <IntegrationCard
-                    key={svc.service}
-                    service={svc}
-                    projectId={projectId ?? ""}
-                    connected={connectedServices.has(svc.service)}
-                    onConnected={handleServiceConnected}
-                  />
-                ))}
-              </div>
-
-              {connectedServices.size > 0 && (
-                <p className="text-xs text-fg-base/60 mb-4">
-                  {connectedServices.size} of {SERVICES.length} connected
-                </p>
-              )}
-
-              <div className="flex w-full gap-3">
-                {connectedServices.size === 0 ? (
-                  <Button
-                    variant="primary"
-                    className="flex-1"
-                    onClick={() => setCurrentStep(3)}
-                  >
-                    Skip for now <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    className="flex-1"
-                    onClick={() => setCurrentStep(3)}
-                  >
-                    Continue <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </StepContainer>
-
-          {/* ── Step 3: Notifications ───────────────────────────────────────── */}
-          <StepContainer active={currentStep === 3}>
             <div className="flex flex-col items-center text-center">
               <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-inari-accent/20 bg-inari-accent/[0.06]">
                 <Bell aria-hidden="true" className="h-7 w-7 text-inari-accent" />
@@ -522,7 +296,7 @@ export function OnboardingWizard({
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => setCurrentStep(4)}
+                  onClick={() => setCurrentStep(3)}
                 >
                   Set up later
                 </Button>
@@ -530,8 +304,8 @@ export function OnboardingWizard({
             </div>
           </StepContainer>
 
-          {/* ── Step 4: Done ────────────────────────────────────────────────── */}
-          <StepContainer active={currentStep === 4}>
+          {/* ── Step 3: Done ────────────────────────────────────────────────── */}
+          <StepContainer active={currentStep === 3}>
             <div className="relative flex flex-col items-center text-center">
               <Celebration />
 
@@ -542,33 +316,10 @@ export function OnboardingWizard({
               <h2 className="text-2xl font-semibold text-fg-strong mb-2">
                 You&apos;re all set!
               </h2>
-              <p className="text-sm text-fg-base/60 mb-2 max-w-sm">
-                Your project is ready. InariWatch will start monitoring your connected
-                services and surface alerts when something needs your attention.
+              <p className="text-sm text-fg-base/60 mb-6 max-w-sm">
+                Your project is ready. Open it from the dashboard to copy your
+                Capture DSN and finish setup.
               </p>
-
-              {connectedServices.size > 0 && (
-                <div className="flex items-center gap-2 mb-6">
-                  {Array.from(connectedServices).map((svc) => {
-                    const info = SERVICES.find((s) => s.service === svc);
-                    return (
-                      <span
-                        key={svc}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/[0.06] px-3 py-1 text-xs font-medium text-green-400"
-                      >
-                        <Check aria-hidden="true" className="h-3 w-3" />
-                        {info?.label ?? svc}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-
-              {connectedServices.size === 0 && (
-                <p className="text-xs text-fg-base/50 mb-6">
-                  You can connect integrations later from the Integrations page.
-                </p>
-              )}
 
               <Button
                 variant="primary"

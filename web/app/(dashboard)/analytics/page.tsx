@@ -205,13 +205,13 @@ export default async function AnalyticsPage() {
           <p className="text-sm text-fg-base/50">
             {!hasProjects ? (
               <>
-                <Link href="/integrations" className="text-fg-base/60 underline underline-offset-2 transition-colors hover:text-fg-strong">
-                  Connect an integration
+                <Link href="/onboarding" className="text-fg-base/60 underline underline-offset-2 transition-colors hover:text-fg-strong">
+                  Import a repo from GitHub
                 </Link>{" "}
                 to start generating analytics.
               </>
             ) : (
-              "Alerts will appear here once your integrations start reporting."
+              "Alerts will appear here once Capture or webhooks start reporting."
             )}
           </p>
         </div>

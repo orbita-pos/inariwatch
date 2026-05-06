@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bell, BarChart3, Plug, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity, Film } from "lucide-react";
+import { LayoutDashboard, Bell, BarChart3, Settings, FolderOpen, MessageSquare, ShieldAlert, Phone, Users, Activity, Film } from "lucide-react";
 
 type NavItem  = { href: string; label: string; icon: React.ElementType; exact?: boolean; badge?: number; flag?: "replayV2" };
 type NavGroup = { label?: string; items: NavItem[] };
@@ -25,8 +25,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Workspace",
     items: [
-      { href: "/projects",     label: "Projects",     icon: FolderOpen },
-      { href: "/integrations", label: "Integrations", icon: Plug },
+      { href: "/projects", label: "Projects", icon: FolderOpen },
     ],
   },
   {
