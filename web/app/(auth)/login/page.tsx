@@ -3,7 +3,7 @@
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import loginSideSrc from "@/public/login-new-3.webp";
 import loginSideMobileSrc from "@/public/login-side-mobile.webp";
 import { Github } from "lucide-react";
@@ -21,6 +21,28 @@ export default function LoginPage() {
   const callbackUrl = typeof window !== "undefined"
     ? new URLSearchParams(window.location.search).get("callbackUrl") || "/dashboard"
     : "/dashboard";
+
+  // Surface ?error=<code> codes set by the NextAuth signIn callback when an
+  // OAuth round-trip is rejected. The most common case is OAuthAccountConflict:
+  // a logged-in user tried to connect a GitHub/Google account that's already
+  // linked to a different InariWatch user. We refuse the swap and bounce here
+  // with a clear message instead of silently logging the user in as someone
+  // else (see lib/auth.ts signIn callback for the rationale).
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (!code) return;
+    if (code === "OAuthAccountConflict") {
+      setError(
+        "That account is already connected to a different InariWatch user. " +
+        "Sign out, log in to that account, or try a different provider account.",
+      );
+    } else if (code === "OAuthAccountNotLinked") {
+      setError(
+        "An InariWatch account already exists with that email. " +
+        "Sign in with email + password first, then connect this provider from settings.",
+      );
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
