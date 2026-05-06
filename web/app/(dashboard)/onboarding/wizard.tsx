@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import {
   FolderPlus,
   Github,
@@ -381,13 +382,16 @@ export function OnboardingWizard({
 
               {canImportFromGithub ? (
                 <div className="w-full max-w-sm space-y-2">
-                  <a
-                    href={`https://github.com/apps/${encodeURIComponent(githubAppSlug!)}/installations/new`}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void signIn("github", { callbackUrl: "/import" });
+                    }}
                     className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-inari-accent px-6 text-base font-semibold text-white transition-all hover:bg-[#f97316] active:bg-[#c2410c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
                   >
                     <Github aria-hidden="true" className="h-4 w-4" /> Install GitHub App
                     <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                  </a>
+                  </button>
                   <p className="text-[11px] text-fg-base/40">
                     One click — install the App and pick the repos you want monitored on github.com.
                   </p>

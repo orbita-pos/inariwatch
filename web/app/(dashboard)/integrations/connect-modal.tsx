@@ -211,19 +211,14 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
   const handleInstallApp = () => {
     setError("");
     if (!projectId) { setError("Select a project first."); return; }
-    // Send the user to the App's install URL — GitHub treats App OAuth
-    // and App install as independent flows, so signIn("github") alone
-    // would only mint a user-to-server token without ever creating an
-    // install row. With "Request user authorization (OAuth) during
-    // installation" enabled on the App, /apps/<slug>/installations/new
-    // shows ONE combined consent screen and lands on the setup callback
-    // which persists the row. Falls back to signIn() when the slug
-    // isn't configured so the button still does *something*.
-    if (githubAppSlug) {
-      window.location.href =
-        `https://github.com/apps/${encodeURIComponent(githubAppSlug)}/installations/new`;
-      return;
-    }
+    // Route through NextAuth's signIn so the existing session cookie
+    // travels through the OAuth round trip. Jumping straight to the
+    // App's install URL bypasses NextAuth entirely — no state cookie is
+    // minted, and if the user is signed-in to a different GitHub account
+    // in their browser the callback lands in the jwt fresh-sign-in
+    // branch (email lookup → silent account swap). With signIn() the
+    // App's "Request user authorization (OAuth) during installation"
+    // setting still bundles install + OAuth into a single consent screen.
     void signIn("github", { callbackUrl: "/import" });
   };
 
