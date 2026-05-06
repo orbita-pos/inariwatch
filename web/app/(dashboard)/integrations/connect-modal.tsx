@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState, useTransition } from "react";
 import { X, ExternalLink, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { signIn } from "next-auth/react";
 import {
   connectIntegration,
   lookupGitHubInstallation,
@@ -215,17 +216,10 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
     // github.com manage page; for new users GitHub combines OAuth +
     // install consent into one screen. The jwt callback's
     // linkGitHubInstallationsForUser then bulk-imports their repos as
-    // projects when they land back on /dashboard.
-    //
-    // We don't pass `state=<projectId>` here because the App-OAuth path
-    // doesn't preserve it through to our callback the way the old
-    // install URL did — instead the bulk-import in the jwt callback
-    // covers all of the user's accessible repos and the dashboard's
-    // "all projects" view picks them up. Connecting a SPECIFIC existing
-    // project to the installation still works via the "Already
-    // installed?" lookup above.
-    window.location.href = "/api/auth/signin/github?callbackUrl=" +
-      encodeURIComponent("/dashboard?github=imported");
+    // projects when they land back on /dashboard. signIn() (not a raw
+    // GET to the signin URL) is required to send the CSRF-protected POST
+    // that actually starts the OAuth handshake.
+    void signIn("github", { callbackUrl: "/dashboard?github=imported" });
   };
 
   const handleLookup = async () => {

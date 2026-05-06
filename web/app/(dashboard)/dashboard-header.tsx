@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Plus, Search, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search, ChevronRight } from "lucide-react";
 import { SearchDialog } from "./search-dialog";
 import { NotificationsBell } from "./notifications-dropdown";
+import { ImportFromGitHubButton } from "./import-from-github-button";
 
 // ── Breadcrumb ────────────────────────────────────────────────────────────────
 
@@ -67,22 +67,11 @@ function NewButton() {
   const pathname = usePathname();
 
   // Manual project creation was retired — projects are 1:1 with imported
-  // GitHub repos now. Every "+ New" surface routes through the GitHub
-  // App OAuth flow (NextAuth picks up /user/installations and bulk-imports
-  // any new repos the user grants access to).
-  let label = "Import from GitHub";
-  if (pathname.startsWith("/integrations")) {
-    label = "Connect";
-  }
-
-  return (
-    <Link href="/api/auth/signin/github?callbackUrl=%2Fdashboard%3Fgithub%3Dimported">
-      <Button variant="primary" size="sm" className="gap-1.5">
-        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-        {label}
-      </Button>
-    </Link>
-  );
+  // GitHub repos. Every "+ New" surface routes through the GitHub App
+  // OAuth flow; the jwt callback's linkGitHubInstallationsForUser bulk-
+  // imports any new repos the user grants access to.
+  const label = pathname.startsWith("/integrations") ? "Connect" : "Import from GitHub";
+  return <ImportFromGitHubButton label={label} />;
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
