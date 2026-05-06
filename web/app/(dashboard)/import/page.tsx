@@ -168,7 +168,7 @@ export default async function ImportPage() {
             repos to monitor. You can add or remove repos any time from GitHub
             settings — no long-lived tokens, no PAT to expire.
           </p>
-          <SignInButton />
+          <SignInButton slug={slug} />
         </div>
       </div>
     );
@@ -255,9 +255,11 @@ export default async function ImportPage() {
 
 // Server-component wrapper that punts the click to a client component;
 // the page can't call signIn() (server) so the actual button is in a
-// client file imported here.
+// client file imported here. Threads `slug` (env-only, server-side
+// read) through so the client button knows the App's install URL
+// without exposing it as a NEXT_PUBLIC_*.
 import { SignInClientButton } from "./signin-client-button";
 
-function SignInButton() {
-  return <SignInClientButton />;
+function SignInButton({ slug }: { slug?: string }) {
+  return <SignInClientButton slug={slug} />;
 }

@@ -211,14 +211,19 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
   const handleInstallApp = () => {
     setError("");
     if (!projectId) { setError("Select a project first."); return; }
-    // Route through NextAuth's GitHub provider (now wired to the App's
-    // OAuth credentials). For an already-installed user this skips the
-    // github.com manage page; for new users GitHub combines OAuth +
-    // install consent into one screen. The jwt callback's
-    // linkGitHubInstallationsForUser then bulk-imports their repos as
-    // projects when they land back on /dashboard. signIn() (not a raw
-    // GET to the signin URL) is required to send the CSRF-protected POST
-    // that actually starts the OAuth handshake.
+    // Send the user to the App's install URL — GitHub treats App OAuth
+    // and App install as independent flows, so signIn("github") alone
+    // would only mint a user-to-server token without ever creating an
+    // install row. With "Request user authorization (OAuth) during
+    // installation" enabled on the App, /apps/<slug>/installations/new
+    // shows ONE combined consent screen and lands on the setup callback
+    // which persists the row. Falls back to signIn() when the slug
+    // isn't configured so the button still does *something*.
+    if (githubAppSlug) {
+      window.location.href =
+        `https://github.com/apps/${encodeURIComponent(githubAppSlug)}/installations/new`;
+      return;
+    }
     void signIn("github", { callbackUrl: "/import" });
   };
 

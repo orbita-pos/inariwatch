@@ -155,7 +155,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Content */}
       <div className="flex flex-1 flex-col overflow-hidden pt-14 pl-0 md:pt-0 md:pl-[220px]">
-        <DashboardHeader unreadAlerts={unreadCount} />
+        <DashboardHeader unreadAlerts={unreadCount} githubAppSlug={process.env.GITHUB_APP_SLUG ?? ""} />
         <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
           {hasPassword && !emailVerifiedAt && (
             <div className="mb-6">

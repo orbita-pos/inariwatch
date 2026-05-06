@@ -24,6 +24,7 @@ export default async function ProjectsPage() {
   const userId  = (session?.user as { id?: string })?.id;
 
   const activeOrgId = await getActiveOrgId();
+  const githubAppSlug = process.env.GITHUB_APP_SLUG ?? "";
 
   const userProjects = userId
     ? activeOrgId
@@ -80,7 +81,7 @@ export default async function ProjectsPage() {
             {userProjects.length} project{userProjects.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <ImportFromGitHubButton />
+        <ImportFromGitHubButton slug={githubAppSlug || undefined} />
       </div>
 
       {/* ── Empty ──────────────────────────────────────────────────────── */}
@@ -95,7 +96,7 @@ export default async function ProjectsPage() {
               Import a repository from GitHub to start monitoring.
             </p>
           </div>
-          <ImportFromGitHubButton className="mt-1" />
+          <ImportFromGitHubButton slug={githubAppSlug || undefined} className="mt-1" />
         </div>
       )}
 

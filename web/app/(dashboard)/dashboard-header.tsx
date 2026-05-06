@@ -63,24 +63,25 @@ function Breadcrumb() {
 
 // ── New button — contextual ───────────────────────────────────────────────────
 
-function NewButton() {
+function NewButton({ slug }: { slug?: string }) {
   const pathname = usePathname();
 
   // Manual project creation was retired — projects are 1:1 with imported
   // GitHub repos. Every "+ New" surface routes through the GitHub App
-  // OAuth flow; the jwt callback's linkGitHubInstallationsForUser bulk-
-  // imports any new repos the user grants access to.
+  // install URL; the setup callback persists the install row and sends
+  // the user to /import to pick which repos become projects.
   const label = pathname.startsWith("/integrations") ? "Connect" : "Import from GitHub";
-  return <ImportFromGitHubButton label={label} />;
+  return <ImportFromGitHubButton slug={slug} label={label} />;
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
 interface DashboardHeaderProps {
   unreadAlerts: number;
+  githubAppSlug?: string;
 }
 
-export function DashboardHeader({ unreadAlerts }: DashboardHeaderProps) {
+export function DashboardHeader({ unreadAlerts, githubAppSlug }: DashboardHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
 
   // ⌘K / Ctrl+K shortcut
@@ -120,7 +121,7 @@ export function DashboardHeader({ unreadAlerts }: DashboardHeaderProps) {
           <NotificationsBell unreadCount={unreadAlerts} />
 
           {/* New button */}
-          <NewButton />
+          <NewButton slug={githubAppSlug || undefined} />
         </div>
       </header>
     </>

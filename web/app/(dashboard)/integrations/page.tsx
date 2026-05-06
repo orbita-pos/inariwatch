@@ -207,7 +207,7 @@ export default async function IntegrationsPage() {
             each project — open a project to manage it.
           </p>
         </div>
-        <ImportFromGitHubButton className="shrink-0" />
+        <ImportFromGitHubButton slug={githubAppSlug || undefined} className="shrink-0" />
       </div>
 
       {/* ── Integration health (auto-disabled after 401) ───────────────── */}
@@ -235,7 +235,7 @@ export default async function IntegrationsPage() {
               Import a repository from GitHub to start monitoring.
             </p>
           </div>
-          <ImportFromGitHubButton className="mt-1" />
+          <ImportFromGitHubButton slug={githubAppSlug || undefined} className="mt-1" />
         </div>
       )}
 
