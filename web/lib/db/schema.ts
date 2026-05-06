@@ -84,17 +84,31 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// NextAuth accounts (OAuth providers)
-export const accounts = pgTable("accounts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  provider: text("provider").notNull(),
-  providerAccountId: text("provider_account_id").notNull(),
-  type: text("type").notNull(),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  expiresAt: integer("expires_at"),
-});
+// NextAuth accounts (OAuth providers). Populated by the jwt callback
+// in lib/auth.ts so a user who linked GitHub once can re-sign-in with
+// GitHub later and resolve to the SAME user row even if GitHub's email
+// has changed (or never matched their app email in the first place).
+// Lookup key: (provider, providerAccountId). Migration 0086 adds the
+// unique index that makes the upsert race-safe.
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    type: text("type").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    expiresAt: integer("expires_at"),
+  },
+  (table) => [
+    uniqueIndex("accounts_provider_account_unique").on(
+      table.provider,
+      table.providerAccountId,
+    ),
+  ],
+);
 
 // ── Organizations (workspaces) ────────────────────────────────────────────────
 
