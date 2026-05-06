@@ -1,14 +1,26 @@
 // GitHub App post-install handler.
 //
 // GitHub redirects here after a user installs github.com/apps/inariwatch.
-// Query params: installation_id, setup_action ("install" | "update").
+// Query params:
+//   installation_id   — required; GitHub's id for the new install
+//   setup_action      — "install" | "update"; informational
+//   state             — optional projectId, set when the user came from
+//                       the legacy /integrations "Connect" button. We use
+//                       it to attach the install to that specific project
+//                       AND open a setup PR (legacy auto-PR behavior).
 //
-// We:
-//   1. Verify the user is logged into InariWatch (otherwise bounce through login).
-//   2. Persist the installation under the user's primary org.
-//   3. Mint an installation token, fetch the user's repos, open the
-//      auto-PR ("Set up InariWatch") on each one in parallel.
-//   4. Redirect to the dashboard with the first PR URL highlighted.
+// What we do:
+//   1. Verify the user is logged in (otherwise bounce through /login).
+//   2. Persist the installation row under the user (and their primary
+//      org if they have one).
+//   3. If `state=<projectId>` is present (legacy /integrations path):
+//        • Upsert project_integrations on that project
+//        • Open the setup PR (best-effort)
+//        • Redirect back to /integrations
+//      Otherwise (Vercel-style "Install from github.com" path):
+//        • Redirect to /import?github=installed so the user picks which
+//          repos become projects with one click each. No bulk import,
+//          no auto-PR — those happen per-repo in /import's server action.
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -25,7 +37,7 @@ import {
 } from "@/lib/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
-import { getInstallationToken, ghFetchApp, ghFetch } from "@/lib/github-app/octokit";
+import { getInstallationToken, ghFetchApp } from "@/lib/github-app/octokit";
 import { openSetupPRForInstallation } from "@/lib/github-app/open-setup-pr";
 import { encrypt, encryptConfig } from "@/lib/crypto";
 import { generateWebhookSecret } from "@/lib/webhooks/shared";
@@ -47,12 +59,8 @@ const APP_BASE = (
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const installationIdRaw = url.searchParams.get("installation_id");
-  const setupAction       = url.searchParams.get("setup_action");
-  // `state` round-trips the dashboard's projectId through GitHub so we can
-  // attach this installation to the right project_integrations row. When
-  // unset (e.g. user installs from github.com directly, not from our
-  // dashboard) we still persist the org-level installation but skip the
-  // per-project link.
+  // setup_action ("install" | "update") is informational — both paths
+  // converge on the same idempotent upsert below.
   const stateProjectId    = url.searchParams.get("state");
 
   if (!installationIdRaw) {
@@ -64,7 +72,8 @@ export async function GET(req: Request) {
   }
 
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
+  const userId  = (session?.user as { id?: string } | undefined)?.id;
+  if (!userId) {
     const loginUrl = new URL("/login", APP_BASE);
     loginUrl.searchParams.set("from", url.pathname + url.search);
     return NextResponse.redirect(loginUrl);
@@ -91,42 +100,23 @@ export async function GET(req: Request) {
   //   • Workspace mode — user already has at least one org; install lands
   //     under the first owned org and projects go under that workspace.
   //   • Personal mode — user has no org yet. We do NOT auto-create one;
-  //     the install + projects belong directly to the user (organizationId
-  //     stays NULL on both github_app_installations and projects rows).
-  // Either way the user ends up on a populated dashboard. If they later
-  // create a workspace, they can move projects into it from /settings.
-  const orgRow = await firstOwnedOrgFor(session.user.email);
-  let installerUserId: string;
-  if (orgRow) {
-    installerUserId = orgRow.userId;
-  } else {
-    const [user] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, session.user.email))
-      .limit(1);
-    if (!user) {
-      return NextResponse.redirect(new URL("/integrations?error=user_not_found", APP_BASE));
-    }
-    installerUserId = user.id;
-  }
+  //     the install belongs directly to the user (organizationId stays
+  //     NULL on the github_app_installations row).
+  const orgRow = await firstOwnedOrgFor(userId);
   const installOrgId: string | null = orgRow?.id ?? null;
 
   // If the user has an org but their activeOrgId is still NULL (legacy
   // accounts created before the column existed), pin the workspace so
-  // dashboard + /projects + /integrations queries land in workspace mode
-  // and find the projects we're about to import. Personal-mode users
-  // (no org) keep activeOrgId NULL — that's how the queries fall through
-  // to "show me my personal-mode projects (organizationId IS NULL)".
+  // dashboard + /projects + /integrations queries land in workspace mode.
   if (orgRow) {
     await db
       .update(users)
       .set({ activeOrgId: orgRow.id })
-      .where(and(eq(users.id, orgRow.userId), sql`${users.activeOrgId} IS NULL`));
+      .where(and(eq(users.id, userId), sql`${users.activeOrgId} IS NULL`));
   }
 
-  // Persist the installation row first so failures in the auto-PR step
-  // don't lose the link. organizationId is null for personal-mode installs.
+  // Persist the installation row first so failures further down don't
+  // lose the link. organizationId is null for personal-mode installs.
   await db
     .insert(githubAppInstallations)
     .values({
@@ -135,7 +125,7 @@ export async function GET(req: Request) {
       accountLogin:    accountInfo.login,
       accountType:     accountInfo.type,
       accountId:       accountInfo.id,
-      installedBy:     installerUserId,
+      installedBy:     userId,
     })
     .onConflictDoUpdate({
       target: githubAppInstallations.installationId,
@@ -147,33 +137,12 @@ export async function GET(req: Request) {
       },
     });
 
-  // ── Bulk import (when no projectId in state) ────────────────────────────
-  // "Import from GitHub" model — Vercel-style. The user comes from the
-  // empty-state CTA on /dashboard or /integrations and we create one
-  // project per repo they granted us access to, all backed by the same
-  // installation. Existing projects (matched by `default_repo`) are
-  // adopted in place rather than duplicated, so re-running the install
-  // is idempotent.
-  let importedProjectCount = 0;
-  if (!stateProjectId) {
-    try {
-      const importedIds = await importProjectsFromInstallation({
-        token,
-        organizationId: installOrgId,
-        installerUserId,
-        installationId,
-      });
-      importedProjectCount = importedIds.length;
-    } catch (err) {
-      console.warn("[github-app] bulk import failed:", err instanceof Error ? err.message : err);
-    }
-  }
-
-  // ── Per-project link (when the user came from /integrations) ────────────
-  // The dashboard install button passes `state=<projectId>`. Verify the
-  // project belongs to the same user/org (defense against tampered state),
-  // then upsert a project_integrations row backed by this installation.
+  // ── Legacy state path (came from /integrations Connect button) ───────
+  // Verify the project belongs to this user/org, attach the install to
+  // its project_integrations row, open the setup PR, redirect back.
   if (stateProjectId) {
+    let firstPrUrl: string | null = null;
+
     try {
       const [project] = await db
         .select({ id: projects.id, organizationId: projects.organizationId, userId: projects.userId })
@@ -183,7 +152,7 @@ export async function GET(req: Request) {
 
       const ownsProject =
         project &&
-        (project.userId === installerUserId ||
+        (project.userId === userId ||
           (installOrgId !== null && project.organizationId === installOrgId));
 
       if (ownsProject) {
@@ -225,212 +194,40 @@ export async function GET(req: Request) {
     } catch (err) {
       console.warn("[github-app] project_integrations upsert failed:", err instanceof Error ? err.message : err);
     }
-  }
 
-  // Mint the DSN once — every PR we open in this run shares it. Workspace
-  // installs key by org id; personal installs key by user id (prefixed so
-  // it can't collide with an org uuid).
-  const dsn = inariwatchDsnFor(installOrgId, installerUserId);
-
-  // Open the auto-PR — best effort, parallelized across repos. Run on
-  // every setup_action: `install` opens fresh, `update` is idempotent
-  // (open-setup-pr handles existing branches/PRs via the 422 path) so
-  // re-installs and re-clicks of the Configure page converge on the
-  // same single PR.
-  void setupAction; // intentionally unused — see comment above
-  let firstPrUrl: string | null = null;
-  try {
-    const prs = await openSetupPRForInstallation(token, dsn);
-    firstPrUrl = prs[0]?.url ?? null;
-    if (prs[0]) {
-      await db
-        .update(githubAppInstallations)
-        .set({
-          setupPrUrl:    prs[0].url,
-          setupPrOwner:  prs[0].owner,
-          setupPrRepo:   prs[0].repo,
-          setupPrNumber: prs[0].number,
-          updatedAt:     new Date(),
-        })
-        .where(eq(githubAppInstallations.installationId, installationId));
+    // Auto-PR — best effort, parallelized across repos. Idempotent on
+    // re-installs (open-setup-pr handles existing branches/PRs via 422).
+    const dsn = inariwatchDsnFor(installOrgId, userId);
+    try {
+      const prs = await openSetupPRForInstallation(token, dsn);
+      firstPrUrl = prs[0]?.url ?? null;
+      if (prs[0]) {
+        await db
+          .update(githubAppInstallations)
+          .set({
+            setupPrUrl:    prs[0].url,
+            setupPrOwner:  prs[0].owner,
+            setupPrRepo:   prs[0].repo,
+            setupPrNumber: prs[0].number,
+            updatedAt:     new Date(),
+          })
+          .where(eq(githubAppInstallations.installationId, installationId));
+      }
+    } catch (err) {
+      console.warn("[github-app] auto-PR generation failed:", err instanceof Error ? err.message : err);
     }
-  } catch (err) {
-    console.warn("[github-app] auto-PR generation failed:", err instanceof Error ? err.message : err);
-  }
 
-  // When the install was triggered from /integrations (state=<projectId>),
-  // bounce the user straight back there so the new card row shows up
-  // without an extra hop. Other paths (e.g. github.com → "Install" button)
-  // still land on the dedicated success page with PR + DSN guidance.
-  if (stateProjectId) {
     const back = new URL("/integrations", APP_BASE);
     back.searchParams.set("github", "installed");
     if (firstPrUrl) back.searchParams.set("pr", firstPrUrl);
     return NextResponse.redirect(back);
   }
 
-  // Bulk-import path — land on /dashboard so the user sees their newly
-  // created projects right away. The legacy success page is kept for
-  // re-installs that didn't import anything new (count === 0).
-  if (importedProjectCount > 0) {
-    const back = new URL("/dashboard", APP_BASE);
-    back.searchParams.set("github", "imported");
-    back.searchParams.set("count", String(importedProjectCount));
-    if (firstPrUrl) back.searchParams.set("pr", firstPrUrl);
-    return NextResponse.redirect(back);
-  }
-
-  const redirect = new URL("/integrations/github-app/installed", APP_BASE);
-  if (firstPrUrl) redirect.searchParams.set("pr", firstPrUrl);
-  return NextResponse.redirect(redirect);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Bulk import helper — creates one project per accessible repo. Returns
-// the IDs of *newly created* projects (existing ones still get the
-// installation_id linked but aren't counted). Idempotent.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface ImportArgs {
-  token:           string;
-  /** NULL = personal mode (project goes under userId, organizationId IS NULL). */
-  organizationId:  string | null;
-  installerUserId: string;
-  installationId:  number;
-}
-
-async function importProjectsFromInstallation(args: ImportArgs): Promise<string[]> {
-  const { token, organizationId, installerUserId, installationId } = args;
-
-  const repos = await listInstallationRepositories(token);
-  if (repos.length === 0) return [];
-
-  const newProjectIds: string[] = [];
-
-  for (const repo of repos) {
-    const fullName = `${repo.ownerLogin}/${repo.name}`;
-
-    // 1. Adopt existing project if one already maps to this repo. Workspace
-    //    mode matches by organizationId; personal mode matches the same
-    //    user's personal projects (organizationId IS NULL AND userId = me).
-    const [existingProject] = await db
-      .select({ id: projects.id, userId: projects.userId, organizationId: projects.organizationId })
-      .from(projects)
-      .where(
-        and(
-          organizationId === null
-            ? and(sql`${projects.organizationId} IS NULL`, eq(projects.userId, installerUserId))
-            : eq(projects.organizationId, organizationId),
-          eq(projects.defaultRepo, fullName),
-        ),
-      )
-      .limit(1);
-
-    let projectId: string;
-    if (existingProject) {
-      projectId = existingProject.id;
-    } else {
-      // 2. Otherwise create a fresh one. Slug is unique-globally on the
-      //    `slug` column, so we prefix with org id (workspace mode) or
-      //    user id (personal mode) to keep collisions out.
-      const slugBase = repo.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-      const ownerKey = (organizationId ?? installerUserId).slice(0, 8);
-      const slug = `${slugBase}-${ownerKey}`;
-      try {
-        const inserted = await db
-          .insert(projects)
-          .values({
-            userId:         installerUserId,
-            organizationId,
-            name:           repo.name,
-            slug,
-            description:    `Imported from ${fullName} via GitHub App`,
-            defaultRepo:    fullName,
-          })
-          .returning({ id: projects.id });
-        projectId = inserted[0].id;
-        newProjectIds.push(projectId);
-      } catch (err) {
-        // Slug collision (race or pre-existing) — fall back to a
-        // lookup-by-defaultRepo and skip if still missing.
-        const [retry] = await db
-          .select({ id: projects.id })
-          .from(projects)
-          .where(
-            and(
-              organizationId === null
-                ? and(sql`${projects.organizationId} IS NULL`, eq(projects.userId, installerUserId))
-                : eq(projects.organizationId, organizationId),
-              eq(projects.defaultRepo, fullName),
-            ),
-          )
-          .limit(1);
-        if (!retry) {
-          console.warn(`[github-app] could not create project for ${fullName}:`, err instanceof Error ? err.message : err);
-          continue;
-        }
-        projectId = retry.id;
-      }
-    }
-
-    // 3. Upsert the github project_integrations row backed by this install.
-    const [existingIntegration] = await db
-      .select({ id: projectIntegrations.id, webhookSecret: projectIntegrations.webhookSecret })
-      .from(projectIntegrations)
-      .where(
-        and(
-          eq(projectIntegrations.projectId, projectId),
-          eq(projectIntegrations.service, "github"),
-        ),
-      )
-      .limit(1);
-
-    const config = { owner: repo.ownerLogin };
-    if (existingIntegration) {
-      await db
-        .update(projectIntegrations)
-        .set({
-          configEncrypted: encryptConfig(config),
-          installationId,
-          isActive:        true,
-          errorCount:      0,
-        })
-        .where(eq(projectIntegrations.id, existingIntegration.id));
-    } else {
-      await db.insert(projectIntegrations).values({
-        projectId,
-        service:         "github",
-        configEncrypted: encryptConfig(config),
-        installationId,
-        webhookSecret:   encrypt(generateWebhookSecret()),
-        isActive:        true,
-      });
-    }
-  }
-
-  return newProjectIds;
-}
-
-async function listInstallationRepositories(
-  token: string,
-): Promise<Array<{ name: string; ownerLogin: string }>> {
-  const out: Array<{ name: string; ownerLogin: string }> = [];
-  let page = 1;
-  for (;;) {
-    const res = await ghFetch(token, `/installation/repositories?per_page=100&page=${page}`);
-    if (!res.ok) break;
-    const json = (await res.json()) as {
-      total_count: number;
-      repositories: Array<{ name: string; owner: { login: string } }>;
-    };
-    for (const r of json.repositories ?? []) {
-      out.push({ name: r.name, ownerLogin: r.owner.login });
-    }
-    if ((json.repositories?.length ?? 0) < 100) break;
-    page += 1;
-    if (page > 10) break; // safety: 1000 repos max
-  }
-  return out;
+  // ── Vercel-style "Install from github.com" path ──────────────────────
+  // No bulk import, no auto-PR. The user lands on /import where each
+  // accessible repo is one explicit click away from becoming a project.
+  // The per-repo server action (`addProjectFromRepo`) handles that.
+  return NextResponse.redirect(new URL("/import?github=installed", APP_BASE));
 }
 
 /**
@@ -449,7 +246,7 @@ function inariwatchDsnFor(orgId: string | null, userId: string): string {
 }
 
 async function firstOwnedOrgFor(
-  email: string,
+  userId: string,
 ): Promise<{ id: string; userId: string } | null> {
   const rows = await db
     .select({
@@ -459,11 +256,10 @@ async function firstOwnedOrgFor(
     .from(users)
     .innerJoin(organizationMembers, eq(organizationMembers.userId, users.id))
     .innerJoin(organizations,        eq(organizations.id,         organizationMembers.organizationId))
-    .where(eq(users.email, email))
+    .where(eq(users.id, userId))
     .orderBy(desc(sql`${organizations.ownerId} = ${users.id}`), asc(organizations.createdAt))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
   return { id: row.orgId, userId: row.userId };
 }
-

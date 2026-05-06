@@ -4,8 +4,9 @@ import {
   db,
   projects,
   githubAppInstallations,
+  getUserOrganizations,
 } from "@/lib/db";
-import { and, eq, isNull, inArray } from "drizzle-orm";
+import { and, eq, isNull, inArray, or } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Github, Lock, Globe } from "lucide-react";
@@ -103,10 +104,15 @@ export default async function ImportPage() {
 
   const slug = process.env.GITHUB_APP_SLUG;
 
-  // Pull the user's installations. We treat "installations the user
-  // installed personally" (installedBy match) and "installations under
-  // an org the user belongs to" the same — both surface their repos.
-  const installs = await db
+  // Pull the user's installations. Two flavours surface here:
+  //   1. Installs the user did personally (installedBy match)
+  //   2. Installs that belong to an org the user is a member of
+  // Both expose their repos via /installation/repositories with our App
+  // installation token, so we union them in one query.
+  const userOrgs = await getUserOrganizations(userId);
+  const orgIds   = userOrgs.map((o) => o.id);
+
+  const installRows = await db
     .select({
       installationId: githubAppInstallations.installationId,
       accountLogin:   githubAppInstallations.accountLogin,
@@ -114,10 +120,21 @@ export default async function ImportPage() {
     .from(githubAppInstallations)
     .where(
       and(
-        eq(githubAppInstallations.installedBy, userId),
         isNull(githubAppInstallations.uninstalledAt),
+        orgIds.length > 0
+          ? or(
+              eq(githubAppInstallations.installedBy, userId),
+              inArray(githubAppInstallations.organizationId, orgIds),
+            )
+          : eq(githubAppInstallations.installedBy, userId),
       ),
     );
+
+  // Dedupe by installationId — a user who is BOTH the installer AND a
+  // member of the install's org would otherwise see the row twice.
+  const installSeen = new Map<number, { installationId: number; accountLogin: string }>();
+  for (const r of installRows) installSeen.set(r.installationId, r);
+  const installs = Array.from(installSeen.values());
 
   // Already-imported repos (any of the user's projects, regardless of
   // workspace) so the "Add" button flips to "Added" on hover.
@@ -133,13 +150,6 @@ export default async function ImportPage() {
       .filter((p) => p.defaultRepo)
       .map((p) => [p.defaultRepo!, p.slug]),
   );
-
-  // Org installs the user is a member of are not currently fetched —
-  // the `installedBy` filter above limits to personal/owner installs.
-  // If the user only sees their personal account here despite having
-  // the App installed on an org, we expand the WHERE clause to
-  // include organizationId IN <user's org ids>. Tracked as follow-up.
-  void inArray;
 
   const repos = installs.length > 0 ? await gatherRepos(installs, ownedRepoFullNames, ownedRepoSlugByName) : [];
 
