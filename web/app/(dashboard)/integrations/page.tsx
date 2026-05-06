@@ -14,8 +14,8 @@ import {
 } from "@/components/brand-icons";
 import type { ElementType } from "react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { ConnectModal }       from "./connect-modal";
-import { CreateProjectModal } from "./create-project-modal";
 import { ConfigModal }        from "./config-modal";
 import { DisconnectButton } from "./disconnect-button";
 import { IntegrationHealthBanner } from "./health-banner";
@@ -207,11 +207,11 @@ export default async function IntegrationsPage() {
             each project — open a project to manage it.
           </p>
         </div>
-        <CreateProjectModal organizationId={activeOrgId}>
+        <Link href="/api/auth/signin/github?callbackUrl=%2Fdashboard%3Fgithub%3Dimported">
           <Button variant="primary" size="sm" className="shrink-0 gap-1.5">
-            <Plus className="h-3.5 w-3.5" /> New project
+            <Plus className="h-3.5 w-3.5" /> Import from GitHub
           </Button>
-        </CreateProjectModal>
+        </Link>
       </div>
 
       {/* ── Integration health (auto-disabled after 401) ───────────────── */}
@@ -236,14 +236,14 @@ export default async function IntegrationsPage() {
           <div>
             <p className="text-sm font-medium text-fg-base/60">No projects yet</p>
             <p className="mt-1 text-sm text-fg-base/50">
-              Create a project to start connecting integrations.
+              Import a repository from GitHub to start monitoring.
             </p>
           </div>
-          <CreateProjectModal organizationId={activeOrgId}>
+          <Link href="/api/auth/signin/github?callbackUrl=%2Fdashboard%3Fgithub%3Dimported">
             <Button variant="primary" size="sm" className="mt-1 gap-1.5">
-              <Plus className="h-3.5 w-3.5" /> Create first project
+              <Plus className="h-3.5 w-3.5" /> Import from GitHub
             </Button>
-          </CreateProjectModal>
+          </Link>
         </div>
       )}
 

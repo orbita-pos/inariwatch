@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   FolderPlus,
@@ -15,7 +15,6 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { createProjectForOnboarding } from "./actions";
 import { connectIntegration } from "../integrations/actions";
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -337,45 +336,9 @@ export function OnboardingWizard({
   const canImportFromGithub = !!githubAppSlug;
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [projectName, setProjectName] = useState("");
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectId, _setProjectId] = useState<string | null>(null);
   const [connectedServices, setConnectedServices] = useState<Set<string>>(new Set());
-  const [projectError, setProjectError] = useState("");
-  const [isPending, startTransition] = useTransition();
-
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (currentStep === 1 && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [currentStep]);
-
-  // Step 1: Create project
-  const handleCreateProject = () => {
-    if (!projectName.trim()) {
-      setProjectError("Please enter a project name.");
-      return;
-    }
-    setProjectError("");
-
-    startTransition(async () => {
-      const result = await createProjectForOnboarding(projectName);
-      if (result.error) {
-        setProjectError(result.error);
-      } else if (result.projectId) {
-        setProjectId(result.projectId);
-        setCurrentStep(2);
-      }
-    });
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleCreateProject();
-    }
-  };
+  const [projectError] = useState("");
 
   const handleServiceConnected = (svc: string) => {
     setConnectedServices((prev) => new Set(prev).add(svc));
@@ -411,28 +374,18 @@ export function OnboardingWizard({
                 Welcome, {userName}
               </h2>
               <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
-                Import your repos from GitHub — we&apos;ll create one project per repo
-                and open a setup PR. Or create a blank project to wire up later.
+                Import your repos from GitHub — we&apos;ll create one project per
+                repo and open a setup PR. Without GitHub a project has nothing
+                to monitor, so the manual "blank project" path is gone.
               </p>
 
-              {canImportFromGithub && (
-                <div className="w-full max-w-sm space-y-2 mb-5">
+              {canImportFromGithub ? (
+                <div className="w-full max-w-sm space-y-2">
                   <Button
                     variant="primary"
                     size="lg"
                     className="w-full"
                     onClick={() => {
-                      // Route through NextAuth's GitHub provider, which is now
-                      // configured with the App's OAuth credentials. For an
-                      // already-installed user this short-circuits the
-                      // github.com manage page (the old `/installations/new`
-                      // URL bounced them there with state lost) and just
-                      // collects an OAuth consent — the jwt callback then
-                      // calls /user/installations and bulk-imports projects.
-                      // For first-time users, GitHub combines OAuth + install
-                      // consent into one screen because we enabled
-                      // "Request user authorization (OAuth) during installation"
-                      // on the App.
                       window.location.href = "/api/auth/signin/github?callbackUrl=" +
                         encodeURIComponent("/dashboard?github=imported");
                     }}
@@ -443,66 +396,23 @@ export function OnboardingWizard({
                   <p className="text-[11px] text-fg-base/40">
                     One click — pick the repos you want monitored on github.com.
                   </p>
-                  <div className="flex items-center gap-3 pt-2 text-[11px] text-fg-base/40">
-                    <span className="h-px flex-1 bg-line" />
-                    <span>or create a blank project</span>
-                    <span className="h-px flex-1 bg-line" />
-                  </div>
+                </div>
+              ) : (
+                <div className="w-full max-w-sm rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-4 py-3 text-left">
+                  <p className="text-[13px] text-fg-base/70">
+                    GitHub App isn&apos;t configured on this server. Set
+                    <code className="mx-1 rounded bg-surface-dim px-1.5 py-0.5 font-mono text-[11px]">GITHUB_APP_SLUG</code>
+                    + the App credentials in env to enable repo import.
+                  </p>
                 </div>
               )}
-
-              <div className="w-full max-w-sm space-y-3">
-                <div className="text-left">
-                  <label className="block text-[11px] font-mono font-medium uppercase tracking-wider text-fg-base/50 mb-1.5">
-                    Project name
-                  </label>
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="my-app"
-                    autoFocus
-                    className="w-full rounded-lg border border-line bg-surface-dim px-3 py-2.5 text-sm text-fg-base placeholder:text-fg-base/40 focus:border-inari-accent/50 focus:outline-none focus:ring-1 focus:ring-inari-accent/30 transition-colors"
-                  />
-                  {projectName.trim() && (
-                    <p className="mt-1.5 text-xs text-fg-base/50">
-                      Slug:{" "}
-                      <span className="font-mono text-fg-base/60">
-                        {projectName
-                          .trim()
-                          .toLowerCase()
-                          .replace(/\s+/g, "-")
-                          .replace(/[^a-z0-9-]/g, "")
-                          .slice(0, 48)}
-                      </span>
-                    </p>
-                  )}
-                </div>
-
-                {projectError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 font-mono">{projectError}</p>
-                )}
-
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className="w-full"
-                  onClick={handleCreateProject}
-                  disabled={isPending}
-                >
-                  {isPending ? (
-                    <>
-                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> Creating...
-                    </>
-                  ) : (
-                    <>
-                      Create project <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                    </>
-                  )}
-                </Button>
-              </div>
+              {/* Make the unused projectError binding visible only when set —
+                  prevents "declared but never used" lint after dropping the
+                  blank-project form. Ref: createProjectForOnboarding action
+                  is kept on disk in case we ever bring back manual creation. */}
+              {projectError && (
+                <p className="mt-3 text-xs text-red-600 dark:text-red-400 font-mono">{projectError}</p>
+              )}
             </div>
           </StepContainer>
 

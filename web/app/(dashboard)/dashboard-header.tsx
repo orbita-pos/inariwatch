@@ -66,19 +66,17 @@ function Breadcrumb() {
 function NewButton() {
   const pathname = usePathname();
 
-  let href = "/projects";
-  let label = "New project";
-
+  // Manual project creation was retired — projects are 1:1 with imported
+  // GitHub repos now. Every "+ New" surface routes through the GitHub
+  // App OAuth flow (NextAuth picks up /user/installations and bulk-imports
+  // any new repos the user grants access to).
+  let label = "Import from GitHub";
   if (pathname.startsWith("/integrations")) {
-    href  = "/integrations";
     label = "Connect";
-  } else if (pathname.startsWith("/projects")) {
-    href  = "/projects";
-    label = "New project";
   }
 
   return (
-    <Link href={href}>
+    <Link href="/api/auth/signin/github?callbackUrl=%2Fdashboard%3Fgithub%3Dimported">
       <Button variant="primary" size="sm" className="gap-1.5">
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         {label}
