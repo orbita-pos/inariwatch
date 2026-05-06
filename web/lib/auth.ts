@@ -132,10 +132,37 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     // Called on every sign-in (OAuth or credentials).
     // For OAuth: upsert the user in our DB so we have a real UUID.
-    async jwt({ token, account, profile: _profile }) {
+    async jwt({ token, account, profile }) {
       if (account) {
-        // First sign-in — look up or create the user in our DB
-        const email = token.email;
+        // First sign-in — look up or create the user in our DB.
+        //
+        // GitHub App user-OAuth tokens don't carry `email` in the profile
+        // by default (Apps use per-permission grants, not OAuth scopes).
+        // We try `/user/emails` with the access_token first — that's what
+        // Vercel does, and it returns the verified primary address when
+        // the App has "Email addresses" account permission enabled.
+        // If the App doesn't have that permission OR the user has all
+        // their emails private, fall back to the GitHub-stable noreply
+        // address `<id>+<login>@users.noreply.github.com` so the row
+        // is still anchored to a real GitHub identity (not a synthetic
+        // marker). Never blocks sign-in.
+        let email = token.email;
+        if (!email && account.provider === "github" && typeof account.access_token === "string") {
+          const fetched = await fetchPrimaryGitHubEmail(account.access_token);
+          if (fetched) {
+            email = fetched;
+            token.email = fetched;
+          }
+        }
+        if (!email && account.provider === "github") {
+          const ghProfile = profile as { login?: string; id?: number } | undefined;
+          if (ghProfile?.login && ghProfile.id) {
+            // GitHub-issued noreply address. Stable across sessions and
+            // recognized by GitHub's own commit-attribution UI.
+            email = `${ghProfile.id}+${ghProfile.login.toLowerCase()}@users.noreply.github.com`;
+            token.email = email;
+          }
+        }
         if (!email) return token;
 
         // OAuth providers (GitHub/Google/GitLab) verify emails before returning
@@ -228,3 +255,31 @@ export const authOptions: NextAuthOptions = {
     signOut: "/signout",
   },
 };
+
+interface GitHubEmailRow {
+  email:    string;
+  primary:  boolean;
+  verified: boolean;
+}
+
+async function fetchPrimaryGitHubEmail(accessToken: string): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch("https://api.github.com/user/emails", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept:        "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  const rows = (await res.json().catch(() => null)) as GitHubEmailRow[] | null;
+  if (!Array.isArray(rows)) return null;
+  const primary = rows.find((r) => r.primary && r.verified);
+  if (primary) return primary.email.toLowerCase();
+  const anyVerified = rows.find((r) => r.verified);
+  return anyVerified ? anyVerified.email.toLowerCase() : null;
+}

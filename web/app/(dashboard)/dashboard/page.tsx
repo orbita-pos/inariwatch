@@ -34,7 +34,11 @@ export default async function DashboardPage() {
     ? await db.select().from(projects).where(eq(projects.userId, userId)).limit(10)
     : [];
 
-  if (userId && userProjects.length === 0) redirect("/onboarding");
+  // Vercel-style: a fresh account with no projects lands on /import. The
+  // page itself handles both branches — no installation yet (CTA to install
+  // the GitHub App) and installation present (list repos to click-import).
+  // Manual blank-project creation is gone.
+  if (userId && userProjects.length === 0) redirect("/import");
 
   const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : userProjects.map((p) => p.id);
 

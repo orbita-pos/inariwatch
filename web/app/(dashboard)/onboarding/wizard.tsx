@@ -392,7 +392,7 @@ export function OnboardingWizard({
                       // signin GET URL renders an intermediate page that
                       // never actually triggered the redirect — exactly the
                       // "le doy a importar y no pasa nada" bug.
-                      void signIn("github", { callbackUrl: "/dashboard?github=imported" });
+                      void signIn("github", { callbackUrl: "/import" });
                     }}
                   >
                     <Github aria-hidden="true" className="h-4 w-4" /> Import from GitHub

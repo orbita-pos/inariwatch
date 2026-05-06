@@ -219,7 +219,7 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
     // projects when they land back on /dashboard. signIn() (not a raw
     // GET to the signin URL) is required to send the CSRF-protected POST
     // that actually starts the OAuth handshake.
-    void signIn("github", { callbackUrl: "/dashboard?github=imported" });
+    void signIn("github", { callbackUrl: "/import" });
   };
 
   const handleLookup = async () => {
