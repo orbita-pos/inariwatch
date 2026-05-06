@@ -12,7 +12,6 @@ import { DashboardHeader } from "./dashboard-header";
 import { VerifyEmailBanner } from "./settings/verify-email-banner";
 import { db, alerts, users, projectIntegrations, getUserOrganizations, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { userHasGitHubInstall } from "@/lib/services/github-install.service";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { eq, and, inArray, sql, max } from "drizzle-orm";
 
@@ -63,13 +62,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // feature flag AND a workspace are active. Otherwise personal-mode users
   // click a link that 404s.
   const replayV2Enabled = !!activeOrgId && isReplayV2Enabled(activeOrgId);
-  const [projectIds, organizations, hasGitHubInstall] = userId
+  const [projectIds, organizations] = userId
     ? await Promise.all([
         getWorkspaceProjectIds(userId, activeOrgId),
         getUserOrganizations(userId),
-        userHasGitHubInstall(userId),
       ])
-    : [[], [], false];
+    : [[], []];
 
   // Fetch last polling time + unread count in parallel
   let lastCheckedAt: string | null = null;
@@ -160,7 +158,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Content */}
       <div className="flex flex-1 flex-col overflow-hidden pt-14 pl-0 md:pt-0 md:pl-[220px]">
-        <DashboardHeader unreadAlerts={unreadCount} hasGitHubInstall={hasGitHubInstall} />
+        <DashboardHeader unreadAlerts={unreadCount} />
         <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
           {hasPassword && !emailVerifiedAt && (
             <div className="mb-6">
