@@ -5,10 +5,14 @@ import GoogleProvider from "next-auth/providers/google";
 import GitLabProvider from "next-auth/providers/gitlab";
 import bcrypt from "bcryptjs";
 import * as OTPAuth from "otpauth";
-import { db, users } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { db, users, accounts } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/auth-rate-limit";
 import { decrypt } from "@/lib/crypto";
+import {
+  upsertProviderAccount,
+  fetchPrimaryGitHubEmail,
+} from "@/lib/auth/oauth-helpers";
 
 // Precomputed bcryptjs hash at cost 12 of a constant string that nobody
 // will ever submit as a password. Used to force `bcrypt.compare` to run
@@ -132,10 +136,132 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     // Called on every sign-in (OAuth or credentials).
     // For OAuth: upsert the user in our DB so we have a real UUID.
-    async jwt({ token, account, profile: _profile }) {
+    async jwt({ token, account, profile }) {
       if (account) {
-        // First sign-in — look up or create the user in our DB
-        const email = token.email;
+        // ── Account-link mode ────────────────────────────────────────────
+        // NextAuth passes the EXISTING decoded JWT as `token` when an
+        // already-logged-in user re-runs `signIn()` (e.g. clicking
+        // "Connect GitHub" on the dashboard). In that case `token.id` is
+        // already populated — we must NOT swap identity to whichever
+        // user matches the GitHub email, because that would silently
+        // hijack the session into a different account.
+        //
+        // Instead: keep the current `token.id`, persist the provider
+        // mapping under (provider, providerAccountId) so future sign-ins
+        // resolve back to this same user, link GitHub installations, and
+        // skip the email-based upsert below.
+        if (token.id && account.provider !== "credentials") {
+          await upsertProviderAccount({
+            userId:            token.id as string,
+            provider:          account.provider,
+            providerAccountId: String(account.providerAccountId ?? ""),
+            type:              account.type,
+            accessToken:       typeof account.access_token === "string" ? account.access_token : null,
+            refreshToken:      typeof account.refresh_token === "string" ? account.refresh_token : null,
+            expiresAt:         typeof account.expires_at === "number" ? account.expires_at : null,
+          });
+
+          if (
+            account.provider === "github" &&
+            typeof account.access_token === "string" &&
+            process.env.GITHUB_APP_CLIENT_ID
+          ) {
+            try {
+              const { linkGitHubInstallationsForUser } = await import(
+                "@/lib/auth/link-github-installation"
+              );
+              await linkGitHubInstallationsForUser({
+                userId:         token.id as string,
+                accessToken:    account.access_token,
+                organizationId: null,
+              });
+            } catch (err) {
+              console.warn(
+                "[auth] linkGitHubInstallationsForUser (linking) failed:",
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          return token;
+        }
+
+        // ── Fresh sign-in path ───────────────────────────────────────────
+        // Step 1: stable provider lookup. If this OAuth identity has
+        // signed in before we already know which user row it belongs to,
+        // even if their email has since changed (or never matched in the
+        // first place — e.g. private GitHub email + noreply fallback).
+        const providerAccountId = String(account.providerAccountId ?? "");
+        if (providerAccountId && account.provider !== "credentials") {
+          const [linked] = await db
+            .select({ userId: accounts.userId })
+            .from(accounts)
+            .where(
+              and(
+                eq(accounts.provider, account.provider),
+                eq(accounts.providerAccountId, providerAccountId),
+              ),
+            )
+            .limit(1);
+          if (linked) {
+            token.id = linked.userId;
+            // Refresh tokens on the account row so downstream callers
+            // (installations linker below, future API uses) see the
+            // latest credentials, not whatever was stashed last time.
+            await upsertProviderAccount({
+              userId:            linked.userId,
+              provider:          account.provider,
+              providerAccountId,
+              type:              account.type,
+              accessToken:       typeof account.access_token === "string" ? account.access_token : null,
+              refreshToken:      typeof account.refresh_token === "string" ? account.refresh_token : null,
+              expiresAt:         typeof account.expires_at === "number" ? account.expires_at : null,
+            });
+
+            if (
+              account.provider === "github" &&
+              typeof account.access_token === "string" &&
+              process.env.GITHUB_APP_CLIENT_ID
+            ) {
+              try {
+                const { linkGitHubInstallationsForUser } = await import(
+                  "@/lib/auth/link-github-installation"
+                );
+                await linkGitHubInstallationsForUser({
+                  userId:         linked.userId,
+                  accessToken:    account.access_token,
+                  organizationId: null,
+                });
+              } catch (err) {
+                console.warn(
+                  "[auth] linkGitHubInstallationsForUser (returning user) failed:",
+                  err instanceof Error ? err.message : err,
+                );
+              }
+            }
+            return token;
+          }
+        }
+
+        // Step 2: no provider mapping yet — resolve the email so we can
+        // either find an existing user row by email or create a new one.
+        // GitHub App user-OAuth doesn't surface email by default, so we
+        // try /user/emails (Vercel-style) and fall back to the GitHub
+        // noreply address.
+        let email = token.email;
+        if (!email && account.provider === "github" && typeof account.access_token === "string") {
+          const fetched = await fetchPrimaryGitHubEmail(account.access_token);
+          if (fetched) {
+            email = fetched;
+            token.email = fetched;
+          }
+        }
+        if (!email && account.provider === "github") {
+          const ghProfile = profile as { login?: string; id?: number } | undefined;
+          if (ghProfile?.login && ghProfile.id) {
+            email = `${ghProfile.id}+${ghProfile.login.toLowerCase()}@users.noreply.github.com`;
+            token.email = email;
+          }
+        }
         if (!email) return token;
 
         // OAuth providers (GitHub/Google/GitLab) verify emails before returning
@@ -174,13 +300,27 @@ export const authOptions: NextAuthOptions = {
 
         token.id = dbUser.id;
 
+        // Step 3: persist the provider mapping so the next sign-in
+        // resolves directly via Step 1 instead of going through email
+        // lookup. Skipped for the credentials provider (no provider id).
+        if (providerAccountId) {
+          await upsertProviderAccount({
+            userId:            dbUser.id,
+            provider:          account.provider,
+            providerAccountId,
+            type:              account.type,
+            accessToken:       typeof account.access_token === "string" ? account.access_token : null,
+            refreshToken:      typeof account.refresh_token === "string" ? account.refresh_token : null,
+            expiresAt:         typeof account.expires_at === "number" ? account.expires_at : null,
+          });
+        }
+
         // GitHub App OAuth — when the user just signed in via the App's
         // user-OAuth (GITHUB_APP_CLIENT_ID), the access_token in `account`
-        // can list our App's installations they have access to. Auto-link
-        // them so the user lands on /dashboard with repos already imported,
-        // skipping the separate "now install the App" step. Soft-fail: if
-        // the token is from the legacy OAuth App or the call rejects, the
-        // import is a no-op and the existing /onboarding flow takes over.
+        // can list our App's installations they have access to. Soft-fail:
+        // if the token is from the legacy OAuth App or the call rejects,
+        // the user lands on /import which has its own "no installations"
+        // CTA.
         if (
           account.provider === "github" &&
           typeof account.access_token === "string" &&
@@ -193,7 +333,7 @@ export const authOptions: NextAuthOptions = {
             await linkGitHubInstallationsForUser({
               userId:         dbUser.id,
               accessToken:    account.access_token,
-              organizationId: null, // Workspace selection happens later from /settings.
+              organizationId: null,
             });
           } catch (err) {
             console.warn(
@@ -228,3 +368,4 @@ export const authOptions: NextAuthOptions = {
     signOut: "/signout",
   },
 };
+

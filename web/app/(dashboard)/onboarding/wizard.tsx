@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import {
   FolderPlus,
   Github,
@@ -386,8 +387,12 @@ export function OnboardingWizard({
                     size="lg"
                     className="w-full"
                     onClick={() => {
-                      window.location.href = "/api/auth/signin/github?callbackUrl=" +
-                        encodeURIComponent("/dashboard?github=imported");
+                      // signIn() POSTs with the CSRF token NextAuth requires
+                      // to start the OAuth handshake. window.location to the
+                      // signin GET URL renders an intermediate page that
+                      // never actually triggered the redirect — exactly the
+                      // "le doy a importar y no pasa nada" bug.
+                      void signIn("github", { callbackUrl: "/import" });
                     }}
                   >
                     <Github aria-hidden="true" className="h-4 w-4" /> Import from GitHub

@@ -17,6 +17,13 @@ export default function RegisterPage() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
 
+  // Mirror /login: respect ?callbackUrl from query (e.g. invite flow,
+  // /import deep-link). Default is /import — fresh accounts have zero
+  // projects and /dashboard would just bounce to /import anyway.
+  const callbackUrl = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("callbackUrl") || "/import"
+    : "/import";
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -51,7 +58,7 @@ export default function RegisterPage() {
         return;
       }
 
-      window.location.href = "/dashboard";
+      window.location.href = callbackUrl;
     } catch (err) {
       console.error("register: unexpected error:", err);
       setError("Something went wrong. Please try again.");
@@ -123,7 +130,7 @@ export default function RegisterPage() {
             <Button
               variant="outline"
               className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
-              onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
+              onClick={() => signIn("github", { callbackUrl })}
             >
               <Github className="h-4 w-4" />
               Continue with GitHub
@@ -132,7 +139,7 @@ export default function RegisterPage() {
             <Button
               variant="outline"
               className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
-              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              onClick={() => signIn("google", { callbackUrl })}
             >
               Continue with Google
             </Button>
@@ -140,7 +147,7 @@ export default function RegisterPage() {
             <Button
               variant="outline"
               className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
-              onClick={() => signIn("gitlab", { callbackUrl: "/dashboard" })}
+              onClick={() => signIn("gitlab", { callbackUrl })}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51a.42.42 0 01.82 0l2.44 7.51h8.06l2.44-7.51a.42.42 0 01.82 0l2.44 7.51 1.22 3.78a.84.84 0 01-.3.94z"/>

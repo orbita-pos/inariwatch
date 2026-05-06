@@ -34,7 +34,11 @@ export default async function DashboardPage() {
     ? await db.select().from(projects).where(eq(projects.userId, userId)).limit(10)
     : [];
 
-  if (userId && userProjects.length === 0) redirect("/onboarding");
+  // Vercel-style: a fresh account with no projects lands on /import. The
+  // page itself handles both branches — no installation yet (CTA to install
+  // the GitHub App) and installation present (list repos to click-import).
+  // Manual blank-project creation is gone.
+  if (userId && userProjects.length === 0) redirect("/import");
 
   const projectIds = userId ? await getWorkspaceProjectIds(userId, await getActiveOrgId()) : userProjects.map((p) => p.id);
 
@@ -124,9 +128,8 @@ export default async function DashboardPage() {
       </div>
 
       {/* GitHub-not-connected banner — shown for users who signed up via
-          email/password and haven't connected GitHub yet. Vercel-style
-          empty CTA: one click takes them to /onboarding which surfaces
-          the App install + repo selector. */}
+          email/password and haven't connected GitHub yet. Click takes them
+          to /import which surfaces the App install + repo picker. */}
       {hasProject && !hasGitHubInstall && (
         <div className="flex flex-col gap-3 rounded-xl border border-inari-accent/25 bg-inari-accent/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
@@ -136,13 +139,12 @@ export default async function DashboardPage() {
             <div>
               <p className="text-sm font-semibold text-fg-strong">Connect your GitHub</p>
               <p className="mt-0.5 text-[13px] text-fg-base/60">
-                Import a repository to start monitoring. We&apos;ll open a setup PR
-                automatically — one click and you&apos;re live.
+                Pick the repos you want to monitor — install takes about a minute.
               </p>
             </div>
           </div>
           <Link
-            href="/onboarding"
+            href="/import"
             className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-inari-accent px-4 py-2 text-[13px] font-medium text-white hover:bg-inari-accent/90"
           >
             <Github aria-hidden="true" className="h-3.5 w-3.5" /> Connect GitHub

@@ -4,9 +4,9 @@ import { db, projects, projectIntegrations, alerts } from "@/lib/db";
 import { eq, desc, inArray, isNull, and } from "drizzle-orm";
 import { getActiveOrgId } from "@/lib/workspace";
 import { formatRelativeTime } from "@/lib/utils";
-import { Github, Zap, AlertTriangle, GitBranch, Bell, Plus, ExternalLink, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Github, Zap, AlertTriangle, GitBranch, Bell, ExternalLink, Users } from "lucide-react";
 import { DeleteProjectButton } from "./delete-project-button";
+import { ImportFromGitHubButton } from "../import-from-github-button";
 import Link from "next/link";
 import type { Metadata } from "next";
 
@@ -80,11 +80,7 @@ export default async function ProjectsPage() {
             {userProjects.length} project{userProjects.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Link href="/api/auth/signin/github?callbackUrl=%2Fdashboard%3Fgithub%3Dimported">
-          <Button variant="primary" size="sm" className="gap-1.5">
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Import from GitHub
-          </Button>
-        </Link>
+        <ImportFromGitHubButton />
       </div>
 
       {/* ── Empty ──────────────────────────────────────────────────────── */}
@@ -99,11 +95,7 @@ export default async function ProjectsPage() {
               Import a repository from GitHub to start monitoring.
             </p>
           </div>
-          <Link href="/api/auth/signin/github?callbackUrl=%2Fdashboard%3Fgithub%3Dimported">
-            <Button variant="primary" size="sm" className="mt-1 gap-1.5">
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Import from GitHub
-            </Button>
-          </Link>
+          <ImportFromGitHubButton className="mt-1" />
         </div>
       )}
 
