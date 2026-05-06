@@ -422,11 +422,19 @@ export function OnboardingWizard({
                     size="lg"
                     className="w-full"
                     onClick={() => {
-                      // No `state` here — the setup callback's bulk-import path
-                      // creates one project per repo the user grants access to.
-                      window.location.href = `https://github.com/apps/${encodeURIComponent(
-                        githubAppSlug ?? "",
-                      )}/installations/new`;
+                      // Route through NextAuth's GitHub provider, which is now
+                      // configured with the App's OAuth credentials. For an
+                      // already-installed user this short-circuits the
+                      // github.com manage page (the old `/installations/new`
+                      // URL bounced them there with state lost) and just
+                      // collects an OAuth consent — the jwt callback then
+                      // calls /user/installations and bulk-imports projects.
+                      // For first-time users, GitHub combines OAuth + install
+                      // consent into one screen because we enabled
+                      // "Request user authorization (OAuth) during installation"
+                      // on the App.
+                      window.location.href = "/api/auth/signin/github?callbackUrl=" +
+                        encodeURIComponent("/dashboard?github=imported");
                     }}
                   >
                     <Github aria-hidden="true" className="h-4 w-4" /> Import from GitHub

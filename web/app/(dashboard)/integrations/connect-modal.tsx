@@ -210,11 +210,22 @@ export function ConnectModal({ service, label, projects, children, githubAppSlug
   const handleInstallApp = () => {
     setError("");
     if (!projectId) { setError("Select a project first."); return; }
-    // GitHub forwards `state` to the App's redirect URL — we round-trip
-    // the projectId so /api/integrations/github-app/setup can attach the
-    // installation to the correct project_integrations row.
-    const url = `https://github.com/apps/${encodeURIComponent(githubAppSlug ?? "")}/installations/new?state=${encodeURIComponent(projectId)}`;
-    window.location.href = url;
+    // Route through NextAuth's GitHub provider (now wired to the App's
+    // OAuth credentials). For an already-installed user this skips the
+    // github.com manage page; for new users GitHub combines OAuth +
+    // install consent into one screen. The jwt callback's
+    // linkGitHubInstallationsForUser then bulk-imports their repos as
+    // projects when they land back on /dashboard.
+    //
+    // We don't pass `state=<projectId>` here because the App-OAuth path
+    // doesn't preserve it through to our callback the way the old
+    // install URL did — instead the bulk-import in the jwt callback
+    // covers all of the user's accessible repos and the dashboard's
+    // "all projects" view picks them up. Connecting a SPECIFIC existing
+    // project to the installation still works via the "Already
+    // installed?" lookup above.
+    window.location.href = "/api/auth/signin/github?callbackUrl=" +
+      encodeURIComponent("/dashboard?github=imported");
   };
 
   const handleLookup = async () => {
