@@ -45,41 +45,60 @@ export async function POST(
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
 
-  const [replay] = await db
-    .select()
+  // Pull the project owner alongside the replay so the personal-mode
+  // auth branch resolves in one round-trip.
+  const [row] = await db
+    .select({
+      replay: replaySessions,
+      projectOwnerId: projects.userId,
+    })
     .from(replaySessions)
+    .leftJoin(projects, eq(projects.id, replaySessions.projectId))
     .where(eq(replaySessions.sessionId, sessionId))
     .limit(1);
 
-  if (!replay || !replay.organizationId || !replay.projectId) {
+  if (!row || !row.replay || !row.replay.projectId) {
     return NextResponse.json({ error: "Replay session not found" }, { status: 404 });
   }
+  const replay = row.replay;
+  // The guard above proves projectId is non-null; the assertion is only
+  // needed because aliasing through `replay = row.replay` drops the
+  // narrowing TS inferred on `row.replay.projectId`.
+  const projectId: string = replay.projectId!;
 
-  if (!isReplayV2Enabled(replay.organizationId)) {
+  if (!isReplayV2Enabled({ organizationId: replay.organizationId, userId: row.projectOwnerId })) {
     return NextResponse.json({ error: "Replay V2 not enabled" }, { status: 403 });
   }
 
-  // Authorization: user must own the org OR be a member
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, replay.organizationId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
+  // Authorization branches. Org session → owner or member. Personal
+  // session → viewer must be the project owner (trust projects.user_id,
+  // NOT NULL by schema, over the denormalized replay_sessions.user_id).
+  if (replay.organizationId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, replay.organizationId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
 
-  if (!access) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!access) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    if (row.projectOwnerId !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   // 1. Try direct alert link
@@ -99,7 +118,7 @@ export async function POST(
       .from(alerts)
       .where(
         and(
-          eq(alerts.projectId, replay.projectId),
+          eq(alerts.projectId, projectId),
           inArray(alerts.fingerprint, replay.errorFingerprints),
         ),
       )
@@ -118,7 +137,7 @@ export async function POST(
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(eq(projects.id, replay.projectId))
+    .where(eq(projects.id, projectId))
     .limit(1);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });

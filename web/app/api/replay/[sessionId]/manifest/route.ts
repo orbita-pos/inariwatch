@@ -6,7 +6,7 @@ import { replaySessions, projects, organizationMembers, organizations } from "@/
 import { getRepoIdentityForProject } from "@/lib/services/code-intelligence.service";
 import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
-import { getSessionBlockUrls } from "@/lib/storage/replay-storage";
+import { getSessionBlockUrlsByPrefix } from "@/lib/storage/replay-storage";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import {
   aggregateBackendEvents,
@@ -29,7 +29,8 @@ interface ManifestResponse {
   viewport: unknown;
   alertId: string | null;
   projectId: string | null;
-  organizationId: string;
+  /** Null for personal-workspace sessions (no organization). */
+  organizationId: string | null;
   blockCount: number;
   totalBytes: number;
   clickSelectors: string[];
@@ -89,16 +90,20 @@ export async function GET(
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
 
+  // Pull r2Prefix + project owner alongside session metadata so the
+  // personal-mode auth branch and the R2 sign step are both single-query.
   const [row] = await db
     .select({
       id: replaySessions.id,
       sessionId: replaySessions.sessionId,
       organizationId: replaySessions.organizationId,
       projectId: replaySessions.projectId,
+      projectOwnerId: projects.userId,
       alertId: replaySessions.alertId,
       startedAt: replaySessions.startedAt,
       endedAt: replaySessions.endedAt,
       durationMs: replaySessions.durationMs,
+      r2Prefix: replaySessions.r2Prefix,
       blockCount: replaySessions.blockCount,
       totalBytes: replaySessions.totalBytes,
       clickSelectors: replaySessions.clickSelectors,
@@ -119,44 +124,58 @@ export async function GET(
       resolvedErrors: replaySessions.resolvedErrors,
     })
     .from(replaySessions)
+    .leftJoin(projects, eq(projects.id, replaySessions.projectId))
     .where(eq(replaySessions.sessionId, sessionId))
     .limit(1);
 
-  if (!row || !row.organizationId) {
+  if (!row) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (!isReplayV2Enabled(row.organizationId)) {
+  if (!isReplayV2Enabled({ organizationId: row.organizationId, userId: row.projectOwnerId })) {
     return NextResponse.json({ error: "Replay V2 not enabled" }, { status: 403 });
   }
 
-  // Authorization: user must be the org owner OR a member
-  const [access] = await db
-    .select({ role: organizationMembers.role, ownerId: organizations.ownerId })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, row.organizationId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
+  // Authorization branches:
+  //   - Org session  → viewer must own the org OR be a member.
+  //   - Personal session (organizationId IS NULL) → viewer must be the
+  //     project owner. We trust `projects.user_id` (NOT NULL by schema)
+  //     rather than `replay_sessions.user_id` (which is `set null` on
+  //     user delete) so a stale denormalized field can never grant access.
+  if (row.organizationId) {
+    const [access] = await db
+      .select({ role: organizationMembers.role, ownerId: organizations.ownerId })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, row.organizationId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
 
-  if (!access) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!access) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    if (row.projectOwnerId !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
-  // Generate signed URLs for all blocks (5 min TTL)
+  // Generate signed URLs for all blocks (5 min TTL). Use the stored
+  // `r2Prefix` so this works for both org and personal sessions without
+  // having to re-derive the scope.
   let blocks: { index: number; startMs: number; endMs: number; url: string }[];
   try {
-    blocks = await getSessionBlockUrls(row.organizationId, row.sessionId, row.blockCount, 300);
+    blocks = await getSessionBlockUrlsByPrefix(row.r2Prefix, row.blockCount, 300);
   } catch (e) {
     console.error("[replay/manifest] R2 sign failed:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Storage unavailable" }, { status: 503 });

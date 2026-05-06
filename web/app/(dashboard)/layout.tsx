@@ -57,11 +57,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // fired above, but kept for defensive correctness.
     activeOrgId = await getActiveOrgId();
   }
-  // Replay V2 is an org-scoped feature — the /replays page requires an
-  // activeOrgId to render, so we only show the nav link when both the
-  // feature flag AND a workspace are active. Otherwise personal-mode users
-  // click a link that 404s.
-  const replayV2Enabled = !!activeOrgId && isReplayV2Enabled(activeOrgId);
+  // Replay V2 is two-axis: the link is visible when EITHER the active org
+  // is in REPLAY_V2_ORGS, OR the viewer's user id is in REPLAY_V2_USERS.
+  // Personal-mode viewers (no `activeOrgId`) get the link via the user
+  // axis; the page itself still 404s if neither axis matches.
+  const replayV2Enabled = isReplayV2Enabled({ organizationId: activeOrgId, userId: userId ?? null });
   const [projectIds, organizations] = userId
     ? await Promise.all([
         getWorkspaceProjectIds(userId, activeOrgId),

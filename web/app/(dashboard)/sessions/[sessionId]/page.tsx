@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { replaySessions, organizations, organizationMembers } from "@/lib/db/schema";
+import { replaySessions, organizations, organizationMembers, projects } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { PlayerV2 } from "./player-v2";
@@ -28,40 +28,56 @@ export default async function ReplayPage({
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) redirect("/login");
 
+  // Pull the project owner alongside the session so the personal-workspace
+  // auth branch (org-less project) can verify ownership in one round-trip.
   const [row] = await db
     .select({
       sessionId: replaySessions.sessionId,
       organizationId: replaySessions.organizationId,
+      projectOwnerId: projects.userId,
     })
     .from(replaySessions)
+    .leftJoin(projects, eq(projects.id, replaySessions.projectId))
     .where(eq(replaySessions.sessionId, sessionId))
     .limit(1);
 
-  if (!row || !row.organizationId) return notFound();
+  if (!row) return notFound();
 
-  // Feature flag gate (keeps V2 invisible until the org is opted in)
-  if (!isReplayV2Enabled(row.organizationId)) return notFound();
+  // Two-axis feature flag (org OR user). Personal sessions resolve their
+  // user axis from the project owner — that's the row we just joined.
+  if (!isReplayV2Enabled({ organizationId: row.organizationId, userId: row.projectOwnerId })) {
+    return notFound();
+  }
 
-  // Authorization: user must own the org OR be a member
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, row.organizationId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
+  // Authorization branches:
+  //   - Org session  → viewer must own the org OR be a member.
+  //   - Personal session (organizationId IS NULL) → viewer must be the
+  //     project owner. We trust `projects.user_id` (NOT NULL by schema)
+  //     rather than `replay_sessions.user_id` (`onDelete: set null`) so
+  //     a stale denormalized field can never grant access.
+  if (row.organizationId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, row.organizationId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
 
-  if (!access) return notFound();
+    if (!access) return notFound();
+  } else {
+    if (row.projectOwnerId !== userId) return notFound();
+  }
 
   return <PlayerV2 sessionId={row.sessionId} currentUserId={userId} />;
 }

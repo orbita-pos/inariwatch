@@ -41,8 +41,26 @@ describe("replay-storage helpers", () => {
   });
 
   describe("sessionPrefix", () => {
-    it("builds {org}/{session}/ prefix with trailing slash", () => {
+    it("builds {org}/{session}/ prefix with trailing slash (legacy 2-arg)", () => {
       expect(sessionPrefix("org_abc", "sess_xyz")).toBe("org_abc/sess_xyz/");
+    });
+
+    it("builds the same prefix from { kind: \"org\" } scope", () => {
+      expect(sessionPrefix({ kind: "org", organizationId: "org_abc" }, "sess_xyz"))
+        .toBe("org_abc/sess_xyz/");
+    });
+
+    it("builds users/{userId}/{session}/ from { kind: \"user\" } scope", () => {
+      expect(sessionPrefix({ kind: "user", userId: "user_42" }, "sess_xyz"))
+        .toBe("users/user_42/sess_xyz/");
+    });
+
+    it("user prefix is unambiguous vs org prefix (different first segment)", () => {
+      const orgKey = sessionPrefix({ kind: "org", organizationId: "user_42" }, "sess_xyz");
+      const userKey = sessionPrefix({ kind: "user", userId: "user_42" }, "sess_xyz");
+      expect(orgKey).not.toBe(userKey);
+      expect(orgKey).toBe("user_42/sess_xyz/");
+      expect(userKey).toBe("users/user_42/sess_xyz/");
     });
   });
 
@@ -75,7 +93,7 @@ describe("uploadBlock", () => {
   it("rejects blocks with too many events", async () => {
     const events = Array.from({ length: REPLAY_LIMITS.MAX_BLOCK_EVENTS + 1 }, (_, i) => ({ i }));
     await expect(uploadBlock({
-      organizationId: "org",
+      scope: { kind: "org", organizationId: "org" },
       sessionId: "sess",
       blockIndex: 0,
       startMs: 0,
@@ -89,7 +107,7 @@ describe("uploadBlock", () => {
     const big = "x".repeat(150);
     const events = Array.from({ length: 8000 }, () => ({ payload: big }));
     await expect(uploadBlock({
-      organizationId: "org",
+      scope: { kind: "org", organizationId: "org" },
       sessionId: "sess",
       blockIndex: 0,
       startMs: 0,
@@ -98,10 +116,10 @@ describe("uploadBlock", () => {
     })).rejects.toThrow(/exceeds max .* bytes/);
   });
 
-  it("uploads with gzip + correct key + reports compressed bytes", async () => {
+  it("uploads org-scoped block with gzip + correct key + reports compressed bytes", async () => {
     const events = [{ type: 1, data: { hello: "world" } }, { type: 2, data: { foo: "bar" } }];
     const result = await uploadBlock({
-      organizationId: "org_a",
+      scope: { kind: "org", organizationId: "org_a" },
       sessionId: "sess_b",
       blockIndex: 3,
       startMs: 0,
@@ -124,13 +142,29 @@ describe("uploadBlock", () => {
     expect(JSON.parse(decompressed)).toEqual(events);
   });
 
+  it("uploads user-scoped (personal) block under users/<id>/ prefix", async () => {
+    const events = [{ type: 4, data: {} }];
+    const result = await uploadBlock({
+      scope: { kind: "user", userId: "user_42" },
+      sessionId: "sess_personal",
+      blockIndex: 0,
+      startMs: 0,
+      endMs: 30_000,
+      events,
+    });
+
+    expect(result.key).toBe("users/user_42/sess_personal/block_0000.json.gz");
+    const callArg = mockSend.mock.calls[0][0];
+    expect(callArg.input.Key).toBe("users/user_42/sess_personal/block_0000.json.gz");
+  });
+
   it("throws if R2 env vars are missing", async () => {
     delete process.env.R2_ACCOUNT_ID;
     // Re-import to clear cached client (need fresh module)
     vi.resetModules();
     const { uploadBlock: freshUpload } = await import("../replay-storage");
     await expect(freshUpload({
-      organizationId: "o",
+      scope: { kind: "org", organizationId: "o" },
       sessionId: "s",
       blockIndex: 0,
       startMs: 0,

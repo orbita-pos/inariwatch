@@ -7,7 +7,7 @@ import {
   organizationMembers,
   projects,
 } from "@/lib/db/schema";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
 import { getActiveOrgId } from "@/lib/workspace";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { notFound, redirect } from "next/navigation";
@@ -44,27 +44,36 @@ export default async function UserJourneyPage({
   if (!userId) redirect("/login");
 
   const activeOrgId = await getActiveOrgId();
-  if (!activeOrgId || !isReplayV2Enabled(activeOrgId)) return notFound();
+  if (!isReplayV2Enabled({ organizationId: activeOrgId, userId })) return notFound();
 
-  // Authorize — same gate as /replays
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, activeOrgId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
-  if (!access) return notFound();
+  // Authorize. Same dual model as /sessions:
+  //   - Org viewer → must be owner or member of `activeOrgId`.
+  //   - Personal viewer (no active org) → no extra check; the WHERE
+  //     clause below scopes by `replay_sessions.user_id = viewer`.
+  if (activeOrgId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, activeOrgId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
+    if (!access) return notFound();
+  }
+
+  const tenancyConditions: SQL[] = activeOrgId
+    ? [eq(replaySessions.organizationId, activeOrgId)]
+    : [isNull(replaySessions.organizationId), eq(replaySessions.userId, userId)];
 
   // Sessions for this user — newest first. Cap at 200 so a user with
   // thousands of sessions doesn't tank the page; the cap matches the
@@ -93,7 +102,7 @@ export default async function UserJourneyPage({
     .from(replaySessions)
     .where(
       and(
-        eq(replaySessions.organizationId, activeOrgId),
+        ...tenancyConditions,
         eq(replaySessions.endUserId, endUserId),
       ),
     )

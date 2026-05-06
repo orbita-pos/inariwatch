@@ -111,10 +111,13 @@ export async function POST(req: NextRequest) {
   // Post-project-lookup CORS uses the project's actual allowlist
   const projCors = buildCorsHeaders(origin, proj.allowedOrigins);
 
-  // Feature flag gate (org-level)
-  if (!isReplayV2Enabled(proj.organizationId)) {
+  // Feature flag gate. Two-axis: a project is allowed if EITHER its
+  // organization is in REPLAY_V2_ORGS, OR its owner's user id is in
+  // REPLAY_V2_USERS. The latter covers personal-workspace projects
+  // (where `organizationId` is null).
+  if (!isReplayV2Enabled({ organizationId: proj.organizationId, userId: proj.userId })) {
     return NextResponse.json(
-      { error: "Replay V2 not enabled for this organization" },
+      { error: "Replay V2 not enabled for this project" },
       { status: 403, headers: projCors },
     );
   }
@@ -146,12 +149,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!proj.organizationId) {
-    return NextResponse.json(
-      { error: "Project has no organization" },
-      { status: 400, headers: projCors },
-    );
-  }
+  // Tenant scope drives the R2 prefix and (later) authorization on the
+  // read paths. A project always has a non-null `userId`, so a personal
+  // project (organizationId === null) falls through cleanly to the user
+  // branch.
+  const scope: import("@/lib/storage/replay-storage").ReplayScope = proj.organizationId
+    ? { kind: "org", organizationId: proj.organizationId }
+    : { kind: "user", userId: proj.userId };
 
   // Per-project rate limit: 500 blocks/hour. IP-level rate limit above is
   // trivially bypassable with a botnet; this caps total storage abuse on a
@@ -177,7 +181,7 @@ export async function POST(req: NextRequest) {
   let upload: { key: string; bytes: number };
   try {
     upload = await uploadBlock({
-      organizationId: proj.organizationId,
+      scope,
       sessionId: body.sessionId,
       blockIndex: body.blockIndex,
       startMs: body.startMs,
@@ -249,7 +253,7 @@ export async function POST(req: NextRequest) {
       startedAt: startedAtDate,
       endedAt: endedAtDate,
       durationMs: isFinal ? body.endMs : null,
-      r2Prefix: sessionPrefix(proj.organizationId, body.sessionId),
+      r2Prefix: sessionPrefix(scope, body.sessionId),
       blockCount: 1,
       totalBytes: upload.bytes,
       clickSelectors: clickSelectors,

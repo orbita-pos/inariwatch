@@ -32,9 +32,11 @@ async function main() {
   }
   const sql = neon(process.env.DATABASE_URL!);
 
-  // Look up the session
+  // Look up the session — pull r2_prefix so the personal-workspace path
+  // (organization_id IS NULL → users/{userId}/{sessionId}/) works without
+  // the script having to know the scope.
   const rows = await sql`
-    SELECT session_id, organization_id, block_count, total_bytes, started_at, duration_ms, error_fingerprints, viewport
+    SELECT session_id, organization_id, user_id, r2_prefix, block_count, total_bytes, started_at, duration_ms, error_fingerprints, viewport
     FROM replay_sessions
     WHERE session_id = ${sessionId}
     LIMIT 1
@@ -47,6 +49,8 @@ async function main() {
   console.log("Session:", {
     sessionId: session.session_id,
     orgId: session.organization_id,
+    userId: session.user_id,
+    r2Prefix: session.r2_prefix,
     blockCount: session.block_count,
     totalBytes: session.total_bytes,
     durationMs: session.duration_ms,
@@ -54,9 +58,10 @@ async function main() {
     viewport: session.viewport,
   });
 
-  // Fetch block directly via fetchBlock helper
-  const { fetchBlock, blockKey, sessionPrefix } = await import("../lib/storage/replay-storage.js");
-  const prefix = sessionPrefix(session.organization_id as string, session.session_id as string);
+  // Fetch block directly via fetchBlock helper. Use the stored r2_prefix
+  // — works for both org-scoped and personal-scoped sessions.
+  const { fetchBlock, blockKey } = await import("../lib/storage/replay-storage.js");
+  const prefix = session.r2_prefix as string;
   const key = blockKey(prefix, blockIndex);
   console.log(`\nFetching ${key} from R2 ...`);
   const events = await fetchBlock(key) as unknown[];

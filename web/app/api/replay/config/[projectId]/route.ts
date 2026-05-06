@@ -47,6 +47,7 @@ export async function GET(
   const [proj] = await db
     .select({
       organizationId: projects.organizationId,
+      userId: projects.userId,
       replaySettings: projects.replaySettings,
     })
     .from(projects)
@@ -57,7 +58,8 @@ export async function GET(
     return NextResponse.json({ error: "Project not found" }, { status: 404, headers: cors });
   }
 
-  if (!isReplayV2Enabled(proj.organizationId)) {
+  // Two-axis flag — personal projects gate on the owner's user id.
+  if (!isReplayV2Enabled({ organizationId: proj.organizationId, userId: proj.userId })) {
     // Same shape as "disabled": the SDK will keep recording client-side but
     // never try to flush. Avoids leaking whether this project exists or not.
     return NextResponse.json(

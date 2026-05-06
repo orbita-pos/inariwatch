@@ -18,8 +18,8 @@
 import { db } from "@/lib/db";
 import { replaySessions, projects } from "@/lib/db/schema";
 import { DEFAULT_REPLAY_SETTINGS, type ReplaySettings } from "@/lib/db/schema";
-import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
-import { deleteSession } from "@/lib/storage/replay-storage";
+import { eq, lte, sql } from "drizzle-orm";
+import { deleteSessionByPrefix } from "@/lib/storage/replay-storage";
 import { isExpired, ABSOLUTE_MAX_RETENTION_DAYS } from "./replay-retention-pure";
 
 export { isExpired, ABSOLUTE_MAX_RETENTION_DAYS };
@@ -62,21 +62,20 @@ export async function sweepReplayRetention(opts: {
   const minAgeMs = 24 * 60 * 60 * 1000; // 1 day grace
   const ageCutoff = new Date(now.getTime() - minAgeMs);
 
+  // Sweep both org-scoped and personal-scoped sessions. Personal sessions
+  // (organization_id IS NULL) used to be excluded here, but with the
+  // personal-workspace path live they accumulate forever otherwise. The
+  // stored `r2Prefix` is the correct delete target for both kinds.
   const candidates = await db
     .select({
       id: replaySessions.id,
       sessionId: replaySessions.sessionId,
-      organizationId: replaySessions.organizationId,
+      r2Prefix: replaySessions.r2Prefix,
       projectId: replaySessions.projectId,
       createdAt: replaySessions.createdAt,
     })
     .from(replaySessions)
-    .where(
-      and(
-        lte(replaySessions.createdAt, ageCutoff),
-        isNotNull(replaySessions.organizationId),
-      ),
-    )
+    .where(lte(replaySessions.createdAt, ageCutoff))
     .orderBy(replaySessions.createdAt) // oldest first → predictable progress
     .limit(maxBatch);
 
@@ -116,7 +115,7 @@ export async function sweepReplayRetention(opts: {
     // row in place would re-attempt the same broken delete every day.
     // Orphaned R2 prefixes are caught by a separate orphan sweep (TODO).
     try {
-      await deleteSession(c.organizationId!, c.sessionId);
+      await deleteSessionByPrefix(c.r2Prefix);
     } catch (err) {
       r2Failures++;
       console.warn(
@@ -146,11 +145,6 @@ export async function countPendingRetention(now: Date = new Date()): Promise<num
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(replaySessions)
-    .where(
-      and(
-        lte(replaySessions.createdAt, ageCutoff),
-        isNotNull(replaySessions.organizationId),
-      ),
-    );
+    .where(lte(replaySessions.createdAt, ageCutoff));
   return row?.count ?? 0;
 }

@@ -128,7 +128,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!proj) {
     return jsonCors({ error: "Project not found" }, { status: 404 });
   }
-  if (!isReplayV2Enabled(proj.organizationId)) {
+  // Two-axis flag — personal projects gate on the owner's user id.
+  if (!isReplayV2Enabled({ organizationId: proj.organizationId, userId: proj.userId })) {
     return jsonCors({ error: "Replay V2 not enabled" }, { status: 403 });
   }
 

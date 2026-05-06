@@ -18,6 +18,7 @@ import {
   replayComments,
   organizations,
   organizationMembers,
+  projects,
 } from "@/lib/db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
@@ -30,7 +31,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 interface CommentContext {
   userId: string;
   comment: typeof replayComments.$inferSelect;
-  sessionOrgId: string;
+  /** Null for personal-workspace sessions. */
+  sessionOrgId: string | null;
 }
 
 async function loadAndAuthorize(id: string): Promise<
@@ -46,36 +48,44 @@ async function loadAndAuthorize(id: string): Promise<
     .select({
       comment: replayComments,
       sessionOrgId: replaySessions.organizationId,
+      projectOwnerId: projects.userId,
     })
     .from(replayComments)
     .leftJoin(replaySessions, eq(replaySessions.sessionId, replayComments.sessionId))
+    .leftJoin(projects, eq(projects.id, replaySessions.projectId))
     .where(eq(replayComments.id, id))
     .limit(1);
-  if (!row || !row.comment || !row.sessionOrgId) {
+  if (!row || !row.comment) {
     return { ok: false, resp: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
-  if (!isReplayV2Enabled(row.sessionOrgId)) {
+  if (!isReplayV2Enabled({ organizationId: row.sessionOrgId, userId: row.projectOwnerId })) {
     return { ok: false, resp: NextResponse.json({ error: "Replay V2 not enabled" }, { status: 403 }) };
   }
 
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, row.sessionOrgId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
-  if (!access) return { ok: false, resp: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  if (row.sessionOrgId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, row.sessionOrgId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
+    if (!access) return { ok: false, resp: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  } else {
+    if (row.projectOwnerId !== userId) {
+      return { ok: false, resp: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+    }
+  }
 
   return { ok: true, ctx: { userId, comment: row.comment, sessionOrgId: row.sessionOrgId } };
 }

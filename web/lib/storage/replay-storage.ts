@@ -2,8 +2,15 @@
  * Replay V2 — block-based storage on Cloudflare R2 (S3-compatible).
  *
  * Each replay session is split into 30-second blocks (rrweb + I/O events
- * merged into one stream). Blocks are gzipped and uploaded to:
- *   {workspace_id}/{session_id}/block_{NNNN}.json.gz
+ * merged into one stream). Blocks are gzipped and uploaded under one of:
+ *   {organization_id}/{session_id}/block_{NNNN}.json.gz   (org-scoped)
+ *   users/{user_id}/{session_id}/block_{NNNN}.json.gz     (personal-scoped)
+ *
+ * The literal `users/` prefix can never collide with an org UUID (UUIDs
+ * never start with letters in that pattern), so the two namespaces share
+ * one bucket without ambiguity. The chosen prefix is also stored on the
+ * `replay_sessions.r2_prefix` row at write time, so read paths can
+ * reuse it directly without re-deriving the scope.
  *
  * Reads return either a signed URL (browser fetches directly from R2)
  * or a server-side decompressed payload (for AI processing jobs).
@@ -20,8 +27,17 @@ const BLOCK_DURATION_MS = 30_000;
 const MAX_BLOCK_BYTES_RAW = 1_048_576; // 1 MB before compression
 const MAX_BLOCK_EVENTS = 10_000;
 
+/**
+ * Tenant scope for a replay session. Discriminated union keeps the
+ * call sites explicit — there's no ambiguity over whether a UUID
+ * belongs to an org or a user.
+ */
+export type ReplayScope =
+  | { kind: "org";  organizationId: string }
+  | { kind: "user"; userId: string };
+
 export interface ReplayBlockInput {
-  organizationId: string;
+  scope: ReplayScope;
   sessionId: string;
   blockIndex: number;
   startMs: number;
@@ -64,8 +80,26 @@ export function blockKey(prefix: string, blockIndex: number): string {
   return `${prefix}block_${String(blockIndex).padStart(4, "0")}.json.gz`;
 }
 
-export function sessionPrefix(organizationId: string, sessionId: string): string {
-  return `${organizationId}/${sessionId}/`;
+/**
+ * Build the R2 key prefix for a session.
+ *
+ * Overloads:
+ *   - `sessionPrefix(scope, sessionId)`         — preferred, explicit scope
+ *   - `sessionPrefix(organizationId, sessionId)` — legacy 2-arg form, treated
+ *     as `{ kind: "org", organizationId }`. Kept for backward compatibility
+ *     with existing scripts and DB-stored prefixes from before the
+ *     personal-workspace path shipped.
+ */
+export function sessionPrefix(scope: ReplayScope, sessionId: string): string;
+export function sessionPrefix(organizationId: string, sessionId: string): string;
+export function sessionPrefix(scopeOrOrgId: ReplayScope | string, sessionId: string): string {
+  if (typeof scopeOrOrgId === "string") {
+    return `${scopeOrOrgId}/${sessionId}/`;
+  }
+  if (scopeOrOrgId.kind === "user") {
+    return `users/${scopeOrOrgId.userId}/${sessionId}/`;
+  }
+  return `${scopeOrOrgId.organizationId}/${sessionId}/`;
 }
 
 /**
@@ -82,7 +116,7 @@ export async function uploadBlock(input: ReplayBlockInput): Promise<{ key: strin
   }
 
   const compressed = gzipSync(raw, { level: 6 });
-  const prefix = sessionPrefix(input.organizationId, input.sessionId);
+  const prefix = sessionPrefix(input.scope, input.sessionId);
   const key = blockKey(prefix, input.blockIndex);
 
   await getClient().send(new PutObjectCommand({
@@ -116,15 +150,16 @@ export async function getBlockSignedUrl(key: string, ttlSec: number = 300): Prom
 }
 
 /**
- * Generate signed URLs for every block in a session. Used by the manifest endpoint.
+ * Generate signed URLs for every block in a session. Used by the manifest
+ * endpoint. The caller passes the stored `replay_sessions.r2_prefix`
+ * directly so this function works for any scope (org or personal) without
+ * having to re-derive the prefix.
  */
-export async function getSessionBlockUrls(
-  organizationId: string,
-  sessionId: string,
+export async function getSessionBlockUrlsByPrefix(
+  prefix: string,
   blockCount: number,
   ttlSec: number = 300,
 ): Promise<SignedBlock[]> {
-  const prefix = sessionPrefix(organizationId, sessionId);
   const blocks: SignedBlock[] = [];
   for (let i = 0; i < blockCount; i++) {
     const url = await getBlockSignedUrl(blockKey(prefix, i), ttlSec);
@@ -136,6 +171,20 @@ export async function getSessionBlockUrls(
     });
   }
   return blocks;
+}
+
+/**
+ * Legacy 2-arg form. Kept for tests and any caller that hasn't migrated to
+ * passing the stored `r2_prefix`. New code should call
+ * `getSessionBlockUrlsByPrefix` instead.
+ */
+export async function getSessionBlockUrls(
+  organizationId: string,
+  sessionId: string,
+  blockCount: number,
+  ttlSec: number = 300,
+): Promise<SignedBlock[]> {
+  return getSessionBlockUrlsByPrefix(sessionPrefix(organizationId, sessionId), blockCount, ttlSec);
 }
 
 /**
@@ -155,9 +204,11 @@ export async function fetchBlock(key: string): Promise<unknown[]> {
 /**
  * Delete every block under a session prefix. Used for retention sweeps and
  * GDPR delete requests. Returns the number of objects deleted.
+ *
+ * Takes the stored `replay_sessions.r2_prefix` directly so it works for
+ * any scope (org or personal) without having to re-derive it.
  */
-export async function deleteSession(organizationId: string, sessionId: string): Promise<number> {
-  const prefix = sessionPrefix(organizationId, sessionId);
+export async function deleteSessionByPrefix(prefix: string): Promise<number> {
   const client = getClient();
   const bucket = getBucket();
 
@@ -170,6 +221,15 @@ export async function deleteSession(organizationId: string, sessionId: string): 
     Delete: { Objects: objects.map((o) => ({ Key: o.Key! })) },
   }));
   return objects.length;
+}
+
+/**
+ * Legacy 2-arg form. Kept for callers that still hold (orgId, sessionId)
+ * rather than the stored prefix. New code should call
+ * `deleteSessionByPrefix` instead.
+ */
+export async function deleteSession(organizationId: string, sessionId: string): Promise<number> {
+  return deleteSessionByPrefix(sessionPrefix(organizationId, sessionId));
 }
 
 export const REPLAY_LIMITS = {

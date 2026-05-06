@@ -41,32 +41,40 @@ export async function GET(): Promise<NextResponse> {
   }
 
   const activeOrgId = await getActiveOrgId();
-  if (!activeOrgId || !isReplayV2Enabled(activeOrgId)) {
+  if (!isReplayV2Enabled({ organizationId: activeOrgId, userId })) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Authorize: same gate as /replays page — owner OR member.
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, activeOrgId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
+  // Authorize. Org viewer → owner or member of activeOrgId. Personal
+  // viewer → no extra check; the WHERE clause below scopes by user_id.
+  if (activeOrgId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, activeOrgId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
 
-  if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-  const cacheKey = `replay:filter-options:${activeOrgId}`;
+  // Cache key is per-tenant. Org cache key keeps the org UUID; personal
+  // cache key embeds the user UUID under a `user:` namespace so org and
+  // personal caches never alias even if a UUID happens to match.
+  const cacheKey = activeOrgId
+    ? `replay:filter-options:${activeOrgId}`
+    : `replay:filter-options:user:${userId}`;
   const redis = getRedis();
 
   if (redis) {
@@ -83,22 +91,27 @@ export async function GET(): Promise<NextResponse> {
   }
 
   // Two parallel DISTINCT-unnest queries. Each uses a sequential scan over
-  // the org's sessions but is bounded by `LIMIT MAX_OPTIONS`. No index is
-  // needed because the working set is small per-org; if a single org grows
-  // past ~10k sessions we'll need a materialized view, but that's a future
-  // problem (the read latency is fine through ~5k rows).
+  // the tenant's sessions but is bounded by `LIMIT MAX_OPTIONS`. No index
+  // is needed because the working set is small per-tenant; if a single
+  // tenant grows past ~10k sessions we'll need a materialized view, but
+  // that's a future problem (the read latency is fine through ~5k rows).
+  // The personal branch uses the `replay_sessions_user_personal_idx`
+  // partial index from migration 0087.
+  const tenantWhere = activeOrgId
+    ? sql`organization_id = ${activeOrgId}`
+    : sql`organization_id IS NULL AND user_id = ${userId}`;
   const [fpRows, urlRows] = await Promise.all([
     db.execute<{ fingerprint: string }>(sql`
       SELECT DISTINCT unnest(error_fingerprints) AS fingerprint
       FROM replay_sessions
-      WHERE organization_id = ${activeOrgId}
+      WHERE ${tenantWhere}
       ORDER BY fingerprint
       LIMIT ${MAX_OPTIONS}
     `),
     db.execute<{ url: string }>(sql`
       SELECT DISTINCT unnest(urls_visited) AS url
       FROM replay_sessions
-      WHERE organization_id = ${activeOrgId}
+      WHERE ${tenantWhere}
       ORDER BY url
       LIMIT ${MAX_OPTIONS}
     `),

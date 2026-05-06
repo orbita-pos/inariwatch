@@ -20,6 +20,7 @@ import {
   replayComments,
   organizations,
   organizationMembers,
+  projects,
   users,
 } from "@/lib/db/schema";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
@@ -35,7 +36,9 @@ const MAX_TIMESTAMP_MS = 24 * 60 * 60 * 1000; // 24h cap on session length
 
 interface AuthorizedContext {
   userId: string;
-  organizationId: string;
+  /** Null for personal-workspace sessions. Mention pipeline is skipped
+   *  in that case because there are no other org members to mention. */
+  organizationId: string | null;
 }
 
 /**
@@ -56,33 +59,48 @@ async function authorize(sessionId: string): Promise<
   }
 
   const [row] = await db
-    .select({ id: replaySessions.id, sessionId: replaySessions.sessionId, organizationId: replaySessions.organizationId })
+    .select({
+      id: replaySessions.id,
+      sessionId: replaySessions.sessionId,
+      organizationId: replaySessions.organizationId,
+      projectOwnerId: projects.userId,
+    })
     .from(replaySessions)
+    .leftJoin(projects, eq(projects.id, replaySessions.projectId))
     .where(eq(replaySessions.sessionId, sessionId))
     .limit(1);
-  if (!row || !row.organizationId) return { ok: false, resp: NextResponse.json({ error: "Not found" }, { status: 404 }) };
-  if (!isReplayV2Enabled(row.organizationId)) {
+  if (!row) return { ok: false, resp: NextResponse.json({ error: "Not found" }, { status: 404 }) };
+  if (!isReplayV2Enabled({ organizationId: row.organizationId, userId: row.projectOwnerId })) {
     return { ok: false, resp: NextResponse.json({ error: "Replay V2 not enabled" }, { status: 403 }) };
   }
 
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, row.organizationId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
-  if (!access) return { ok: false, resp: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  // Org branch: owner or member. Personal branch: viewer must be the
+  // project owner. Trust `projects.user_id` (NOT NULL) over the
+  // denormalized `replay_sessions.user_id`.
+  if (row.organizationId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, row.organizationId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
+    if (!access) return { ok: false, resp: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  } else {
+    if (row.projectOwnerId !== userId) {
+      return { ok: false, resp: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+    }
+  }
 
   return {
     ok: true,
@@ -159,12 +177,15 @@ export async function POST(
     parentId = parent.id;
   }
 
-  // Resolve @mentions to user ids in the same org. We never expose existence
-  // of users outside the org — unmatched emails are silently dropped.
+  // Resolve @mentions to user ids in the same org. Personal-workspace
+  // sessions have a single viewer (the project owner), so there's no one
+  // to mention — skip the lookup entirely. We never expose existence of
+  // users outside the org — unmatched emails are silently dropped.
   const mentionEmails = extractMentionEmails(text);
+  const orgIdForMentions = auth.ctx.organizationId;
   let mentionedUserIds: string[] = [];
   let mentionedUserDetails: { id: string; email: string }[] = [];
-  if (mentionEmails.length > 0) {
+  if (orgIdForMentions && mentionEmails.length > 0) {
     const candidates = await db
       .select({ id: users.id, email: users.email, role: organizationMembers.role })
       .from(users)
@@ -172,7 +193,7 @@ export async function POST(
         organizationMembers,
         and(
           eq(organizationMembers.userId, users.id),
-          eq(organizationMembers.organizationId, auth.ctx.organizationId),
+          eq(organizationMembers.organizationId, orgIdForMentions),
         ),
       )
       .leftJoin(organizations, eq(organizations.ownerId, users.id))
@@ -180,7 +201,7 @@ export async function POST(
         and(
           inArray(users.email, mentionEmails),
           // user must be either an org member OR the org owner
-          or(eq(organizationMembers.organizationId, auth.ctx.organizationId), eq(organizations.id, auth.ctx.organizationId)),
+          or(eq(organizationMembers.organizationId, orgIdForMentions), eq(organizations.id, orgIdForMentions)),
         ),
       );
     const seen = new Set<string>();

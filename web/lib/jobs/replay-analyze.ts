@@ -19,7 +19,7 @@
 import { db } from "@/lib/db";
 import { replaySessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { fetchBlock, blockKey, sessionPrefix } from "@/lib/storage/replay-storage";
+import { fetchBlock, blockKey } from "@/lib/storage/replay-storage";
 import { callAI } from "@/lib/ai/client";
 import { getProjectOwnerAIKey, PLATFORM_MODEL } from "@/lib/ai/get-key";
 import { detectCausalChains, type CausalChain } from "./replay-causal-chain";
@@ -68,13 +68,16 @@ export async function analyzeReplay(
     return { sessionId, skipped: "already-analyzed" };
   }
 
-  if (!session.organizationId || session.blockCount === 0) {
+  if (session.blockCount === 0) {
     return { sessionId, skipped: "no-events" };
   }
 
   // Load every block serially — blocks are usually <50KB gzipped so this is
-  // a few hundred KB of RAM tops for a 5-minute session.
-  const prefix = sessionPrefix(session.organizationId, session.sessionId);
+  // a few hundred KB of RAM tops for a 5-minute session. Use the stored
+  // r2Prefix so this works for both org-scoped sessions
+  // ({orgId}/{sessionId}/) and personal-scoped sessions
+  // (users/{userId}/{sessionId}/) without re-deriving the scope.
+  const prefix = session.r2Prefix;
   const events: unknown[] = [];
   for (let i = 0; i < session.blockCount; i++) {
     const key = blockKey(prefix, i);

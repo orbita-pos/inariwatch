@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { replaySessions, organizations, organizationMembers, projects } from "@/lib/db/schema";
-import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { getActiveOrgId } from "@/lib/workspace";
 import { isReplayV2Enabled } from "@/lib/feature-flags";
 import { notFound, redirect } from "next/navigation";
@@ -27,39 +27,50 @@ export default async function ReplaysPage({
   if (!userId) redirect("/login");
 
   const activeOrgId = await getActiveOrgId();
-  if (!activeOrgId || !isReplayV2Enabled(activeOrgId)) {
-    // V2 is workspace-scoped — personal workspaces and non-enrolled orgs
-    // don't see the page at all. The nav link is hidden in the same
-    // conditions.
+
+  // Two-axis flag — `activeOrgId` may be null in personal mode, in which
+  // case access is granted by the user-axis allowlist (REPLAY_V2_USERS).
+  if (!isReplayV2Enabled({ organizationId: activeOrgId, userId })) {
     return notFound();
   }
 
-  // Authorize: user must be org owner or member
-  const [access] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .leftJoin(
-      organizationMembers,
-      and(
-        eq(organizationMembers.organizationId, organizations.id),
-        eq(organizationMembers.userId, userId),
-      ),
-    )
-    .where(
-      and(
-        eq(organizations.id, activeOrgId),
-        or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
-      ),
-    )
-    .limit(1);
+  // Authorize. Two branches:
+  //   - Org workspace: user must be owner or member of `activeOrgId`.
+  //   - Personal workspace (`activeOrgId === null`): nothing extra to
+  //     check — the WHERE clause below scopes by `user_id = viewer`, so
+  //     a viewer can only ever see their own sessions.
+  if (activeOrgId) {
+    const [access] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .leftJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(organizations.id, activeOrgId),
+          or(eq(organizations.ownerId, userId), eq(organizationMembers.userId, userId)),
+        ),
+      )
+      .limit(1);
 
-  if (!access) return notFound();
+    if (!access) return notFound();
+  }
 
   const rawParams = await searchParams;
   const filters = parseReplayFilters(rawParams);
 
-  // Build WHERE clause
-  const conditions: SQL[] = [eq(replaySessions.organizationId, activeOrgId)];
+  // Build WHERE clause. Personal mode uses the partial index on
+  // (user_id, started_at) WHERE organization_id IS NULL — see
+  // migration 0087.
+  const tenancyConditions: SQL[] = activeOrgId
+    ? [eq(replaySessions.organizationId, activeOrgId)]
+    : [isNull(replaySessions.organizationId), eq(replaySessions.userId, userId)];
+  const conditions: SQL[] = [...tenancyConditions];
 
   // Absolute date range wins over the rolling `since` window. If the user
   // sets dateFrom/dateTo via the calendar inputs, we ignore `since`.
@@ -181,7 +192,7 @@ export default async function ReplaysPage({
 
     db.select({ browser: replaySessions.browser })
       .from(replaySessions)
-      .where(and(eq(replaySessions.organizationId, activeOrgId), sql`${replaySessions.browser} IS NOT NULL`))
+      .where(and(...tenancyConditions, sql`${replaySessions.browser} IS NOT NULL`))
       .groupBy(replaySessions.browser)
       .limit(20),
   ]);
