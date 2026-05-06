@@ -52,7 +52,6 @@ export async function createProjectForOnboarding(
       .returning({ id: projects.id });
 
     revalidatePath("/projects");
-    revalidatePath("/integrations");
 
     return { projectId: inserted.id };
   } catch (err: any) {

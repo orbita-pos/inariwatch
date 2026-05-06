@@ -288,10 +288,10 @@ export default async function DashboardPage() {
             <GettingStartedStep
               done={false}
               step={2}
-              title="Connect an integration"
-              description="Install @inariwatch/capture in your app and connect GitHub. That's the whole setup."
-              href="/integrations"
-              cta="Connect now"
+              title="Install Capture"
+              description="Open a project to copy the DSN, then paste INARIWATCH_DSN into your hosting provider."
+              href="/projects"
+              cta="Open project"
               highlight={true}
             />
             <GettingStartedStep
@@ -344,14 +344,14 @@ export default async function DashboardPage() {
           <span className="text-3xl text-fg-base/20" aria-hidden="true">◉</span>
           <p className="text-sm font-medium text-fg-base/60">No projects yet</p>
           <p className="text-sm text-fg-base/50">
-            Go to{" "}
+            Import a repository from{" "}
             <Link
-              href="/integrations"
+              href="/onboarding"
               className="text-fg-base/60 underline underline-offset-2 transition-colors hover:text-fg-strong"
             >
-              Integrations
+              GitHub
             </Link>{" "}
-            to create your first project.
+            to start monitoring.
           </p>
         </div>
       )}

@@ -8,7 +8,10 @@ const PROTECTED_PATHS = [
   "/projects",
   "/alerts",
   "/chat",
-  "/integrations",
+  // The /integrations dashboard page was removed 2026-05-06 — Capture moved
+  // to /projects/<slug>. The /integrations/github-app/installed callback
+  // self-protects via getServerSession + redirect("/login?from=…"), so it
+  // doesn't need the middleware gate.
   "/settings",
   "/admin",
   "/recordings",

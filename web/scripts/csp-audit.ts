@@ -44,15 +44,14 @@ const ANON_PAGES: Array<{ url: string; label: string }> = [
 ];
 
 const AUTH_PAGES: Array<{ url: string; label: string }> = [
-  { url: `${BASE}/dashboard`,    label: "dashboard" },
-  { url: `${BASE}/alerts`,       label: "alerts" },
-  { url: `${BASE}/projects`,     label: "projects" },
-  { url: `${BASE}/integrations`, label: "integrations" },
-  { url: `${BASE}/settings`,     label: "settings" },
-  { url: `${BASE}/chat`,         label: "chat" },
-  { url: `${BASE}/sessions`,     label: "sessions" },
-  { url: `${BASE}/on-call`,      label: "on-call" },
-  { url: `${BASE}/analytics`,    label: "analytics" },
+  { url: `${BASE}/dashboard`, label: "dashboard" },
+  { url: `${BASE}/alerts`,    label: "alerts" },
+  { url: `${BASE}/projects`,  label: "projects" },
+  { url: `${BASE}/settings`,  label: "settings" },
+  { url: `${BASE}/chat`,      label: "chat" },
+  { url: `${BASE}/sessions`,  label: "sessions" },
+  { url: `${BASE}/on-call`,   label: "on-call" },
+  { url: `${BASE}/analytics`, label: "analytics" },
 ];
 
 interface Violation {

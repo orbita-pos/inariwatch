@@ -64,7 +64,6 @@ export async function createProject(
     await db.insert(projects).values({ userId, name, slug, description, organizationId });
 
     revalidatePath("/projects");
-    revalidatePath("/integrations");
     revalidatePath("/dashboard");
     return {};
   } catch (err: any) {

@@ -30,6 +30,7 @@ import { UptimeSection } from "./uptime";
 import { OnCallSection } from "./on-call";
 import { AutoMergeSection } from "./auto-merge";
 import { ConnectedRepoSection } from "./connected-repo";
+import { ConnectedCaptureSection } from "./connected-capture";
 import { StagingEnvSection } from "./staging-env";
 import { AllowedOriginsSection } from "./allowed-origins";
 import { ReplaySettingsSection } from "./replay-settings";
@@ -424,6 +425,11 @@ export default async function ProjectDetailPage({
         projectId={project.id}
         isAdmin={isAdmin}
         defaultRepo={project.defaultRepo ?? null}
+      />
+
+      <ConnectedCaptureSection
+        projectId={project.id}
+        isAdmin={isAdmin}
       />
 
       <StagingEnvSection

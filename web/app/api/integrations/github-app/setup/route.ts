@@ -64,11 +64,11 @@ export async function GET(req: Request) {
   const stateProjectId    = url.searchParams.get("state");
 
   if (!installationIdRaw) {
-    return NextResponse.redirect(new URL("/integrations?error=missing_installation", APP_BASE));
+    return NextResponse.redirect(new URL("/import?error=missing_installation", APP_BASE));
   }
   const installationId = Number(installationIdRaw);
   if (!Number.isFinite(installationId)) {
-    return NextResponse.redirect(new URL("/integrations?error=bad_installation", APP_BASE));
+    return NextResponse.redirect(new URL("/import?error=bad_installation", APP_BASE));
   }
 
   const session = await getServerSession(authOptions);
@@ -93,7 +93,7 @@ export async function GET(req: Request) {
     token = await getInstallationToken(installationId);
   } catch (err) {
     console.error("[github-app] setup failed:", err);
-    return NextResponse.redirect(new URL("/integrations?error=github_app_init", APP_BASE));
+    return NextResponse.redirect(new URL("/import?error=github_app_init", APP_BASE));
   }
 
   // Personal-first install ownership — matches the OAuth path in
@@ -228,7 +228,10 @@ export async function GET(req: Request) {
       console.warn("[github-app] auto-PR generation failed:", err instanceof Error ? err.message : err);
     }
 
-    const back = new URL("/integrations", APP_BASE);
+    // Legacy redirect target was /integrations; that page was removed
+    // 2026-05-06 (catalog cut). Send users to /projects where the
+    // per-project Connected repository + Capture panels live.
+    const back = new URL("/projects", APP_BASE);
     back.searchParams.set("github", "installed");
     if (firstPrUrl) back.searchParams.set("pr", firstPrUrl);
     return NextResponse.redirect(back);

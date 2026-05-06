@@ -4,24 +4,23 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  Search, LayoutDashboard, Bell, BarChart3, Plug,
+  Search, LayoutDashboard, Bell, BarChart3,
   Settings, FolderOpen, MessageSquare, FolderKanban, AlertCircle, X, Loader2,
   Phone, Users, Video, Building2,
 } from "lucide-react";
 import { searchDashboard, type SearchResult } from "./search-actions";
 
 const NAV_SHORTCUTS = [
-  { label: "Overview",     href: "/dashboard",    icon: LayoutDashboard },
-  { label: "Alerts",       href: "/alerts",       icon: Bell },
-  { label: "Projects",     href: "/projects",     icon: FolderOpen },
-  { label: "Analytics",    href: "/analytics",    icon: BarChart3 },
-  { label: "On-Call",      href: "/on-call",      icon: Phone },
-  { label: "Community",    href: "/community",    icon: Users },
-  { label: "Recordings",   href: "/recordings",   icon: Video },
-  { label: "Integrations", href: "/integrations", icon: Plug },
-  { label: "Ask Inari",    href: "/chat",         icon: MessageSquare },
-  { label: "Workspace",    href: "/workspace",    icon: Building2 },
-  { label: "Settings",     href: "/settings",     icon: Settings },
+  { label: "Overview",   href: "/dashboard",  icon: LayoutDashboard },
+  { label: "Alerts",     href: "/alerts",     icon: Bell },
+  { label: "Projects",   href: "/projects",   icon: FolderOpen },
+  { label: "Analytics",  href: "/analytics",  icon: BarChart3 },
+  { label: "On-Call",    href: "/on-call",    icon: Phone },
+  { label: "Community",  href: "/community",  icon: Users },
+  { label: "Recordings", href: "/recordings", icon: Video },
+  { label: "Ask Inari",  href: "/chat",       icon: MessageSquare },
+  { label: "Workspace",  href: "/workspace",  icon: Building2 },
+  { label: "Settings",   href: "/settings",   icon: Settings },
 ];
 
 interface SearchDialogProps {

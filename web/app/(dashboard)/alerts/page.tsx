@@ -136,10 +136,10 @@ export default async function AlertsPage({
               "InariWatch is watching your integrations."
             ) : (
               <>
-                <Link href="/integrations" className="text-inari-accent underline underline-offset-2 transition-colors hover:text-inari-accent/80">
-                  Connect an integration
+                <Link href="/projects" className="text-inari-accent underline underline-offset-2 transition-colors hover:text-inari-accent/80">
+                  Open a project
                 </Link>{" "}
-                to start receiving alerts.
+                to install Capture and start receiving alerts.
               </>
             )}
           </p>

@@ -1940,8 +1940,8 @@ sudo systemctl stop inariwatch-agent         # pause monitoring`}</CodeBlock>
               head={["Symptom", "Cause", "What to do"]}
               rows={[
                 ["Panel never appears on a merged fix", "Your workspace is not yet on the alpha allowlist", <>Email{" "}<a href="mailto:hello@inariwatch.com?subject=Preview Fix early access" className="underline">hello@inariwatch.com</a>{" "}with your workspace slug.</>],
-                ["Live build failed — “No GitHub integration for project”", "The project has no active GitHub integration (disconnected or never connected)", "Connect GitHub from /integrations on the project."],
-                ["Live build failed — “GitHub token was rejected”", "The PAT expired or was revoked on GitHub", "Rotate the PAT on GitHub, then reconnect from /integrations. The health banner on /integrations flags this automatically."],
+                ["Live build failed — “No GitHub integration for project”", "The project has no active GitHub integration (disconnected or never connected)", "Open the project in /projects and reconnect the repo from the Connected repository panel."],
+                ["Live build failed — “GitHub token was rejected”", "The PAT expired or was revoked on GitHub", "Rotate the PAT on GitHub, then reconnect from the project's Connected repository panel."],
                 ["Live build failed — app crashes at boot", "Your app needs env vars for SSR that aren't in Project Settings → Staging environment variables", "Add the missing env vars. Use a preview DATABASE_URL (throwaway Neon branch) and test-mode keys for Stripe / auth / etc."],
                 ["Tier 3 (AI prediction) shows “n/a”", "The alert has no Substrate recording, so there's no DOM snapshot to predict from", "Server errors, background jobs, and alerts ingested from external sources without UI events don't have rrweb data. Tier 1 (live sandbox) still runs."],
                 ["Public /preview/<slug> returns 410 Gone", "The preview was revoked by the workspace owner", "The live preview is no longer public. The fix itself is still merged in production."],
