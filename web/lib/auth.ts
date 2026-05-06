@@ -195,7 +195,13 @@ export const authOptions: NextAuthOptions = {
         // Conflict — refuse. Redirect string short-circuits NextAuth
         // before the jwt callback runs, so the existing session cookie
         // is preserved untouched.
-        return "/login?error=OAuthAccountConflict";
+        //
+        // Land on /import (the "connect GitHub" surface) so the still-
+        // logged-in user sees the error in context. Don't use /login —
+        // middleware bounces logged-in users from /login → /dashboard,
+        // and /dashboard redirects fresh users to /import anyway,
+        // dropping the ?error= along the way.
+        return "/import?error=OAuthAccountConflict";
       }
 
       return true;
