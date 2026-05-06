@@ -6,20 +6,18 @@ import { useEffect, useState } from "react";
 import { Search, ChevronRight } from "lucide-react";
 import { SearchDialog } from "./search-dialog";
 import { NotificationsBell } from "./notifications-dropdown";
-import { ImportFromGitHubButton } from "./import-from-github-button";
 
 // ── Breadcrumb ────────────────────────────────────────────────────────────────
 
 const LABELS: Record<string, string> = {
-  dashboard:    "Overview",
-  alerts:       "Alerts",
-  "on-call":    "On-Call",
-  projects:     "Projects",
-  integrations: "Integrations",
-  analytics:    "Analytics",
-  settings:     "Settings",
-  chat:         "Ask Inari",
-  onboarding:   "Get Started",
+  dashboard:  "Overview",
+  alerts:     "Alerts",
+  "on-call":  "On-Call",
+  projects:   "Projects",
+  analytics:  "Analytics",
+  settings:   "Settings",
+  chat:       "Ask Inari",
+  onboarding: "Get Started",
 };
 
 function isUUID(s: string) {
@@ -61,33 +59,19 @@ function Breadcrumb() {
   );
 }
 
-// ── New button — contextual ───────────────────────────────────────────────────
-
-function NewButton({ hasGitHubInstall }: { hasGitHubInstall: boolean }) {
-  const pathname = usePathname();
-
-  // "Import from GitHub" only makes sense after the App is connected — until
-  // then there's no install to import repos from. The dashboard banner
-  // (dashboard/page.tsx) handles the connect CTA so users never land on a
-  // page without a path forward.
-  if (!hasGitHubInstall) return null;
-
-  // Manual project creation was retired — projects are 1:1 with imported
-  // GitHub repos. Every "+ New" surface routes through signIn("github"),
-  // which mints the OAuth state cookie, completes install + OAuth in one
-  // consent (App setting), and lands on /import.
-  const label = pathname.startsWith("/integrations") ? "Connect" : "Import from GitHub";
-  return <ImportFromGitHubButton label={label} />;
-}
-
 // ── Header ────────────────────────────────────────────────────────────────────
+//
+// "Import from GitHub" used to live here as a global header action, but it
+// duplicated the per-page button on /projects and showed up on surfaces
+// (alerts, on-call, settings...) where importing a repo makes no sense.
+// /projects renders its own ImportFromGitHubButton — header stays focused
+// on search + bell.
 
 interface DashboardHeaderProps {
   unreadAlerts: number;
-  hasGitHubInstall: boolean;
 }
 
-export function DashboardHeader({ unreadAlerts, hasGitHubInstall }: DashboardHeaderProps) {
+export function DashboardHeader({ unreadAlerts }: DashboardHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
 
   // ⌘K / Ctrl+K shortcut
@@ -125,9 +109,6 @@ export function DashboardHeader({ unreadAlerts, hasGitHubInstall }: DashboardHea
 
           {/* Bell */}
           <NotificationsBell unreadCount={unreadAlerts} />
-
-          {/* New button */}
-          <NewButton hasGitHubInstall={hasGitHubInstall} />
         </div>
       </header>
     </>
