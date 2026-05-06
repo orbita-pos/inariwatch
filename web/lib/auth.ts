@@ -3,6 +3,8 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import GoogleProvider from "next-auth/providers/google";
 import GitLabProvider from "next-auth/providers/gitlab";
+import { decode as decodeJwt } from "next-auth/jwt";
+import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import * as OTPAuth from "otpauth";
 import { db, users, accounts } from "@/lib/db";
@@ -134,6 +136,71 @@ export const authOptions: NextAuthOptions = {
   ],
 
   callbacks: {
+    // Conflict gate — runs BEFORE jwt. Refuses an OAuth sign-in when a
+    // user is already logged in AND the (provider, providerAccountId)
+    // they're trying to connect is mapped to a DIFFERENT InariWatch user.
+    //
+    // Why this exists: NextAuth v4 with the jwt strategy does NOT pass
+    // the existing session JWT into the jwt callback during an OAuth
+    // round-trip — it builds a fresh token from the provider response.
+    // That means the jwt callback's "account-link mode" (branch 1, see
+    // below) never sees `token.id`, falls into branch 2 (provider lookup
+    // in the accounts table), finds the GitHub identity already pointing
+    // at user X, assigns `token.id = X` — and the currently-logged-in
+    // user is silently swapped to X. Vercel/Linear/Stripe all reject
+    // this case with an error rather than swap; we follow that pattern.
+    //
+    // We read the existing session cookie manually (NextAuth doesn't
+    // expose the request here, but Next's cookies() does). If decode
+    // fails, no cookie, or no token.id, we treat it as a fresh sign-in
+    // and let it through — only the "logged-in user already + identity
+    // belongs to someone else" combination is rejected.
+    async signIn({ account }) {
+      if (!account || account.type !== "oauth") return true;
+      const providerAccountId = String(account.providerAccountId ?? "");
+      if (!providerAccountId) return true;
+
+      const cookieStore = await cookies();
+      const sessionToken =
+        cookieStore.get("__Secure-next-auth.session-token")?.value
+        ?? cookieStore.get("next-auth.session-token")?.value;
+      if (!sessionToken) return true;
+
+      const secret = process.env.NEXTAUTH_SECRET;
+      if (!secret) return true;
+
+      let currentUserId: string | undefined;
+      try {
+        const decoded = await decodeJwt({ token: sessionToken, secret });
+        currentUserId = (decoded as { id?: string } | null)?.id;
+      } catch {
+        // Token expired / signature mismatch / decoder error — treat as
+        // no session, let normal flow proceed.
+        return true;
+      }
+      if (!currentUserId) return true;
+
+      const [existing] = await db
+        .select({ userId: accounts.userId })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.provider, account.provider),
+            eq(accounts.providerAccountId, providerAccountId),
+          ),
+        )
+        .limit(1);
+
+      if (existing && existing.userId !== currentUserId) {
+        // Conflict — refuse. Redirect string short-circuits NextAuth
+        // before the jwt callback runs, so the existing session cookie
+        // is preserved untouched.
+        return "/login?error=OAuthAccountConflict";
+      }
+
+      return true;
+    },
+
     // Called on every sign-in (OAuth or credentials).
     // For OAuth: upsert the user in our DB so we have a real UUID.
     async jwt({ token, account, profile }) {
