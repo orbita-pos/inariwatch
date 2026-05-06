@@ -63,25 +63,31 @@ function Breadcrumb() {
 
 // ── New button — contextual ───────────────────────────────────────────────────
 
-function NewButton({ slug }: { slug?: string }) {
+function NewButton({ hasGitHubInstall }: { hasGitHubInstall: boolean }) {
   const pathname = usePathname();
 
+  // "Import from GitHub" only makes sense after the App is connected — until
+  // then there's no install to import repos from. The dashboard banner
+  // (dashboard/page.tsx) handles the connect CTA so users never land on a
+  // page without a path forward.
+  if (!hasGitHubInstall) return null;
+
   // Manual project creation was retired — projects are 1:1 with imported
-  // GitHub repos. Every "+ New" surface routes through the GitHub App
-  // install URL; the setup callback persists the install row and sends
-  // the user to /import to pick which repos become projects.
+  // GitHub repos. Every "+ New" surface routes through signIn("github"),
+  // which mints the OAuth state cookie, completes install + OAuth in one
+  // consent (App setting), and lands on /import.
   const label = pathname.startsWith("/integrations") ? "Connect" : "Import from GitHub";
-  return <ImportFromGitHubButton slug={slug} label={label} />;
+  return <ImportFromGitHubButton label={label} />;
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
 interface DashboardHeaderProps {
   unreadAlerts: number;
-  githubAppSlug?: string;
+  hasGitHubInstall: boolean;
 }
 
-export function DashboardHeader({ unreadAlerts, githubAppSlug }: DashboardHeaderProps) {
+export function DashboardHeader({ unreadAlerts, hasGitHubInstall }: DashboardHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
 
   // ⌘K / Ctrl+K shortcut
@@ -121,7 +127,7 @@ export function DashboardHeader({ unreadAlerts, githubAppSlug }: DashboardHeader
           <NotificationsBell unreadCount={unreadAlerts} />
 
           {/* New button */}
-          <NewButton slug={githubAppSlug || undefined} />
+          <NewButton hasGitHubInstall={hasGitHubInstall} />
         </div>
       </header>
     </>

@@ -1,8 +1,9 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, notificationChannels, githubAppInstallations, getWorkspaceProjectIds, getUserOrganizations } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, notificationChannels, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { eq, desc, inArray, sql, and, isNull, or } from "drizzle-orm";
+import { userHasGitHubInstall } from "@/lib/services/github-install.service";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { ArrowUpRight, Github } from "lucide-react";
 import Link from "next/link";
@@ -56,35 +57,9 @@ export default async function DashboardPage() {
   const hasNotifications = notifRows.length > 0;
 
   // GitHub install detection for the "Connect your GitHub" banner.
-  // Mirrors /import's lookup so the two views can't disagree: any live
-  // install the user installed personally, OR any install scoped to a
-  // workspace the user belongs to, counts as connected. The previous
-  // build keyed off `activeOrgId` exclusively, which broke after the
-  // personal-first migration (76e22d41) made every new install land
-  // with organization_id=null — users with a stale activeOrgId saw the
-  // banner forever even though /import already listed their repos.
-  let hasGitHubInstall = false;
-  if (userId) {
-    const userOrgs = await getUserOrganizations(userId);
-    const orgIds   = userOrgs.map((o) => o.id);
-
-    const [installRow] = await db
-      .select({ id: githubAppInstallations.id })
-      .from(githubAppInstallations)
-      .where(
-        and(
-          isNull(githubAppInstallations.uninstalledAt),
-          orgIds.length > 0
-            ? or(
-                eq(githubAppInstallations.installedBy, userId),
-                inArray(githubAppInstallations.organizationId, orgIds),
-              )
-            : eq(githubAppInstallations.installedBy, userId),
-        ),
-      )
-      .limit(1);
-    hasGitHubInstall = !!installRow;
-  }
+  // Same query /import + the dashboard header use, factored into a
+  // shared service so the three surfaces can never disagree.
+  const hasGitHubInstall = userId ? await userHasGitHubInstall(userId) : false;
   const unreadCount     = recentAlerts.filter((a) => !a.isRead).length;
   const criticalCount   = recentAlerts.filter((a) => a.severity === "critical").length;
   const openCount       = recentAlerts.filter((a) => !a.isResolved).length;
