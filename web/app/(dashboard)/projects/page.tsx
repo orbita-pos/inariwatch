@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { db, projects, projectIntegrations, alerts } from "@/lib/db";
 import { eq, desc, inArray, isNull, and } from "drizzle-orm";
 import { getActiveOrgId } from "@/lib/workspace";
+import { userHasGitHubInstall } from "@/lib/services/github-install.service";
 import { formatRelativeTime } from "@/lib/utils";
 import { Github, Zap, AlertTriangle, GitBranch, Bell, ExternalLink, Users } from "lucide-react";
 import { DeleteProjectButton } from "./delete-project-button";
@@ -24,6 +25,7 @@ export default async function ProjectsPage() {
   const userId  = (session?.user as { id?: string })?.id;
 
   const activeOrgId = await getActiveOrgId();
+  const hasGitHubInstall = userId ? await userHasGitHubInstall(userId) : false;
 
   const userProjects = userId
     ? activeOrgId
@@ -80,7 +82,7 @@ export default async function ProjectsPage() {
             {userProjects.length} project{userProjects.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <ImportFromGitHubButton />
+        {hasGitHubInstall && <ImportFromGitHubButton />}
       </div>
 
       {/* ── Empty ──────────────────────────────────────────────────────── */}
@@ -92,10 +94,12 @@ export default async function ProjectsPage() {
           <div>
             <p className="text-sm font-medium text-fg-strong">No projects yet</p>
             <p className="mt-1 text-sm text-fg-base">
-              Import a repository from GitHub to start monitoring.
+              {hasGitHubInstall
+                ? "Import a repository from GitHub to start monitoring."
+                : "Connect GitHub from the dashboard to start monitoring repositories."}
             </p>
           </div>
-          <ImportFromGitHubButton className="mt-1" />
+          {hasGitHubInstall && <ImportFromGitHubButton className="mt-1" />}
         </div>
       )}
 

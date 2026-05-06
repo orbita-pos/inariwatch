@@ -5,29 +5,26 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**
- * The unified "Import from GitHub" CTA used everywhere a project gets
- * created. Routes through NextAuth's GitHub provider (now wired to the
- * App's user-OAuth credentials), which:
+ * Unified "Import from GitHub" CTA used everywhere a project gets created
+ * (dashboard header, /projects, /integrations).
  *
- *   - First-time users → combined consent screen (App install + OAuth).
- *   - Already-installed users → OAuth consent only, install carries
- *     forward; jwt callback's linkGitHubInstallationsForUser bulk-imports
- *     repos as projects.
- *
- * Why a client component instead of a plain <Link>: NextAuth's
- * /api/auth/signin/[provider] requires a CSRF-protected POST to start
- * the OAuth handshake. A GET on that URL renders the sign-in page
- * (which then POSTs internally) — bouncing the user through a useless
- * extra screen. signIn() from next-auth/react does the POST directly.
+ * Always routes through `signIn("github")` instead of jumping straight to
+ * the App's install URL — the install URL bypasses NextAuth, so the OAuth
+ * state cookie is never minted, and a callback that lands while the user
+ * is signed-in to a different GitHub account ends up in the jwt callback's
+ * fresh-sign-in branch (email lookup → silent account swap). With
+ * `signIn()` the existing session cookie travels through the OAuth round
+ * trip, the jwt callback's "account-link" branch fires, identity is
+ * preserved, and the App install completes inside the same OAuth handshake
+ * (the App has "Request user authorization (OAuth) during installation"
+ * enabled, so a single consent screen does both).
  */
 export function ImportFromGitHubButton({
-  variant = "primary",
   size = "sm",
   className = "",
   label = "Import from GitHub",
   fullWidth = false,
 }: {
-  variant?: "primary" | "outline";
   size?: "sm" | "md" | "lg";
   className?: string;
   label?: string;
@@ -35,7 +32,7 @@ export function ImportFromGitHubButton({
 }) {
   return (
     <Button
-      variant={variant}
+      variant="primary"
       size={size}
       className={`gap-1.5 ${fullWidth ? "w-full" : ""} ${className}`}
       onClick={() => {

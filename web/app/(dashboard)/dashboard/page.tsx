@@ -1,8 +1,9 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db, alerts, projects, projectIntegrations, notificationChannels, githubAppInstallations, getWorkspaceProjectIds } from "@/lib/db";
+import { db, alerts, projects, projectIntegrations, notificationChannels, getWorkspaceProjectIds } from "@/lib/db";
 import { getActiveOrgId } from "@/lib/workspace";
-import { eq, desc, inArray, sql, and, isNull } from "drizzle-orm";
+import { userHasGitHubInstall } from "@/lib/services/github-install.service";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 import { formatRelativeTime } from "@/lib/utils";
 import { ArrowUpRight, Github } from "lucide-react";
 import Link from "next/link";
@@ -56,27 +57,9 @@ export default async function DashboardPage() {
   const hasNotifications = notifRows.length > 0;
 
   // GitHub install detection for the "Connect your GitHub" banner.
-  // Looks for any active install owned by the current user (personal-mode
-  // installer) or under the user's active workspace. Email-signup users
-  // who haven't connected yet see the banner; anyone with at least one
-  // live install does not.
-  const activeOrgIdForInstall = await getActiveOrgId(userId);
-  let hasGitHubInstall = false;
-  if (userId) {
-    const [installRow] = await db
-      .select({ id: githubAppInstallations.id })
-      .from(githubAppInstallations)
-      .where(
-        and(
-          activeOrgIdForInstall
-            ? eq(githubAppInstallations.organizationId, activeOrgIdForInstall)
-            : and(eq(githubAppInstallations.installedBy, userId), isNull(githubAppInstallations.organizationId)),
-          isNull(githubAppInstallations.uninstalledAt),
-        ),
-      )
-      .limit(1);
-    hasGitHubInstall = !!installRow;
-  }
+  // Same query /import + the dashboard header use, factored into a
+  // shared service so the three surfaces can never disagree.
+  const hasGitHubInstall = userId ? await userHasGitHubInstall(userId) : false;
   const unreadCount     = recentAlerts.filter((a) => !a.isRead).length;
   const criticalCount   = recentAlerts.filter((a) => a.severity === "critical").length;
   const openCount       = recentAlerts.filter((a) => !a.isResolved).length;

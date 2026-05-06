@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { db, projects, projectIntegrations } from "@/lib/db";
 import { eq, inArray, isNull, and } from "drizzle-orm";
 import { getActiveOrgId } from "@/lib/workspace";
+import { userHasGitHubInstall } from "@/lib/services/github-install.service";
 import { formatRelativeTime } from "@/lib/utils";
 import {
   CheckCircle2, XCircle, Clock,
@@ -168,6 +169,7 @@ export default async function IntegrationsPage() {
   const userId  = (session?.user as { id?: string })?.id;
 
   const activeOrgId = await getActiveOrgId();
+  const hasGitHubInstall = userId ? await userHasGitHubInstall(userId) : false;
 
   // App-OAuth migration: when the App is provisioned (slug + private key in
   // env), the GitHub card switches to a one-click install instead of a PAT
@@ -207,7 +209,7 @@ export default async function IntegrationsPage() {
             each project — open a project to manage it.
           </p>
         </div>
-        <ImportFromGitHubButton className="shrink-0" />
+        {hasGitHubInstall && <ImportFromGitHubButton className="shrink-0" />}
       </div>
 
       {/* ── Integration health (auto-disabled after 401) ───────────────── */}
@@ -232,10 +234,12 @@ export default async function IntegrationsPage() {
           <div>
             <p className="text-sm font-medium text-fg-base/60">No projects yet</p>
             <p className="mt-1 text-sm text-fg-base/50">
-              Import a repository from GitHub to start monitoring.
+              {hasGitHubInstall
+                ? "Import a repository from GitHub to start monitoring."
+                : "Connect GitHub from the dashboard to start monitoring repositories."}
             </p>
           </div>
-          <ImportFromGitHubButton className="mt-1" />
+          {hasGitHubInstall && <ImportFromGitHubButton className="mt-1" />}
         </div>
       )}
 

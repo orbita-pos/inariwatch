@@ -382,24 +382,18 @@ export function OnboardingWizard({
 
               {canImportFromGithub ? (
                 <div className="w-full max-w-sm space-y-2">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="w-full"
+                  <button
+                    type="button"
                     onClick={() => {
-                      // signIn() POSTs with the CSRF token NextAuth requires
-                      // to start the OAuth handshake. window.location to the
-                      // signin GET URL renders an intermediate page that
-                      // never actually triggered the redirect — exactly the
-                      // "le doy a importar y no pasa nada" bug.
                       void signIn("github", { callbackUrl: "/import" });
                     }}
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-inari-accent px-6 text-base font-semibold text-white transition-all hover:bg-[#f97316] active:bg-[#c2410c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
                   >
-                    <Github aria-hidden="true" className="h-4 w-4" /> Import from GitHub
+                    <Github aria-hidden="true" className="h-4 w-4" /> Install GitHub App
                     <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                  </Button>
+                  </button>
                   <p className="text-[11px] text-fg-base/40">
-                    One click — pick the repos you want monitored on github.com.
+                    One click — install the App and pick the repos you want monitored on github.com.
                   </p>
                 </div>
               ) : (

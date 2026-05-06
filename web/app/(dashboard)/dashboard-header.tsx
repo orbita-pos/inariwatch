@@ -63,13 +63,19 @@ function Breadcrumb() {
 
 // ── New button — contextual ───────────────────────────────────────────────────
 
-function NewButton() {
+function NewButton({ hasGitHubInstall }: { hasGitHubInstall: boolean }) {
   const pathname = usePathname();
 
+  // "Import from GitHub" only makes sense after the App is connected — until
+  // then there's no install to import repos from. The dashboard banner
+  // (dashboard/page.tsx) handles the connect CTA so users never land on a
+  // page without a path forward.
+  if (!hasGitHubInstall) return null;
+
   // Manual project creation was retired — projects are 1:1 with imported
-  // GitHub repos. Every "+ New" surface routes through the GitHub App
-  // OAuth flow; the jwt callback's linkGitHubInstallationsForUser bulk-
-  // imports any new repos the user grants access to.
+  // GitHub repos. Every "+ New" surface routes through signIn("github"),
+  // which mints the OAuth state cookie, completes install + OAuth in one
+  // consent (App setting), and lands on /import.
   const label = pathname.startsWith("/integrations") ? "Connect" : "Import from GitHub";
   return <ImportFromGitHubButton label={label} />;
 }
@@ -78,9 +84,10 @@ function NewButton() {
 
 interface DashboardHeaderProps {
   unreadAlerts: number;
+  hasGitHubInstall: boolean;
 }
 
-export function DashboardHeader({ unreadAlerts }: DashboardHeaderProps) {
+export function DashboardHeader({ unreadAlerts, hasGitHubInstall }: DashboardHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
 
   // ⌘K / Ctrl+K shortcut
@@ -120,7 +127,7 @@ export function DashboardHeader({ unreadAlerts }: DashboardHeaderProps) {
           <NotificationsBell unreadCount={unreadAlerts} />
 
           {/* New button */}
-          <NewButton />
+          <NewButton hasGitHubInstall={hasGitHubInstall} />
         </div>
       </header>
     </>
