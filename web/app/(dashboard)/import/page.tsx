@@ -13,6 +13,7 @@ import { Github, Lock, Globe } from "lucide-react";
 import { getInstallationToken } from "@/lib/github-app/octokit";
 import { ImportRepoButton } from "./import-button";
 import { InstallMoreButton } from "./install-more-button";
+import { dedupeInstallsByInstallationId } from "./dedupe";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Import Repository" };
@@ -132,9 +133,8 @@ export default async function ImportPage() {
 
   // Dedupe by installationId — a user who is BOTH the installer AND a
   // member of the install's org would otherwise see the row twice.
-  const installSeen = new Map<number, { installationId: number; accountLogin: string }>();
-  for (const r of installRows) installSeen.set(r.installationId, r);
-  const installs = Array.from(installSeen.values());
+  // Pure function lives in ./dedupe.ts so it's covered by unit tests.
+  const installs = dedupeInstallsByInstallationId(installRows);
 
   // Already-imported repos (any of the user's projects, regardless of
   // workspace) so the "Add" button flips to "Added" on hover.
