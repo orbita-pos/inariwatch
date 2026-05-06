@@ -14,7 +14,7 @@
  *   3. JWT decode fails       → allowed (cookie expired/invalid → fall through).
  *   4. No accounts mapping    → allowed (first-time link is fine).
  *   5. Mapping = current user → allowed (re-linking own identity is a no-op).
- *   6. Mapping ≠ current user → REJECTED with "/login?error=OAuthAccountConflict".
+ *   6. Mapping ≠ current user → REJECTED with "/import?error=OAuthAccountConflict".
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -212,7 +212,7 @@ describe("signIn callback", () => {
     const result = await signInCallback({
       account: { provider: "github", type: "oauth", providerAccountId: "gh-998" },
     } as Parameters<SignInCallback>[0]);
-    expect(result).toBe("/login?error=OAuthAccountConflict");
+    expect(result).toBe("/import?error=OAuthAccountConflict");
   });
 
   it("uses the non-secure cookie name in dev (no __Secure- prefix)", async () => {
@@ -222,6 +222,6 @@ describe("signIn callback", () => {
     const result = await signInCallback({
       account: { provider: "github", type: "oauth", providerAccountId: "gh-998" },
     } as Parameters<SignInCallback>[0]);
-    expect(result).toBe("/login?error=OAuthAccountConflict");
+    expect(result).toBe("/import?error=OAuthAccountConflict");
   });
 });

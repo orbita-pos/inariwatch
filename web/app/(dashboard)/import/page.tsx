@@ -98,10 +98,24 @@ async function gatherRepos(
   return out;
 }
 
-export default async function ImportPage() {
+export default async function ImportPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ error?: string }>;
+}) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) redirect("/login?from=/import");
+
+  // Surfaces the conflict thrown by lib/auth.ts signIn callback when a
+  // logged-in user tries to connect a GitHub identity that already belongs
+  // to another InariWatch user. Banner sits above whichever branch
+  // renders below (no-installs CTA OR the repo list).
+  const errorCode = (await searchParams)?.error;
+  const conflictMessage =
+    errorCode === "OAuthAccountConflict"
+      ? "That GitHub account is already connected to a different InariWatch user. Sign out, log in to that user, or pick a different GitHub account."
+      : null;
 
   const slug = process.env.GITHUB_APP_SLUG;
 
@@ -158,17 +172,27 @@ export default async function ImportPage() {
   if (installs.length === 0) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center px-4">
-        <div className="w-full max-w-[480px] rounded-xl border border-line bg-surface p-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-line bg-surface-dim">
-            <Github aria-hidden="true" className="h-6 w-6 text-fg-base/70" />
+        <div className="w-full max-w-[480px] space-y-4">
+          {conflictMessage && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-4 text-sm text-red-700 dark:text-red-400"
+            >
+              {conflictMessage}
+            </div>
+          )}
+          <div className="rounded-xl border border-line bg-surface p-8 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-line bg-surface-dim">
+              <Github aria-hidden="true" className="h-6 w-6 text-fg-base/70" />
+            </div>
+            <h1 className="text-lg font-semibold text-fg-strong mb-1">Connect GitHub</h1>
+            <p className="text-sm text-fg-base/60 mb-5">
+              Install the InariWatch App on your account or org to choose which
+              repos to monitor. You can add or remove repos any time from GitHub
+              settings — no long-lived tokens, no PAT to expire.
+            </p>
+            <SignInClientButton />
           </div>
-          <h1 className="text-lg font-semibold text-fg-strong mb-1">Connect GitHub</h1>
-          <p className="text-sm text-fg-base/60 mb-5">
-            Install the InariWatch App on your account or org to choose which
-            repos to monitor. You can add or remove repos any time from GitHub
-            settings — no long-lived tokens, no PAT to expire.
-          </p>
-          <SignInClientButton />
         </div>
       </div>
     );
@@ -176,6 +200,14 @@ export default async function ImportPage() {
 
   return (
     <div className="space-y-6">
+      {conflictMessage && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-4 text-sm text-red-700 dark:text-red-400"
+        >
+          {conflictMessage}
+        </div>
+      )}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-fg-strong tracking-tight">Import Repository</h1>
