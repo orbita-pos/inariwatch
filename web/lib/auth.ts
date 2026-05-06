@@ -134,18 +134,54 @@ export const authOptions: NextAuthOptions = {
     // For OAuth: upsert the user in our DB so we have a real UUID.
     async jwt({ token, account, profile }) {
       if (account) {
-        // First sign-in — look up or create the user in our DB.
+        // ── Account-link mode ────────────────────────────────────────────
+        // NextAuth passes the EXISTING decoded JWT as `token` when an
+        // already-logged-in user re-runs `signIn()` (e.g. clicking
+        // "Connect GitHub" on the dashboard). In that case `token.id` is
+        // already populated — we must NOT swap identity to whichever
+        // user matches the GitHub email, because that would silently
+        // hijack the session into a different account.
         //
+        // Instead: keep the current `token.id`, persist the GitHub
+        // installation rows under that user, and skip the email-based
+        // upsert below. The user's primary email stays whatever they
+        // signed up with; GitHub is now linked to that account.
+        if (
+          token.id &&
+          account.provider === "github" &&
+          typeof account.access_token === "string" &&
+          process.env.GITHUB_APP_CLIENT_ID
+        ) {
+          try {
+            const { linkGitHubInstallationsForUser } = await import(
+              "@/lib/auth/link-github-installation"
+            );
+            await linkGitHubInstallationsForUser({
+              userId:         token.id as string,
+              accessToken:    account.access_token,
+              organizationId: null,
+            });
+          } catch (err) {
+            console.warn(
+              "[auth] linkGitHubInstallationsForUser (linking) failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+          return token;
+        }
+        if (token.id) {
+          // Other providers (Google/GitLab) re-OAuth on a logged-in
+          // session: same rule — preserve identity, no-op.
+          return token;
+        }
+
+        // ── Fresh sign-in path ───────────────────────────────────────────
         // GitHub App user-OAuth tokens don't carry `email` in the profile
         // by default (Apps use per-permission grants, not OAuth scopes).
-        // We try `/user/emails` with the access_token first — that's what
-        // Vercel does, and it returns the verified primary address when
-        // the App has "Email addresses" account permission enabled.
-        // If the App doesn't have that permission OR the user has all
-        // their emails private, fall back to the GitHub-stable noreply
-        // address `<id>+<login>@users.noreply.github.com` so the row
-        // is still anchored to a real GitHub identity (not a synthetic
-        // marker). Never blocks sign-in.
+        // Try `/user/emails` with the access_token first — Vercel-style;
+        // returns the verified primary when the App has "Email addresses"
+        // permission. Fall back to the GitHub noreply address so the row
+        // is still anchored to a real GitHub identity. Never blocks sign-in.
         let email = token.email;
         if (!email && account.provider === "github" && typeof account.access_token === "string") {
           const fetched = await fetchPrimaryGitHubEmail(account.access_token);
@@ -157,8 +193,6 @@ export const authOptions: NextAuthOptions = {
         if (!email && account.provider === "github") {
           const ghProfile = profile as { login?: string; id?: number } | undefined;
           if (ghProfile?.login && ghProfile.id) {
-            // GitHub-issued noreply address. Stable across sessions and
-            // recognized by GitHub's own commit-attribution UI.
             email = `${ghProfile.id}+${ghProfile.login.toLowerCase()}@users.noreply.github.com`;
             token.email = email;
           }
