@@ -1,0 +1,1 @@
+{"version":3,"file":"hooks-pg.d.ts","sourceRoot":"","sources":["../../src/causal/hooks-pg.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;GAgBG;AAQH,KAAK,SAAS,GAAG,MAAM,OAAO,CAAC,GAAG,CAAC,CAAA;AAUnC;;;;GAIG;AACH,wBAAsB,aAAa,CAAC,MAAM,GAAE,SAA0B,GAAG,OAAO,CAAC,OAAO,CAAC,CAoBxF;AA2GD,eAAO,MAAM,2BAA2B,EAAE,MAAmB,CAAA"}

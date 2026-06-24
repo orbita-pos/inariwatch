@@ -1,0 +1,206 @@
+name: Deploy web to Hetzner
+
+# Triggers on merged changes that affect the web app or the deploy workflow
+# itself. Changes to /worker, /cli, /docs, etc. do NOT rebuild — the path
+# filter is the first line of defense against burning CI minutes on
+# irrelevant commits.
+on:
+  push:
+    branches: [main]
+    # Env-only changes go through env-push-web.yml (manual trigger, no
+    # rebuild). Negated pattern excludes .env.sops.yaml — if an app change
+    # lands alongside a sops edit, other files under web/** still match
+    # and the deploy fires. This only skips the case where .env.sops.yaml
+    # is the *sole* changed file.
+    paths:
+      - 'web/**'
+      - '!web/.env.sops.yaml'
+      # packages/ai-router/ is a workspace dep imported by web/lib/ai
+      # and web/app/api/ai/dispatch — changes to the TS router (provider
+      # adapters, dispatch wire shape, tool-name sanitization, etc.) get
+      # bundled INTO the web build. Without this entry, router-only
+      # commits silently fail to deploy (workflow doesn't fire) and prod
+      # stays on stale code despite a green CI on main — happened
+      # 2026-05-14 with the dot→hyphen tool-name fix that took 90 min to
+      # diagnose because /api/health kept reporting the prior SHA.
+      - 'packages/ai-router/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm a manual deploy'
+        required: true
+        default: 'deploy'
+
+concurrency:
+  # Only one deploy in flight at a time. If a second push lands while a
+  # deploy is running, cancel the newer one — Kamal's gapless swap means
+  # the older deploy will pick up the latest main commit on its next run.
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Cap at 25 minutes — Kamal setup + push + swap should finish in ~3min
+    # on a warm cache. Anything over 25m means something is wedged.
+    timeout-minutes: 25
+
+    permissions:
+      contents: read
+      packages: write  # push image to GHCR
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby (for Kamal)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: Install Kamal
+        run: gem install kamal -v '~> 2.0'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:v0.16.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # Use a classic PAT with write:packages instead of GITHUB_TOKEN
+          # because org-owned packages can't be created by the default
+          # GITHUB_TOKEN — chicken-and-egg on the first push. Once the
+          # package exists + has repo access granted, we can switch back.
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_DEPLOY_KEY }}
+
+      - name: Add Hetzner host key to known_hosts
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          # No -H (hashed hostnames) — Kamal's net-ssh 7.3 compares against
+          # one of the three host keys Hetzner presents and hashed entries
+          # trip a HostKeyMismatch on fingerprint comparison. Plain entries
+          # match against all three algorithms the server offers.
+          ssh-keyscan -t rsa,ecdsa,ed25519 "$HETZNER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Write age private key
+        env:
+          AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.config/sops/age
+          printf '%s\n' "$AGE_KEY" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Install sops
+        run: |
+          curl -fsSL -o /tmp/sops \
+            https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          sops --version
+
+      - name: Prepare Kamal secrets file
+        working-directory: web
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GH_ACTOR: ${{ github.actor }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
+        run: |
+          # Kamal 2 parses .kamal/secrets as KEY=VALUE lines — it does NOT
+          # shell-exec the file. An earlier `eval "$(sops -d ...)"` line
+          # was being read literally by Kamal's Secrets loader, which then
+          # complained `Secret 'DATABASE_URL' not found`. Decrypt the sops
+          # YAML inline into dotenv format and concatenate with the two
+          # literal registry credentials.
+          set -euo pipefail
+          mkdir -p .kamal
+          {
+            echo "KAMAL_REGISTRY_USERNAME=${GH_ACTOR}"
+            echo "KAMAL_REGISTRY_PASSWORD=${GHCR_PAT}"
+            sops -d --output-type dotenv .env.sops.yaml
+          } > .kamal/secrets
+          chmod 600 .kamal/secrets
+
+      - name: Deploy
+        working-directory: web
+        env:
+          # Passed to Docker as ARG so /api/health reports the commit that's
+          # actually running in prod.
+          DOCKER_BUILDKIT: '1'
+          APP_VERSION: ${{ github.sha }}
+          KAMAL_REGISTRY_USERNAME: ${{ github.actor }}
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
+        run: |
+          kamal deploy --version "${GITHUB_SHA}" --verbose
+
+      # Public Next.js pages reply with `Cache-Control: s-maxage=86400`, so
+      # Cloudflare keeps serving the previous build's HTML for up to 24h
+      # after a deploy. The HTML references content-hashed bundle filenames,
+      # so a stale page also pins users to a stale JS bundle even after the
+      # origin has rolled forward. Symptom: the register-page TypeError that
+      # PR #72 fixed kept reaching users for ~6h after the deploy because
+      # Cloudflare wouldn't refetch /register from origin.
+      #
+      # Surgical purge — only the auth/marketing surfaces that actually
+      # cache. Static assets are content-hashed + immutable, so Cloudflare
+      # doesn't need invalidation for them; new HTML naturally points at
+      # the new hashes. Plain curl (not `npx tsx scripts/cf-purge.ts`) so
+      # this step doesn't have to wait on a node_modules install — the
+      # script is kept for local one-off purges.
+      - name: Purge Cloudflare cache
+        if: success()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN not set — skipping cache purge. Stale CDN HTML may persist for up to 24h. Add a Zone:Cache Purge:Edit token + the zone id as repo secrets to enable."
+            exit 0
+          fi
+          ZONE_ID="${CLOUDFLARE_ZONE_ID:-}"
+          if [ -z "$ZONE_ID" ]; then
+            ZONE_ID=$(curl -fsS \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/zones?name=inariwatch.com" \
+              | jq -r '.result[0].id')
+            if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" = "null" ]; then
+              echo "::error::Could not resolve Cloudflare zone id for inariwatch.com"
+              exit 1
+            fi
+          fi
+          BODY='{"files":[
+            "https://app.inariwatch.com/register",
+            "https://app.inariwatch.com/login",
+            "https://app.inariwatch.com/forgot-password",
+            "https://app.inariwatch.com/reset-password",
+            "https://inariwatch.com/",
+            "https://inariwatch.com/pricing",
+            "https://inariwatch.com/docs",
+            "https://inariwatch.com/blog"
+          ]}'
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache" \
+            --data "${BODY}" \
+            | jq '{success, errors}'
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Deploy to Hetzner failed — see logs above. Rollback: ssh to host, run 'kamal app rollback'."

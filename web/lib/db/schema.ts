@@ -1,0 +1,2754 @@
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  timestamp,
+  boolean,
+  jsonb,
+  integer,
+  numeric,
+  doublePrecision,
+  real,
+  bigint,
+  index,
+  uniqueIndex,
+  customType,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+// ── Custom types ─────────────────────────────────────────────────────────────
+
+const vector = customType<{ data: number[]; driverParam: string }>({
+  dataType() {
+    return "vector(768)";
+  },
+  toDriver(value: number[]) {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: unknown) {
+    const str = value as string;
+    return str
+      .slice(1, -1)
+      .split(",")
+      .map(Number);
+  },
+});
+
+const tsvector = customType<{ data: string; driverParam: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+export const planEnum = pgEnum("plan", ["free", "pro"]);
+export const severityEnum = pgEnum("severity", ["critical", "warning", "info"]);
+export const notifTypeEnum = pgEnum("notification_type", ["telegram", "whatsapp", "email", "slack", "push"]);
+export const integrationEnum = pgEnum("integration", [
+  "github", "vercel", "sentry", "postgres", "git", "npm", "datadog", "uptime", "expo",
+  // Hosting providers — see web/lib/providers/rollback/ for implementations.
+  // Vercel/Netlify/Cloudflare Pages/Render are fully implemented.
+  // Railway/Fly are stubs until someone asks for them.
+  "netlify", "cloudflare-pages", "render", "railway", "fly",
+]);
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  name: text("name"),
+  passwordHash: text("password_hash"),
+  plan: planEnum("plan").default("free").notNull(),
+  emailVerifiedAt: timestamp("email_verified_at"),
+  totpSecret: text("totp_secret"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  aiModels: jsonb("ai_models"),
+
+  /** Optional monthly budget cap in USD. Triggers notifications at 80% / 100%. */
+  aiBudgetMonthlyUsd: numeric("ai_budget_monthly_usd", { precision: 10, scale: 2 }),
+
+  // ── Stripe billing ───────────────────────────────────────────────────────
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  subscriptionStatus: text("subscription_status"),
+  // 'active' | 'past_due' | 'canceled' | 'incomplete' | 'trialing'
+  subscriptionPeriodEnd: timestamp("subscription_period_end", { withTimezone: true }),
+  subscriptionCancelAtPeriodEnd: boolean("subscription_cancel_at_period_end").default(false),
+
+  activeOrgId: uuid("active_org_id"), // FK to organizations.id (enforced at DB level via migration 0011)
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// NextAuth accounts (OAuth providers). Populated by the jwt callback
+// in lib/auth.ts so a user who linked GitHub once can re-sign-in with
+// GitHub later and resolve to the SAME user row even if GitHub's email
+// has changed (or never matched their app email in the first place).
+// Lookup key: (provider, providerAccountId). Migration 0086 adds the
+// unique index that makes the upsert race-safe.
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    type: text("type").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    expiresAt: integer("expires_at"),
+  },
+  (table) => [
+    uniqueIndex("accounts_provider_account_unique").on(
+      table.provider,
+      table.providerAccountId,
+    ),
+  ],
+);
+
+// ── Organizations (workspaces) ────────────────────────────────────────────────
+
+export const orgRoleEnum = pgEnum("org_role", ["owner", "admin", "member"]);
+
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  ownerId: uuid("owner_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  avatarUrl: text("avatar_url"),
+  /**
+   * v0.3 S3 — opt-in flag that routes `notify.compose.email` dispatches to
+   * the workspace owner's Inari Live (user-sidecar) instead of cloud.
+   * Default false: existing customers see no behavior change. Flip via
+   * Settings → AI Preferences. Migration 0077.
+   */
+  localNotifyEnabled: boolean("local_notify_enabled").notNull().default(false),
+  /**
+   * v0.3 S5 — opt-in to running `voice.tts.*` on Inari Live (Piper TTS).
+   * Independent from `localNotifyEnabled` because voice has different
+   * infra requirements (download voice models on first use, ≈30 MB
+   * each). Cloud fallback (OpenAI tts-1) kicks in when sidecar is
+   * offline. Default false. Migration 0078.
+   */
+  localVoiceEnabled: boolean("local_voice_enabled").notNull().default(false),
+  /**
+   * Code Intel v2 Phase 3.1 — per-workspace override of the global
+   * `SHADOW_SAMPLE_RATE` env var. NULL = inherit the env (default 1.0).
+   * 0..100 = the percentage of `searchCode()` calls that get the v2 shadow
+   * run. Lets a single workspace ramp shadow up or down without flipping
+   * the global flag. Migration 0082 (renumbered from 0081 — S5 voice took
+   * 0081 first during integration merge).
+   */
+  codeIntelV2ShadowPct: integer("code_intel_v2_shadow_pct"),
+  /**
+   * Code Intel v2 Phase 3.2 — per-workspace override of the global
+   * `CONTAINER_AGENT_AB_PCT` env var. NULL = inherit the env (default 0).
+   * 0..100 = the percentage of remediations whose container agent gets the
+   * v2 tool set (find_references / type_at / blast_radius). Sticky per
+   * session — same alert never sees both engines mid-flight. Migration 0082.
+   */
+  codeIntelV2AgentAbPct: integer("code_intel_v2_agent_ab_pct"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const organizationMembers = pgTable("organization_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  role: orgRoleEnum("role").default("member").notNull(),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+});
+
+export const organizationInvites = pgTable("organization_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  email: text("email").notNull(),
+  role: orgRoleEnum("role").default("member").notNull(),
+  invitedBy: uuid("invited_by").references(() => users.id).notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
+// ── Projects ──────────────────────────────────────────────────────────────────
+
+export const projects = pgTable("projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  visibility: text("visibility").default("all").notNull(), // 'all' | 'restricted'
+  autoMergeConfig: jsonb("auto_merge_config"), // AutoMergeConfig
+  stagingEnvEncrypted: jsonb("staging_env_encrypted"), // Encrypted env vars for staging deploys
+  /**
+   * Origin allowlist for browser-facing public endpoints (Replay V2
+   * ingest + classify-pii). Empty array = allow any Origin (preserves the
+   * pre-0048 behaviour so no existing project breaks when the column ships).
+   * Populated array = strict — requests whose `Origin` header isn't in the
+   * list are rejected with 403. Supports one wildcard subdomain per entry,
+   * e.g. `https://*.example.com`.
+   */
+  allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'`),
+  /**
+   * Replay V2 per-project configuration. Empty `{}` means "use hardcoded
+   * defaults from DEFAULT_REPLAY_SETTINGS" — keeps migration 0049
+   * backward-compatible for projects created before the column shipped.
+   */
+  replaySettings: jsonb("replay_settings").notNull().default(sql`'{}'::jsonb`),
+  /**
+   * Default `owner/repo` used at remediation time when the alert doesn't
+   * carry a repo of its own (custom webhooks, manually created alerts,
+   * sources whose payload can't identify a repo). Migration 0068. Set via
+   * Settings → Integrations → GitHub → "Default repository".
+   */
+  defaultRepo: text("default_repo"),
+  /**
+   * Inari Live V1 — Session 3 Add-Project wizard state machine.
+   * Migration 0091. Valid values (CHECK-constrained):
+   *   created → needs_setup → setting_up → prepared → verified → live
+   *   any → archived.
+   * Existing rows backfill to `live` so the dashboard renders them
+   * with the regular alerts UI without any code change.
+   */
+  state: text("state").notNull().default("live"),
+  /**
+   * Detected framework hint set by the wizard — `next`, `express`,
+   * `vite`, `node`, or NULL for projects created before S3 / via the
+   * GitHub direct-import path. The desktop wizard reads this to pick
+   * the right config patcher (next.config.ts wrapper vs.
+   * instrumentation.ts injection).
+   */
+  framework: text("framework"),
+  /**
+   * Detected host hint — V1 only writes `vercel` (Tier 1 auto-sync).
+   * Tier 2/3 hosts ship in Session 4 and will reuse this column.
+   */
+  host: text("host"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
+ * Per-project replay configuration. All fields optional — missing values
+ * fall back to `DEFAULT_REPLAY_SETTINGS`.
+ */
+export type ReplaySettings = {
+  /** Master kill-switch. When false, ingest rejects all blocks with 403. */
+  enabled?: boolean;
+  /** 0-1 — probability an error-triggered session is recorded. Default 1.0. */
+  errorSampleRate?: number;
+  /**
+   * 0-1 — probability a session without errors is recorded. Default 0
+   * (we're an error-monitoring SaaS, not UX analytics). Pro plan only —
+   * Free plan is locked at 0 at the server action boundary.
+   */
+  sessionSampleRate?: number;
+  /** Seconds of pre-error context kept in the client ring buffer. Default 60. */
+  bufferSeconds?: number;
+  /** Replay retention days. 7 on Free, up to 90 on Pro. */
+  retentionDays?: number;
+  /**
+   * PII classifier strategy. `"ai"` uses heuristics + server AI on ambiguous
+   * fields; `"heuristic"` is client-only; `false` disables and falls back to
+   * maskAllInputs. Default `"ai"`.
+   */
+  piiClassifier?: "ai" | "heuristic" | false;
+  /**
+   * Phase F privacy toggle. When `true`, the dashboard never returns the
+   * raw end-user email — only its sha256 hash. Server still STORES the
+   * plain email at ingest (so a customer can flip back without losing
+   * data) but the manifest route redacts it on every read.
+   *
+   * Default `false` matches Sentry/FullStory/Datadog: plain emails make
+   * the support workflow ("show me sessions for juan@acme.com") work
+   * out of the box. Privacy-conscious customers flip this on and the
+   * raw email never leaves Postgres.
+   */
+  hashEndUserEmails?: boolean;
+  /**
+   * Phase I.d — capture request + response bodies for fetch calls. OFF
+   * by default because bodies routinely contain auth tokens, PII, and
+   * payment data. When enabled, multi-layer protection applies:
+   *   - URL denylist (built-in + customer-extensible)
+   *   - JSON key denylist (password, token, secret, etc.)
+   *   - Content-Type allowlist (only text-ish bodies; skip binary)
+   *   - Header redaction (Authorization, Cookie always removed)
+   *   - Hard size cap (`networkBodyMaxBytes`)
+   */
+  captureNetworkBodies?: boolean;
+  /**
+   * Additional URL substring patterns that should NEVER have their bodies
+   * captured (additive to the built-in denylist of /auth, /login, /payment,
+   * etc.). Customer-defined for endpoints unique to their app.
+   */
+  networkUrlDenylist?: string[];
+  /**
+   * Per-body size cap in bytes. Default 100KB. Hard max enforced at ingest
+   * (anything bigger gets truncated by the SDK before sending).
+   */
+  networkBodyMaxBytes?: number;
+  /**
+   * "failed" → only capture bodies for status >= 400 or network error.
+   * "all"    → capture all responses (much higher volume + PII surface).
+   * Default "failed" — best ratio of debug value to risk.
+   */
+  networkBodyMode?: "failed" | "all";
+};
+
+/** Canonical defaults — applied when a project's replay_settings jsonb is empty. */
+export const DEFAULT_REPLAY_SETTINGS: Required<ReplaySettings> = {
+  enabled: true,
+  errorSampleRate: 1.0,
+  sessionSampleRate: 0.0,
+  bufferSeconds: 60,
+  retentionDays: 7,
+  piiClassifier: "ai",
+  hashEndUserEmails: false,
+  captureNetworkBodies: false,
+  networkUrlDenylist: [],
+  networkBodyMaxBytes: 100_000,
+  networkBodyMode: "failed",
+};
+
+export type AutoMergeConfig = {
+  enabled: boolean;
+  minConfidence: number;      // 0-100
+  maxLinesChanged: number;
+  requireSelfReview: boolean;
+  postMergeMonitor: boolean;
+  autoRevert: boolean;
+  /** Autonomous mode: auto-trigger remediation on critical alerts (no human click needed) */
+  autoRemediate: boolean;
+  /** Auto-heal: rollback + remediate when uptime detects site is down */
+  autoHeal: boolean;
+  /** Prediction confidence threshold — block deploy if prediction confidence >= this (default: 80) */
+  predictionThreshold: number;
+  /** Set by the system when approval rate qualifies for autonomous mode. Shown as a suggestion banner. */
+  suggestAutonomous?: boolean;
+  /** ISO timestamp of last auto-confidence tune */
+  confidenceTunedAt?: string;
+  /** Previous minConfidence value before the last auto-tune */
+  confidenceTunedFrom?: number;
+};
+
+export const DEFAULT_AUTO_MERGE_CONFIG: AutoMergeConfig = {
+  enabled: false,
+  minConfidence: 90,
+  maxLinesChanged: 50,
+  requireSelfReview: true,
+  postMergeMonitor: true,
+  autoRevert: true,
+  autoRemediate: false,
+  autoHeal: false,
+  predictionThreshold: 80,
+};
+
+export const projectIntegrations = pgTable("project_integrations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  service: text("service").notNull(),
+  // Encrypted JSON with tokens, repos, etc.
+  configEncrypted: jsonb("config_encrypted"),
+  webhookSecret: text("webhook_secret"),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastCheckedAt: timestamp("last_checked_at"),
+  lastSuccessAt: timestamp("last_success_at"),
+  errorCount: integer("error_count").default(0).notNull(),
+  lastErrorAt: timestamp("last_error_at"),
+  lastErrorMessage: text("last_error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Migration 0084 — when set, this github row authenticates via the App
+  // installation token (lib/services/github-token.ts) instead of a PAT.
+  installationId: bigint("installation_id", { mode: "number" }),
+});
+
+// ── Project Access Control ──────────────────────────────────────────────────
+// Used when project.visibility = 'restricted'
+
+export const memberRoleEnum = pgEnum("member_role", ["admin", "viewer"]);
+
+export const projectMembers = pgTable("project_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  role: memberRoleEnum("role").default("viewer").notNull(),
+  // Legacy columns kept to avoid migration
+  invitedBy: uuid("invited_by").references(() => users.id),
+  invitedAt: timestamp("invited_at").defaultNow(),
+  acceptedAt: timestamp("accepted_at"),
+});
+
+// Legacy table — kept to avoid migration, no longer used by app code
+export const projectInvites = pgTable("project_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  email: text("email").notNull(),
+  role: memberRoleEnum("role").default("viewer").notNull(),
+  invitedBy: uuid("invited_by").references(() => users.id).notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
+// ── Incident Storms ─────────────────────────────────────────────────────────
+
+export const incidentStorms = pgTable("incident_storms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull().default("active"), // 'active' | 'resolved'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+
+export const alerts = pgTable("alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  stormId: uuid("storm_id").references(() => incidentStorms.id, { onDelete: "set null" }),
+  severity: severityEnum("severity").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  sourceIntegrations: text("source_integrations").array().notNull().default([]),
+  // AI-generated fields
+  aiReasoning: text("ai_reasoning"),
+  /**
+   * Why AI auto-analyze was skipped, if it was. Null = AI ran (or hasn't
+   * been attempted yet). Values: 'quota' (user hit per-feature limit),
+   * 'platform_budget' (daily platform AI kill-switch fired), 'no_key'
+   * (no AI key configured at all). Used by the alert detail page to
+   * render a contextual banner instead of leaving the user wondering
+   * why their alert has no diagnosis.
+   */
+  aiSkippedReason: text("ai_skipped_reason"),
+  correlationData: jsonb("correlation_data"),
+  postmortem: text("postmortem"),
+  isRead: boolean("is_read").default(false).notNull(),
+  isResolved: boolean("is_resolved").default(false).notNull(),
+  /** Alert type: error (default), security, log */
+  alertType: text("alert_type").default("error").notNull(),
+  /** Error fingerprint for outcome tracking (SHA-256 of normalized error) */
+  fingerprint: text("fingerprint"),
+  // Phase H — link to the replay session whose error captured this alert
+  // (when one exists). Set by /api/replay/ingest when a block carries an
+  // errorFingerprint matching this alert. ON DELETE SET NULL — retention
+  // sweep must not cascade-delete the alert.
+  replaySessionId: uuid("replay_session_id"),
+  // VAR Q1 — raw session id from X-IW-Session-Id header. Independent of
+  // replaySessionId (uuid FK) so we can correlate even before a replay
+  // row exists. See migration 0057.
+  sessionId: text("session_id"),
+  /**
+   * Canonical `owner/repo` resolved at webhook ingest (migration 0068).
+   * Replaces run-time fuzzy extraction in remediate.ts. NULL for alerts
+   * written before the migration — the backfill script in
+   * `scripts/backfill-alert-repo.ts` populates those. Sources that can't
+   * determine the repo (custom webhooks, manual alerts) fall back to
+   * `projects.default_repo` at remediation time.
+   */
+  repo: text("repo"),
+  sentAt: timestamp("sent_at"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  /** Content-addressed portable identifier. Format: inari:alert:<16-hex> */
+  inariHash: text("inari_hash").unique(),
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export const notificationChannels = pgTable("notification_channels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  type: notifTypeEnum("type").notNull(),
+  config: jsonb("config").notNull(), // bot_token, chat_id, webhook_url, etc.
+  isActive: boolean("is_active").default(true).notNull(),
+  minSeverity: text("min_severity").default("info").notNull(), // 'critical' | 'warning' | 'info'
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const notificationLogs = pgTable("notification_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  channelId: uuid("channel_id").references(() => notificationChannels.id).notNull(),
+  status: text("status").notNull(), // 'sent' | 'failed' | 'pending'
+  error: text("error"),
+  sentAt: timestamp("sent_at").defaultNow(),
+  openedAt: timestamp("opened_at"),
+  clickedAt: timestamp("clicked_at"),
+});
+
+// ── Email suppression list ────────────────────────────────────────────────────
+
+export const emailSuppressions = pgTable("email_suppressions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  reason: text("reason").notNull(), // 'bounce' | 'complaint' | 'unsubscribe'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Notification queue ───────────────────────────────────────────────────────
+
+export const notificationQueue = pgTable("notification_queue", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  channelId: uuid("channel_id").references(() => notificationChannels.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'processing' | 'sent' | 'failed'
+  priority: integer("priority").default(1).notNull(), // 0=critical, 1=warning, 2=info
+  attempts: integer("attempts").default(0).notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  nextRetry: timestamp("next_retry").defaultNow().notNull(),
+});
+
+// ── Encrypted API keys ────────────────────────────────────────────────────────
+
+export const apiKeys = pgTable("api_keys", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  service: text("service").notNull(), // 'claude' | 'openai' | 'github' | 'vercel' etc.
+  keyEncrypted: text("key_encrypted").notNull(),
+  keyHash: text("key_hash"), // SHA-256 hash for O(1) auth lookup (cli/mobile/desktop tokens)
+  metadata: jsonb("metadata"), // non-sensitive context (org slug, etc.)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Password reset tokens ────────────────────────────────────────────────────
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Email verification tokens ────────────────────────────────────────────────
+
+export const emailVerifications = pgTable("email_verifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Alert comments ──────────────────────────────────────────────────────────
+
+export const alertComments = pgTable("alert_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Maintenance windows ─────────────────────────────────────────────────────
+
+export const maintenanceWindows = pgTable("maintenance_windows", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  createdBy: uuid("created_by").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Escalation rules ────────────────────────────────────────────────────────
+
+export const escalationRules = pgTable("escalation_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  targetType: text("target_type").notNull().default("channel"), // 'channel' | 'on_call_primary' | 'on_call_secondary'
+  channelId: uuid("channel_id").references(() => notificationChannels.id, { onDelete: "cascade" }),
+  delaySec: integer("delay_sec").notNull().default(1800), // 30 min default
+  minSeverity: text("min_severity").notNull().default("critical"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Audit log ───────────────────────────────────────────────────────────────
+
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  action: text("action").notNull(), // 'project.create' | 'integration.connect' | 'alert.resolve' etc.
+  resource: text("resource").notNull(), // 'project' | 'integration' | 'alert' | 'member' etc.
+  resourceId: uuid("resource_id"),
+  metadata: jsonb("metadata"), // extra context
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Outgoing webhooks ───────────────────────────────────────────────────────
+
+export const outgoingWebhooks = pgTable("outgoing_webhooks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  url: text("url").notNull(),
+  secret: text("secret").notNull(), // HMAC signing secret
+  events: text("events").array().notNull().default([]), // ['alert.created', 'alert.resolved']
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Public status pages ─────────────────────────────────────────────────────
+
+export const statusPages = pgTable("status_pages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  isPublic: boolean("is_public").default(true).notNull(),
+  config: jsonb("config").$type<StatusPageConfig>().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type StatusPageConfig = {
+  autoCreateIncident?: boolean;
+  autoResolve?: boolean;
+  notifySubscribers?: boolean;
+  minSeverityToPost?: "critical" | "error" | "warning";
+};
+
+export const DEFAULT_STATUS_PAGE_CONFIG: StatusPageConfig = {
+  autoCreateIncident: false,
+  autoResolve: true,
+  notifySubscribers: true,
+  minSeverityToPost: "critical",
+};
+
+// ── Status page incidents ──────────────────────────────────────────────────
+
+export const statusPageIncidents = pgTable("status_page_incidents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  statusPageId: uuid("status_page_id").references(() => statusPages.id, { onDelete: "cascade" }).notNull(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  remediationSessionId: uuid("remediation_session_id").references(() => remediationSessions.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("investigating"),
+  // investigating | identified | fixing | monitoring | resolved | regressed
+  severity: text("severity").notNull().default("major"),
+  // minor | major | critical
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  postmortem: text("postmortem"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const statusPageUpdates = pgTable("status_page_updates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  incidentId: uuid("incident_id").references(() => statusPageIncidents.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull(),
+  message: text("message").notNull(),
+  isAutoGenerated: boolean("is_auto_generated").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const statusPageSubscribers = pgTable("status_page_subscribers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  statusPageId: uuid("status_page_id").references(() => statusPages.id, { onDelete: "cascade" }).notNull(),
+  email: text("email").notNull(),
+  verified: boolean("verified").default(false),
+  unsubscribeToken: text("unsubscribe_token").notNull().default(sql`gen_random_uuid()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── AI Remediation sessions ─────────────────────────────────────────────────
+
+export const remediationSessions = pgTable("remediation_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull().default("analyzing"),
+  // analyzing | reading_code | generating_fix | pushing | awaiting_ci |
+  // ci_passed | ci_failed_retrying | proposing | approved | merging | completed | failed | cancelled
+  attempt: integer("attempt").notNull().default(1),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  repo: text("repo"),         // "owner/repo"
+  branch: text("branch"),       // fix branch name
+  baseBranch: text("base_branch"),  // default branch
+  prUrl: text("pr_url"),
+  prNumber: integer("pr_number"),
+  fileChanges: jsonb("file_changes"),   // [{path, content}]
+  steps: jsonb("steps").notNull().default([]),
+  error: text("error"),
+  confidenceScore: integer("confidence_score"),
+  selfReviewResult: jsonb("self_review_result"),  // { score, concerns, recommendation }
+  mergeStrategy: text("merge_strategy"),           // 'draft_pr' | 'auto_merged'
+  mergedCommitSha: text("merged_commit_sha"),
+  monitoringUntil: timestamp("monitoring_until", { withTimezone: true }),
+  monitoringStatus: text("monitoring_status"),     // 'watching' | 'passed' | 'reverted'
+  revertPrUrl: text("revert_pr_url"),
+  fingerprint: text("fingerprint"),
+  /** Full diagnosis context (Sentry stack traces, Vercel logs, GitHub CI, Datadog) — preserved for replay/training. */
+  context: jsonb("context"),
+  /** Substrate simulate risk score (0-100). NULL if no recording available. */
+  simulateRiskScore: integer("simulate_risk_score"),
+  /** Checkpoint phase for crash recovery. Set after each pipeline phase completes. */
+  checkpointPhase: text("checkpoint_phase"),
+  /** Intermediate data for crash recovery — diagnosis, fix files, etc. */
+  checkpointData: jsonb("checkpoint_data"),
+  /** Staging deploy ID for orphan cleanup on crash. */
+  stagingDeployId: text("staging_deploy_id"),
+  /** Embedding of the fix context (diagnosis + files + result) for vector replay. */
+  fixEmbedding: vector("fix_embedding"),
+  /** When the fix was proposed to the human (status → proposing). Used to compute time-to-decide. */
+  proposedAt: timestamp("proposed_at", { withTimezone: true }),
+  /** VAR Q3 Phase 2 — EAP receipt ID (64-char hex Merkle root). Populated
+   *  by eap-attestation.service after successful remediation when a
+   *  substrate recording is available. Null for remediations without a
+   *  recording or that predate Phase 2. Drives the "View attestation"
+   *  link on the alert detail page. */
+  eapReceiptId: text("eap_receipt_id"),
+  /** Preview Fix — backpointer to the preview_sessions row created for this
+   *  remediation. Nullable: populated on first `POST /api/alerts/:id/preview`.
+   *  The alert detail page reads this alongside the rest of the remediation
+   *  so it can render the PreviewPanel without a second query. */
+  previewSessionId: uuid("preview_session_id"),
+  /** Timestamp of the first preview creation. Drives "preview shipped X days ago" UI. */
+  previewEnabledAt: timestamp("preview_enabled_at", { withTimezone: true }),
+  // ── Fase 1 telemetry (migration 0069) ────────────────────────────────
+  /** Which tier handled the remediation: '0' | '1' | '2' | '3' | 'legacy'.
+   *  Written by the tier router in Fase 6; NULL for sessions that predate it. */
+  tierUsed: text("tier_used"),
+  /** How many candidate hypotheses the Tier 2/3 coordinator produced. */
+  hypothesisCount: integer("hypothesis_count"),
+  /** Cosine similarity [0, 1] of the closest pattern_memory entry. */
+  patternMatchScore: real("pattern_match_score"),
+  /** Which sandbox executed model-emitted code: 'none' | 'codeact-deno'. */
+  sandboxMode: text("sandbox_mode"),
+  /** True when Fase C SDK peer mode was active for this remediation. */
+  sdkPeerEnabled: boolean("sdk_peer_enabled").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Preview Fix (two-tier visual preview of autonomous remediations) ─────────
+//
+// See migrations/0065_preview_fix.sql for the feature description. Two tables:
+//   preview_sessions     — orchestration row per (alert, remediation)
+//   preview_predictions  — AI render cache per (alert_id, merged_commit_sha)
+
+export const previewPredictions = pgTable("preview_predictions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id")
+    .references(() => alerts.id, { onDelete: "cascade" })
+    .notNull(),
+  mergedCommitSha: text("merged_commit_sha").notNull(),
+  /** Claude-predicted + DOMPurify-sanitized HTML. Set as <iframe srcDoc>. */
+  predictedHtml: text("predicted_html").notNull(),
+  /** Last rrweb FullSnapshot serialized to HTML. Rendered side-by-side as "before". */
+  originalHtml: text("original_html").notNull(),
+  /** ≤200-char human summary of what the fix visibly changes. */
+  diffSummary: text("diff_summary").notNull().default(""),
+  /** CSS selectors of modified elements — used by the diff overlay. */
+  targetSelectors: jsonb("target_selectors").notNull().default([]),
+  /** 0-100 self-reported confidence from the model. */
+  confidence: integer("confidence").notNull().default(0),
+  tokensIn: integer("tokens_in").notNull().default(0),
+  tokensOut: integer("tokens_out").notNull().default(0),
+  costCents: integer("cost_cents").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const previewSessions = pgTable("preview_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** 12-char base32 capability slug. Served at /preview/<slug>. Unguessable. */
+  publicSlug: text("public_slug").notNull().unique(),
+  alertId: uuid("alert_id")
+    .references(() => alerts.id, { onDelete: "cascade" })
+    .notNull(),
+  projectId: uuid("project_id")
+    .references(() => projects.id, { onDelete: "cascade" })
+    .notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id, {
+    onDelete: "set null",
+  }),
+  remediationSessionId: uuid("remediation_session_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  /** Denormalized from remediationSessions so the public page skips the join. */
+  eapReceiptId: text("eap_receipt_id"),
+
+  // ── Tier 1 (live ephemeral deploy on Hetzner) ─────────────────────────────
+  /** pending | provisioning | building | running | failed | expired */
+  liveStatus: text("live_status").notNull().default("pending"),
+  liveDeployId: text("live_deploy_id"),
+  liveUrl: text("live_url"),
+  liveHostname: text("live_hostname"),
+  livePort: integer("live_port"),
+  /** Rolled last 32KB of build logs. Secret-scrubbed before write. */
+  liveBuildLogs: text("live_build_logs"),
+  liveError: text("live_error"),
+  liveStartedAt: timestamp("live_started_at", { withTimezone: true }),
+  liveReadyAt: timestamp("live_ready_at", { withTimezone: true }),
+  liveExpiresAt: timestamp("live_expires_at", { withTimezone: true }),
+
+  // ── Tier 3 (AI-predicted HTML) ────────────────────────────────────────────
+  /** pending | rendering | ready | failed | skipped */
+  predictionStatus: text("prediction_status").notNull().default("pending"),
+  predictionId: uuid("prediction_id").references(() => previewPredictions.id, {
+    onDelete: "set null",
+  }),
+  predictionError: text("prediction_error"),
+
+  // ── Observability / engagement ────────────────────────────────────────────
+  buildDurationMs: integer("build_duration_ms"),
+  predictionDurationMs: integer("prediction_duration_ms"),
+  predictionTokensIn: integer("prediction_tokens_in"),
+  predictionTokensOut: integer("prediction_tokens_out"),
+  predictionCents: integer("prediction_cents"),
+  viewCount: integer("view_count").notNull().default(0),
+  tier1ClickCount: integer("tier1_click_count").notNull().default(0),
+  tier3ClickCount: integer("tier3_click_count").notNull().default(0),
+
+  /** CDN-served PNG of the running preview. Captured by the Hetzner worker
+   *  via Playwright once Tier 1 reaches `running`, uploaded to Vercel Blob,
+   *  and referenced here by URL. Persists past the 24h preview TTL so a
+   *  share URL tweet or Slack unfurl keeps rendering the image. */
+  screenshotUrl: text("screenshot_url"),
+  screenshotTakenAt: timestamp("screenshot_taken_at"),
+  screenshotWidth: integer("screenshot_width"),
+  screenshotHeight: integer("screenshot_height"),
+  screenshotError: text("screenshot_error"),
+
+  /** Set by the org owner's "revoke share" action. When non-null the public
+   *  slug endpoint returns 410 Gone. Internal lookups by id still resolve. */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type PreviewSession = typeof previewSessions.$inferSelect;
+export type PreviewPrediction = typeof previewPredictions.$inferSelect;
+
+export type RemediationStep = {
+  id: string;
+  type: string;
+  message: string;
+  status: "running" | "completed" | "failed";
+  timestamp: string;
+};
+
+// ── Cron Locks (prevent concurrent cron invocations) ──────────────────────────
+
+export const cronLocks = pgTable("cron_locks", {
+  key: text("key").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+// ── Remediation Locks (file-level concurrency control) ──────────────────────
+
+export const remediationLocks = pgTable("remediation_locks", {
+  repoId: text("repo_id").notNull(),
+  filePath: text("file_path").notNull(),
+  sessionId: text("session_id").notNull(),
+  acquiredAt: timestamp("acquired_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [{ primaryKey: [t.repoId, t.filePath] }]);
+
+// ── Gate Telemetry (circuit breaker + dashboard) ────────────────────────────
+
+export const gateTelemetry = pgTable("gate_telemetry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  gateName: text("gate_name").notNull(),
+  result: boolean("result").notNull(),
+  errorReason: text("error_reason"),
+  durationMs: integer("duration_ms"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Failed Fixes (learning from failures) ───────────────────────────────────
+
+export const failedFixes = pgTable("failed_fixes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  errorFingerprint: text("error_fingerprint").notNull(),
+  attemptedFixSummary: text("attempted_fix_summary").notNull(),
+  failureReason: text("failure_reason").notNull(),
+  filesTouched: jsonb("files_touched").$type<string[]>().default([]),
+  failedAt: timestamp("failed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Confidence Calibration ──────────────────────────────────────────────────
+
+export const confidenceCalibration = pgTable("confidence_calibration", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  predictedConfidence: integer("predicted_confidence").notNull(),
+  actualOutcome: boolean("actual_outcome").notNull(),
+  diagnosedAt: timestamp("diagnosed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Remediation Incidents (correlation) ─────────────────────────────────────
+
+export const remediationIncidents = pgTable("remediation_incidents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  sessionIds: jsonb("session_ids").$type<string[]>().notNull().default([]),
+  leadSessionId: text("lead_session_id"),
+  rootCause: text("root_cause"),
+  status: text("status").notNull().default("open"), // open | resolved | resolved_by_leader
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── TypeScript types ──────────────────────────────────────────────────────────
+
+export type User = typeof users.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type Alert = typeof alerts.$inferSelect;
+export type NewAlert = typeof alerts.$inferInsert;
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type ProjectInvite = typeof projectInvites.$inferSelect;
+export type AlertComment = typeof alertComments.$inferSelect;
+export type MaintenanceWindow = typeof maintenanceWindows.$inferSelect;
+export type EscalationRule = typeof escalationRules.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type OutgoingWebhook = typeof outgoingWebhooks.$inferSelect;
+export type StatusPage = typeof statusPages.$inferSelect;
+export type StatusPageIncident = typeof statusPageIncidents.$inferSelect;
+export type StatusPageUpdate = typeof statusPageUpdates.$inferSelect;
+export type StatusPageSubscriber = typeof statusPageSubscribers.$inferSelect;
+export type RemediationSession = typeof remediationSessions.$inferSelect;
+
+// ── Test generation sessions (Inari Guard — `/test <path>` flow) ─────────────
+//
+// Mirror of remediationSessions, purpose-built for the test-generation
+// pipeline. The flow is shorter than remediation (no CI gate, no auto-merge,
+// no monitoring) but has its own quality gates (assertion check, no
+// expect(true), etc.) and a two-pass model strategy (cheap plan, flagship
+// code, cheap review).
+//
+// See migrations/0095_test_generation_sessions.sql for the full schema +
+// status state machine.
+
+export const testGenerationSessions = pgTable("test_generation_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+
+  // Input
+  sourceKind: text("source_kind").notNull(),    // file | function | alert | recording | diff
+  sourceTarget: text("source_target").notNull(),
+  frameworkHint: text("framework_hint"),
+
+  // Pipeline state
+  status: text("status").notNull().default("pending"),
+  // pending | exploring | planning | writing | verifying | reviewing |
+  // ready | delivered | failed | cancelled
+  steps: jsonb("steps").notNull().default([]),
+  error: text("error"),
+
+  // Detected at runtime
+  frameworkDetected: text("framework_detected"),
+  testFiles: jsonb("test_files"),       // [{ path, content }]
+  testPlan: jsonb("test_plan"),         // [{ name, scenario, inputs, expected, mocks }]
+  reviewResult: jsonb("review_result"), // { score, concerns, rejected, approved }
+  qualityGates: jsonb("quality_gates"), // { passed: [], failed: [] }
+
+  // Verification
+  verification: jsonb("verification"),  // { command, exit_code, passed, failed, stdout, stderr }
+
+  // Output
+  deliveryMode: text("delivery_mode"),  // pr | local | inline
+  prUrl: text("pr_url"),
+  prNumber: integer("pr_number"),
+  localPath: text("local_path"),
+
+  // Telemetry
+  modelsUsed: jsonb("models_used"),    // { explore, plan, write, review }
+  tokensIn: jsonb("tokens_in"),
+  tokensOut: jsonb("tokens_out"),
+  costCents: integer("cost_cents").notNull().default(0),
+  durationMs: integer("duration_ms"),
+
+  // Audit
+  witnessReceiptId: text("witness_receipt_id"),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type TestGenerationSession = typeof testGenerationSessions.$inferSelect;
+
+export type Organization = typeof organizations.$inferSelect;
+export type OrganizationMember = typeof organizationMembers.$inferSelect;
+export type OrganizationInvite = typeof organizationInvites.$inferSelect;
+
+// ── Uptime Monitoring ───────────────────────────────────────────────────────
+
+export const uptimeMonitors = pgTable("uptime_monitors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  url: text("url").notNull(),
+  name: text("name"),
+  intervalSec: integer("interval_sec").default(60).notNull(),
+  expectedStatus: integer("expected_status").default(200).notNull(),
+  timeoutMs: integer("timeout_ms").default(10000).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  isDown: boolean("is_down").default(false).notNull(),
+  /** Consecutive failed checks (reset to 0 on success) */
+  consecutiveFailures: integer("consecutive_failures").default(0).notNull(),
+  /** When auto-heal was last triggered (cooldown: 10 min) */
+  healTriggeredAt: timestamp("heal_triggered_at"),
+  lastCheckedAt: timestamp("last_checked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const uptimeChecks = pgTable("uptime_checks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  monitorId: uuid("monitor_id").references(() => uptimeMonitors.id, { onDelete: "cascade" }).notNull(),
+  statusCode: integer("status_code"),
+  responseTimeMs: integer("response_time_ms"),
+  isUp: boolean("is_up").notNull(),
+  error: text("error"),
+  checkedAt: timestamp("checked_at").defaultNow().notNull(),
+});
+
+export type UptimeMonitor = typeof uptimeMonitors.$inferSelect;
+export type UptimeCheck = typeof uptimeChecks.$inferSelect;
+
+// ── On-Call Schedules ───────────────────────────────────────────────────────
+
+export const onCallSchedules = pgTable("on_call_schedules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  timezone: text("timezone").default("UTC").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const onCallSlots = pgTable("on_call_slots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scheduleId: uuid("schedule_id").references(() => onCallSchedules.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  level: integer("level").notNull().default(1), // 1=Primary, 2=Secondary
+  dayStart: integer("day_start").notNull(),
+  dayEnd: integer("day_end").notNull(),
+  hourStart: integer("hour_start").default(0).notNull(),
+  hourEnd: integer("hour_end").default(23).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const onCallOverrides = pgTable("on_call_overrides", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scheduleId: uuid("schedule_id").references(() => onCallSchedules.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  level: integer("level").notNull().default(1),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type OnCallSchedule = typeof onCallSchedules.$inferSelect;
+export type OnCallSlot = typeof onCallSlots.$inferSelect;
+export type OnCallOverride = typeof onCallOverrides.$inferSelect;
+export type IncidentStorm = typeof incidentStorms.$inferSelect;
+
+// ── Blog subscribers ──────────────────────────────────────────────────────────
+
+export const blogSubscribers = pgTable("blog_subscribers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  unsubscribeToken: text("unsubscribe_token").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type BlogSubscriber = typeof blogSubscribers.$inferSelect;
+
+// ── Blog ──────────────────────────────────────────────────────────────────────
+
+export const blogPosts = pgTable("blog_posts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  content: text("content").notNull().default(""),
+  tag: text("tag").notNull().default("Update"),
+  isPublished: boolean("is_published").default(false).notNull(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type BlogPost = typeof blogPosts.$inferSelect;
+
+// ── Substrate Recordings ─────────────────────────────────────────────────────
+
+export const replaySessions = pgTable("replay_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull().unique(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  durationMs: integer("duration_ms"),
+
+  r2Prefix: text("r2_prefix").notNull(),
+  blockCount: integer("block_count").notNull().default(0),
+  totalBytes: bigint("total_bytes", { mode: "number" }).notNull().default(0),
+
+  clickSelectors: text("click_selectors").array().notNull().default(sql`'{}'::text[]`),
+  urlsVisited: text("urls_visited").array().notNull().default(sql`'{}'::text[]`),
+  errorFingerprints: text("error_fingerprints").array().notNull().default(sql`'{}'::text[]`),
+  frustrationScore: integer("frustration_score").notNull().default(0),
+
+  browser: text("browser"),
+  os: text("os"),
+  country: text("country"),
+  viewport: jsonb("viewport"),
+
+  aiSummary: text("ai_summary"),
+  aiChapters: jsonb("ai_chapters"),
+
+  // Phase E — frustration signals. Both populated by replay-analyze worker
+  // after a session ends. Default '[]' means old rows + sessions awaiting
+  // analysis read as "no detected frustration" without null guards.
+  rageClicks: jsonb("rage_clicks").notNull().default(sql`'[]'::jsonb`),
+  deadClicks: jsonb("dead_clicks").notNull().default(sql`'[]'::jsonb`),
+
+  // Phase F — end-user identity. All nullable; populated at ingest from
+  // window.__INARIWATCH_USER__ if the customer's app sets it. emailHash
+  // is kept beside the plain email so the privacy toggle is a render-time
+  // decision (no re-process needed).
+  endUserId: text("end_user_id"),
+  endUserEmail: text("end_user_email"),
+  endUserEmailHash: text("end_user_email_hash"),
+
+  // Phase G — Core Web Vitals snapshot. Object keyed by vital name (LCP,
+  // CLS, INP, FCP, TTFB) with `{ value, rating }`. Empty object means
+  // "session pre-Phase G OR vitals never reported (e.g. headless / Node)".
+  webVitals: jsonb("web_vitals").notNull().default(sql`'{}'::jsonb`),
+
+  // Phase I.c — pre-parsed error stacks for the player's "Errors" panel.
+  // Populated by replay-analyze. Empty array = no errors OR session
+  // pre-feature. Schema validated by the analyzer (see ResolvedError type).
+  resolvedErrors: jsonb("resolved_errors").notNull().default(sql`'[]'::jsonb`),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ReplaySession = typeof replaySessions.$inferSelect;
+export type NewReplaySession = typeof replaySessions.$inferInsert;
+
+// ── Replay comments (Day 4 — collab) ─────────────────────────────────────
+
+export const replayComments = pgTable("replay_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull().references(() => replaySessions.sessionId, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Position in the replay this comment is anchored to (session-relative ms). */
+  timestampMs: integer("timestamp_ms").notNull(),
+  body: text("body").notNull(),
+  /** 1-level threading; route layer rejects nested replies. */
+  parentId: uuid("parent_id"),
+  resolved: boolean("resolved").notNull().default(false),
+  /** User ids extracted from `@mentions` at create time. Drives notifications
+   *  AND lets the panel render avatars without an extra join. */
+  mentionedUserIds: uuid("mentioned_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ReplayComment = typeof replayComments.$inferSelect;
+export type NewReplayComment = typeof replayComments.$inferInsert;
+
+export const substrateRecordings = pgTable("substrate_recordings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  recordingId: text("recording_id").notNull().unique(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  replaySessionId: uuid("replay_session_id").references(() => replaySessions.id, { onDelete: "set null" }),
+  // VAR Q1 — raw session id from X-IW-Session-Id header (matches alerts.sessionId).
+  sessionId: text("session_id"),
+  command: text("command"),
+  runtime: text("runtime").default("node"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  eventCount: integer("event_count").default(0),
+  durationMs: integer("duration_ms"),
+  categories: jsonb("categories"),
+  context: text("context"),
+  events: jsonb("events"),
+  uiEvents: jsonb("ui_events"), // rrweb session recording (clicks, inputs, navigation)
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Fase 11 — EAP receipts (local mirror of cryptographic attestations) ─────
+//
+// See migration 0070_eap_receipts.sql for design notes. This table mirrors
+// the *public* material of each EAP server receipt (Merkle root, signature,
+// metadata). The EAP server at eap.inariwatch.com remains the cryptographic
+// source of truth; this table exists for fast local queries and to serve
+// /api/eap/verify/:receiptId without an upstream round-trip on every hit.
+
+export const eapReceipts = pgTable("eap_receipts", {
+  /** 64-char hex Merkle root returned by EAP. Content-addressed. */
+  receiptId: text("receipt_id").primaryKey(),
+  alertId: uuid("alert_id")
+    .references(() => alerts.id, { onDelete: "cascade" })
+    .notNull(),
+  remediationSessionId: uuid("remediation_session_id")
+    .references(() => remediationSessions.id, { onDelete: "set null" }),
+  recordingId: text("recording_id").notNull(),
+  /** merkleRoot == receiptId today; kept separate for forward-compat. */
+  merkleRoot: text("merkle_root").notNull(),
+  /** Hex-encoded Ed25519 signature. NULL when EAP server has no keypair. */
+  signature: text("signature"),
+  /** Convenience flag — true iff signature is non-null AND server signed it. */
+  signed: boolean("signed").notNull().default(false),
+  eventCount: integer("event_count").notNull().default(0),
+  attestor: text("attestor").notNull().default("inariwatch"),
+  /** Result of the last LOCAL verify pass. NULL = never verified locally. */
+  verified: boolean("verified"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Fix Replay: Error patterns + Community fixes ────────────────────────────
+
+export const errorPatterns = pgTable("error_patterns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fingerprint: text("fingerprint").notNull().unique(),
+  patternText: text("pattern_text").notNull(),
+  category: text("category").notNull(),
+  framework: text("framework"),
+  language: text("language"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  /** Truncated context from the original diagnosis (stack trace + CI error) for pattern replay. */
+  contextSummary: text("context_summary"),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const communityFixes = pgTable("community_fixes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patternId: uuid("pattern_id").references(() => errorPatterns.id, { onDelete: "cascade" }).notNull(),
+  fixApproach: text("fix_approach").notNull(),
+  fixDescription: text("fix_description").notNull(),
+  filesChangedSummary: text("files_changed_summary"),
+  avgConfidence: integer("avg_confidence").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  totalApplications: integer("total_applications").notNull().default(0),
+  contributedBy: uuid("contributed_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const fixRatings = pgTable("fix_ratings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fixId: uuid("fix_id").references(() => communityFixes.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  worked: boolean("worked").notNull(),
+  rating: integer("rating"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ErrorPattern = typeof errorPatterns.$inferSelect;
+export type CommunityFix = typeof communityFixes.$inferSelect;
+export type FixRating = typeof fixRatings.$inferSelect;
+
+// ── Prediction tracking ──────────────────────────────────────────────────────
+
+export const predictions = pgTable("predictions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  prNumber: integer("pr_number").notNull(),
+  repo: text("repo").notNull(), // "owner/repo"
+  /** Predicted error title */
+  predictedError: text("predicted_error").notNull(),
+  /** File and line predicted */
+  predictedFile: text("predicted_file"),
+  predictedLine: integer("predicted_line"),
+  /** AI confidence 0-100 */
+  confidence: integer("confidence").notNull(),
+  /** Risk level from prediction engine */
+  riskLevel: text("risk_level").notNull(), // 'low' | 'medium' | 'high' | 'critical'
+  /** Shadow replay risk score 0-100 (null if replay didn't run) */
+  replayRiskScore: integer("replay_risk_score"),
+  /** Outcome after deploy: 'pending' | 'correct' | 'false_positive' | 'false_negative' */
+  outcome: text("outcome").default("pending").notNull(),
+  /** Alert ID if the predicted error actually occurred */
+  matchedAlertId: uuid("matched_alert_id").references(() => alerts.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+
+export type Prediction = typeof predictions.$inferSelect;
+
+// ── CLI Auth (device flow) ────────────────────────────────────────────────────
+
+export const cliPendingCodes = pgTable("cli_pending_codes", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  code:      text("code").notNull().unique(),
+  userId:    uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  approved:  boolean("approved").notNull().default(false),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── MCP Access Tokens ────────────────────────────────────────────────────────
+
+export const mcpTokens = pgTable("mcp_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  /** SHA-256 hash of the token. Raw token is shown once on creation, never stored. */
+  tokenHash: text("token_hash").notNull().unique(),
+  scopes: text("scopes").array().notNull().default(sql`'{read}'`),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type McpToken = typeof mcpTokens.$inferSelect;
+
+// ── MCP OAuth Clients (registered apps allowed to use OAuth) ─────────────────
+
+export const mcpOauthClients = pgTable("mcp_oauth_clients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: text("client_id").notNull().unique(),
+  name: text("name").notNull(),
+  redirectUris: text("redirect_uris").array().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── MCP OAuth Codes (PKCE authorization flow) ────────────────────────────────
+
+export const mcpOauthCodes = pgTable("mcp_oauth_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull().unique(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  clientId: text("client_id").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  scopes: text("scopes").array().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Telegram User Links ──────────────────────────────────────────────────────
+
+export const telegramUserLinks = pgTable("telegram_user_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  botToken: text("bot_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Telegram Message Tracking (thread context equivalent) ────────────────────
+
+export const telegramMessageLinks = pgTable("telegram_message_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  chatId: text("chat_id").notNull(),
+  messageId: integer("message_id").notNull(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }),
+  stormId: uuid("storm_id").references(() => incidentStorms.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("alert"), // 'alert' | 'incident' | 'deploy'
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Rate Limiting ────────────────────────────────────────────────────────────
+
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(1),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Slack Bot ────────────────────────────────────────────────────────────────
+
+export const slackInstallations = pgTable("slack_installations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  teamId: text("team_id").notNull().unique(),
+  teamName: text("team_name").notNull(),
+  botToken: text("bot_token").notNull(), // encrypted
+  botUserId: text("bot_user_id").notNull(),
+  scopes: text("scopes").array().notNull().default(sql`'{}'`),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const slackChannelMappings = pgTable("slack_channel_mappings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  channelName: text("channel_name").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const slackMessageThreads = pgTable("slack_message_threads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  threadTs: text("thread_ts").notNull(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }),
+  stormId: uuid("storm_id").references(() => incidentStorms.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("alert"), // 'alert' | 'incident' | 'deploy'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const slackUserLinks = pgTable("slack_user_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  slackUserId: text("slack_user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const deployMonitors = pgTable("deploy_monitors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  threadTs: text("thread_ts").notNull(),
+  installationId: uuid("installation_id").notNull().references(() => slackInstallations.id, { onDelete: "cascade" }),
+  deploySource: text("deploy_source").notNull(), // 'vercel' | 'netlify' | 'cloudflare-pages' | 'render' | 'github'
+  deployId: text("deploy_id"),
+  checkAt: timestamp("check_at").notNull(),
+  status: text("status").default("pending").notNull(), // 'pending' | 'checked'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ── Code Intelligence (Code RAG) ────────────────────────────────────────────
+
+export const codeRepoStatusEnum = pgEnum("code_repo_status", [
+  "pending",
+  "indexing",
+  "ready",
+  "failed",
+]);
+
+export const chunkTypeEnum = pgEnum("chunk_type", [
+  "function",
+  "class",
+  "method",
+  "module",
+  "type",
+]);
+
+export const depTypeEnum = pgEnum("dep_type", [
+  "calls",
+  "imports",
+  "extends",
+  "implements",
+]);
+
+export const codeRepositories = pgTable("code_repositories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  githubOwner: text("github_owner").notNull(),
+  githubRepo: text("github_repo").notNull(),
+  defaultBranch: text("default_branch").notNull().default("main"),
+  lastIndexedCommit: text("last_indexed_commit"),
+  lastIndexedAt: timestamp("last_indexed_at"),
+  totalChunks: integer("total_chunks").notNull().default(0),
+  status: codeRepoStatusEnum("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type CodeRepository = typeof codeRepositories.$inferSelect;
+export type NewCodeRepository = typeof codeRepositories.$inferInsert;
+
+export const codeChunks = pgTable(
+  "code_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    filePath: text("file_path").notNull(),
+    chunkType: chunkTypeEnum("chunk_type").notNull(),
+    name: text("name").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    code: text("code").notNull(),
+    docstring: text("docstring"),
+    embedding: vector("embedding"),
+    embeddingModelVersion: text("embedding_model_version").notNull().default("voyage-code-3"),
+    language: text("language").notNull(),
+    dependencies: text("dependencies").array().notNull().default([]),
+    tsv: tsvector("tsv"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_chunks_repo").on(table.repoId),
+    index("idx_code_chunks_file").on(table.repoId, table.filePath),
+    index("idx_code_chunks_embedding_model").on(table.repoId, table.embeddingModelVersion),
+  ]
+);
+
+export type CodeChunk = typeof codeChunks.$inferSelect;
+export type NewCodeChunk = typeof codeChunks.$inferInsert;
+
+export const codeDependencies = pgTable(
+  "code_dependencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceChunkId: uuid("source_chunk_id")
+      .notNull()
+      .references(() => codeChunks.id, { onDelete: "cascade" }),
+    targetChunkId: uuid("target_chunk_id")
+      .notNull()
+      .references(() => codeChunks.id, { onDelete: "cascade" }),
+    dependencyType: depTypeEnum("dependency_type").notNull(),
+  },
+  (table) => [
+    index("idx_code_deps_source").on(table.sourceChunkId),
+    index("idx_code_deps_target").on(table.targetChunkId),
+  ]
+);
+
+export type CodeDependency = typeof codeDependencies.$inferSelect;
+export type NewCodeDependency = typeof codeDependencies.$inferInsert;
+
+// ── AI usage logs ────────────────────────────────────────────────────────────
+// Per-call telemetry for BYOK cost tracking. Each user sees only their own.
+
+export const aiUsageLogs = pgTable(
+  "ai_usage_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "set null" }),
+    remediationSessionId: uuid("remediation_session_id").references(
+      () => remediationSessions.id,
+      { onDelete: "set null" }
+    ),
+
+    /** What feature triggered the call. */
+    feature: text("feature").notNull(),
+    // 'auto-analyze' | 'remediation' | 'chat' | 'security-scan'
+    // | 'risk-assessment' | 'postmortem' | 'correlate' | 'other'
+
+    provider: text("provider").notNull(),
+    // 'openai' | 'claude' | 'gemini' | 'grok' | 'deepseek' | 'groq'
+    model: text("model").notNull(),
+
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+
+    /** Computed cost in USD using pricing at time of call. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 8 }).notNull().default("0"),
+
+    /** True when using the free-tier platform key instead of user's BYOK. */
+    isPlatformKey: boolean("is_platform_key").notNull().default(false),
+
+    /** Error message if the call failed — null on success. */
+    error: text("error"),
+
+    /** Latency in ms — null if not measured. */
+    durationMs: integer("duration_ms"),
+
+    // ── InariLens fields (migration 0056) ────────────────────────────────
+    /** Stable per-call id. Indexed UNIQUE — the admin drilldown keys on it. */
+    requestId: uuid("request_id").notNull().defaultRandom(),
+    /** Full prompt text — nullable for rows logged before capture was wired. */
+    prompt: text("prompt"),
+    /** Model response text — nullable on error or for pre-capture rows. */
+    response: text("response"),
+    /**
+     * True when the call was served from a local cache (e.g. the redis
+     * diagnosis cache). Provider-side prompt caching is separate — see
+     * `cachedInputTokens`.
+     */
+    cached: boolean("cached").notNull().default(false),
+    /**
+     * For rows generated via the admin replay UI, points back to the
+     * original call. Lets the detail page render a lineage list.
+     */
+    replayOfRequestId: uuid("replay_of_request_id"),
+
+    // ── Fase 1 telemetry (migration 0069) ──────────────────────────────
+    /** Zero-based agent turn index within a remediation session. */
+    turnNumber: integer("turn_number"),
+    /** Time to first token in ms — null until a streaming writer lands. */
+    ttftMs: integer("ttft_ms"),
+    /** 'classify' | 'explore' | 'fix' | 'review' | 'graders' | 'other'. */
+    phase: text("phase"),
+    /** Provider-agnostic size bucket: 'nano' | 'mini' | 'standard' | 'reasoning'. */
+    modelTier: text("model_tier"),
+    /** When this row wraps a single tool invocation, the tool name. */
+    toolName: text("tool_name"),
+    /** Wall time of the tool execution on the cloud side. */
+    toolExecMs: integer("tool_exec_ms"),
+    /** Reasoning-token count reported by the provider (GPT-5.x family). */
+    reasoningTokens: integer("reasoning_tokens"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_ai_usage_logs_user_created").on(table.userId, table.createdAt),
+    index("idx_ai_usage_logs_project_created").on(table.projectId, table.createdAt),
+    index("idx_ai_usage_logs_alert").on(table.alertId),
+    index("idx_ai_usage_logs_session").on(table.remediationSessionId),
+    index("idx_ai_usage_logs_feature").on(table.userId, table.feature, table.createdAt),
+    uniqueIndex("idx_ai_usage_logs_request_id").on(table.requestId),
+    index("idx_ai_usage_logs_feature_created").on(table.feature, table.createdAt),
+    index("idx_ai_usage_logs_replay_of").on(table.replayOfRequestId),
+    index("idx_ai_usage_logs_phase_created").on(table.feature, table.phase, table.createdAt),
+    index("idx_ai_usage_logs_model_tier_created").on(table.modelTier, table.createdAt),
+  ]
+);
+
+export type AiUsageLog = typeof aiUsageLogs.$inferSelect;
+export type NewAiUsageLog = typeof aiUsageLogs.$inferInsert;
+
+// ── Monthly quota usage ─────────────────────────────────────────────────────
+// One row per user per month. Counters increment as features are used.
+// Reset by cron on day 1 of each month (creates new row with new period_start).
+
+export const monthlyQuotaUsage = pgTable(
+  "monthly_quota_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+
+    /** First day of the calendar month at 00:00 UTC */
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+
+    autoAnalyzeUsed: integer("auto_analyze_used").notNull().default(0),
+    remediationUsed: integer("remediation_used").notNull().default(0),
+    chatUsed: integer("chat_used").notNull().default(0),
+    prPredictionUsed: integer("pr_prediction_used").notNull().default(0),
+    postmortemUsed: integer("postmortem_used").notNull().default(0),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_quota_usage_user_period").on(table.userId, table.periodStart),
+  ]
+);
+
+export type MonthlyQuotaUsage = typeof monthlyQuotaUsage.$inferSelect;
+export type NewMonthlyQuotaUsage = typeof monthlyQuotaUsage.$inferInsert;
+
+// ── Webhook idempotency ─────────────────────────────────────────────────────
+// Track processed Stripe/GitHub/etc. webhook events to handle retries.
+
+export const processedWebhookEvents = pgTable("processed_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  source: text("source").notNull(), // 'stripe' | 'github' | etc.
+  eventType: text("event_type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── VAR Q1 — telemetry + What-If cache ──────────────────────────────────────
+// Append-only event log driving the VAR roadmap. Every new feature emits at
+// least one event. Helper at web/lib/telemetry/product-metrics.ts.
+
+export const productMetrics = pgTable("product_metrics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  event: text("event").notNull(),
+  valueNumeric: doublePrecision("value_numeric"),
+  valueText: text("value_text"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type ProductMetric = typeof productMetrics.$inferSelect;
+export type NewProductMetric = typeof productMetrics.$inferInsert;
+
+// What-If replay cache. Deterministic — keyed by (session_id, fix_commit_sha).
+// Same inputs always produce same output, so we never invalidate by TTL.
+
+export const whatifReplays = pgTable("whatif_replays", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: text("session_id").notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  fixId: uuid("fix_id"),
+  /** { events: [...], divergence_at_ms, summary, error? } — see Substrate replay output. */
+  result: jsonb("result").notNull(),
+  status: text("status").notNull().default("ready"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type WhatifReplay = typeof whatifReplays.$inferSelect;
+export type NewWhatifReplay = typeof whatifReplays.$inferInsert;
+
+// VAR Q2 — Gate 12 "What-If Across Fleet". One row per (alert, remediation,
+// fix_commit_sha); the worker updates counters in place as each session's
+// replay finishes. Powers the Fleet Verification card + auto-merge gate.
+
+export const fleetVerificationRuns = pgTable("fleet_verification_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  status: text("status").notNull().default("running"),
+  sessionsTotal: integer("sessions_total").notNull(),
+  sessionsAttempted: integer("sessions_attempted").notNull().default(0),
+  countMatched: integer("count_matched").notNull().default(0),
+  countUncertain: integer("count_uncertain").notNull().default(0),
+  countWouldNotPrevent: integer("count_would_not_prevent").notNull().default(0),
+  countErrored: integer("count_errored").notNull().default(0),
+  /** [{ sessionId, outcome, riskScore?, errorCode?, durationMs }] */
+  sessionResults: jsonb("session_results").notNull().default(sql`'[]'::jsonb`),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
+export type FleetVerificationRun = typeof fleetVerificationRuns.$inferSelect;
+export type NewFleetVerificationRun = typeof fleetVerificationRuns.$inferInsert;
+
+// VAR Q2 Week 4 — Gate 17 "Performance Regression". Reuses substrate event
+// timings from whatif_replays (recorded vs replayed) to detect critical-path
+// slowdowns. One row per (alert, remediation, sha).
+
+export const performanceBenchmarks = pgTable("performance_benchmarks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  baselineP50Ms: doublePrecision("baseline_p50_ms"),
+  baselineP99Ms: doublePrecision("baseline_p99_ms"),
+  fixP50Ms: doublePrecision("fix_p50_ms"),
+  fixP99Ms: doublePrecision("fix_p99_ms"),
+  regressionPercent: doublePrecision("regression_percent"),
+  /** [{ url, method, baselineP50Ms, fixP50Ms, regressionPct, sampleSize, slowerThanThreshold }] */
+  affectedPaths: jsonb("affected_paths").notNull().default(sql`'[]'::jsonb`),
+  thresholdPercent: doublePrecision("threshold_percent").notNull().default(10),
+  passed: boolean("passed"),
+  status: text("status").notNull().default("running"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type PerformanceBenchmark = typeof performanceBenchmarks.$inferSelect;
+export type NewPerformanceBenchmark = typeof performanceBenchmarks.$inferInsert;
+
+// VAR Q2 Week 5 — Gate 13 "Behavioral Drift". Two tables:
+//   sessionEndpointMetrics — raw per-(recording, endpoint) samples written
+//   by the substrate-extract worker after /api/recordings/upload persists
+//   a substrate_recordings row. Baseline percentiles (p50/p95/p99) are
+//   computed with percentile_cont over a rolling N-day window at gate time.
+//
+//   behavioralDriftRuns — one row per (alert, remediation, fix_commit_sha),
+//   populated by the behavioral-drift BullMQ job on the low queue. Yellow-
+//   light semantics: improvements_detected is populated for wins but never
+//   fails the gate. Permissive calibration: only drifted_percent drives
+//   pass/fail, structural drift does not push max_drift_score.
+
+export const sessionEndpointMetrics = pgTable("session_endpoint_metrics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  substrateRecordingId: uuid("substrate_recording_id")
+    .references(() => substrateRecordings.id, { onDelete: "cascade" })
+    .notNull(),
+  projectId: uuid("project_id")
+    .references(() => projects.id, { onDelete: "cascade" })
+    .notNull(),
+  /** Normalized route signature, e.g. "POST /api/users/:id". Framework
+   *  route template from correlationData takes precedence over the
+   *  heuristic normalizer when available. */
+  endpointSignature: text("endpoint_signature").notNull(),
+  /** First URL observed for this row — debug-only, never grouped by. */
+  endpointUrlRaw: text("endpoint_url_raw"),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  /** TRUE when the source recording has alert_id NULL and no error-kind
+   *  events. Baseline reads filter on this — unhealthy rows are kept for
+   *  future trend-delta work but never contribute to the baseline. */
+  healthy: boolean("healthy").notNull().default(true),
+  latencyMs: doublePrecision("latency_ms"),
+  dbQueryCount: integer("db_query_count").notNull().default(0),
+  externalHttpCount: integer("external_http_count").notNull().default(0),
+  topStatus: integer("top_status"),
+  /** Deduped, sorted array of downstream signatures this endpoint called.
+   *  Shape: ["postgres:VERB-TABLE", "https://api.stripe.com/v1/charges"] */
+  downstreamSignatures: jsonb("downstream_signatures").notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type SessionEndpointMetric = typeof sessionEndpointMetrics.$inferSelect;
+export type NewSessionEndpointMetric = typeof sessionEndpointMetrics.$inferInsert;
+
+export const behavioralDriftRuns = pgTable("behavioral_drift_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  /** Rolling window used for the baseline on THIS run. Stored on the row
+   *  so later threshold/window changes stay reproducible. */
+  windowDays: integer("window_days").notNull().default(7),
+  status: text("status").notNull().default("running"),
+  analyzedEndpoints: integer("analyzed_endpoints").notNull().default(0),
+  insufficientDataEndpoints: integer("insufficient_data_endpoints").notNull().default(0),
+  driftedEndpoints: integer("drifted_endpoints").notNull().default(0),
+  improvedEndpoints: integer("improved_endpoints").notNull().default(0),
+  /** Worst per-endpoint MAGNITUDE score in [0,1]. Structural drift does NOT
+   *  push this value (permissive calibration). Null when analyzed=0. */
+  maxDriftScore: doublePrecision("max_drift_score"),
+  /** [{ signature, magnitudeScore, hasStructuralDrift, baselineSamples,
+   *     fixSamples, structural: { missingDownstreams, newDownstreams,
+   *     statusShift }, magnitude: { latencyMs, dbQueryCount,
+   *     externalHttpCount } }] — flagged endpoints only. */
+  endpointDetails: jsonb("endpoint_details").notNull().default(sql`'[]'::jsonb`),
+  /** Same shape as endpointDetails. Directionally-better endpoints only
+   *  (wins). Rendered in UI as green signals, NEVER fails the gate. */
+  improvementsDetected: jsonb("improvements_detected").notNull().default(sql`'[]'::jsonb`),
+  thresholdDriftedPercent: doublePrecision("threshold_drifted_percent").notNull().default(20),
+  passed: boolean("passed"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
+export type BehavioralDriftRun = typeof behavioralDriftRuns.$inferSelect;
+export type NewBehavioralDriftRun = typeof behavioralDriftRuns.$inferInsert;
+
+// VAR Q2 Week 8 — Gate 16 "Multi-Environment Coverage". Compares the env
+// distribution of fleet sessions replayed by Gate 12 against the full
+// project runtime distribution from substrate_recordings. passed=null
+// means SKIP (single-env project, fleet run incomplete, or no env data)
+// and auto-merge treats null as skip, NOT fail — matches Gate 13/17.
+
+export const multiEnvCoverageRuns = pgTable("multi_env_coverage_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  bullmqJobId: text("bullmq_job_id"),
+  /** Rolling window for the project distribution query. Default 30d. */
+  windowDays: integer("window_days").notNull().default(30),
+  /** Missing env at >threshold_high_percent traffic = HIGH → fails gate. */
+  thresholdHighPercent: numeric("threshold_high_percent").notNull().default("20"),
+  /** Missing env between medium and high = MEDIUM → surfaces, never fails. */
+  thresholdMediumPercent: numeric("threshold_medium_percent").notNull().default("10"),
+  /** { "node@18": { trafficPercent, sessionCount }, ... } */
+  projectEnvDistribution: jsonb("project_env_distribution").notNull().default(sql`'{}'::jsonb`),
+  fleetEnvDistribution: jsonb("fleet_env_distribution").notNull().default(sql`'{}'::jsonb`),
+  /** Node majors missing from fleet above high threshold (fails gate). */
+  missingEnvsHigh: text("missing_envs_high").array().notNull().default(sql`'{}'::text[]`),
+  /** Node majors missing from fleet in medium band (yellow-light). */
+  missingEnvsMedium: text("missing_envs_medium").array().notNull().default(sql`'{}'::text[]`),
+  /** Sum of project traffic % for envs present in both distributions. */
+  coveragePercent: numeric("coverage_percent"),
+  /** Full env vectors from fleet sessions — platform/arch/app_version
+   *  stored for future gate logic (v1 only scores on node major). */
+  observedEnvVectors: jsonb("observed_env_vectors").notNull().default(sql`'[]'::jsonb`),
+  passed: boolean("passed"),
+  /** running | completed | failed | skipped. "skipped" + passed=null
+   *  is the single-env / fleet-incomplete / no-env-data path. */
+  status: text("status").notNull().default("running"),
+  skipReason: text("skip_reason"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type MultiEnvCoverageRun = typeof multiEnvCoverageRuns.$inferSelect;
+export type NewMultiEnvCoverageRun = typeof multiEnvCoverageRuns.$inferInsert;
+
+// VAR Q2 Week 9 — Gate 14 "Cost Impact". Frozen snapshot of AI spend
+// for a remediation, computed from ai_usage_logs. One row per
+// (alert, remediation, fix_commit_sha). Passes when
+// remediation_cost_usd <= threshold_usd. Skip semantics via passed=null
+// when no ai_usage_logs rows exist for the remediation.
+
+export const costImpactRuns = pgTable("cost_impact_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  /** Sum of ai_usage_logs.cost_usd for this remediation, frozen at eval. */
+  remediationCostUsd: numeric("remediation_cost_usd", { precision: 12, scale: 8 })
+    .notNull()
+    .default("0"),
+  tokenCountInput: integer("token_count_input").notNull().default(0),
+  tokenCountOutput: integer("token_count_output").notNull().default(0),
+  tokenCountCached: integer("token_count_cached").notNull().default(0),
+  callCount: integer("call_count").notNull().default(0),
+  /** { "<feature>": { costUsd, inputTokens, outputTokens, callCount } } */
+  costBreakdown: jsonb("cost_breakdown").notNull().default(sql`'{}'::jsonb`),
+  thresholdUsd: numeric("threshold_usd", { precision: 12, scale: 8 }).notNull().default("1"),
+  passed: boolean("passed"),
+  status: text("status").notNull().default("running"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type CostImpactRun = typeof costImpactRuns.$inferSelect;
+export type NewCostImpactRun = typeof costImpactRuns.$inferInsert;
+
+// VAR Q2 Week 12 — Progressive Rollout state machine. 1% → 10% → 50%
+// → 100% with per-stage health checks. v1 is manual-advance (operator
+// clicks "next stage") with automatic rollback on regression. Auto-
+// advance via cron is a v2 addition over the same table.
+
+export const rolloutRuns = pgTable("rollout_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+  remediationId: uuid("remediation_id")
+    .references(() => remediationSessions.id, { onDelete: "cascade" })
+    .notNull(),
+  fixCommitSha: text("fix_commit_sha").notNull(),
+  /** pending | canary_1 | canary_10 | canary_50 | full_100 | complete
+   *  | reverted | failed */
+  currentStage: text("current_stage").notNull().default("pending"),
+  /** When the CURRENT stage started — reset on every advance. */
+  stageStartedAt: timestamp("stage_started_at", { withTimezone: true }).defaultNow().notNull(),
+  /** [{ stage, startedAt, endedAt, outcome, metrics, triggeredBy }] */
+  stageHistory: jsonb("stage_history").notNull().default(sql`'[]'::jsonb`),
+  autoRollbackEnabled: boolean("auto_rollback_enabled").notNull().default(true),
+  rollbackReason: text("rollback_reason"),
+  rollbackPrUrl: text("rollback_pr_url"),
+  thresholdNewErrors: integer("threshold_new_errors").notNull().default(0),
+  thresholdUptimeFailures: integer("threshold_uptime_failures").notNull().default(1),
+  thresholdFingerprintRegressions: integer("threshold_fingerprint_regressions").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export type RolloutRun = typeof rolloutRuns.$inferSelect;
+export type NewRolloutRun = typeof rolloutRuns.$inferInsert;
+
+// ── Fase 1 telemetry — sandbox_audit_log (migration 0069) ──────────────────
+//
+// One row per CodeAct sandbox invocation (Fase 5). Populated by the
+// Deno + Pyodide runner in worker/src/sandbox/*. The code itself is not
+// stored here to keep the table small and to preserve PII scrubbing;
+// code_hash is a SHA-256 hex of the source so duplicate invocations can
+// be correlated.
+
+export const sandboxAuditLog = pgTable(
+  "sandbox_audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references(() => remediationSessions.id, { onDelete: "set null" }),
+    aiUsageLogId: uuid("ai_usage_log_id").references(() => aiUsageLogs.id, { onDelete: "set null" }),
+    codeHash: text("code_hash").notNull(),
+    purpose: text("purpose").notNull(),
+    resultSizeBytes: integer("result_size_bytes").notNull().default(0),
+    durationMs: integer("duration_ms").notNull().default(0),
+    success: boolean("success").notNull(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_sandbox_audit_log_session_created").on(table.sessionId, table.createdAt),
+    index("idx_sandbox_audit_log_success_created").on(table.success, table.createdAt),
+  ]
+);
+
+export type SandboxAuditLog = typeof sandboxAuditLog.$inferSelect;
+export type NewSandboxAuditLog = typeof sandboxAuditLog.$inferInsert;
+
+// ── Fase 1 telemetry — pattern_memory (migration 0069) ─────────────────────
+//
+// Per-project (error_fingerprint → fix) index queried by Tier 0 and Tier 1
+// in Fase 6. 768-dim embedding mirrors the code_chunks schema (migration 0094
+// resized all vector columns from 1024 → 768 for nomic-embed-code).
+// Fase 6 populates this; Fase 1 just declares the shape.
+
+export const patternMemory = pgTable(
+  "pattern_memory",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+    errorFingerprint: text("error_fingerprint").notNull(),
+    embedding: vector("embedding"),
+    fixStrategy: text("fix_strategy"),
+    filesTouched: jsonb("files_touched").notNull().default(sql`'[]'::jsonb`),
+    successCount: integer("success_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    confidence: real("confidence"),
+    postMergeHealthScore: real("post_merge_health_score"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_pattern_memory_project_fingerprint").on(table.projectId, table.errorFingerprint),
+    index("idx_pattern_memory_project_last_used").on(table.projectId, table.lastUsedAt),
+  ]
+);
+
+export type PatternMemory = typeof patternMemory.$inferSelect;
+export type NewPatternMemory = typeof patternMemory.$inferInsert;
+
+// ── Fase 12 Part A — slo_events (migration 0071) ───────────────────────────
+//
+// One open row per (tier, metric). The SLO check cron UPSERTs against the
+// partial unique index idx_slo_events_open_unique WHERE resolved_at IS NULL.
+// Closed rows form the audit trail. Read by /admin/ai and /api/cron/slo-check.
+
+export const sloEvents = pgTable(
+  "slo_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tier: text("tier").notNull(),
+    metric: text("metric").notNull(),
+    thresholdValue: real("threshold_value").notNull(),
+    observedValue: real("observed_value").notNull(),
+    sampleCount: integer("sample_count").notNull(),
+    consecutiveBreachCount: integer("consecutive_breach_count").notNull().default(1),
+    firstBreachAt: timestamp("first_breach_at", { withTimezone: true }).defaultNow().notNull(),
+    lastBreachAt: timestamp("last_breach_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("slo_events_history").on(table.tier, table.metric, table.createdAt),
+  ]
+);
+
+export type SLOEvent = typeof sloEvents.$inferSelect;
+export type NewSLOEvent = typeof sloEvents.$inferInsert;
+
+// ── tier_router_labels (Fase 6.1, migration 0072) ──────────────────────────
+// Human ground-truth for tier router accuracy. The /admin/ai widget upgrades
+// from outcome-based approximation to real agreement once this table holds
+// >= 50 rows. Required gate before promoting TIER_ROUTER_MODE shadow → live.
+
+export const tierRouterLabels = pgTable(
+  "tier_router_labels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references(() => remediationSessions.id, { onDelete: "cascade" }).notNull(),
+    labelerUserId: uuid("labeler_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    humanTier: text("human_tier").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("tier_router_labels_session_labeler_idx").on(table.sessionId, table.labelerUserId),
+    index("tier_router_labels_created_idx").on(table.createdAt),
+  ]
+);
+
+export type TierRouterLabel = typeof tierRouterLabels.$inferSelect;
+export type NewTierRouterLabel = typeof tierRouterLabels.$inferInsert;
+
+// ── substrate_replay_comparisons (Sesión 18, migration 0073) ───────────────
+// Side-by-side log of v1 (AI-analysis) vs v2 (RaaS) replay-gate verdicts
+// during the SUBSTRATE_V2_GATE canary. Empty when the flag is off. Drives
+// the /admin/ops "Substrate replay v1 vs v2" widget.
+
+export const substrateReplayComparisons = pgTable(
+  "substrate_replay_comparisons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    alertId: uuid("alert_id").references(() => alerts.id, { onDelete: "cascade" }).notNull(),
+    remediationSessionId: uuid("remediation_session_id").references(
+      () => remediationSessions.id,
+      { onDelete: "set null" },
+    ),
+    recordingId: text("recording_id"),
+
+    v1Passed: boolean("v1_passed"),
+    v1RiskScore: integer("v1_risk_score"),
+    v1Confidence: integer("v1_confidence"),
+    v1Reason: text("v1_reason"),
+    v1DurationMs: integer("v1_duration_ms"),
+
+    v2Passed: boolean("v2_passed"),
+    v2RiskScore: integer("v2_risk_score"),
+    v2Confidence: integer("v2_confidence"),
+    v2Reason: text("v2_reason"),
+    v2DurationMs: integer("v2_duration_ms"),
+    v2RunnerMode: text("v2_runner_mode"),
+
+    chosen: text("chosen").notNull(),
+    agreed: boolean("agreed"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("substrate_replay_comparisons_created_idx").on(table.createdAt),
+    index("substrate_replay_comparisons_alert_idx").on(table.alertId),
+  ],
+);
+
+export type SubstrateReplayComparison = typeof substrateReplayComparisons.$inferSelect;
+export type NewSubstrateReplayComparison = typeof substrateReplayComparisons.$inferInsert;
+
+// ── A4 / A5 — Inari Live bug-saved counter ──────────────────────────────────
+//
+// See migration 0074_inari_live_saves.sql for the design rationale.
+
+export const inariLiveSaves = pgTable(
+  "inari_live_saves",
+  {
+    id:                  uuid("id").primaryKey().defaultRandom(),
+    userId:              uuid("user_id")
+                           .notNull()
+                           .references(() => users.id, { onDelete: "cascade" }),
+    projectId:           uuid("project_id")
+                           .references(() => projects.id, { onDelete: "set null" }),
+    watchDir:            text("watch_dir"),
+    recordingId:         text("recording_id"),
+    priorState:          text("prior_state"),
+    newState:            text("new_state").notNull(),
+    throwsBefore:        integer("throws_before"),
+    throwsAfter:         integer("throws_after").notNull().default(0),
+    valueSavedUsdCents:  integer("value_saved_usd_cents").notNull().default(20000),
+    createdAt:           timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("inari_live_saves_user_created_idx").on(table.userId, table.createdAt),
+    index("inari_live_saves_project_idx").on(table.projectId),
+  ],
+);
+
+export type InariLiveSave    = typeof inariLiveSaves.$inferSelect;
+export type NewInariLiveSave = typeof inariLiveSaves.$inferInsert;
+
+export const inariLiveSessions = pgTable(
+  "inari_live_sessions",
+  {
+    id:                        uuid("id").primaryKey().defaultRandom(),
+    userId:                    uuid("user_id")
+                                 .notNull()
+                                 .references(() => users.id, { onDelete: "cascade" }),
+    projectId:                 uuid("project_id")
+                                 .references(() => projects.id, { onDelete: "set null" }),
+    watchDir:                  text("watch_dir").notNull(),
+    totalSaves:                integer("total_saves").notNull().default(0),
+    // BIGINT in SQL — matches Drizzle's bigint("...", { mode: "number" }).
+    totalValueSavedUsdCents:   bigint("total_value_saved_usd_cents", { mode: "number" })
+                                 .notNull()
+                                 .default(0),
+    firstActiveAt:             timestamp("first_active_at", { withTimezone: true }).defaultNow().notNull(),
+    lastActiveAt:              timestamp("last_active_at",  { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("inari_live_sessions_user_path_idx").on(table.userId, table.watchDir),
+    index("inari_live_sessions_last_active_idx").on(table.lastActiveAt),
+  ],
+);
+
+export type InariLiveSession    = typeof inariLiveSessions.$inferSelect;
+export type NewInariLiveSession = typeof inariLiveSessions.$inferInsert;
+
+// ── Zero-install integrations (migration 0075) ──────────────────────────────
+//
+// GitHub App backs the "monitoring that doesn't touch your codebase" flow.
+// On install, our App opens a one-PR setup — instrumentation.ts +
+// next.config wrap + package.json — on every authorized repo. User
+// merges, sets INARIWATCH_DSN in their hosting provider's env vars,
+// next deploy is monitored.
+
+export const githubAppInstallations = pgTable(
+  "github_app_installations",
+  {
+    id:                uuid("id").primaryKey().defaultRandom(),
+    /** Migration 0085 — nullable for personal-mode installs (no workspace). */
+    organizationId:    uuid("organization_id")
+                         .references(() => organizations.id, { onDelete: "cascade" }),
+    /** GitHub installation_id (numeric, fits in BIGINT). */
+    installationId:    bigint("installation_id", { mode: "number" }).notNull().unique(),
+    accountLogin:      text("account_login").notNull(),
+    /** "User" or "Organization". */
+    accountType:       text("account_type").notNull(),
+    accountId:         bigint("account_id", { mode: "number" }).notNull(),
+    /** URL of the auto-PR we opened post-install (if any). */
+    setupPrUrl:        text("setup_pr_url"),
+    setupPrOwner:      text("setup_pr_owner"),
+    setupPrRepo:       text("setup_pr_repo"),
+    setupPrNumber:     integer("setup_pr_number"),
+    installedBy:       uuid("installed_by")
+                         .references(() => users.id, { onDelete: "set null" }),
+    createdAt:         timestamp("created_at").defaultNow().notNull(),
+    updatedAt:         timestamp("updated_at").defaultNow().notNull(),
+    uninstalledAt:     timestamp("uninstalled_at"),
+  },
+  (table) => [
+    index("github_app_installations_org_idx").on(table.organizationId),
+  ],
+);
+
+export type GithubAppInstallation = typeof githubAppInstallations.$inferSelect;
+
+// ── ai_router_receipts (v0.3 S2.5, migration 0076) ─────────────────────────
+//
+// Durable mirror of @inariwatch/ai-router RouterReceipt events. Drives
+// /admin/ops widgets (substrate breakdown, p50/p95 latency, fallback count)
+// and audit replays. Per architecture §12 every dispatch emits a receipt;
+// this table captures them for post-hoc analysis without leaking payloads.
+
+export const aiRouterReceipts = pgTable(
+  "ai_router_receipts",
+  {
+    id:                  uuid("id").primaryKey().defaultRandom(),
+    // "workspace" is the user-facing name for `organizations` rows.
+    workspaceId:         uuid("workspace_id")
+                            .references(() => organizations.id, { onDelete: "cascade" }),
+    userId:              uuid("user_id"),
+    projectId:           uuid("project_id"),
+    alertId:             uuid("alert_id"),
+    remediationSessionId: uuid("remediation_session_id"),
+
+    task:                text("task").notNull(),
+    namespace:           text("namespace").notNull(),
+    substrate:           text("substrate").notNull(),
+    provider:            text("provider").notNull(),
+    model:               text("model").notNull(),
+
+    inputTokens:         integer("input_tokens"),
+    outputTokens:        integer("output_tokens"),
+    cachedInputTokens:   integer("cached_input_tokens"),
+    durationMs:          integer("duration_ms").notNull(),
+
+    relayPath:           text("relay_path"),
+    fallbackUsed:        boolean("fallback_used").notNull().default(false),
+    isPlatformKey:       boolean("is_platform_key").notNull().default(false),
+
+    eapChainRoot:        text("eap_chain_root"),
+    userSidecarReceipt:  jsonb("user_sidecar_receipt"),
+    cloudReceipt:        jsonb("cloud_receipt"),
+
+    createdAt:           timestamp("created_at", { withTimezone: true })
+                            .defaultNow().notNull(),
+  },
+  (table) => [
+    index("ai_router_receipts_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    index("ai_router_receipts_substrate_created_idx").on(table.substrate, table.createdAt),
+    index("ai_router_receipts_task_created_idx").on(table.task, table.createdAt),
+    index("ai_router_receipts_namespace_created_idx").on(table.namespace, table.createdAt),
+  ],
+);
+
+export type AiRouterReceipt = typeof aiRouterReceipts.$inferSelect;
+export type NewAiRouterReceipt = typeof aiRouterReceipts.$inferInsert;
+
+// ── Code Intelligence v2 — semantic graph (migration 0079) ──────────────────
+//
+// Per CODE_INTELLIGENCE_V2_HANDOFF.md §1.1. Coexists with v1 (`codeChunks`,
+// `codeDependencies`) behind the CODE_INTEL_V2 service-layer flag. Phase 1.2
+// extractor populates these; Phase 1.4 queries read from them.
+//
+// FQN format: `<file_path>::<owner_chain>` — opaque string, extractor is the
+// canonical producer. Granularity = top-level + class members only.
+//
+// `parent_id` self-reference is declared at the SQL level (migration 0079).
+// We do not encode it via Drizzle's `.references()` to avoid the circular
+// type-inference dance; consumers join via explicit `eq(parent.id, child.parentId)`.
+
+export const codeSymbols = pgTable(
+  "code_symbols",
+  {
+    id:           uuid("id").primaryKey().defaultRandom(),
+    repoId:       uuid("repo_id")
+                    .notNull()
+                    .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    fqn:          text("fqn").notNull(),
+    kind:         text("kind").notNull(),
+    name:         text("name").notNull(),
+    filePath:     text("file_path").notNull(),
+    startLine:    integer("start_line").notNull(),
+    endLine:      integer("end_line").notNull(),
+    startCol:     integer("start_col"),
+    endCol:       integer("end_col"),
+    signature:    text("signature"),
+    returnType:   text("return_type"),
+    isAsync:      boolean("is_async").notNull().default(false),
+    isExported:   boolean("is_exported").notNull().default(false),
+    isStatic:     boolean("is_static").notNull().default(false),
+    isAbstract:   boolean("is_abstract").notNull().default(false),
+    visibility:   text("visibility"),
+    docComment:   text("doc_comment"),
+    parentId:     uuid("parent_id"),
+    language:     text("language").notNull(),
+    astHash:      text("ast_hash").notNull(),
+    indexedAt:    timestamp("indexed_at", { withTimezone: true })
+                    .defaultNow().notNull(),
+  },
+  (table) => [
+    // Uniqueness is `(repo_id, fqn, kind)` to accommodate TypeScript declaration
+    // merging — interface + namespace + value can share an FQN, each one row,
+    // distinguished by kind. Phase 1.2 extractor relies on this contract.
+    uniqueIndex("code_symbols_fqn_unique").on(table.repoId, table.fqn, table.kind),
+    index("idx_code_symbols_repo_kind").on(table.repoId, table.kind),
+    index("idx_code_symbols_repo_file").on(table.repoId, table.filePath),
+    index("idx_code_symbols_name").on(table.repoId, table.name),
+  ],
+);
+
+export type CodeSymbol = typeof codeSymbols.$inferSelect;
+export type NewCodeSymbol = typeof codeSymbols.$inferInsert;
+
+export const codeReferences = pgTable(
+  "code_references",
+  {
+    id:               uuid("id").primaryKey().defaultRandom(),
+    repoId:           uuid("repo_id")
+                        .notNull()
+                        .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    sourceSymbolId:   uuid("source_symbol_id")
+                        .references(() => codeSymbols.id, { onDelete: "cascade" }),
+    targetSymbolId:   uuid("target_symbol_id")
+                        .notNull()
+                        .references(() => codeSymbols.id, { onDelete: "cascade" }),
+    filePath:         text("file_path").notNull(),
+    line:             integer("line").notNull(),
+    col:              integer("col"),
+    kind:             text("kind").notNull(),
+  },
+  (table) => [
+    index("idx_code_references_target").on(table.targetSymbolId),
+    index("idx_code_references_source").on(table.sourceSymbolId),
+    index("idx_code_references_repo").on(table.repoId),
+  ],
+);
+
+export type CodeReference = typeof codeReferences.$inferSelect;
+export type NewCodeReference = typeof codeReferences.$inferInsert;
+
+export const codeTypeFacts = pgTable(
+  "code_type_facts",
+  {
+    id:            uuid("id").primaryKey().defaultRandom(),
+    symbolId:      uuid("symbol_id")
+                     .notNull()
+                     .references(() => codeSymbols.id, { onDelete: "cascade" }),
+    paramTypes:    jsonb("param_types"),
+    returnType:    text("return_type"),
+    genericParams: jsonb("generic_params"),
+    throws:        jsonb("throws"),
+    sideEffects:   jsonb("side_effects"),
+  },
+  (table) => [
+    index("idx_code_type_facts_symbol").on(table.symbolId),
+  ],
+);
+
+export type CodeTypeFact = typeof codeTypeFacts.$inferSelect;
+export type NewCodeTypeFact = typeof codeTypeFacts.$inferInsert;
+
+export const codeImports = pgTable(
+  "code_imports",
+  {
+    id:            uuid("id").primaryKey().defaultRandom(),
+    repoId:        uuid("repo_id")
+                     .notNull()
+                     .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    sourceFile:    text("source_file").notNull(),
+    targetModule:  text("target_module").notNull(),
+    resolvedFile:  text("resolved_file"),
+    importedNames: jsonb("imported_names"),
+  },
+  (table) => [
+    index("idx_code_imports_source").on(table.repoId, table.sourceFile),
+    index("idx_code_imports_target").on(table.repoId, table.resolvedFile),
+  ],
+);
+
+export type CodeImport = typeof codeImports.$inferSelect;
+export type NewCodeImport = typeof codeImports.$inferInsert;
+
+// ── Code Intelligence v2 — A/B shadow log (migration 0080) ──────────────────
+//
+// One row per `searchCode()` call when the engine flag is "shadow". Drives the
+// /admin/ops widget that compares v1 vs v2 retrieval. Rows are short-lived;
+// Phase 3 may add a daily summary aggregator before cutover.
+
+export const codeIntelShadowLog = pgTable(
+  "code_intel_shadow_log",
+  {
+    id:             uuid("id").primaryKey().defaultRandom(),
+    repoId:         uuid("repo_id")
+                      .references(() => codeRepositories.id, { onDelete: "cascade" }),
+    projectId:      uuid("project_id"),
+    query:          text("query").notNull(),
+    v1ResultCount:  integer("v1_result_count").notNull(),
+    v2ResultCount:  integer("v2_result_count").notNull(),
+    v1TopFqns:      jsonb("v1_top_fqns").notNull().default(sql`'[]'::jsonb`),
+    v2TopFqns:      jsonb("v2_top_fqns").notNull().default(sql`'[]'::jsonb`),
+    v1DurationMs:   integer("v1_duration_ms").notNull(),
+    v2DurationMs:   integer("v2_duration_ms").notNull(),
+    v1Error:        text("v1_error"),
+    v2Error:        text("v2_error"),
+    /**
+     * Code Intel v2 Phase 3.1 — true when the v2 attempt exceeded the
+     * 2× v1 wall-clock guard. Caller still received v1; v2 was abandoned.
+     * Drives the cutover dashboard's "v2 slow" metric.
+     */
+    v2TimedOut:     boolean("v2_timed_out").notNull().default(false),
+    createdAt:      timestamp("created_at", { withTimezone: true })
+                      .defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_intel_shadow_repo_created").on(table.repoId, table.createdAt),
+    index("idx_code_intel_shadow_project_created").on(table.projectId, table.createdAt),
+  ],
+);
+
+export type CodeIntelShadowLog = typeof codeIntelShadowLog.$inferSelect;
+export type NewCodeIntelShadowLog = typeof codeIntelShadowLog.$inferInsert;
+
+// ── Code Intel v2 Phase 3.2 — container-agent A/B telemetry ─────────────────
+//
+// One row per `runAgentJob` (worker/src/container-agent.ts). Engine = which
+// tool set the agent saw — v1 (existing read/grep/list) or v2 (existing +
+// find_references / type_at / blast_radius). Cutover dashboard (Phase 3.3)
+// aggregates this table to compute the "v2 reduces avg turns by ≥30% AND
+// success rate ≥ v1 - 2pp" gate before flipping CODE_INTEL_V2 default.
+
+export const codeIntelRemediationAb = pgTable(
+  "code_intel_remediation_ab",
+  {
+    id:                    uuid("id").primaryKey().defaultRandom(),
+    alertId:               uuid("alert_id")
+                              .references(() => alerts.id, { onDelete: "cascade" })
+                              .notNull(),
+    remediationSessionId:  uuid("remediation_session_id")
+                              .references(() => remediationSessions.id, { onDelete: "set null" }),
+    /** 'v1' | 'v2' — enforced by CHECK constraint at the SQL level. */
+    engine:                text("engine").notNull(),
+    /** Captured at decision time; NULL = global env was used. Audit trail for the cutover script. */
+    workspacePct:          integer("workspace_pct"),
+    turnCount:             integer("turn_count").notNull(),
+    success:               boolean("success").notNull(),
+    /** Aggregate AI cost in USD. Worker writes NULL today; Phase 3.4 may backfill from ai_usage_logs. */
+    costUsd:               numeric("cost_usd", { precision: 12, scale: 6 }),
+    durationMs:            integer("duration_ms").notNull(),
+    startedAt:             timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt:            timestamp("finished_at", { withTimezone: true }).notNull(),
+    failureReason:         text("failure_reason"),
+    createdAt:             timestamp("created_at", { withTimezone: true })
+                              .defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_code_intel_remediation_ab_alert").on(table.alertId),
+    index("idx_code_intel_remediation_ab_engine_created").on(table.engine, table.createdAt),
+    index("idx_code_intel_remediation_ab_session").on(table.remediationSessionId),
+  ],
+);
+
+export type CodeIntelRemediationAb = typeof codeIntelRemediationAb.$inferSelect;
+export type NewCodeIntelRemediationAb = typeof codeIntelRemediationAb.$inferInsert;
+
+// ── S12 — mobile pairing (PWA chat-agent) ───────────────────────────────────
+//
+// Two tables back the chat-agent flow that replaces the deprecated
+// `bot-app/`. Migration 0088. See web/lib/services/mobile-pairing.service.ts
+// for the lifecycle + comments at the top of 0088_mobile_pairing.sql for
+// the rationale. (Originally drafted as 0084 in the S12 worktree; renamed
+// at collapse to resolve a duplicate-prefix conflict with
+// 0084_project_integrations_installation_id.sql.)
+
+export const mobilePairingChallenges = pgTable(
+  "mobile_pairing_challenges",
+  {
+    challengeId:     uuid("challenge_id").primaryKey().defaultRandom(),
+    workspaceId:     uuid("workspace_id")
+                       .references(() => organizations.id, { onDelete: "cascade" })
+                       .notNull(),
+    pairingCode:     text("pairing_code").notNull(),
+    devicePubkey:    text("device_pubkey"),
+    displayName:     text("display_name"),
+    sasDigits:       text("sas_digits"),
+    sasEmittedAt:    timestamp("sas_emitted_at", { withTimezone: true }),
+    createdAt:       timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt:       timestamp("expires_at", { withTimezone: true }).notNull(),
+    confirmedAt:     timestamp("confirmed_at", { withTimezone: true }),
+    rejectedAt:      timestamp("rejected_at", { withTimezone: true }),
+    pairedDeviceId:  uuid("paired_device_id"),
+  },
+  (table) => [
+    index("idx_mobile_pairing_workspace_created").on(table.workspaceId, table.createdAt),
+    index("idx_mobile_pairing_expires_at").on(table.expiresAt),
+  ],
+);
+
+export type MobilePairingChallenge = typeof mobilePairingChallenges.$inferSelect;
+export type NewMobilePairingChallenge = typeof mobilePairingChallenges.$inferInsert;
+
+export const mobilePairedDevices = pgTable(
+  "mobile_paired_devices",
+  {
+    deviceId:          uuid("device_id").primaryKey().defaultRandom(),
+    workspaceId:       uuid("workspace_id")
+                         .references(() => organizations.id, { onDelete: "cascade" })
+                         .notNull(),
+    devicePubkey:      text("device_pubkey").notNull(),
+    displayName:       text("display_name").notNull(),
+    pairedAt:          timestamp("paired_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt:        timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    revokedAt:         timestamp("revoked_at", { withTimezone: true }),
+    pushSubscription:  jsonb("push_subscription"),
+  },
+  (table) => [
+    index("idx_mobile_paired_devices_workspace").on(table.workspaceId, table.pairedAt),
+  ],
+);
+
+export type MobilePairedDevice = typeof mobilePairedDevices.$inferSelect;
+export type NewMobilePairedDevice = typeof mobilePairedDevices.$inferInsert;
+
+// ── Project tokens (Inari Live V1 — Session 2) ──────────────────────────────
+//
+// Per-project credentials for the capture pipeline. Coexist with the legacy
+// project_integrations webhookSecret (DSN/HMAC) flow — see
+// `web/lib/webhooks/shared.ts` for the dual-mode resolver. Plaintext is shown
+// once on creation and only the SHA-256 hash is persisted, matching the
+// mcp_tokens pattern. workspace_id is nullable because personal projects
+// have no organization (organizations row).
+
+export const projectTokens = pgTable(
+  "project_tokens",
+  {
+    id:           uuid("id").primaryKey().defaultRandom(),
+    projectId:    uuid("project_id")
+                    .references(() => projects.id, { onDelete: "cascade" })
+                    .notNull(),
+    workspaceId:  uuid("workspace_id")
+                    .references(() => organizations.id, { onDelete: "cascade" }),
+    /** SHA-256 hex of plaintext token. Plaintext is irretrievable after mint. */
+    tokenHash:    text("token_hash").notNull().unique(),
+    /** First 18 chars of plaintext (e.g. "iwk_pub_v1_aB3xY9k") — display-only fingerprint. */
+    tokenPrefix:  text("token_prefix").notNull(),
+    scope:        text("scope").array().notNull().default(sql`ARRAY['events:write']::text[]`),
+    createdAt:    timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastUsedAt:   timestamp("last_used_at", { withTimezone: true }),
+    revokedAt:    timestamp("revoked_at", { withTimezone: true }),
+    /** Set on rotate: points to the new replacement token. Old token still works
+     *  for 24h grace, then the rotate-grace cron sets revoked_at. */
+    rotatedTo:    uuid("rotated_to"),
+    /** 'web' | 'desktop' | 'cli' | 'api' — drives audit + UI grouping. */
+    createdVia:   text("created_via").notNull(),
+    createdBy:    uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    /** Optional human label, e.g. "macmini-studio" for Inari-Live-minted tokens. */
+    deviceLabel:  text("device_label"),
+  },
+  (table) => [
+    uniqueIndex("project_tokens_hash_idx").on(table.tokenHash),
+    index("project_tokens_project_idx").on(table.projectId),
+    index("project_tokens_grace_idx").on(table.rotatedTo, table.createdAt),
+  ],
+);
+
+export type ProjectToken = typeof projectTokens.$inferSelect;
+export type NewProjectToken = typeof projectTokens.$inferInsert;
+
+// ── Inari Live device tokens (Session 1) ────────────────────────────────────
+//
+// Per-device auth token for Inari Live (Tauri desktop) installs. Replaces
+// the single-row api_keys.service='desktop' model that overwrote on every
+// approval, breaking multi-device. Plaintext only ever lives in the device
+// OS keyring; server stores SHA-256 hash + metadata. authenticateExtension
+// Token() falls back to api_keys for pre-S1 installs until they re-pair.
+
+export const deviceTokens = pgTable(
+  "device_tokens",
+  {
+    deviceId:    uuid("device_id").primaryKey().defaultRandom(),
+    userId:      uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    /** SHA-256 hash of the bearer token. Plaintext lives only in the OS keyring on the device. */
+    tokenHash:   text("token_hash").notNull().unique(),
+    /** Auto-generated from hostname on first connect; user-renamable. */
+    label:       text("label").notNull(),
+    os:          text("os"),
+    hostname:    text("hostname"),
+    appVersion:  text("app_version"),
+    createdAt:   timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt:  timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    revokedAt:   timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_device_tokens_user_active").on(table.userId, table.lastSeenAt),
+    index("idx_device_tokens_hash_active").on(table.tokenHash),
+  ],
+);
+
+export type DeviceToken = typeof deviceTokens.$inferSelect;
+export type NewDeviceToken = typeof deviceTokens.$inferInsert;
+
+// ── Conversations (Inari Live V1 Session 5) ─────────────────────────────────
+//
+// Chat-first replacement for the per-alert detail page. Every alert auto-
+// creates a conversation; users can also start "free chats" with no anchor.
+// Cross-device sync runs through the workspace SSE stream — last-write-wins
+// per turn, and `postUserMessage` retries chain-stamping on conflict.
+
+export const conversations = pgTable(
+  "conversations",
+  {
+    id:                uuid("id").primaryKey().defaultRandom(),
+    workspaceId:       uuid("workspace_id").references(() => organizations.id, { onDelete: "cascade" }),
+    anchorAlertId:     uuid("anchor_alert_id").references(() => alerts.id, { onDelete: "set null" }),
+    /** active | snoozed | resolved | archived. Enforced by CHECK constraint in 0092. */
+    state:             text("state").notNull().default("active"),
+    title:             text("title").notNull(),
+    lastMessageAt:     timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+    snoozedUntil:      timestamp("snoozed_until", { withTimezone: true }),
+    resolvedAt:        timestamp("resolved_at", { withTimezone: true }),
+    resolutionSummary: text("resolution_summary"),
+    createdByUserId:   uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Soft hint — which device last touched. Drives the "Continue on…" suggestion. */
+    activeDeviceId:    uuid("active_device_id"),
+    createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt:         timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("conversations_anchor_alert_uniq").on(table.anchorAlertId),
+    index("conversations_workspace_state_idx").on(table.workspaceId, table.state, table.lastMessageAt),
+    index("conversations_snooze_idx").on(table.snoozedUntil),
+  ],
+);
+
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id:               uuid("id").primaryKey().defaultRandom(),
+    conversationId:   uuid("conversation_id")
+                        .references(() => conversations.id, { onDelete: "cascade" })
+                        .notNull(),
+    /** user | assistant | tool | system. Enforced by CHECK constraint in 0092. */
+    role:             text("role").notNull(),
+    /** Free-form payload: { text, toolCalls?, attachments?, cascadeMeta? }. */
+    contentJson:      jsonb("content_json").notNull(),
+    toolCallId:       text("tool_call_id"),
+    createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId:  uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    deviceId:         uuid("device_id"),
+    /** BLAKE3 hex of the prior message in the chain. NULL for the seed message. */
+    prevMessageHash:  text("prev_message_hash"),
+    /** BLAKE3 hex of `role || content_json || prev_message_hash`. Stamped server-side. */
+    messageHash:      text("message_hash"),
+  },
+  (table) => [
+    index("conversation_messages_conv_idx").on(table.conversationId, table.createdAt),
+  ],
+);
+
+export type ConversationMessage = typeof conversationMessages.$inferSelect;
+export type NewConversationMessage = typeof conversationMessages.$inferInsert;
+
+// ── Visual Reports (Inari Eye) ───────────────────────────────────────────────
+//
+// User-initiated "report visual bug" submissions. Distinct from the auto-
+// captured exceptions that flow through /api/webhooks/capture (those may
+// carry a fire-and-forget Kimi K2.6 screenshot description on aiReasoning).
+// A visual_reports row is the rich diagnostic counterpart: DOM snapshot,
+// React fiber state, console + network rings, source-map build_id, user
+// events, perf metrics — all bundled, redacted, gzipped, uploaded by the
+// /visual-report SDK module.
+//
+// Each row is 1:1 with an alerts row (source_integrations includes
+// 'user_report'). The diagnosis JSON is the source of truth shipped to
+// Inari Live. Migration 0096 has the canonical schema + index commentary.
+export const visualReports = pgTable(
+  "visual_reports",
+  {
+    id:               uuid("id").primaryKey().defaultRandom(),
+    alertId:          uuid("alert_id")
+                        .references(() => alerts.id, { onDelete: "cascade" })
+                        .notNull(),
+    projectId:        uuid("project_id")
+                        .references(() => projects.id, { onDelete: "cascade" })
+                        .notNull(),
+    /** Null when the report came from an anonymous end-user widget. */
+    userId:           uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+
+    /** Object-storage URL (Hetzner Object Storage / R2). Blob lives outside Postgres. */
+    screenshotUrl:    text("screenshot_url").notNull(),
+    /** Captured context bundle (DOM + state + console + network + …). ≤500KB. */
+    bundleJson:       jsonb("bundle_json").notNull(),
+    /** SHA-256 of canonicalized bundleJson — dedup quick-double-submit. */
+    bundleHash:       text("bundle_hash").notNull(),
+
+    /** Wall-clock ms the SDK spent gathering the bundle. Telemetry. */
+    captureMs:        integer("capture_ms"),
+    /** Bytes uploaded pre-decompression. */
+    payloadSize:      integer("payload_size"),
+    /** { emails: n, tokens: n, cards: n, ... } — what the redactor stripped. */
+    redactionStats:   jsonb("redaction_stats"),
+
+    /**
+     * pending | triaging | diagnosing | critiquing | completed |
+     * rejected | need_info | failed
+     */
+    status:           text("status").notNull().default("pending"),
+    error:            text("error"),
+
+    /** { verdict: 'bug'|'misunderstanding'|'insufficient', reason, follow_up_question? } */
+    triageResult:     jsonb("triage_result"),
+    /** Full diagnosis JSON (visual-diagnosis Zod schema). Includes evidence[], hypotheses[], unknowns[]. */
+    diagnosis:        jsonb("diagnosis"),
+    /** { verdict: 'accept'|'reject'|'needs_more_context', reason, mismatch_evidence? } */
+    critique:         jsonb("critique"),
+
+    /** Final confidence 0..100 after all 3 phases. Gate at ≥75 to ship. */
+    confidence:       integer("confidence"),
+
+    /** Together model IDs actually invoked (router may swap per region / fallback on 429). */
+    modelTriage:      text("model_triage"),
+    modelDiagnose:    text("model_diagnose"),
+    modelCritique:    text("model_critique"),
+    costCents:        integer("cost_cents").notNull().default(0),
+    durationMs:       integer("duration_ms"),
+
+    createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt:        timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("visual_reports_project_idx").on(table.projectId, table.createdAt),
+    uniqueIndex("visual_reports_alert_idx").on(table.alertId),
+    index("visual_reports_dedup_idx").on(table.projectId, table.bundleHash, table.createdAt),
+  ],
+);
+
+export type VisualReport = typeof visualReports.$inferSelect;
+export type NewVisualReport = typeof visualReports.$inferInsert;

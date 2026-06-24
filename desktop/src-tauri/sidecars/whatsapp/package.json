@@ -1,0 +1,28 @@
+{
+  "name": "@inariwatch/whatsapp-sidecar",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Baileys-backed WhatsApp sidecar for Inari Live (v0.3 S5).",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "tsc --watch -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc10",
+    "@hapi/boom": "^10.0.1",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

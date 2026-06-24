@@ -1,0 +1,23 @@
+{
+  "name": "iw-capture-bundle-test-next15",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Bundle-shape validation app for @inariwatch/capture — Next.js 15 / Turbopack. Builds a minimal page that imports the SDK, then asserts via the bundle analyzer that the redact + intent + causal modules are NOT in the initial chunk. Used by .github/workflows/bundle-size.yml. Don't publish — internal harness.",
+  "scripts": {
+    "build": "next build",
+    "analyze": "ANALYZE=true next build",
+    "verify": "node scripts/verify-bundle.mjs"
+  },
+  "dependencies": {
+    "next": "^15.3.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@inariwatch/capture": "file:../.."
+  },
+  "devDependencies": {
+    "@next/bundle-analyzer": "^15.3.9",
+    "typescript": "^5.7.0",
+    "@types/react": "^19.0.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,57 @@
+display_information:
+  name: InariWatch
+  description: AI-powered error monitoring — alerts, diagnosis, and fixes in Slack
+  background_color: "#1a1a2e"
+  long_description: |
+    InariWatch monitors your production apps for errors and delivers AI-powered diagnosis directly to Slack.
+
+    When an error happens:
+    - You see the error + AI diagnosis in your Slack channel
+    - Click [Fix It] and InariWatch writes the code fix, pushes a branch, waits for CI, and opens a PR
+    - Approve & merge from Slack — never leave your chat
+
+    Features:
+    - Real-time error alerts with AI diagnosis
+    - One-click AI remediation (diagnose → fix → PR)
+    - Ask @InariWatch questions about your errors
+    - On-call rotation management
+    - Deploy monitoring with 15-min health checks
+    - Incident storm detection with auto-grouping
+
+features:
+  bot_user:
+    display_name: InariWatch
+    always_online: true
+  slash_commands:
+    - command: /inariwatch
+      url: https://app.inariwatch.com/api/slack/commands
+      description: InariWatch commands — status, alerts, fix, oncall, link, help
+      usage_hint: "[status | alerts | fix <id> | oncall | link <email> | help]"
+      should_escape: false
+
+oauth_config:
+  redirect_urls:
+    - https://app.inariwatch.com/api/slack/oauth/callback
+  scopes:
+    bot:
+      - chat:write
+      - commands
+      - app_mentions:read
+      - channels:read
+      - im:read
+      - im:write
+      - im:history
+      - users:read
+
+settings:
+  event_subscriptions:
+    request_url: https://app.inariwatch.com/api/slack/events
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: https://app.inariwatch.com/api/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

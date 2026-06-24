@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="InariWeb is the high-performance infrastructure powering InariWatch — self-hosted on Hetzner, zero cloud lock-in, zero downtime.">
+  <meta property="og:title" content="InariWeb — The Infrastructure Behind InariWatch">
+  <meta property="og:description" content="High-performance deployment infrastructure. Self-hosted on Hetzner, zero downtime.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#f97316">
+  <title>InariWeb — The Infrastructure Behind InariWatch</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:           #06060a;
+      --bg-card:      rgba(255, 255, 255, 0.028);
+      --bg-card-h:    rgba(255, 255, 255, 0.048);
+      --border:       rgba(255, 255, 255, 0.072);
+      --border-h:     rgba(255, 255, 255, 0.13);
+      --text:         #f0eff4;
+      --text-2:       #888896;
+      --text-3:       #3f3f50;
+      --accent:       #f97316;
+      --accent-2:     #fbbf24;
+      --green:        #22c55e;
+      --font:         -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+      --mono:         'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Menlo', 'Consolas', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      background-size: 72px 72px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Ambient glow */
+    .glow-orb {
+      position: fixed;
+      top: -30%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 700px;
+      background: radial-gradient(ellipse at center, rgba(249,115,22,0.09) 0%, transparent 68%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── NAVIGATION ─── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(1.25rem, 5vw, 3.5rem);
+      height: 58px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(6, 6, 10, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-weight: 650;
+      font-size: 0.9rem;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .nav-link {
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      color: var(--text-2);
+      text-decoration: none;
+      font-size: 0.825rem;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .nav-link:hover {
+      color: var(--text);
+      background: var(--bg-card);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.8rem;
+      margin-left: 0.75rem;
+      border-radius: 100px;
+      border: 1px solid rgba(34, 197, 94, 0.22);
+      background: rgba(34, 197, 94, 0.06);
+      font-size: 0.72rem;
+      font-weight: 550;
+      color: var(--green);
+      text-decoration: none;
+      letter-spacing: 0.01em;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .status-pill:hover {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.1);
+    }
+
+    .pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+      50%       { opacity: 0.75; box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+    }
+
+    /* ─── HERO ─── */
+    .hero {
+      position: relative;
+      z-index: 1;
+      min-height: 100svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8rem clamp(1.25rem, 5vw, 3.5rem) 5rem;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0.8rem 0.3rem 0.6rem;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      font-size: 0.72rem;
+      font-weight: 550;
+      color: var(--text-2);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 2.25rem;
+    }
+
+    .eyebrow-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .hero-h1 {
+      font-size: clamp(2.8rem, 9vw, 7rem);
+      font-weight: 720;
+      letter-spacing: -0.045em;
+      line-height: 0.96;
+      margin-bottom: 1.6rem;
+    }
+
+    .hero-h1 .gradient {
+      background: linear-gradient(125deg, #f97316 0%, #fb923c 45%, #fcd34d 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+      color: var(--text-2);
+      max-width: 500px;
+      margin: 0 auto 2.75rem;
+      line-height: 1.75;
+      font-weight: 380;
+    }
+
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn-orange {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.7rem 1.4rem;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      transition: opacity 0.18s, transform 0.18s, box-shadow 0.18s;
+      box-shadow: 0 0 28px rgba(249,115,22,0.35), 0 1px 2px rgba(0,0,0,0.4);
+      letter-spacing: -0.01em;
+    }
+
+    .btn-orange:hover {
+      opacity: 0.88;
+      transform: translateY(-1px);
+      box-shadow: 0 0 36px rgba(249,115,22,0.45), 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.7rem 1.4rem;
+      border-radius: 8px;
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      transition: border-color 0.18s, background 0.18s;
+      letter-spacing: -0.01em;
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--border-h);
+      background: var(--bg-card-h);
+    }
+
+    /* ─── STATS BAR ─── */
+    .stats {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      padding: 2.5rem 2rem;
+      text-align: center;
+      border-right: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      transition: background 0.2s;
+    }
+
+    .stat:last-child { border-right: none; }
+
+    .stat::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 100%, rgba(249,115,22,0.05) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .stat:hover::before { opacity: 1; }
+
+    .stat-num {
+      font-size: clamp(1.9rem, 4vw, 2.75rem);
+      font-weight: 700;
+      letter-spacing: -0.045em;
+      line-height: 1;
+      margin-bottom: 0.45rem;
+      background: linear-gradient(125deg, #f97316, #fcd34d);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      color: var(--text-2);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    /* ─── SECTION WRAPPER ─── */
+    .section {
+      position: relative;
+      z-index: 1;
+      padding: 7rem clamp(1.25rem, 5vw, 3.5rem);
+    }
+
+    .section-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    .section-tag {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 650;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.85rem;
+    }
+
+    .section-h2 {
+      font-size: clamp(1.75rem, 4.5vw, 2.9rem);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      margin-bottom: 0.9rem;
+    }
+
+    .section-p {
+      font-size: 0.95rem;
+      color: var(--text-2);
+      max-width: 460px;
+      line-height: 1.75;
+    }
+
+    /* ─── ARCHITECTURE DIAGRAM ─── */
+    .arch-flow {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 4rem 0 3rem;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .arch-node {
+      flex: 1;
+      padding: 2rem 1.75rem;
+      background: var(--bg-card);
+      border-right: 1px solid var(--border);
+      position: relative;
+    }
+
+    .arch-node:last-child { border-right: none; }
+
+    .arch-node.highlight {
+      background: rgba(249,115,22,0.04);
+      border-color: rgba(249,115,22,0.2);
+    }
+
+    .arch-arrow-node {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 0.5rem;
+      color: var(--text-3);
+      font-size: 1rem;
+      border-right: 1px solid var(--border);
+      background: transparent;
+    }
+
+    .arch-chip {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.62rem;
+      font-weight: 650;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 0.6rem;
+    }
+
+    .arch-chip.orange { color: var(--accent); }
+
+    .arch-node-title {
+      font-size: 1rem;
+      font-weight: 650;
+      margin-bottom: 0.35rem;
+      letter-spacing: -0.02em;
+    }
+
+    .arch-node-sub {
+      font-size: 0.775rem;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+
+    /* ─── FEATURES GRID ─── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-top: 3.5rem;
+    }
+
+    .feat {
+      background: var(--bg);
+      padding: 2rem 1.75rem;
+      transition: background 0.2s;
+    }
+
+    .feat:hover { background: var(--bg-card); }
+
+    .feat-icon {
+      font-size: 1.5rem;
+      line-height: 1;
+      margin-bottom: 1.1rem;
+    }
+
+    .feat-title {
+      font-size: 0.9rem;
+      font-weight: 650;
+      margin-bottom: 0.4rem;
+      letter-spacing: -0.01em;
+    }
+
+    .feat-desc {
+      font-size: 0.8rem;
+      color: var(--text-2);
+      line-height: 1.65;
+    }
+
+    /* ─── STACK PILLS ─── */
+    .stack-flex {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 3rem;
+    }
+
+    .stack-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.55rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-card);
+      font-size: 0.825rem;
+      font-weight: 500;
+      color: var(--text);
+      transition: border-color 0.18s, background 0.18s, transform 0.18s;
+      letter-spacing: -0.01em;
+    }
+
+    .stack-pill:hover {
+      border-color: var(--border-h);
+      background: var(--bg-card-h);
+      transform: translateY(-1px);
+    }
+
+    .pill-icon { font-size: 1rem; line-height: 1; }
+
+    /* ─── TERMINAL ─── */
+    .terminal {
+      margin-top: 3.5rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 680px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+    }
+
+    .term-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.8rem 1rem;
+      background: rgba(255,255,255,0.025);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .term-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .term-bar-title {
+      flex: 1;
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--text-3);
+      font-family: var(--mono);
+    }
+
+    .term-body {
+      padding: 1.4rem 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.9;
+    }
+
+    .t-p  { color: var(--accent); }
+    .t-c  { color: var(--text); }
+    .t-o  { color: var(--text-2); }
+    .t-ok { color: var(--green); }
+    .t-d  { color: var(--text-3); }
+
+    /* ─── SEPARATOR ─── */
+    .divider {
+      position: relative;
+      z-index: 1;
+      height: 1px;
+      background: var(--border);
+      margin: 0 clamp(1.25rem, 5vw, 3.5rem);
+    }
+
+    /* ─── FOOTER ─── */
+    footer {
+      position: relative;
+      z-index: 1;
+      border-top: 1px solid var(--border);
+      padding: 2.5rem clamp(1.25rem, 5vw, 3.5rem);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 1.75rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-links a {
+      font-size: 0.8rem;
+      color: var(--text-2);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .footer-links a:hover { color: var(--text); }
+
+    .footer-copy {
+      font-size: 0.75rem;
+      color: var(--text-3);
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 900px) {
+      .stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .stat:nth-child(2) { border-right: none; }
+      .stat:nth-child(3) { border-top: 1px solid var(--border); }
+      .stat:nth-child(4) { border-top: 1px solid var(--border); }
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .arch-flow {
+        flex-direction: column;
+      }
+      .arch-node { border-right: none; border-bottom: 1px solid var(--border); }
+      .arch-node:last-child { border-bottom: none; }
+      .arch-arrow-node { display: none; }
+    }
+
+    @media (max-width: 600px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .features-grid { grid-template-columns: 1fr; }
+      .nav-right .nav-link { display: none; }
+      footer { flex-direction: column; text-align: center; }
+      .footer-links { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-orb"></div>
+
+  <!-- NAVIGATION -->
+  <nav>
+    <a href="/" class="logo">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <path d="M13 1.5 L2.5 7.5 v11 L13 24.5 L23.5 18.5 v-11 Z" fill="url(#lg1)" opacity="0.92"/>
+        <path d="M13 1.5 L2.5 7.5 v11 L13 24.5" fill="url(#lg2)" opacity="0.45"/>
+        <circle cx="13" cy="13" r="3.2" fill="white" opacity="0.88"/>
+        <defs>
+          <linearGradient id="lg1" x1="2.5" y1="1.5" x2="23.5" y2="24.5" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#f97316"/>
+            <stop offset="1" stop-color="#fbbf24"/>
+          </linearGradient>
+          <linearGradient id="lg2" x1="2.5" y1="7.5" x2="13" y2="24.5" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#f97316"/>
+            <stop offset="1" stop-color="#fb923c"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      InariWeb
+    </a>
+    <div class="nav-right">
+      <a href="#infrastructure" class="nav-link">Infrastructure</a>
+      <a href="#stack" class="nav-link">Stack</a>
+      <a href="https://app.inariwatch.com" class="nav-link" target="_blank" rel="noopener">InariWatch ↗</a>
+      <a href="https://app.inariwatch.com/status" class="status-pill" target="_blank" rel="noopener">
+        <span class="pulse"></span>
+        All systems operational
+      </a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-eyebrow">
+      <span class="eyebrow-dot"></span>
+      Powering InariWatch since 2025
+    </div>
+    <h1 class="hero-h1">
+      The infrastructure<br>
+      behind <span class="gradient">InariWatch</span>
+    </h1>
+    <p class="hero-sub">
+      InariWeb is the self-hosted deployment layer that keeps InariWatch
+      running — built on Hetzner, served by Caddy, zero cloud lock-in.
+    </p>
+    <div class="hero-ctas">
+      <a href="https://app.inariwatch.com" class="btn-orange" target="_blank" rel="noopener">
+        Open InariWatch
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+          <path d="M2 11L11 2M11 2H5M11 2V8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <a href="#infrastructure" class="btn-ghost">See the infrastructure</a>
+    </div>
+  </section>
+
+  <!-- STATS BAR -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">99.9%</div>
+      <div class="stat-label">Uptime SLA</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">&lt;50ms</div>
+      <div class="stat-label">Avg response</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">Ashburn</div>
+      <div class="stat-label">Primary region</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">5</div>
+      <div class="stat-label">Active services</div>
+    </div>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <section class="section" id="infrastructure">
+    <div class="section-inner">
+      <div class="section-tag">Architecture</div>
+      <h2 class="section-h2">How InariWeb powers InariWatch</h2>
+      <p class="section-p">
+        A lean, purpose-built infrastructure stack. No unnecessary layers —
+        just what InariWatch needs to run reliably at scale.
+      </p>
+
+      <div class="arch-flow">
+        <div class="arch-node">
+          <div class="arch-chip">User</div>
+          <div class="arch-node-title">Browser / Client</div>
+          <div class="arch-node-sub">Web, VS Code extension, mobile app, Rust CLI, Tauri desktop</div>
+        </div>
+        <div class="arch-arrow-node">→</div>
+        <div class="arch-node">
+          <div class="arch-chip">CDN + Security</div>
+          <div class="arch-node-title">Cloudflare</div>
+          <div class="arch-node-sub">DDoS protection, global CDN, DNS, edge caching</div>
+        </div>
+        <div class="arch-arrow-node">→</div>
+        <div class="arch-node highlight">
+          <div class="arch-chip orange">InariWeb</div>
+          <div class="arch-node-title">Hetzner CPX21 · Ashburn</div>
+          <div class="arch-node-sub">Caddy TLS · Docker · 5 services · Go cron · AI worker</div>
+        </div>
+        <div class="arch-arrow-node">→</div>
+        <div class="arch-node">
+          <div class="arch-chip">Data</div>
+          <div class="arch-node-title">Neon PostgreSQL</div>
+          <div class="arch-node-sub">Serverless Postgres with pgvector · Drizzle ORM</div>
+        </div>
+      </div>
+
+      <div class="features-grid">
+        <div class="feat">
+          <div class="feat-icon">⚡</div>
+          <div class="feat-title">Caddy Reverse Proxy</div>
+          <div class="feat-desc">Automatic TLS via Let's Encrypt. Routes traffic across 5 internal services with zero-config HTTPS and HTTP/2.</div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">🐳</div>
+          <div class="feat-title">Docker Runtime</div>
+          <div class="feat-desc">Isolated containers per service. Ephemeral environments spin up for E2E fix verification before any merge.</div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">🔄</div>
+          <div class="feat-title">Go Cron Scheduler</div>
+          <div class="feat-desc">5 internal cron jobs trigger InariWatch routes on schedule — poll, uptime, escalate, deploy-monitor, digest.</div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">🤖</div>
+          <div class="feat-title">AI Worker (Node.js)</div>
+          <div class="feat-desc">40-turn agentic loop for AI code fixes. Runs on local Docker for ~1ms tool latency — no Vercel timeout.</div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">📡</div>
+          <div class="feat-title">WebSocket Relay</div>
+          <div class="feat-desc">Real-time bidirectional relay on port 9403, powering Inari Live's live assistant communication.</div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">🦀</div>
+          <div class="feat-title">eBPF Kernel Agent</div>
+          <div class="feat-desc">Kernel-level observability via eBPF. Monitors processes, network, filesystem, DNS, and TLS — zero instrumentation needed.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- STACK -->
+  <section class="section" id="stack">
+    <div class="section-inner">
+      <div class="section-tag">Tech Stack</div>
+      <h2 class="section-h2">Built on proven technology</h2>
+      <p class="section-p">
+        Every component chosen for reliability, operational simplicity, and long-term cost efficiency.
+      </p>
+
+      <div class="stack-flex">
+        <div class="stack-pill"><span class="pill-icon">🇩🇪</span> Hetzner CPX21</div>
+        <div class="stack-pill"><span class="pill-icon">🔒</span> Caddy + Let's Encrypt</div>
+        <div class="stack-pill"><span class="pill-icon">🐳</span> Docker</div>
+        <div class="stack-pill"><span class="pill-icon">☁️</span> Cloudflare CDN</div>
+        <div class="stack-pill"><span class="pill-icon">🐘</span> PostgreSQL (Neon)</div>
+        <div class="stack-pill"><span class="pill-icon">🔴</span> Redis (self-hosted)</div>
+        <div class="stack-pill"><span class="pill-icon">🟩</span> Node.js AI Worker</div>
+        <div class="stack-pill"><span class="pill-icon">🔵</span> Go Scheduler</div>
+        <div class="stack-pill"><span class="pill-icon">🦀</span> Rust CLI + Agent</div>
+        <div class="stack-pill"><span class="pill-icon">▲</span> Next.js 15 App Router</div>
+        <div class="stack-pill"><span class="pill-icon">⚙️</span> systemd</div>
+        <div class="stack-pill"><span class="pill-icon">🚀</span> Kamal 2</div>
+      </div>
+
+      <div class="terminal">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#ff5f57"></span>
+          <span class="term-dot" style="background:#febc2e"></span>
+          <span class="term-dot" style="background:#28c840"></span>
+          <span class="term-bar-title">hetzner — inariwatch services</span>
+        </div>
+        <div class="term-body">
+          <div><span class="t-p">$ </span><span class="t-c">systemctl list-units --type=service --state=running | grep inari</span></div>
+          <div class="t-o">  inari-staging.service       active running   Go cron + staging server :9400</div>
+          <div class="t-o">  inari-worker.service        active running   Node.js AI worker :9401</div>
+          <div class="t-o">  inariwatch-agent.service    active running   eBPF kernel observer</div>
+          <div class="t-o">  caddy.service               active running   Reverse proxy + TLS :443</div>
+          <div>&nbsp;</div>
+          <div><span class="t-ok">✓ 5/5 services running</span></div>
+          <div>&nbsp;</div>
+          <div><span class="t-d">$ </span><span class="t-c">curl -s https://app.inariwatch.com/api/health | jq .</span></div>
+          <div class="t-ok">{</div>
+          <div class="t-ok">  "status": "ok",</div>
+          <div class="t-ok">  "version": "1.0.0",</div>
+          <div class="t-ok">  "db": "connected"</div>
+          <div class="t-ok">}</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <a href="/" class="logo">
+      <svg width="20" height="20" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <path d="M13 1.5 L2.5 7.5 v11 L13 24.5 L23.5 18.5 v-11 Z" fill="url(#fl)"/>
+        <circle cx="13" cy="13" r="3.2" fill="white" opacity="0.88"/>
+        <defs>
+          <linearGradient id="fl" x1="2.5" y1="1.5" x2="23.5" y2="24.5" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#f97316"/>
+            <stop offset="1" stop-color="#fbbf24"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      InariWeb
+    </a>
+    <div class="footer-links">
+      <a href="https://app.inariwatch.com" target="_blank" rel="noopener">InariWatch</a>
+      <a href="https://app.inariwatch.com/status" target="_blank" rel="noopener">Status</a>
+      <a href="https://inariwatch.com" target="_blank" rel="noopener">inariwatch.com</a>
+    </div>
+    <span class="footer-copy">© 2025 InariWatch. All rights reserved.</span>
+  </footer>
+
+</body>
+</html>

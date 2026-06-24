@@ -1,0 +1,11 @@
+# Build artifacts.
+inari-relay
+inari-relay.exe
+relay
+relay.exe
+*.test
+*.test.exe
+
+# Local overrides.
+.env
+.env.local

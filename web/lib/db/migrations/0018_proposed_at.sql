@@ -1,0 +1,1 @@
+ALTER TABLE remediation_sessions ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMP WITH TIME ZONE;

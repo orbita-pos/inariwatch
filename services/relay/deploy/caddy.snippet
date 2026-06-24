@@ -1,0 +1,69 @@
+# inari-relay — Caddy entry for `relay.inariwatch.com`.
+#
+# Append this snippet to the existing Hetzner Caddyfile alongside the
+# other proxied hosts (api.staging, eap.staging, app, etc.). TLS is
+# served from the Cloudflare Origin Cert already on disk — see
+# /etc/caddy/Caddyfile for the existing pattern (per
+# project_hetzner_hardening.md, all 8 hosts are proxied behind CF).
+#
+# wss://relay.inariwatch.com  →  127.0.0.1:9402
+#
+# The relay listens on plain HTTP/WS internally; Caddy upgrades to
+# WSS on the public side. Cloudflare's WS support is on by default
+# at the Pro plan; long-lived connections are limited to 100s on free
+# but 7200s (2h) on Pro — fine for our 30s heartbeat cadence.
+
+relay.inariwatch.com {
+	# Cloudflare Origin Cert + key live at the same path as the rest of the hosts
+	# (see existing Caddyfile entries — they all use the same paths).
+	tls /etc/caddy/cf-origin.crt /etc/caddy/cf-origin.key
+
+	# Long-lived WS — bump the read/write timeouts beyond Caddy's defaults.
+	# 1h is well past our 60s readWait + 30s pingInterval; tail-end users
+	# on flaky mobile uplinks can recover from up to 5 missed pings.
+	@ws header Connection *Upgrade*
+	@ws header Upgrade websocket
+
+	reverse_proxy 127.0.0.1:9402 {
+		# Preserve the client's Authorization header so the relay sees
+		# the JWT (Cloudflare strips Authorization by default unless
+		# you toggle "Preserve Authorization Header" — confirm in CF
+		# dashboard for relay.inariwatch.com).
+		header_up Host {host}
+		header_up X-Forwarded-For {remote}
+		header_up X-Forwarded-Proto {scheme}
+
+		# Long timeouts only for the WS path. The /dispatch HTTP
+		# endpoint should respond within 5s; the default flush is fine.
+		transport http {
+			read_timeout 1h
+			write_timeout 1h
+			dial_timeout 5s
+		}
+	}
+
+	# Block any path the relay doesn't expose by returning 404
+	# explicitly. Defence-in-depth: relay's own mux already 404s
+	# unknown paths, but rejecting at the edge keeps the audit
+	# log clean.
+	# (Implicit catch-all by reverse_proxy; Caddy honors mux on backend.)
+
+	# Standard hardening — same set as the other Hetzner hosts.
+	encode gzip zstd
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+
+	log {
+		output file /var/log/caddy/relay.access.log {
+			roll_size 10mb
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		# DO NOT log request bodies. Per architecture §4.5 the relay
+		# must not see payload contents.
+		format json
+	}
+}

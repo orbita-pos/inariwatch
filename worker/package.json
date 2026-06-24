@@ -1,0 +1,25 @@
+{
+  "name": "inari-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --max-old-space-size=2048 dist/server.js",
+    "build": "tsc",
+    "dev": "tsx src/server.ts",
+    "test": "tsx --test src/__tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "bullmq": "^5.34.0",
+    "drizzle-orm": "^0.36.4",
+    "dotenv": "^16.4.7",
+    "playwright": "^1.49.1",
+    "undici": "^7.25.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

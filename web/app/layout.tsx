@@ -1,0 +1,146 @@
+import type { Metadata } from "next";
+import { headers } from "next/headers";
+import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+import { CookieConsent } from "@/components/cookie-consent";
+import { Toaster } from "sonner";
+import { satoshi, clashDisplay } from "./fonts";
+
+const BASE_URL           = "https://inariwatch.com";
+const DEFAULT_TITLE       = "InariWatch — AI Monitoring That Fixes Your Code";
+const DEFAULT_DESCRIPTION = "AI-powered monitoring for developers. InariWatch watches GitHub, Vercel, Sentry and more — then reads your code and writes the fix autonomously.";
+
+export const metadata: Metadata = {
+  metadataBase:  new URL(BASE_URL),
+  title:         { default: DEFAULT_TITLE, template: "%s | InariWatch" },
+  description:   DEFAULT_DESCRIPTION,
+  alternates:    { canonical: BASE_URL },
+
+  icons: {
+    icon: [
+      { url: "/logo-inari/favicon.ico",       sizes: "any" },
+      { url: "/logo-inari/favicon-96x96.png", type: "image/png", sizes: "96x96" },
+      { url: "/logo-inari/favicon.svg",        type: "image/svg+xml" },
+    ],
+    apple:    { url: "/logo-inari/apple-touch-icon.png", sizes: "180x180" },
+    shortcut: "/logo-inari/favicon.ico",
+  },
+
+  manifest: "/logo-inari/site.webmanifest",
+
+  openGraph: {
+    type:        "website",
+    url:         BASE_URL,
+    siteName:    "InariWatch",
+    title:       DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
+  },
+
+  twitter: {
+    card:        "summary_large_image",
+    site:        "@inariwatch",
+    title:       DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    // images auto-resolved from app/opengraph-image.tsx
+  },
+
+  robots: {
+    index:  true,
+    follow: true,
+    googleBot: { index: true, follow: true },
+  },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type":     "Organization",
+      "@id":       `${BASE_URL}/#organization`,
+      name:        "InariWatch",
+      url:         BASE_URL,
+      logo:        `${BASE_URL}/logo-inari/favicon-96x96.png`,
+      description: "AI-powered monitoring for developers. Watches GitHub, Vercel, Sentry and more — then writes the fix autonomously.",
+      sameAs: [
+        "https://github.com/orbita-pos/inariwatch-capture",
+        "https://twitter.com/inariwatch",
+      ],
+    },
+    {
+      "@type":   "WebSite",
+      "@id":     `${BASE_URL}/#website`,
+      url:       BASE_URL,
+      name:      "InariWatch",
+      publisher: { "@id": `${BASE_URL}/#organization` },
+    },
+    {
+      "@type":              "SoftwareApplication",
+      "@id":                `${BASE_URL}/#software`,
+      name:                 "InariWatch",
+      applicationCategory:  "DeveloperApplication",
+      operatingSystem:      "Any",
+      description:          DEFAULT_DESCRIPTION,
+      url:                  BASE_URL,
+      publisher:            { "@id": `${BASE_URL}/#organization` },
+      offers: {
+        "@type":        "Offer",
+        price:          "0",
+        priceCurrency:  "USD",
+        availability:   "https://schema.org/InStock",
+        description:    "Free during beta — full access, no credit card",
+      },
+    },
+  ],
+};
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Pull the per-request CSP nonce that middleware.ts attaches to the
+  // request headers. Without it, every <script> tag below violates the
+  // strict-dynamic + nonce CSP. JSON-LD is technically a data block
+  // (not executable) but Chromium still treats type="application/ld+json"
+  // as a script element, so it needs the nonce too.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
+  return (
+    <html
+      lang="en"
+      className={`${satoshi.variable} ${clashDisplay.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/* Theme init — must run before any CSS evaluates to prevent light→dark flash */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark')t='dark';document.documentElement.classList.add(t);document.documentElement.style.colorScheme=t;}catch(e){document.documentElement.classList.add('dark');}})();`,
+          }}
+        />
+        <script
+          nonce={nonce}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
+      <body className="bg-page text-fg-base antialiased">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+          nonce={nonce}
+        >
+          {children}
+          <CookieConsent />
+          <Toaster
+            theme="dark"
+            position="bottom-right"
+            richColors
+            closeButton
+            toastOptions={{ className: "font-sans" }}
+          />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}

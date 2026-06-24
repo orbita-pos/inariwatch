@@ -1,0 +1,482 @@
+# Kamal 2 deploy configuration for InariWatch web.
+#
+# Commands:
+#   kamal setup          — first-time bootstrap (installs kamal-proxy, pulls image, starts containers)
+#   kamal deploy         — normal deploy (build, push, swap, gapless)
+#   kamal app logs -f    — tail the running container
+#   kamal app rollback   — revert to the previous healthy version
+#   kamal app exec -i bash  — shell into the container
+#
+# Secrets are loaded from .kamal/secrets which in turn pulls decrypted
+# values from .env.sops.yaml via the sops CLI. See .sops.yaml for the age
+# encryption rule.
+
+service: inari-web
+
+# GitHub Container Registry
+image: orbita-pos/inari-web
+
+# Physical hosts. Add a second server here when we're ready for HA.
+servers:
+  web:
+    hosts:
+      - 87.99.153.227  # inari-web CPX21, Ashburn
+    labels:
+      app.role: web
+    # Allow the Next.js container to reach services running on the host
+    # (ops-agent at :9500, any future host-local sidecars). With Kamal the
+    # Docker default bridge is used; `host.docker.internal:host-gateway`
+    # is the standard --add-host recipe for Linux parity with Mac/Windows
+    # Docker Desktop.
+    #
+    # Hardening (2026-04-19):
+    #   - security-opt no-new-privileges: blocks setuid-like privilege
+    #     escalation inside the container (e.g., sudo, suid binaries).
+    #   - cap-drop ALL + minimal cap-add: start from zero capabilities and
+    #     add only what Node.js/Next.js genuinely needs. This closes most
+    #     container-escape primitives (MKNOD, NET_RAW, AUDIT_WRITE, etc.).
+    options:
+      add-host: host.docker.internal:host-gateway
+      security-opt: [ "no-new-privileges:true" ]
+      cap-drop: [ "ALL" ]
+      cap-add: [ "CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "NET_BIND_SERVICE" ]
+      # nomic-embed-code ONNX model (~65 MB) — survives container restarts.
+      # TRANSFORMERS_CACHE in env.clear points here so @xenova/transformers
+      # never re-downloads on redeploy.
+      #
+      # ⚠ MOUNT TARGET MATTERS — the Dockerfile drops to user `nextjs`
+      # (UID 1001, see web/Dockerfile:97-117), and `cap-drop ALL` removes
+      # DAC_OVERRIDE so root-owned paths are write-locked. The host dir
+      # `/var/lib/inari-transformers-cache` must be `chown 1001:1001` on
+      # the Hetzner box once. Path target lives under /app (nextjs's home)
+      # for the same reason.
+      volume:
+        - /var/lib/inari-transformers-cache:/app/.cache/huggingface
+
+# Kamal 2 ships a built-in proxy (kamal-proxy) that handles TLS termination,
+# zero-downtime swaps, and Let's Encrypt on its own. Replaces the separate
+# Traefik/Caddy stanza that Kamal 1 required.
+#
+# All 7 production hostnames for the web app live on this box now:
+#   - inariwatch.com           (apex, marketing landing)
+#   - www.inariwatch.com       (marketing)
+#   - app.inariwatch.com       (dashboard)
+#   - mcp.inariwatch.com       (MCP server, same Next.js via middleware rewrite)
+#   - install.inariwatch.com   (agent installer page)
+#   - status.inariwatch.com    (public status page)
+#   - get.inariwatch.com       (downloads / landing alias)
+#
+proxy:
+  ssl: true
+  hosts:
+    - inariwatch.com
+    - www.inariwatch.com
+    - app.inariwatch.com
+    - mcp.inariwatch.com
+    - install.inariwatch.com
+    - status.inariwatch.com
+    - get.inariwatch.com
+  app_port: 3000
+  healthcheck:
+    path: /api/health
+    interval: 5
+    timeout: 3
+  # NOTE: SSE streaming — kamal-proxy in 2.x doesn't buffer responses by
+  # default for `Content-Type: text/event-stream`, so /api/remediation/stream
+  # and friends work out of the box. If we hit buffering issues during
+  # parallel run, we tune via kamal-proxy env vars rather than deploy.yml.
+
+# Registry auth (GHCR). KAMAL_REGISTRY_PASSWORD comes from .kamal/secrets,
+# which decrypts from .env.sops.yaml at deploy time.
+registry:
+  server: ghcr.io
+  username:
+    - KAMAL_REGISTRY_USERNAME
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Docker buildx — registry cache keeps subsequent builds at ~90s even after
+# a full Dockerfile change. mode=max caches intermediate stages too
+# (critical for the deps + build split).
+#
+# context: ".." — build context is the repo root (one level above this
+# config's `web/` directory) so the image build can see
+# `packages/ai-router/`, the workspace-internal package that web/tsconfig
+# resolves via the "@inariwatch/ai-router" path alias. Kamal cd's to
+# build_directory + working_dir = `<clone>/web` before invoking docker
+# buildx, so `--file Dockerfile` keeps resolving to web/Dockerfile while
+# the `..` context expands to the repo root with packages/ visible.
+builder:
+  arch: amd64
+  context: ..
+  cache:
+    type: registry
+    image: orbita-pos/inari-web-build-cache
+    options: mode=max,compression=zstd
+  # Pass the build arg through so /api/health can expose the git sha.
+  args:
+    APP_VERSION: ""  # set by CI to $GITHUB_SHA
+
+# Runtime environment variables. `clear` values are plaintext (non-secret),
+# `secret` values reference keys in .kamal/secrets.
+env:
+  clear:
+    NODE_ENV: production
+    PORT: "3000"
+    NEXT_TELEMETRY_DISABLED: "1"
+    TRANSFORMERS_CACHE: /app/.cache/huggingface
+    # DB driver selection — see web/lib/db/index.ts.
+    # "pg"        → pg.Pool against the Neon pooler endpoint (persistent
+    #               TCP, ~15 ms warm per query).
+    # "neon-http" → legacy HTTP transport, ~100 ms per query.
+    # Flipped to pg 2026-04-21 after scripts/csp-audit.ts cleared + DB
+    # URL was verified as Neon pooler. Rollback: set back to "neon-http"
+    # and run `kamal env push`. No rebuild required either direction.
+    DB_DRIVER: "pg"
+    # CSP enforcement — see web/middleware.ts. "" = Content-Security-
+    # Policy-Report-Only; "true" = enforcing Content-Security-Policy.
+    # Flipped to enforcing 2026-04-21 after 18-page synthetic audit
+    # reported 0 violations. Rollback: unset this var, kamal env push.
+    CSP_ENFORCE: "true"
+    # Canonical app URL. NEXTAUTH_URL drives OAuth callback composition +
+    # post-login redirects, APP_URL drives all server-generated absolute
+    # links (emails, OG images, share URLs). Both point at app.* now that
+    # we're about to flip DNS to Hetzner — before the flip kamal-proxy
+    # still serves requests that arrive via --resolve, after the flip
+    # real traffic lands here.
+    APP_URL: "https://app.inariwatch.com"
+    NEXTAUTH_URL: "https://app.inariwatch.com"
+    # Hetzner-local Redis (cache + rate-limit + dedup). The accessory below
+    # binds to the kamal-network bridge gateway, reachable only from the
+    # `kamal` Docker network. lib/redis.ts uses these vars + REDIS_PASSWORD
+    # secret to construct the ioredis client. Per-call DB fallback in
+    # callers handles Redis-down (Postgres slower but functional).
+    REDIS_HOST: "172.18.0.1"
+    REDIS_PORT: "6379"
+    # ── ML sidecar (inari-ml accessory, port 9410) ────────────────────────
+    # Stateful FastAPI process: HalfSpaceTrees anomaly scoring per metric +
+    # Drain3 log-template clustering for alert dedup. Both models live in
+    # module scope and accumulate knowledge across requests. Drain3 state
+    # is persisted to /data/drain3_state.bin on every cluster update.
+    # Boot: `kamal accessory boot ml` (image must be pre-built and pushed).
+    # Rollback: remove this var + `kamal env push` — callers fall back to
+    # regex thresholds / SHA-256 fingerprint with zero disruption.
+    INARI_ML_URL: "http://178.105.21.94:9410"
+    # ── Fase 3 — model routing (gpt-5-mini explore → gpt-5.4 fix) ─────
+    # Activated 2026-04-22. Kill switch: set to "false" and
+    # `kamal env push` (no rebuild, ~30s rollback). Expected gains:
+    # p50 wall -15 to -25s, cost per remediation -25% to -40%.
+    REMEDIATION_MODEL_ROUTING: "true"
+    # ── Fase 4 Part A — pre-push strict (tsc / test / lint gate) ─────
+    # Activated 2026-04-22. Worker also needs this set in
+    # /opt/inari-worker/.env; kamal only pushes to the web host.
+    # Kill switch: set to "false" and `kamal env push`.
+    PREPUSH_TESTS_ENABLED: "true"
+    # ── Fase 4 Part B/C — CI webhook + flake-retry ───────────────────
+    # Activated 2026-04-22. Requires a second GitHub webhook per
+    # monitored repo targeting /api/webhooks/github-check-run/<id>
+    # with the SAME integration secret and "Check runs" event only.
+    # Without the webhook config the flag is inert (falls back to
+    # the existing 15s polling loop).
+    CI_WEBHOOK_MODE: "true"
+    # ── Fase 6 — Tier Router + Pattern Memory (shadow mode) ──────────
+    # Activated 2026-04-23. Shadow = classifier runs + writes tier_used
+    # / pattern_match_score to remediation_sessions, but remediate.ts
+    # keeps taking the Tier 2 path. Pattern memory writes are on (the
+    # default) so the pattern store warms from day 1. Promotion to
+    # `live` is gated on 5 hard requirements in
+    # web/docs/tier-router-rollout.md — minimum 14 consecutive days of
+    # shadow data + 50-sample human-label backfill before flipping.
+    # Rollback: set to "off" and `kamal env push` (~30s, no rebuild).
+    TIER_ROUTER_MODE: "shadow"
+    # ── Fase 7 PR B — Multi-agent fan-out (canary at 20%) ────────────
+    # Activated 2026-04-24 with FANOUT_CANARY_PCT=20 — only 20% of
+    # eligible Tier 2/3 sessions actually run the fan-out. The canary
+    # is a deterministic sha256 hash of the session id, so a given
+    # session never flips paths mid-retry. See web/lib/ai/tier-2-
+    # handler.ts for the gate and web/lib/ai/multi-agent-coordinator.ts
+    # for the coordinator.
+    # Cost note: each fan-out ≈ N × single-agent cost (N = 3 today).
+    # At 20% canary + 3× multiplier, expect roughly +40% on Tier 2/3
+    # AI spend. Watch the FanoutWidget on /admin/ai — ramp to 50 then
+    # 100 after 48h of green metrics (success rate >= single-agent
+    # baseline, fan-out container create-failed rate < 5%).
+    # Rollback: set MULTI_AGENT_FANOUT: "false" OR FANOUT_CANARY_PCT:
+    # "0" and `git push origin main`. Either kills fan-out dispatch
+    # entirely; deploy lands in ~3 min via deploy-web.yml.
+    MULTI_AGENT_FANOUT: "true"
+    FANOUT_CANARY_PCT: "20"
+    # ── Fase 8 — Auto-merge gate parallelization ─────────────────────
+    # Activated 2026-04-24. When true, `runGateDag` (lib/ai/gates-
+    # executor.ts) fans security_ai_review + self_review_cheap out via
+    # Promise.all instead of running them serially. Flag off is byte-
+    # identical to the pre-PR #21 serial path (validated by
+    # web/lib/ai/__tests__/gates-executor.test.ts). Expected impact:
+    # pre-push gate wall time p50 drops ~60% (from ~15s → ~6s) because
+    # both producers are I/O-bound AI calls.
+    # Monitoring after flip: watch the `gates_dag` events in the
+    # remediation stream (totalMs + per-producer ms). If p95 regresses
+    # or any producer errors correlate with concurrency, rollback.
+    # Rollback: set to "false" and `kamal env push` (~30s, no rebuild).
+    GATES_PARALLEL: "true"
+    # ── Sesión 17/18 — Substrate v2 in-loop canary (5%) ──────────────
+    # Activated 2026-04-26 after substrate-v2-replay binary + agent dirs
+    # were rsynced to inari-staging (run #24966127346) and REPLAY_V2_*
+    # env vars added to /opt/inari-staging/.env. With this flag on, ~5%
+    # of alerts (deterministic by sha256(alertId)[0..4]) route to v2 as
+    # primary; the other 95% stay on v1. v1 still runs in shadow on the
+    # 5% so substrate_replay_comparisons captures side-by-side verdicts
+    # for the /admin/ops widget.
+    # Rollback: set to "false" and `kamal env push` (~30s, no rebuild).
+    # The gate is checked at every dispatch, so flipping off resumes the
+    # pre-Sesión 17 v1-only path with zero deploy.
+    SUBSTRATE_V2_GATE: "true"
+    # ── Fase 11 follow-up — local EAP signature verification ─────────
+    # Activated 2026-04-24. When true, the verify endpoint + the new
+    # /api/cron/eap-verify-sweep route do an in-process Ed25519 verify
+    # against the cached attestor pubkey (24h Redis TTL, keyed by
+    # EAP_SERVER_URL). Decouples Gate 6 (`eap_chain_verified`) from a
+    # synchronous round-trip to eap.staging.inariwatch.com. Receipts
+    # already in the mirror with `signature IS NOT NULL` get verified
+    # lazily on first hit; the rest by the hourly sweep. Rollback: set
+    # to "false" and `kamal env push` (~30s, no rebuild). The flag is
+    # checked at every call site, so flipping off resumes the previous
+    # server-side-only behavior with zero deploy.
+    EAP_LOCAL_VERIFY_ENABLED: "true"
+    # ── Code Intelligence v2 — shadow + container-agent A/B activation ──
+    # Activated 2026-05-02 after Phase 0+1+2+3 shipped (commits 51a7ce6 →
+    # 96555dc3). v1 statistical retrieval stays the default; v2 semantic
+    # engine runs in parallel via `getCodeIntelEngine()` in
+    # `web/lib/services/code-intelligence.service.ts` and writes per-call
+    # divergence rows to `code_intel_shadow_log`. Container agent A/B
+    # routes 50% of remediations through the v2 worker tools (find_references,
+    # type_at, blast_radius) and writes turn/success/cost rows to
+    # `code_intel_remediation_ab`. The cutover dashboard at
+    # /admin/ops → "Code Intelligence Cutover Decision" reads both tables
+    # and emits GO / WAIT / ABORT against CUTOVER_MIN_SAMPLES=100 +
+    # CUTOVER_TURN_REDUCTION_PCT=30 + CUTOVER_SUCCESS_PARITY_PCT=-2 +
+    # CUTOVER_DIVERGENCE_MAX_PCT=25. Rollback: set CODE_INTEL_V2 to "off"
+    # (or remove both lines) and trigger env-push-web.yml — ~30s, no
+    # rebuild. Both flags are read at every dispatch, so flipping resumes
+    # the v1 default with zero deploy.
+    CODE_INTEL_V2: "shadow"
+    CONTAINER_AGENT_AB_PCT: "50"
+    # GitHub App public slug — drives the "Install GitHub App" button on
+    # /integrations. When set, the GitHub card switches from PAT paste to
+    # one-click redirect to github.com/apps/<slug>/installations/new.
+    # Empty / unset → PAT path stays default. Migration 0084.
+    GITHUB_APP_SLUG: "inariwatch"
+    # ── Inari Live V1 — WS relay (v0.3 S2 deploy 2026-05-02) ─────────
+    # Public origin of the Go relay running on Hetzner port 9403,
+    # fronted by Caddy at wss://relay.inariwatch.com. When set,
+    # `lib/relay/wizard-events.ts::emitWizardOpen()` POSTs project.wizard.open
+    # to RELAY_URL/dispatch with RELAY_DISPATCH_SECRET as Bearer; the
+    # relay forwards over WS to the user's Inari Live. Without it,
+    # /dashboard/projects/new falls back to the "Open project" CTA
+    # (wizardDelivery="relay_disabled"). Empty/unset = relay-disabled.
+    RELAY_URL: "https://relay.inariwatch.com"
+    # ── Together AI — platform-funded Qwen stack ────────────────────
+    # When "true", all platform-funded AI tasks route to Together's Qwen
+    # serverless catalog (IDs verified 2026-05-13):
+    #   alert.auto-analyze/correlate     → Qwen3.5-9B-FP8 ($0.10/$0.15)
+    #   postmortem / explore             → Qwen3-Coder-Next-FP8 ($0.50/$1.20)
+    #   chat / review / risk-assess      → Qwen3-235B-A22B (thinking, $0.20/$0.60)
+    #   code.fix (single-shot+agent+container) → Qwen3.6-Plus ($0.50/$3.00)
+    # OpenAI stays as fallback on Together 429/5xx (per-call).
+    # Activate: set both vars + `kamal env push` (~30s, no rebuild).
+    # Rollback: set to "false" and `kamal env push`.
+    INARI_TOGETHER_PLATFORM_FUNDED_ENABLED: "true"
+  secret:
+    # Core
+    - DATABASE_URL
+    # NOTE: DATABASE_URL_POOLED is an optional override used by
+    # web/lib/db/index.ts when DB_DRIVER=pg and the direct URL is not
+    # already pooled. Only declare it here if sops actually carries the
+    # value — Kamal fails the deploy if a secret is listed but missing.
+    # Our current DATABASE_URL already points at the Neon pooler, so we
+    # omit it.
+    - NEXTAUTH_SECRET
+    - ENCRYPTION_KEY
+    - CRON_SECRET
+    - ADMIN_EMAIL
+    # Integrations
+    - GOOGLE_CLIENT_ID
+    - GOOGLE_CLIENT_SECRET
+    - GITHUB_CLIENT_ID
+    - GITHUB_CLIENT_SECRET
+    # GitHub App — zero-install monitoring flow. Setup route mints
+    # installation tokens (JWT signed with the private key) to open the
+    # auto-PR on user repos. Webhook secret verifies inbound events.
+    - GITHUB_APP_ID
+    - GITHUB_APP_PRIVATE_KEY
+    - GITHUB_APP_PRIVATE_KEY_BASE64
+    - GITHUB_APP_WEBHOOK_SECRET
+    # GitHub App OAuth — when set, NextAuth's "Continue with GitHub"
+    # button uses these instead of the legacy OAuth App (GITHUB_CLIENT_*).
+    # Combined with "Request user authorization (OAuth) during installation"
+    # enabled in the App settings, signing in also installs the App in
+    # one screen (Vercel-style). lib/auth.ts falls back to the OAuth App
+    # creds when these aren't set yet, so the swap is safe to ship before
+    # populating sops.
+    - GITHUB_APP_CLIENT_ID
+    - GITHUB_APP_CLIENT_SECRET
+    # GITHUB_APP_SLUG lives in env.clear above (it's the public part of
+    # github.com/apps/<slug>) — no need to encrypt it.
+    - SLACK_CLIENT_ID
+    - SLACK_CLIENT_SECRET
+    - SLACK_SIGNING_SECRET
+    # TODO: re-enable once the value is added via `scripts/update-sops-key.ts
+    # TELEGRAM_WEBHOOK_SECRET`. Until then, Telegram inbound webhook is
+    # unverified — the /api/telegram/webhook route rejects all requests.
+    # - TELEGRAM_WEBHOOK_SECRET
+    # AI
+    - PLATFORM_AI_KEY
+    - PLATFORM_ANTHROPIC_KEY
+    - PLATFORM_TOGETHER_KEY
+    # Infra — Hetzner-local Redis. Auth password for the accessory below
+    # (kamal-network bridge gateway 172.18.0.1:6379). Migrated off Upstash
+    # 2026-04-19; UPSTASH_* and the dual-backend abstraction were removed
+    # after 2k+ commands ran clean over the local Redis.
+    - REDIS_PASSWORD
+    - R2_ACCOUNT_ID
+    - R2_ACCESS_KEY_ID
+    - R2_SECRET_ACCESS_KEY
+    - R2_BUCKET
+    # Hetzner-side services
+    - STAGING_SERVER_URL
+    - STAGING_API_SECRET
+    - WORKER_URL
+    - EAP_SERVER_URL
+    - EAP_API_KEY
+    # Inari Live V1 — WS relay shared secrets. INARI_LIVE_RELAY_JWT_KEY
+    # seeds the HS256 derivation for Inari Live login JWTs (web signs,
+    # relay verifies — same SHA-256("inariwatch-relay-jwt:" || seed)
+    # derivation in web/lib/relay/jwt.ts:24 and services/relay/main.go:67).
+    # RELAY_DISPATCH_SECRET is the bearer web sends on POST /dispatch
+    # (services/relay/auth.go:135 verifies with constant-time compare).
+    # BOTH values must match what's in the relay's /opt/inari-relay/.env
+    # on Hetzner. Generate: `openssl rand -hex 32` (×2). Rotation:
+    # update both sides + `kamal env push` (web) + `systemctl restart
+    # inari-relay` (Hetzner). Existing JWTs invalidate; sidecars
+    # reconnect with a fresh token within ~30s.
+    - INARI_LIVE_RELAY_JWT_KEY
+    - RELAY_DISPATCH_SECRET
+    # Track E pieza 11 — zero-retention tombstone signing (Ed25519 32-byte
+    # raw key, hex-encoded). Required by web/lib/services/tombstone-sign.ts
+    # to issue signed receipts for clients running INARIWATCH_ZERO_RETENTION.
+    # Key in sops 2026-04-26. Rotation: replace in sops + `kamal env push`
+    # — `loadTombstoneKey()` invalidates its cache when the env value changes.
+    - INARIWATCH_TOMBSTONE_KEY_HEX
+    # Self-dogfood: capture SDK (v0.11.0) ships server-render errors from
+    # `app.inariwatch.com` to the `inariwatch-prod` project's webhook.
+    # Format: `https://<plaintext-secret>@app.inariwatch.com/capture/<integration-id>`.
+    # Provisioned via `web/scripts/dogfood-dsn.ts` (rotates on re-run).
+    # Without this var, `@inariwatch/capture/auto` silently runs in
+    # local-dev mode and emits nothing — that's exactly the regression
+    # that masked migration 0081 missing on 2026-05-05.
+    - INARIWATCH_DSN
+    # Opt-in regex PII / secret redaction in the capture pipeline (v0.3 S6).
+    # Matches keys, JWTs, emails, credit card numbers, etc. Stripped before
+    # the event leaves the user process. Default off in 0.11.0 — set to
+    # "true" in prod so dogfood alerts can never carry user PII even if a
+    # stack trace happens to include one.
+    - INARIWATCH_REDACT
+    # Email + push
+    # Transactional email (signup verify, password reset, digests) uses
+    # nodemailer against Resend's SMTP relay — see lib/notifications/email.ts.
+    # All 6 SMTP_* vars are already in sops.
+    - SMTP_HOST
+    - SMTP_PORT
+    - SMTP_SECURE
+    - SMTP_USER
+    - SMTP_PASS
+    - SMTP_FROM
+    # RESEND_API_KEY is only used by the public status-page subscriber
+    # pipeline (lib/ai/status-page-automation.ts). Not set historically;
+    # the status-page subscribe flow silently skips when absent.
+    # - RESEND_API_KEY
+    - VAPID_PRIVATE_KEY
+    - VAPID_EMAIL
+    # Feature flags
+    - PREVIEW_FIX_ORGS
+    - PREVIEW_FIX_USERS
+    - REPLAY_V2_ORGS
+    # Personal-workspace axis for Replay V2. Mirrors REPLAY_V2_ORGS but
+    # gates on the project owner's user id instead of the org id, so
+    # personal-mode viewers (no `activeOrgId`) can opt into the feature.
+    # `*` enables every personal viewer; comma-separated UUIDs enable a
+    # subset. Default behaviour is unchanged when this is unset.
+    - REPLAY_V2_USERS
+    # /admin/ops dashboard → ops-agent on each box + GH Actions API for deploys widget
+    - OPS_AGENT_SECRET
+    - OPS_URL_STAGING
+    - OPS_URL_WEB
+    - OPS_GITHUB_TOKEN
+    # Web Push (public key is baked in at build time above)
+
+# SSH access to the Hetzner host. Kamal uses the user's SSH agent — add your
+# private key with `ssh-add` before running `kamal deploy`, or rely on the
+# GitHub Actions workflow which loads HETZNER_DEPLOY_KEY into ssh-agent.
+#
+# Do NOT set `keys_only: true` — Net::SSH interprets that as "only use keys
+# from the explicit `keys:` list" and then ignores the ssh-agent entirely.
+# Without an explicit key path (we rely on ssh-agent in CI), it falls
+# through to password auth, which tries to prompt on stdin via `noecho`
+# and dies with ENOTTY in a CI environment with no TTY.
+ssh:
+  user: root
+
+# Hetzner-local Redis for the web app: rate limiting, AI cache, alert dedup,
+# Slack token cache, email rate limit. Replaces Upstash REST after parallel
+# run. Bound to the kamal-network bridge gateway (172.18.0.1) so it is
+# reachable from any container on the `kamal` Docker network and nothing
+# else — never exposed on a public interface even if UFW is misconfigured.
+# `requirepass` covers the residual case of a compromised neighbour container
+# on the same Docker network. Persistence: AOF on, 256MB LRU cap (cache
+# only, not a datastore — DB fallback paths in lib/redis.ts cover any data
+# loss). Hardening matches the web container: no-new-privileges + cap-drop
+# ALL. Boot via `kamal accessory boot redis` once REDIS_PASSWORD is in sops.
+accessories:
+  # ── ML sidecar runs on dedicated Falkenstein server (178.105.21.94) ────────
+  # Deployed directly via Docker on inari-ml, NOT as a Kamal accessory.
+  # INARI_ML_URL above points to the public IP. Drain3 state persists in
+  # the inari-ml-data Docker volume on that server.
+  # To update: scp new main.py + docker build + docker restart inari-ml
+  # Rollback: unset INARI_ML_URL + kamal env push — callers fall back to
+  # regex fingerprint / ratio thresholds with zero disruption.
+
+  redis:
+    image: redis:7-alpine
+    host: 87.99.153.227
+    port: "172.18.0.1:6379:6379"
+    volumes:
+      - /var/lib/inari-web-redis:/data
+    env:
+      secret:
+        - REDIS_PASSWORD
+    options:
+      # `restart` is intentionally omitted — Kamal manages it itself
+      # (defaults to `unless-stopped` for accessories) and rejects an
+      # override here at config-validation time.
+      #
+      # uid 999 = baked-in `redis` user in redis:7-alpine. Required because
+      # cap-drop ALL removes CAP_DAC_OVERRIDE, so even container-root cannot
+      # write to /data unless it owns the dir. /var/lib/inari-web-redis on
+      # the host is chowned to 999:999 by scripts/boot-redis-accessory.sh.
+      user: "999:999"
+      security-opt: [ "no-new-privileges:true" ]
+      cap-drop: [ "ALL" ]
+    cmd: >-
+      sh -c 'exec redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass "$REDIS_PASSWORD"'
+
+# Logging — kamal logs tails Docker's json-file driver. For long-term logs,
+# pipe to Grafana Loki or similar post-cutover.
+logging:
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"

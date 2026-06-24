@@ -1,0 +1,9 @@
+export declare const init: (..._args: unknown[]) => void;
+export declare const captureException: (..._args: unknown[]) => void;
+export declare const captureMessage: (..._args: unknown[]) => void;
+export declare const captureLog: (..._args: unknown[]) => void;
+export declare const flush: (..._args: unknown[]) => Promise<void>;
+export declare const addBreadcrumb: (..._args: unknown[]) => void;
+export declare const setTransportForTesting: (..._args: unknown[]) => void;
+export declare const resetForTesting: (..._args: unknown[]) => void;
+//# sourceMappingURL=browser-v2.d.ts.map

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Sync BOTH UFW and Docker DOCKER-USER iptables chains to current Cloudflare
+# IP ranges. Without DOCKER-USER rules, Docker port-forwards bypass UFW.
+#
+# Source of truth lives in this repo; deployed copy lives on the host at:
+#   /usr/local/bin/cf-firewall-sync         (executable, root:root, 0755)
+#   /etc/systemd/system/cf-firewall-sync.service  (oneshot, runs on boot)
+#
+# To deploy / re-deploy after edits:
+#   scp infra/hetzner/cf-firewall-sync         root@inari-web:/usr/local/bin/
+#   scp infra/hetzner/cf-firewall-sync.service root@inari-web:/etc/systemd/system/
+#   ssh root@inari-web 'chmod +x /usr/local/bin/cf-firewall-sync && \
+#                       systemctl daemon-reload && \
+#                       systemctl enable cf-firewall-sync.service && \
+#                       /usr/local/bin/cf-firewall-sync'
+#
+# The script flushes + rebuilds DOCKER-USER from scratch, then persists
+# via iptables-save → /etc/iptables/rules.v4 so reboots restore correctly.
+set -uo pipefail
+
+V4=$(curl -sf --max-time 10 https://www.cloudflare.com/ips-v4)
+V6=$(curl -sf --max-time 10 https://www.cloudflare.com/ips-v6)
+[ -z "$V4" ] || [ -z "$V6" ] && { echo "FAIL: fetch CF ranges"; exit 1; }
+
+# --- UFW (for non-Docker traffic like direct-to-host) ---
+for pass in $(seq 1 200); do
+  line=$(ufw status numbered 2>/dev/null | grep -E "(80|443)/tcp[^6]+ALLOW IN|(80|443)/tcp \(v6\)\s+ALLOW IN" | head -1)
+  [ -z "$line" ] && break
+  num=$(echo "$line" | sed -E "s/^\[\s*([0-9]+)\].*/\1/")
+  [ -z "$num" ] && break
+  echo "y" | ufw delete "$num" >/dev/null 2>&1 || true
+done
+for cidr in $V4 $V6; do
+  ufw allow proto tcp from "$cidr" to any port 80 comment "cloudflare" >/dev/null 2>&1
+  ufw allow proto tcp from "$cidr" to any port 443 comment "cloudflare" >/dev/null 2>&1
+done
+ufw reload >/dev/null 2>&1 || true
+
+# --- DOCKER-USER chain (kamal-proxy ports 80/443) ---
+iptables -F DOCKER-USER 2>/dev/null || true
+ip6tables -F DOCKER-USER 2>/dev/null || true
+
+# Always allow established + related
+iptables -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+ip6tables -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+
+# Bypass for traffic NOT arriving on the external interface (i.e., container
+# egress via docker bridges, loopback, etc.). Without this, the DROP rule at
+# the bottom of this chain catches container egress to any external :80/:443
+# endpoint (Neon, Anthropic, GitHub API) and silently breaks them — the chain
+# is meant to filter INBOUND to published Docker ports only. Discovered
+# 2026-04-19 (901 NeonDbErrors after hardening landed). Standard Docker
+# iptables pattern.
+iptables -A DOCKER-USER ! -i eth0 -j RETURN
+ip6tables -A DOCKER-USER ! -i eth0 -j RETURN
+
+# Allow CF ranges → ports 80,443
+for cidr in $V4; do
+  iptables -A DOCKER-USER -s "$cidr" -p tcp -m multiport --dports 80,443 -j RETURN
+done
+for cidr in $V6; do
+  ip6tables -A DOCKER-USER -s "$cidr" -p tcp -m multiport --dports 80,443 -j RETURN
+done
+
+# Drop everything else destined for 80/443 on Docker bridges
+iptables -A DOCKER-USER -p tcp -m multiport --dports 80,443 -j DROP
+ip6tables -A DOCKER-USER -p tcp -m multiport --dports 80,443 -j DROP
+
+# Default RETURN (allow Docker default for other ports like 9500/bridge)
+iptables -A DOCKER-USER -j RETURN
+ip6tables -A DOCKER-USER -j RETURN
+
+# --- Persist to survive reboots ---
+iptables-save > /etc/iptables/rules.v4 2>/dev/null || mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4
+ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || ip6tables-save > /etc/iptables/rules.v6
+
+echo "OK — UFW + DOCKER-USER synced to $(echo $V4 | wc -w) v4 + $(echo $V6 | wc -w) v6 CF ranges"

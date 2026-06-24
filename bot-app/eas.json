@@ -1,0 +1,17 @@
+{
+  "cli": { "version": ">= 15.0.0" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "production": {
+      "distribution": "internal",
+      "channel": "production",
+      "ios": {
+        "simulator": false
+      }
+    }
+  },
+  "submit": {}
+}

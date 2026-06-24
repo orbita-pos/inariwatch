@@ -1,0 +1,96 @@
+name: Deploy InariWeb static site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/inariweb/index.html'
+      - '.github/workflows/deploy-inariweb.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-inariweb
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_DEPLOY_KEY }}
+
+      - name: Add Hetzner host key to known_hosts
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t rsa,ecdsa,ed25519 "$HETZNER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy static files
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
+        run: |
+          ssh root@"$HETZNER_HOST" "mkdir -p /var/www/inariweb"
+          scp infra/inariweb/index.html root@"$HETZNER_HOST":/var/www/inariweb/index.html
+
+      - name: Configure Caddy (idempotent)
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
+          DOMAIN: ${{ vars.INARIWEB_DOMAIN || 'inariweb.com' }}
+        run: |
+          ssh root@"$HETZNER_HOST" bash << 'ENDSSH'
+          set -euo pipefail
+          DOMAIN="${DOMAIN:-inariweb.com}"
+
+          # Only add the block if it doesn't exist yet
+          if grep -q "$DOMAIN" /etc/caddy/Caddyfile 2>/dev/null; then
+            echo "Caddy block for $DOMAIN already exists — skipping."
+            exit 0
+          fi
+
+          cat >> /etc/caddy/Caddyfile << EOF
+
+${DOMAIN} {
+    root * /var/www/inariweb
+    file_server
+    encode gzip
+
+    header {
+        Cache-Control "public, max-age=3600, must-revalidate"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+EOF
+
+          # Validate before reloading — if syntax is wrong, Caddy won't reload
+          # and the existing config stays live.
+          caddy validate --config /etc/caddy/Caddyfile
+          systemctl reload caddy
+          echo "Caddy reloaded — $DOMAIN is now configured."
+          ENDSSH
+
+      - name: Smoke test
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
+        run: |
+          # Hit the server directly by IP to confirm the file is being served
+          # (DNS may not be pointed yet, so we skip TLS check here)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 5 \
+            -H "Host: inariweb.com" \
+            "http://$HETZNER_HOST")
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "301" ]; then
+            echo "::warning::Got $STATUS — file may not be serving yet (DNS not pointed?)"
+          else
+            echo "File is serving correctly."
+          fi

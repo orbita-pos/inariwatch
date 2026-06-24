@@ -1,0 +1,15 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+# Sesión 13 fastembed cache (MiniLM-L6-v2 ONNX). Lazy-downloaded by the
+# indexer at first run + by integration tests. ~90 MB, never committed.
+src-tauri/.fastembed_cache/
+
+# Vite + tsc build artifacts.
+dist/
+tsconfig.tsbuildinfo
+
+# Bundled fonts download target — sourcing instructions in
+# `public/fonts/README.md`. The .woff2 payloads stay out of git per
+# the Sesión 14 font-sourcing decision.
+public/fonts/*.woff2

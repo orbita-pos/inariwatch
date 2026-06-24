@@ -1,0 +1,18 @@
+{
+  "name": "@inariwatch/risk-assessment-action",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc && ncc build dist-tsc/index.js -o dist --minify",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.5.0"
+  }
+}

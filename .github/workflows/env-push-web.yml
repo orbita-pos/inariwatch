@@ -1,0 +1,130 @@
+name: Push env to Hetzner (kamal env push)
+
+# Manual-only. Never auto-fires.
+#
+# Use when you've edited web/.env.sops.yaml and need to propagate the new
+# values to the running container WITHOUT rebuilding the image. Kamal uploads
+# the decrypted env file to the Hetzner host and restarts the container
+# gaplessly via kamal-proxy (brief rolling restart, no user-visible downtime).
+#
+# If you also changed application code, use deploy-web.yml instead — a full
+# deploy already includes env push as part of the swap.
+#
+# Usage:
+#   1. gh workflow run env-push-web.yml -f confirm=push
+#   2. Or: GitHub → Actions → "Push env to Hetzner" → Run workflow → type "push"
+#
+# The workflow reads .env.sops.yaml from the default branch (main), so commit
+# + push the sops change first, then trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "push" to confirm — this restarts the running container'
+        required: true
+        default: ''
+
+concurrency:
+  # Share the deploy-web group so an env push can't race a full deploy. New
+  # requests queue behind whatever is currently running.
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  env-push:
+    # Hard gate: the input must be literally "push". Prevents fat-fingered
+    # runs from the Actions UI.
+    if: ${{ inputs.confirm == 'push' }}
+    runs-on: ubuntu-latest
+    # env push is fast (~30s after setup). Cap at 10m — anything longer
+    # means SSH or Kamal is wedged.
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      packages: read  # pull image metadata only (no rebuild)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby (for Kamal)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: Install Kamal
+        run: gem install kamal -v '~> 2.0'
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_DEPLOY_KEY }}
+
+      - name: Add Hetzner host key to known_hosts
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_WEB_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          # Plain (non-hashed) entries — see deploy-web.yml for rationale
+          # (Kamal's net-ssh 7.3 trips HostKeyMismatch on hashed entries).
+          ssh-keyscan -t rsa,ecdsa,ed25519 "$HETZNER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Write age private key
+        env:
+          AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.config/sops/age
+          printf '%s\n' "$AGE_KEY" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Install sops
+        run: |
+          curl -fsSL -o /tmp/sops \
+            https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          sops --version
+
+      - name: Prepare Kamal secrets file
+        working-directory: web
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GH_ACTOR: ${{ github.actor }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
+        run: |
+          # Same format as deploy-web.yml — Kamal 2 parses .kamal/secrets as
+          # KEY=VALUE lines (no shell exec). Decrypt sops → dotenv, prepend
+          # the two literal registry creds.
+          set -euo pipefail
+          mkdir -p .kamal
+          {
+            echo "KAMAL_REGISTRY_USERNAME=${GH_ACTOR}"
+            echo "KAMAL_REGISTRY_PASSWORD=${GHCR_PAT}"
+            sops -d --output-type dotenv .env.sops.yaml
+          } > .kamal/secrets
+          chmod 600 .kamal/secrets
+
+      - name: Push env to Hetzner (redeploy without rebuild)
+        working-directory: web
+        env:
+          KAMAL_REGISTRY_USERNAME: ${{ github.actor }}
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GHCR_PAT }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
+        run: |
+          # Kamal 2.x removed `kamal env push`. The replacement that does the
+          # same job (re-render env on host + gapless container restart with
+          # current image, no rebuild) is `kamal redeploy`.
+          kamal redeploy --verbose
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::env push failed. If the container is down, rollback via SSH: 'kamal app rollback' from the web/ dir on the host (or re-run deploy-web.yml)."

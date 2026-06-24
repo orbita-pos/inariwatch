@@ -1,0 +1,8 @@
+{
+  "name": "test-node-esm",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@inariwatch/capture": "file:../.."
+  }
+}

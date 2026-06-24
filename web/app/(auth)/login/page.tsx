@@ -1,0 +1,250 @@
+"use client";
+
+import { signIn } from "next-auth/react";
+import Link from "next/link";
+import Image from "next/image";
+import { useEffect, useState } from "react";
+import loginSideSrc from "@/public/login-new-3.webp";
+import loginSideMobileSrc from "@/public/login-side-mobile.webp";
+import { Github } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+export default function LoginPage() {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [totp, setTotp]         = useState("");
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
+
+  // Respect callbackUrl from query params (e.g. invite flow)
+  const callbackUrl = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("callbackUrl") || "/dashboard"
+    : "/dashboard";
+
+  // Surface ?error=<code> codes set by the NextAuth signIn callback when an
+  // OAuth round-trip is rejected. The most common case is OAuthAccountConflict:
+  // a logged-in user tried to connect a GitHub/Google account that's already
+  // linked to a different InariWatch user. We refuse the swap and bounce here
+  // with a clear message instead of silently logging the user in as someone
+  // else (see lib/auth.ts signIn callback for the rationale).
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (!code) return;
+    if (code === "OAuthAccountConflict") {
+      setError(
+        "That account is already connected to a different InariWatch user. " +
+        "Sign out, log in to that account, or try a different provider account.",
+      );
+    } else if (code === "OAuthAccountNotLinked") {
+      setError(
+        "An InariWatch account already exists with that email. " +
+        "Sign in with email + password first, then connect this provider from settings.",
+      );
+    }
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    const result = await signIn("credentials", {
+      email,
+      password,
+      totp: needs2FA ? totp : "",
+      callbackUrl,
+      redirect: false,
+    });
+
+    if (result?.error) {
+      if (result.error.includes("2FA_REQUIRED")) {
+        setNeeds2FA(true);
+        setError("");
+      } else if (result.error.includes("INVALID_2FA")) {
+        setError("Invalid 2FA code. Try again.");
+      } else {
+        setError("Invalid email or password.");
+      }
+      setLoading(false);
+    } else if (result?.url) {
+      window.location.href = result.url;
+    }
+  };
+
+  return (
+    <div className="relative flex min-h-screen items-center justify-center sm:justify-start bg-zinc-900">
+      {/* Full-bleed decorative background — NOT the LCP element. The form
+          card is. We intentionally lower priority and skip the inlined blur
+          placeholder so the paint is driven by the form, not a 194 KB webp. */}
+      <div className="absolute inset-0">
+        <Image
+          src={loginSideSrc}
+          alt=""
+          fill
+          className="hidden object-cover object-center sm:block"
+          fetchPriority="low"
+          loading="lazy"
+          quality={70}
+          sizes="(min-width: 640px) 100vw, 0px"
+        />
+        <Image
+          src={loginSideMobileSrc}
+          alt=""
+          fill
+          className="block object-cover object-top sm:hidden"
+          fetchPriority="low"
+          loading="lazy"
+          quality={70}
+          sizes="(max-width: 639px) 100vw, 0px"
+        />
+        <div className="absolute inset-0 bg-black/50" />
+        <div className="absolute inset-0 bg-radial-fade" />
+      </div>
+
+      {/* Form floating on top */}
+      <div className="relative w-full max-w-sm px-4 py-12 sm:ml-16 lg:ml-24 xl:ml-32">
+        {/* Logo */}
+        <div className="mb-8 text-center">
+          {/* Logo link is cross-subdomain (app.* → root via middleware redirect).
+              prefetch=false avoids the RSC probe that hits the redirect and
+              trips connect-src, plus the redirected response doesn't carry
+              our per-request nonce since middleware skips CSP on 302s. */}
+          <Link href="/" prefetch={false} className="inline-flex items-center gap-2.5">
+            <Image
+              src="/logo-inari/favicon-96x96.png"
+              alt="InariWatch"
+              width={36}
+              height={36}
+              className="shrink-0"
+            />
+            <span className="font-mono text-sm font-bold uppercase tracking-[0.15em] text-white">
+              InariWatch
+            </span>
+          </Link>
+          <h1 className="mt-4 text-xl font-semibold text-white">Welcome back</h1>
+          <p className="mt-1.5 text-sm text-white">Sign in to your dashboard</p>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+          {/* OAuth providers */}
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
+              onClick={() => signIn("github", { callbackUrl })}
+            >
+              <Github className="h-4 w-4" />
+              Continue with GitHub
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
+              onClick={() => signIn("google", { callbackUrl })}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continue with Google
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full !text-zinc-800 !border-zinc-300 hover:!bg-zinc-50"
+              onClick={() => signIn("gitlab", { callbackUrl })}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51a.42.42 0 01.82 0l2.44 7.51h8.06l2.44-7.51a.42.42 0 01.82 0l2.44 7.51 1.22 3.78a.84.84 0 01-.3.94z"/>
+              </svg>
+              Continue with GitLab
+            </Button>
+          </div>
+
+          <div className="my-6 flex items-center gap-3">
+            <div className="flex-1 h-px bg-zinc-200" />
+            <span className="text-xs text-zinc-400 font-mono">or</span>
+            <div className="flex-1 h-px bg-zinc-200" />
+          </div>
+
+          {/* Email / password */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider mb-1.5">
+                Email
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                required
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20 transition-colors"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Password
+                </label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-zinc-400 hover:text-inari-accent transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20 transition-colors"
+              />
+            </div>
+
+            {needs2FA && (
+              <div>
+                <label className="block text-xs font-mono text-zinc-500 uppercase tracking-wider mb-1.5">
+                  2FA Code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={totp}
+                  onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
+                  placeholder="000000"
+                  autoFocus
+                  className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 text-center font-mono tracking-widest placeholder:text-zinc-400 focus:border-inari-accent/60 focus:outline-none focus:ring-2 focus:ring-inari-accent/20 transition-colors"
+                />
+              </div>
+            )}
+
+            {error && (
+              <p className="text-sm text-red-600 font-mono">{error}</p>
+            )}
+
+            <Button
+              variant="primary"
+              className="w-full mt-2"
+              type="submit"
+              disabled={loading}
+            >
+              {loading ? "Signing in…" : needs2FA ? "Verify & Sign in" : "Sign in"}
+            </Button>
+          </form>
+        </div>
+
+        <p className="mt-6 text-center text-sm text-white/70">
+          Don&apos;t have an account?{" "}
+          <Link href="/register" className="text-white hover:text-white/80 transition-colors font-medium">
+            Create one free →
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,14 @@
+{
+  "name": "test-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build --ssr src/entry.js --outDir dist"
+  },
+  "dependencies": {
+    "@inariwatch/capture": "file:../.."
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

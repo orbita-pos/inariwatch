@@ -1,0 +1,83 @@
+name: ai-router-rs CI
+
+# v0.3 S7 — runs on PRs that touch the router crate or any Rust surface
+# that consumes it. Three checks:
+#   1. `cargo test --lib --tests` on the crate itself (65 lib tests + 3
+#      lockdown integration tests).
+#   2. `cargo check` on cli/ + desktop/src-tauri/ — both depend on the
+#      crate via `path =`. A break in the crate's public surface
+#      surfaces here before merge.
+#   3. `cargo deny check advisories` — dependency-graph guard.
+#
+# The lockdown enforcement (no provider URLs outside the router crate)
+# is owned by the `lockdown` integration test inside step 1 — see
+# `crates/ai-router-rs/tests/lockdown.rs` for the audit walker.
+
+on:
+  pull_request:
+    paths:
+      - "crates/ai-router-rs/**"
+      - "cli/**"
+      - "desktop/src-tauri/**"
+      - ".github/workflows/ai-router-rs-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crates/ai-router-rs/**"
+      - "cli/**"
+      - "desktop/src-tauri/**"
+
+jobs:
+  test:
+    name: cargo test (router crate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/ai-router-rs
+      - name: Run tests
+        working-directory: crates/ai-router-rs
+        run: cargo test --lib --tests --locked
+
+  check_consumers:
+    name: cargo check (cli + desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cli compile
+        working-directory: cli
+        run: cargo check --locked
+      # Tauri 2 desktop-side needs GTK + WebKit system libs for
+      # glib-sys / webkit2gtk-sys build scripts. The Ubuntu CI runner
+      # ships without them; build fails at "system library `glib-2.0`
+      # required by crate `glib-sys` was not found" without this step.
+      # ~30s overhead per run.
+      - name: Install Tauri 2 Linux system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev
+      - name: desktop compile
+        working-directory: desktop/src-tauri
+        # `--lib` because tauri's binary build needs Tauri-CLI tooling
+        # we do not install on plain CI runners. The lib target imports
+        # all the same modules so a router-side break still fails here.
+        run: cargo check --lib --locked
+
+  deny:
+    name: cargo deny (advisories + licenses)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: crates/ai-router-rs/Cargo.toml
+          command: check advisories licenses

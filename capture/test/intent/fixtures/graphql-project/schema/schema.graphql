@@ -1,0 +1,26 @@
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+input CreateUserInput {
+  email: String!
+  age: Int
+  role: Role!
+  tags: [String!]
+}
+
+type User {
+  id: ID!
+  email: String!
+  role: Role!
+  tags: [String!]!
+}
+
+type Query {
+  user(id: ID!): User
+}
+
+type Mutation {
+  createUser(input: CreateUserInput!): User
+}

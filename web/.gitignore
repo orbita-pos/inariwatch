@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Environment variables — NEVER commit these
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Drizzle
+lib/db/migrations/meta/
+
+.vercel
+
+# Kamal — decrypted secrets (the .template is committed, `secrets` is not)
+.kamal/secrets
+.kamal/hooks/*
+!.kamal/hooks/.keep
+
+# Decrypted .env (produced ad-hoc from .env.sops.yaml for local docker build).
+# The encrypted .env.sops.yaml IS committed.
+.env.decrypted
+.env.production.local

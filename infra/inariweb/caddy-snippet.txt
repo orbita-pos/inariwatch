@@ -1,0 +1,35 @@
+# Add this block to your Caddyfile on Hetzner
+# (usually at /etc/caddy/Caddyfile)
+#
+# Replace inariweb.com with your actual domain once registered.
+
+inariweb.com {
+    root * /var/www/inariweb
+    file_server
+    encode gzip
+
+    header {
+        Cache-Control "public, max-age=3600, must-revalidate"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+# ─── Deploy steps ───────────────────────────────────────────────────────────
+#
+# 1. Register inariweb.com and point DNS A record to your Hetzner IP
+#    (or add CNAME inariweb.com → inariwatch.com if using Cloudflare proxy)
+#
+# 2. SSH into Hetzner and create the document root:
+#    mkdir -p /var/www/inariweb
+#
+# 3. Copy the landing page:
+#    scp infra/inariweb/index.html root@<server-ip>:/var/www/inariweb/index.html
+#
+# 4. Add the block above to /etc/caddy/Caddyfile
+#
+# 5. Reload Caddy (no downtime):
+#    systemctl reload caddy
+#
+# Caddy auto-provisions TLS from Let's Encrypt. Done.

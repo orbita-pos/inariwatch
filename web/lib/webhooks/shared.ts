@@ -1,0 +1,583 @@
+import crypto from "crypto";
+import { db, alerts, incidentStorms, projectIntegrations, projects, users, maintenanceWindows } from "@/lib/db";
+import { eq, and, gt, lte, gte, sql } from "drizzle-orm";
+import { enqueueAlert } from "@/lib/notifications/send";
+import { dispatchOutgoingWebhooks } from "@/lib/webhooks/outgoing";
+import { autoCreateIncident } from "@/lib/ai/status-page-automation";
+import { decrypt } from "@/lib/crypto";
+import { getRedis } from "@/lib/redis";
+import {
+  loadProjectByToken,
+  TOKEN_PREFIX,
+} from "@/lib/services/project-tokens.service";
+import { inariHash } from "@/lib/inari-hash";
+import type { NewAlert, Alert } from "@/lib/db";
+
+/**
+ * Verify HMAC signature.
+ * GitHub uses sha256, Vercel uses sha1, Sentry uses sha256.
+ */
+export function verifySignature(
+  payload: string | Buffer,
+  signature: string,
+  secret: string,
+  algorithm: "sha256" | "sha1" = "sha256"
+): boolean {
+  const expected = crypto
+    .createHmac(algorithm, secret)
+    .update(payload)
+    .digest("hex");
+
+  // Constant-time comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(expected)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shared shape returned by both `loadIntegration` (legacy DSN/HMAC mode) and
+ * `loadIntegrationByToken` (new project-token Bearer mode). The capture
+ * webhook route consumes this without caring which auth mode produced it,
+ * so downstream code (rate limiting, dedup, alert insert) stays identical.
+ *
+ * In token mode `integrationId` is null (there is no project_integrations row),
+ * `webhookSecret` is null (no HMAC), and `tokenId` carries the project_tokens
+ * row id for audit + last-used-at bookkeeping.
+ */
+export interface CaptureAuthSubject {
+  /** Always present — the project the event belongs to. */
+  projectId: string;
+  /** Owner's plan — drives daily event cap + poll interval. */
+  userPlan: string | null;
+  /** Legacy mode: project_integrations.id. Null for token-mode subjects. */
+  integrationId: string | null;
+  /** Legacy mode: HMAC secret to verify body signature. Null in token mode. */
+  webhookSecret: string | null;
+  /** New mode: project_tokens.id. Null in legacy mode. */
+  tokenId: string | null;
+  /** New mode: workspace (organization) the token was minted under. */
+  workspaceId: string | null;
+  /** Auth mode discriminator. */
+  authMode: "integration" | "token";
+}
+
+/**
+ * Recognise the Inari Live V1 project-token format (`iwk_pub_v1_…`).
+ * Cheap string check used by the capture webhook to decide which auth
+ * resolver to call before touching the database.
+ */
+export function isProjectTokenSecret(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.startsWith(TOKEN_PREFIX);
+}
+
+/**
+ * Load + validate a project-token authenticated capture call. Returns null
+ * when the token is unknown, revoked, or not a `iwk_pub_v1_` secret. The
+ * underlying lookup also bumps `last_used_at` best-effort.
+ */
+export async function loadIntegrationByToken(
+  plaintext: string,
+): Promise<CaptureAuthSubject | null> {
+  if (!isProjectTokenSecret(plaintext)) return null;
+  const lookup = await loadProjectByToken(plaintext);
+  if (!lookup) return null;
+
+  // Pull the project owner's plan so the per-project event cap works the
+  // same as it does for legacy integration-mode capture calls.
+  const [owner] = await db
+    .select({ plan: users.plan })
+    .from(projects)
+    .innerJoin(users, eq(projects.userId, users.id))
+    .where(eq(projects.id, lookup.projectId))
+    .limit(1);
+
+  return {
+    projectId:     lookup.projectId,
+    userPlan:      owner?.plan ?? null,
+    integrationId: null,
+    webhookSecret: null,
+    tokenId:       lookup.tokenId,
+    workspaceId:   lookup.workspaceId,
+    authMode:      "token",
+  };
+}
+
+/**
+ * Load and validate an integration by ID.
+ * Returns the integration row or null if not found / inactive.
+ */
+export async function loadIntegration(integrationId: string) {
+  const [row] = await db
+    .select({
+      integ: projectIntegrations,
+      userPlan: users.plan,
+    })
+    .from(projectIntegrations)
+    .innerJoin(projects, eq(projectIntegrations.projectId, projects.id))
+    .innerJoin(users, eq(projects.userId, users.id))
+    .where(
+      and(
+        eq(projectIntegrations.id, integrationId),
+        eq(projectIntegrations.isActive, true)
+      )
+    )
+    .limit(1);
+
+  if (!row) return null;
+  // Decrypt webhookSecret for signature verification
+  return {
+    ...row.integ,
+    webhookSecret: row.integ.webhookSecret ? decrypt(row.integ.webhookSecret) : null,
+    userPlan: row.userPlan,
+  };
+}
+
+/**
+ * Insert an alert with 24h deduplication, then enqueue notifications.
+ * Returns the inserted alert or null if it was a duplicate.
+ */
+export async function createAlertIfNew(
+  alert: Omit<NewAlert, "projectId">,
+  projectId: string
+): Promise<Alert | null> {
+  // Check if the project has an active maintenance window — if so, suppress the alert
+  const now = new Date();
+  const [activeMaintenance] = await db
+    .select({ id: maintenanceWindows.id })
+    .from(maintenanceWindows)
+    .where(
+      and(
+        eq(maintenanceWindows.projectId, projectId),
+        lte(maintenanceWindows.startsAt, now),
+        gte(maintenanceWindows.endsAt, now)
+      )
+    )
+    .limit(1);
+
+  if (activeMaintenance) return null;
+
+  // Compute fingerprint early — used for dedup (matches CLI behavior)
+  let fingerprint: string | null = null;
+  try {
+    const { computeErrorFingerprintAsync } = await import("@/lib/ai/fingerprint");
+    fingerprint = await computeErrorFingerprintAsync(alert.title ?? "", alert.body ?? "");
+  } catch {
+    // Non-blocking
+  }
+
+  // Redis fast-path dedup: if fingerprint seen in last 24h, skip all DB queries
+  if (fingerprint) {
+    const redis = getRedis();
+    if (redis) {
+      try {
+        const dedupKey = `dedup:${projectId}:${fingerprint}`;
+        const wasSet = await redis.set(dedupKey, "1", { nx: true, ex: 86400 });
+        if (!wasSet) return null; // duplicate — skip everything
+      } catch {
+        // Redis unavailable — fall through to DB dedup
+      }
+    }
+  }
+
+  // Title-based dedup fallback (when no fingerprint — rare)
+  if (!fingerprint) {
+    const dedupeWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [dup] = await db
+      .select({ id: alerts.id })
+      .from(alerts)
+      .where(
+        and(
+          eq(alerts.projectId, projectId),
+          eq(alerts.title, alert.title!),
+          eq(alerts.isResolved, false),
+          gt(alerts.createdAt, dedupeWindow)
+        )
+      )
+      .limit(1);
+    if (dup) return null;
+  }
+
+  let stormId: string | null = null;
+  let isTriggeringStorm = false;
+
+  const [activeStorm] = await db
+    .select({ id: incidentStorms.id })
+    .from(incidentStorms)
+    .where(
+      and(
+        eq(incidentStorms.projectId, projectId),
+        eq(incidentStorms.status, "active")
+      )
+    )
+    .limit(1);
+
+  if (activeStorm) {
+    stormId = activeStorm.id;
+  } else {
+    const stormWindow = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes
+    const recentAlerts = await db
+      .select({ id: alerts.id })
+      .from(alerts)
+      .where(
+        and(
+          eq(alerts.projectId, projectId),
+          gt(alerts.createdAt, stormWindow)
+        )
+      )
+      .limit(4);
+
+    if (recentAlerts.length >= 4) {
+      // This is the 5th alert in 5 minutes! Trigger storm
+      const [newStorm] = await db
+        .insert(incidentStorms)
+        .values({ projectId, status: "active" })
+        .returning();
+      stormId = newStorm.id;
+      isTriggeringStorm = true;
+    }
+  }
+
+  // Pre-generate alert ID so it can be included in the inari hash payload.
+  // Including `id` guarantees uniqueness even when two historical alerts share
+  // the same fingerprint+severity+project (e.g., the same error recurs after
+  // the 24h dedup window expires and the first alert is resolved).
+  const alertId = crypto.randomUUID();
+  const alertInariHash = inariHash("alert", {
+    fingerprint: fingerprint ?? alert.title ?? "",
+    id: alertId,
+    projectId,
+  });
+
+  // Atomic dedup: INSERT ON CONFLICT DO NOTHING uses the partial unique index
+  // idx_alerts_dedup(project_id, fingerprint) WHERE is_resolved = false AND fingerprint IS NOT NULL
+  // This eliminates the race condition between SELECT and INSERT.
+  const [inserted] = await db
+    .insert(alerts)
+    .values({ id: alertId, ...alert, projectId, stormId, fingerprint, inariHash: alertInariHash })
+    .onConflictDoNothing()
+    .returning();
+
+  if (!inserted) return null; // Dedup hit — atomic, no race possible
+
+  // Inari Live V1 Session 5 — chat-first model.
+  //
+  // Alert just landed → auto-create the conversation thread that the
+  // dashboard sidebar will render. Idempotent on `anchor_alert_id` so
+  // a repeated insert (extremely rare given the dedup gate above) won't
+  // spawn a duplicate. Non-blocking: if conversation creation fails,
+  // the alert still saves and gets notified — the user just won't see
+  // the chat-first surface for this row.
+  try {
+    const { ensureConversationForAlert } = await import("@/lib/services/conversations.service");
+    await ensureConversationForAlert({
+      id:        inserted.id,
+      projectId,
+      title:     inserted.title ?? "Untitled alert",
+      severity:  inserted.severity,
+    });
+  } catch (err) {
+    console.error("[alert] ensureConversationForAlert failed:", err instanceof Error ? err.message : err);
+  }
+
+  // Auto-register error pattern for prediction engine
+  if (fingerprint) {
+    try {
+      const { errorPatterns } = await import("@/lib/db");
+      const [existing] = await db
+        .select()
+        .from(errorPatterns)
+        .where(eq(errorPatterns.fingerprint, fingerprint))
+        .limit(1);
+
+      if (existing) {
+        await db
+          .update(errorPatterns)
+          .set({ occurrenceCount: sql`${errorPatterns.occurrenceCount} + 1`, lastSeenAt: new Date() })
+          .where(eq(errorPatterns.id, existing.id));
+      } else {
+        await db.insert(errorPatterns).values({
+          fingerprint,
+          patternText: (alert.title ?? "").slice(0, 500),
+          category: categorizeError(alert.title ?? ""),
+          contextSummary: (alert.body ?? "").slice(0, 2000),
+        });
+      }
+    } catch {
+      // Non-blocking — pattern creation failure should never block alert
+    }
+  }
+
+  // Only enqueue notification if this is a standard alert
+  // OR if this specific alert is the one triggering the storm
+  if (!stormId || isTriggeringStorm) {
+    try {
+      await enqueueAlert(inserted as Alert);
+    } catch {
+      // Non-blocking — alert is still saved
+    }
+  }
+
+  // Enqueue async post-processing to worker (auto-analyze, outgoing webhooks, status page).
+  // If worker is unavailable, inline fallbacks below still run.
+  try {
+    const { enqueue: enqueueJob } = await import("@/lib/queue");
+    enqueueJob("post-alert-created", {
+      alertId: inserted.id,
+      projectId,
+      severity: inserted.severity,
+      title: inserted.title,
+      sourceIntegrations: inserted.sourceIntegrations,
+      triggeredStorm: isTriggeringStorm,
+      stormId: stormId ?? undefined,
+    }, { queue: "critical" }).catch(() => {});
+  } catch {
+    // Non-blocking
+  }
+
+  try {
+    await dispatchOutgoingWebhooks(inserted as Alert, "alert.created");
+  } catch {
+    // Non-blocking
+  }
+
+  // Auto-create status page incident for qualifying alerts
+  try {
+    await autoCreateIncident({
+      projectId,
+      alertId: inserted.id,
+      alertTitle: inserted.title,
+      alertSeverity: inserted.severity,
+    });
+  } catch {
+    // Non-blocking — status page automation should never block alert creation
+  }
+
+  // Slack bot: send alert or incident thread
+  try {
+    if (isTriggeringStorm && stormId) {
+      const { sendIncidentThread } = await import("@/lib/slack/send");
+      const stormWindow = new Date(Date.now() - 5 * 60 * 1000);
+      const stormAlerts = await db
+        .select({ title: alerts.title })
+        .from(alerts)
+        .where(and(eq(alerts.projectId, projectId), gt(alerts.createdAt, stormWindow)))
+        .limit(10);
+      const titles = stormAlerts.map((a) => a.title);
+      sendIncidentThread(stormId, projectId, titles.length, titles).catch(() => {});
+      // Telegram storm notification
+      import("@/lib/telegram/send").then(({ sendIncidentStormToProject }) => {
+        sendIncidentStormToProject(projectId, titles.length, titles, inserted.id).catch(() => {});
+      }).catch(() => {});
+    } else if (!stormId) {
+      const { sendAlertToSlack } = await import("@/lib/slack/send");
+      sendAlertToSlack(inserted as Alert).catch((err) => {
+        console.error("[alert] Slack delivery failed:", err instanceof Error ? err.message : err);
+      });
+      const { sendAlertToTelegram } = await import("@/lib/telegram/send");
+      sendAlertToTelegram(inserted as Alert).catch((err) => {
+        console.error("[alert] Telegram delivery failed:", err instanceof Error ? err.message : err);
+      });
+      const { sendMobilePush } = await import("@/lib/notifications/mobile-push");
+      sendMobilePush(inserted as Alert).catch(() => {});
+    }
+  } catch {
+    // Non-blocking — Slack delivery should never block alert creation
+  }
+
+  // Enqueue event-driven escalation — delayed job checks if alert was acknowledged
+  try {
+    const { escalationRules } = await import("@/lib/db");
+    const rules = await db
+      .select({ delaySec: escalationRules.delaySec })
+      .from(escalationRules)
+      .where(and(eq(escalationRules.projectId, projectId), eq(escalationRules.isActive, true)));
+
+    if (rules.length > 0) {
+      const { enqueue } = await import("@/lib/queue");
+      // Enqueue one escalation check per rule delay (deduped by BullMQ job ID)
+      const delays = [...new Set(rules.map((r) => r.delaySec))];
+      for (const delaySec of delays) {
+        enqueue("escalate-alert", { alertId: inserted.id }, {
+          queue: "default",
+          delay: delaySec * 1000,
+        }).catch(() => {});
+      }
+    }
+  } catch {
+    // Non-blocking
+  }
+
+  // Autonomous mode: auto-trigger remediation on critical alerts
+  // Skip auto-remediate for revert alerts — prevents infinite loop:
+  // critical alert → remediate → merge → regression → revert → [Auto-Revert] alert → remediate → ...
+  const isRevertAlert = inserted.title?.startsWith("[Auto-Revert]") ?? false;
+  // Skip auto-remediate for InariWatch Agent security events — AI cannot "fix" that
+  // someone executed curl/chmod/cat. These are detection signals, not bugs in code.
+  const isAgentAlert = inserted.sourceIntegrations?.includes("agent") ?? false;
+  if (inserted.severity === "critical" && !stormId && !isRevertAlert && !isAgentAlert) {
+    try {
+      const { projects: projectsTable, remediationSessions, DEFAULT_AUTO_MERGE_CONFIG } = await import("@/lib/db");
+      const [proj] = await db
+        .select({ autoMergeConfig: projectsTable.autoMergeConfig, userId: projectsTable.userId })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1);
+
+      const config = (proj?.autoMergeConfig as typeof DEFAULT_AUTO_MERGE_CONFIG | null) ?? DEFAULT_AUTO_MERGE_CONFIG;
+
+      if (config.autoRemediate && proj?.userId) {
+        // Check no active session already exists for this alert
+        const activeSessions = await db
+          .select({ id: remediationSessions.id })
+          .from(remediationSessions)
+          .where(eq(remediationSessions.alertId, inserted.id))
+          .limit(1);
+
+        if (activeSessions.length === 0) {
+          const [session] = await db
+            .insert(remediationSessions)
+            .values({
+              alertId: inserted.id,
+              projectId,
+              userId: proj.userId,
+              status: "analyzing",
+              attempt: 1,
+              maxAttempts: 3,
+              steps: [],
+            })
+            .returning();
+
+          // Fire and forget — remediation runs in background
+          import("@/lib/ai/remediate").then(({ runRemediation }) => {
+            runRemediation(session.id, () => {}).catch((err) => {
+              console.error("[auto-remediate] failed:", err);
+            });
+          }).catch(() => {});
+
+          // Notify Slack that auto-remediation started
+          import("@/lib/slack/send").then(({ sendThreadReply }) => {
+            sendThreadReply(inserted.id, ":robot_face: *Autonomous mode* — auto-remediation triggered.").catch(() => {});
+          }).catch(() => {});
+        }
+      }
+    } catch {
+      // Non-blocking — auto-remediation failure should never block alert creation
+    }
+  }
+
+  return inserted as Alert;
+}
+
+/**
+ * Mark integration as successfully checked.
+ */
+/** Categorize an error title into a pattern category */
+function categorizeError(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes("typeerror") || t.includes("cannot read propert")) return "null_reference";
+  if (t.includes("timeout") || t.includes("timed out")) return "timeout";
+  if (t.includes("econnrefused") || t.includes("connection")) return "connection";
+  if (t.includes("deploy") || t.includes("build")) return "deploy_failure";
+  if (t.includes("rate limit") || t.includes("429")) return "rate_limit";
+  if (t.includes("permission") || t.includes("403") || t.includes("401")) return "auth";
+  if (t.includes("500") || t.includes("internal server")) return "server_error";
+  if (t.includes("memory") || t.includes("heap")) return "memory";
+  if (t.includes("is down") || t.includes("uptime")) return "downtime";
+  return "unknown";
+}
+
+export async function markIntegrationSuccess(integrationId: string) {
+  await db
+    .update(projectIntegrations)
+    .set({ lastCheckedAt: new Date(), lastSuccessAt: new Date(), errorCount: 0 })
+    .where(eq(projectIntegrations.id, integrationId));
+}
+
+/**
+ * Generate a random webhook secret.
+ */
+export function generateWebhookSecret(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+// ── Signed URL tokens (for unsubscribe links) ──────────────────────────────
+
+const SIGNING_SECRET = process.env.NEXTAUTH_SECRET ?? "";
+
+/**
+ * Create an HMAC-SHA256 signature for a given value.
+ * Used to sign unsubscribe links so they can't be forged.
+ *
+ * Action links (ack/resolve) include a timestamp and expire after `ttlSec`.
+ * Unsubscribe links omit the timestamp and never expire.
+ */
+export function signValue(value: string, ttlSec?: number): string {
+  if (ttlSec) {
+    const ts = Math.floor(Date.now() / 1000);
+    const payload = `${value}:${ts}`;
+    const sig = crypto
+      .createHmac("sha256", SIGNING_SECRET)
+      .update(payload)
+      .digest("hex");
+    return `${sig}:${ts}`;
+  }
+  return crypto
+    .createHmac("sha256", SIGNING_SECRET)
+    .update(value)
+    .digest("hex");
+}
+
+/** Default TTL for action links (72 hours). */
+export const ACTION_LINK_TTL = 72 * 60 * 60;
+
+/**
+ * Verify a signed value matches its token.
+ * If the token contains a timestamp (format `sig:ts`), it also checks expiry.
+ */
+export function verifySignedValue(value: string, token: string, maxAgeSec?: number): boolean {
+  if (!SIGNING_SECRET || !token) return false;
+
+  // Check if token has timestamp component (sig:ts format)
+  const colonIdx = token.lastIndexOf(":");
+  if (colonIdx > 0 && maxAgeSec) {
+    const sig = token.slice(0, colonIdx);
+    const tsStr = token.slice(colonIdx + 1);
+    const ts = Number(tsStr);
+    if (!ts || isNaN(ts)) return false;
+
+    // Check expiry
+    const now = Math.floor(Date.now() / 1000);
+    if (now - ts > maxAgeSec) return false;
+
+    // Verify HMAC
+    const payload = `${value}:${ts}`;
+    const expected = crypto
+      .createHmac("sha256", SIGNING_SECRET)
+      .update(payload)
+      .digest("hex");
+    try {
+      return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
+
+  // Legacy: no timestamp
+  const expected = crypto
+    .createHmac("sha256", SIGNING_SECRET)
+    .update(value)
+    .digest("hex");
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(token),
+      Buffer.from(expected)
+    );
+  } catch {
+    return false;
+  }
+}

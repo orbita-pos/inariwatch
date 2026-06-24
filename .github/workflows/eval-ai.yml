@@ -1,0 +1,89 @@
+name: Eval AI pipeline
+
+on:
+  pull_request:
+    paths:
+      - 'web/lib/ai/**'
+      - 'web/evals/**'
+      - 'web/golden-dataset-*.jsonl'
+  workflow_dispatch:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run eval against baseline
+        env:
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          BRAINTRUST_PROJECT: inariwatch-remediation
+        run: |
+          npx tsx evals/coding-agent.eval.ts \
+            --dataset=golden-dataset-v4.jsonl \
+            --baseline=evals/baseline.json \
+            --out=eval-report.pr.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: web/eval-report.pr.json
+
+      - name: Post PR comment with eval metrics
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const reportPath = path.join('web', 'eval-report.pr.json');
+            const baselinePath = path.join('web', 'evals', 'baseline.json');
+            if (!fs.existsSync(reportPath)) {
+              core.warning('no eval report produced');
+              return;
+            }
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+            const base = fs.existsSync(baselinePath) ? JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) : null;
+            const fmt = (v) => `${(v * 100).toFixed(1)}%`;
+            const delta = (a, b) => {
+              const d = (a - b) * 100;
+              return `${d >= 0 ? '+' : ''}${d.toFixed(1)}pp`;
+            };
+            const lines = [
+              '## 🧪 AI Eval',
+              '',
+              `Dataset: \`${report.dataset}\` · ${report.recordCount} records`,
+              '',
+              '| Metric | PR | Baseline | Δ |',
+              '|---|---|---|---|',
+              `| success_rate | ${fmt(report.metrics.success_rate)} | ${base ? fmt(base.metrics.success_rate) : '—'} | ${base ? delta(report.metrics.success_rate, base.metrics.success_rate) : '—'} |`,
+              `| pattern_match_rate | ${fmt(report.metrics.pattern_match_rate)} | ${base ? fmt(base.metrics.pattern_match_rate) : '—'} | ${base ? delta(report.metrics.pattern_match_rate, base.metrics.pattern_match_rate) : '—'} |`,
+              `| avg_self_review | ${report.metrics.avg_self_review.toFixed(1)} | ${base ? base.metrics.avg_self_review.toFixed(1) : '—'} | — |`,
+              `| avg_confidence | ${report.metrics.avg_confidence.toFixed(1)}% | ${base ? base.metrics.avg_confidence.toFixed(1) + '%' : '—'} | — |`,
+              '',
+              '**Gate**: success -5% or pattern_match -10% blocks merge.',
+            ];
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: lines.join('\n'),
+            });

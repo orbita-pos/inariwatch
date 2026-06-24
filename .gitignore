@@ -1,0 +1,50 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Environment variables — NEVER commit ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.scratch
+
+# ── Next.js ───────────────────────────────────────────────────────────────────
+web/.next/
+web/out/
+web/dist/
+web/tsconfig.tsbuildinfo
+
+# ── Worker / action (TS compiled output kept out of git) ──────────────────────
+worker/dist/
+action/dist-tsc/
+
+# ── VS Code extension build artefacts ─────────────────────────────────────────
+vscode/*.vsix
+vscode/out/
+
+# ── k6 test output ────────────────────────────────────────────────────────────
+k6/results/
+
+# ── E2E test screenshot outputs ───────────────────────────────────────────────
+web/screenshots/
+
+# ── Rust / CLI & Desktop ──────────────────────────────────────────────────────
+cli/target/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Drizzle ───────────────────────────────────────────────────────────────────
+web/lib/db/migrations/meta/
+
+.vercel
+
+# Local log/debug files
+*.log
+err_*.txt
+vitest_*.txt
+raw.txt
+github_err.txt
+web/scripts/demo-output/

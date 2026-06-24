@@ -1,0 +1,365 @@
+[package]
+name        = "inariwatch-desktop"
+version     = "0.1.0"
+edition     = "2021"
+default-run = "inariwatch-desktop"
+
+[lib]
+name       = "inariwatch_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# v0.3 S4 — `agent-test-utils` exposes the `Mock*Backend` impls in the
+# `agent::tools::local_exec` module to integration tests. Mocks ignore
+# the sandbox guards (whitelist, env scrub, path canonicalize, …), so
+# making them visible to production callers would defeat the whole
+# point of the cluster. Tests opt in with
+# `cargo test --features agent-test-utils`; the default build keeps the
+# mocks behind `#[cfg(any(test, feature = "agent-test-utils"))]` so
+# `cargo build` of the bin/cdylib never compiles them in.
+[features]
+# Default build is cloud-only — matches the product positioning (commercial
+# cloud LLMs via OpenAI / Together-Qwen, see feedback_no_proprietary_ai.md).
+# `local-ai` stays available as opt-in for users on strong hardware who
+# want offline chat, but the default `cargo tauri dev` / release build
+# does NOT pull mistralrs (saves ~250-350 crates → ~30-40% faster cold
+# build, ~50-100 MB off the desktop binary).
+#
+# Activate explicitly when needed:
+#   cargo tauri dev --features local-ai
+#   cargo tauri build --features local-ai
+default          = []
+agent-test-utils = []
+# Local LLM offline chat (SmolLM2-1.7B via mistralrs). Opt-in only —
+# users on strong hardware (NVIDIA ≥6GB VRAM or Apple Silicon ≥16GB)
+# can enable this to skip the cloud round-trip for LSP completions and
+# Apply Fix. Code paths that depend on it are gated by
+# `#[cfg(feature = "local-ai")]` in `src/local_ai/chat_infer.rs`; the
+# orchestrator's `LocalAI: Option<_>` plumbing falls back to cloud
+# gracefully when the runtime is absent.
+local-ai         = ["dep:mistralrs"]
+
+# Integration test that drives the local-exec sandbox through the mocks
+# only available behind `agent-test-utils`. Declared with
+# `required-features` so a plain `cargo test --test agent_local_exec_tools`
+# (without the flag) yields a clear "missing required features" error
+# instead of a half-compiled harness.
+[[test]]
+name              = "agent_local_exec_tools"
+path              = "tests/agent_local_exec_tools.rs"
+required-features = ["agent-test-utils"]
+
+# v0.3 S5 — comm cluster integration suite. Same `agent-test-utils`
+# gate as S4: the cluster's `Mock{WhatsApp,Telegram,Slack}Backend` are
+# only public when the feature is on, so this harness must declare the
+# requirement explicitly.
+[[test]]
+name              = "agent_comm_tools"
+path              = "tests/agent_comm_tools.rs"
+required-features = ["agent-test-utils"]
+
+# v0.3 S13 — search cluster integration suite. Same `agent-test-utils`
+# gate as S4/S5: the cluster's `MockSearchBackend` is only public when
+# the feature is on. The harness drives the full `ToolRegistry` pipeline
+# (lookup → schema → permission gate → witness open → execute → witness
+# close → audit insert) end-to-end via the mock, no live SO/GH/MDN HTTP.
+[[test]]
+name              = "agent_search_tool"
+path              = "tests/agent_search_tool.rs"
+required-features = ["agent-test-utils"]
+
+# v0.3 S8 — pairing + messenger IPC contract test. Uses the
+# `agent-test-utils`-gated `TestClock` re-export from `crate::pairing`.
+[[test]]
+name              = "messenger_ipc"
+path              = "tests/messenger_ipc.rs"
+required-features = ["agent-test-utils"]
+
+# v0.3 S8 — messenger gateway end-to-end with mock LLM + mock channel.
+# Uses `crate::messenger::ai_loop::mocks` (gated) and the same
+# `TestClock` re-export.
+[[test]]
+name              = "messenger_e2e"
+path              = "tests/messenger_e2e.rs"
+required-features = ["agent-test-utils"]
+
+# S12 — mobile-channel + relay-pair-event coverage. Same gate as S8.
+[[test]]
+name              = "messenger_mobile"
+path              = "tests/messenger_mobile.rs"
+required-features = ["agent-test-utils"]
+
+[[bin]]
+name = "inariwatch-desktop"
+path = "src/main.rs"
+
+# Session 7 — sidecar binary that Claude Code / Codex / Cursor / Zed
+# spawn over stdio. It is a CLIENT of the daemon's local HTTP MCP
+# transport, not a second instance of the server. Reads JSON-RPC frames
+# from stdin, forwards over `127.0.0.1:<mcp_port>` (HTTP + Bearer), and
+# writes responses back to stdout.
+[[bin]]
+name = "inari-mcp-stdio"
+path = "src/bin/inari_mcp_stdio.rs"
+
+# Session 22 (v0.2) — LSP-over-stdio passthrough sidecar that editors
+# (VS Code, Neovim, Helix, JetBrains, Cursor, Zed) spawn. Pumps bytes
+# between stdin/stdout and the daemon's TCP LSP listener (default 9877).
+[[bin]]
+name = "inari-lsp-stdio"
+path = "src/bin/inari_lsp_stdio.rs"
+
+# Sesión 28 (v0.2) — standalone receipt verifier. Reads a `.eap.json`
+# file written by the dock's "Export receipt" button, validates the
+# Ed25519 signature over SHA-256(receipt_id), prints PASS/FAIL + a
+# summary, exits 0 on PASS / 1 on FAIL / 2 on file-error. No daemon,
+# no DB, no network — self-contained crypto verification so this
+# binary can be distributed standalone (Mac/Win/Linux) for users who
+# don't have Inari Live installed.
+[[bin]]
+name = "inari-verify"
+path = "src/bin/inari_verify.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri                    = { version = "2", features = ["tray-icon"] }
+tauri-plugin-updater     = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart   = "2"
+tauri-plugin-dialog      = "2"
+tauri-plugin-global-shortcut = "2"
+# v0.3 S3 — Desktop OS tools cluster (`src/agent/tools/desktop_os.rs`).
+# `opener` powers `desktop.open_in_editor` / `desktop.open_url` (it opens
+# both files via the system default app and HTTPS URLs in the default
+# browser). `clipboard-manager` powers
+# `desktop.read_clipboard` / `desktop.write_clipboard`. Pinned to the
+# Tauri 2 line that the rest of the desktop pulls in.
+tauri-plugin-opener      = "2"
+tauri-plugin-clipboard-manager = "2"
+serde                    = { version = "1", features = ["derive"] }
+serde_json               = "1"
+tokio                    = { version = "1", features = ["full"] }
+flume                    = "0.11"
+tracing                  = "0.1"
+tracing-subscriber       = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender         = "0.2"
+# `blocking` is required by the `inari-mcp-stdio` sidecar binary (Sesión 7),
+# which pumps JSON-RPC frames synchronously between stdin/stdout and the
+# local axum server.
+reqwest                  = { version = "0.12", features = ["json", "rustls-tls", "stream", "blocking"], default-features = false }
+dirs                     = "5"
+toml                     = "0.8"
+notify                   = "6"
+# Session 5 — FS sensor.
+# `notify-debouncer-mini` (NOT -full) collapses bursts of save events into
+# one delivery within a 200ms window. Mini was chosen over -full because
+# YEAR1 work measured lower lock contention on monorepo workloads where
+# tens of thousands of paths churn per second; -full's per-path event
+# buffering pays for renames we don't surface in v0.1.
+#
+# `ignore` is the same .gitignore-respecting walker ripgrep / Zed use —
+# git_ignore + git_global + git_exclude in one builder. `globset` is
+# pulled in as a peer for future per-repo allow/deny rules.
+#
+# `rayon` parallelizes the initial walk so a 50k-symbol monorepo doesn't
+# block the daemon reactor.
+notify-debouncer-mini    = "0.4"
+ignore                   = "0.4"
+globset                  = "0.4"
+rayon                    = "1.10"
+sha2                     = "0.10"
+regex                    = "1"
+once_cell                = "1"
+futures-util             = "0.3"
+
+# Session 3 — local store. rusqlite over sqlx because sqlx does not expose
+# LOAD EXTENSION (we need it for sqlite-vec). r2d2 + r2d2_sqlite for the
+# pool — rusqlite::Connection is !Sync. sqlite-vec ships its FFI as static
+# C source; loaded via auto_extension at pool init (see store/pool.rs).
+rusqlite                 = { version = "0.31", features = ["bundled", "load_extension"] }
+r2d2                     = "0.8"
+r2d2_sqlite              = { version = "0.24", features = ["bundled"] }
+sqlite-vec               = "0.1"
+thiserror                = "1"
+
+# Session 4 — IPC bridge. ts-rs auto-generates TypeScript types for the
+# DTOs returned by Tauri commands so the frontend wrapper at
+# desktop/src/lib/types/ stays in sync at compile time. The `serde-json-impl`
+# feature enables `serde_json::Value` mapping. ts-rs's own `export_bindings_*`
+# lib tests refresh the .ts files on every `cargo test --lib` — no manual
+# regenerator test needed.
+ts-rs                    = { version = "8", features = ["serde-json-impl"] }
+
+# Session 7 — local MCP server. axum hosts JSON-RPC 2.0 over HTTP on
+# 127.0.0.1:<mcp_port>. tower / tower-http are already transitive
+# (reqwest pulls them) but Cargo recommends declaring them explicitly
+# when we use axum's middleware. uuid is used to generate the Bearer
+# token persisted at first launch.
+axum                     = { version = "0.7", features = ["json", "tokio"] }
+tower                    = "0.5"
+tower-http               = { version = "0.5", features = ["trace", "cors"] }
+uuid                     = { version = "1", features = ["v4", "v5"] }
+
+# Session 6 — indexer.
+# tree-sitter parsers for the 5 languages Inari Live indexes today.
+# Versions are pinned to the 0.21/0.22 line because the upstream
+# `tree-sitter` API broke in 0.23 (the grammar crates haven't followed
+# yet). `tree-sitter-typescript` exposes both the TypeScript and TSX
+# grammars from a single crate.
+#
+# `fastembed` ships the ONNX runtime + lazy-downloads MiniLM-L6-v2 from
+# Hugging Face on first use. The model cache lives at
+# `<app_local_data_dir>/inari-live/models/` (resolved by the indexer at
+# spawn). A cargo build on Windows compiles the bundled ORT C++ source —
+# no external libonnxruntime install is required.
+tree-sitter              = "0.22"
+tree-sitter-typescript   = "0.21"
+tree-sitter-javascript   = "0.21"
+tree-sitter-python       = "0.21"
+tree-sitter-rust         = "0.21"
+tree-sitter-go           = "0.21"
+fastembed                = "4"
+
+# Session 11 — declarative memory layer. memory.md parsing/rewriting is
+# done with pulldown-cmark (CommonMark parser) and pulldown-cmark-to-cmark
+# (round-trip serializer that preserves source positions on unchanged
+# sections). Both are pure-Rust, no external deps.
+pulldown-cmark           = "0.10"
+pulldown-cmark-to-cmark  = "13"
+
+# Session 14 — dock chrome.
+# `window-vibrancy` exposes the OS-native blur APIs (NSVisualEffect on
+# macOS, Acrylic on Windows). On Linux it is a no-op fallback.
+window-vibrancy          = "0.5"
+
+# Session 9 — shell sensor (Sensor 2).
+# `interprocess` exposes the same `LocalSocket{Listener,Stream}` API on
+# Unix domain sockets and Windows named pipes — no `#[cfg]` branching
+# at the call site. We use the tokio integration so the listener loop
+# yields cleanly on the existing daemon runtime. Only the `tokio` and
+# `local-socket` features are enabled to keep the dep tree slim.
+interprocess             = { version = "2", features = ["tokio"] }
+
+# Session 10 — substrate sensor (Sensor 6).
+# `which` resolves `node` / `npm` / `substrate-v2-replay` against the
+# user's PATH at run time. We never bundle these binaries — the wrapper
+# (`sensors::substrate::wrapper`) and the `inari run` CLI subcommand
+# both depend on whatever the user already has installed. `which = "6"`
+# pulls in zero extra deps beyond `cfg-if`.
+which                    = "6"
+
+# Session 18 — OpenAI client + chat streaming.
+# `chrono` for the per-day spend bucket key (UTC YYYY-MM-DD). No new HTTP
+# / SSE dep: reqwest already has `stream` enabled, OpenAI SSE framing is
+# trivial enough to hand-roll (~40 lines, see `ai::openai::sse_lines`).
+# Token counting also stays heuristic (chars / 4) — see DECISIONS for
+# why we passed on `tiktoken-rs`.
+# `bytes` is already transitive via reqwest; pinned explicitly so the
+# `bytes::Bytes` use in `ai::openai::sse_chunks` is hygienic.
+chrono                   = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+bytes                    = "1"
+
+# Sesión 21 — local AI runtime (llama.cpp sidecar + lazy model registry).
+# `blake3` hashes downloaded GGUFs (≈4 GB/s on x86_64-v3, vs ~1 GB/s for
+# the existing `sha2` crate). The S21 spec body locked BLAKE3 — kept
+# `sha2` because the indexer still uses it for AST hashes.
+# `sysinfo` reads total RAM + logical CPU count for hardware tier
+# detection (Tier1 needs ≥ 8 GB RAM, Tier2 needs ≥ 16 GB). The
+# `system` feature is the only one we need — `disks`, `network`,
+# `users` add ~30 transitive deps for nothing we use.
+blake3                   = "1"
+sysinfo                  = { version = "0.30", default-features = false }
+
+# Sesión 25 — Fast Apply local path (Kortix FastApply-7B). The local
+# model returns the FULL edited file; we convert that to a unified
+# diff so the existing `git apply` pipeline (orchestrator::apply_diff)
+# stays unchanged. `similar` is the de-facto Rust diffing crate (used
+# by `cargo`, `bat`, `insta`); pure-Rust, no transitive C deps.
+# S26 (apply quality + retry) reuses the same dep — declared here so
+# both sessions share one entry rather than landing it twice.
+similar                  = "2"
+
+# Local LLM inference — SmolLM2-1.7B Q4 CPU-only chat. The `ring` feature
+# swaps aws-lc-rs (needs NASM/cmake on Windows) for ring (pure Rust TLS).
+# `no-default-features` drops Metal/CUDA/flash-attn so this compiles on any
+# CPU with no extra tooling. First-use downloads the GGUF from HuggingFace.
+mistralrs                = { version = "0.8.1", optional = true, default-features = false, features = ["ring"] }
+
+# Sesión 28 — EAP receipt Ed25519 verification (shared between the
+# `inari-verify` standalone binary and the `lib_eap_verify` module).
+# Pinned to the maintained 2.x line. `default-features = false` keeps
+# the dep tree slim — `verify_strict` lives in the default feature set
+# (`zeroize`, `rand_core`, etc. would be needed only for keypair
+# generation, which we only do in tests).
+ed25519-dalek            = { version = "2", default-features = false, features = ["std"] }
+
+# v0.3 S2 — WS relay client (Inari Live registers with relay.inariwatch.com).
+# tokio-tungstenite shares its rustls TLS stack with reqwest above so the
+# binary doesn't drag in two TLS implementations. `connect` + `handshake`
+# are the default features; we opt out of native-tls explicitly.
+tokio-tungstenite        = { version = "0.23", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+rand                     = "0.8"
+
+# v0.3 S7 — every cloud-LLM HTTP call from desktop/src-tauri/ now goes
+# through this crate. Replaces the in-tree OpenAI HTTP stack that
+# previously lived in `src/ai/openai.rs`. Consumed via `path =` (not
+# workspace member); see crates/ai-router-rs/Cargo.toml top comment for
+# the full rationale.
+ai-router-rs             = { path = "../../crates/ai-router-rs" }
+
+# v0.3 S13 — Tier 0 search facade (Stack Overflow + GitHub Issues + MDN
+# behind anonymous quotas + SQLite cache). Same `path =` rationale as
+# ai-router-rs above — standalone crate, no Cargo workspace root.
+# `test-utils` enables `Searcher::cache_for_tests` for the agent
+# integration suite at tests/agent_search_tool.rs.
+inari-search             = { path = "../../crates/inari-search", features = ["test-utils"] }
+
+# v0.3 S2 — chat-agent tool registry (`src/agent/`).
+# `async-trait` for the `ChatTool` trait — also already pulled
+# transitively by tauri/fastembed but declared explicitly so the agent
+# module is hygienic (no reliance on a deeper crate's feature flags).
+# `jsonschema` validates `ToolMeta::params_schema` against the args the
+# model emitted before reaching `execute()`; the 0.18 line drops the
+# `chrono` default features that the older 0.17 line required.
+async-trait              = "0.1"
+jsonschema               = { version = "0.18", default-features = false }
+
+# Session 1 — Inari Live device-token storage in the OS keyring.
+# `keyring` 3.x talks to Windows Credential Manager / macOS Keychain /
+# Linux Secret Service. On Linux without Secret Service / kwallet the
+# operations fail; `cloud::keyring::SecretStore` falls back to the SQL
+# settings store with a warning log (per S1 R1 decision).
+keyring                  = { version = "3", features = [
+    "apple-native",
+    "windows-native",
+    "linux-native-sync-persistent",
+] }
+
+# Session 1 — hostname-derived device label. `gethostname` is the
+# de-facto Rust crate (used by tracing, kube-rs, etc.). Pure-libc on
+# unix, GetComputerNameExW on Windows. No extra deps.
+gethostname              = "0.5"
+
+# Session 1 — URL-encoded query params for the device flow's
+# label/os/hostname/app_version. Promotes the hand-rolled `urlencode()`
+# in `cloud::auth` to a vetted dep.
+urlencoding              = "2"
+
+[dev-dependencies]
+tokio                    = { version = "1", features = ["full", "test-util"] }
+tempfile                 = "3"
+# Session 7 — integration tests fire HTTP requests at the running
+# axum router. reqwest already declared as a runtime dep above; the
+# JSON feature is enough.
+# v0.3 Phase A — `mockito` stands up a local HTTP server fixture for
+# the cloud widget tests. Lightweight (~5 transitive deps), pure-Rust,
+# no Docker / network dep.
+mockito                  = "1"
+
+# Profile config intentionally left to Cargo defaults — past attempt to
+# pre-optimize deps with `opt-level = 1` made cold builds dramatically
+# slower (every dep doing extra LLVM optimization work that doesn't
+# amortize on a single-developer machine). Defender exclusions on
+# `target/` and `.cargo/registry/` are the actual Windows build-speed
+# fix; don't put it back without measuring.

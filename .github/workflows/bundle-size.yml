@@ -1,0 +1,123 @@
+name: Bundle size — capture SDK
+
+# Gates @inariwatch/capture's bundle size against the budget declared
+# in capture/BUNDLE_BUDGET.md. Fails PRs that push any scenario over
+# its hard limit. Posts a comment summarizing the diff vs main.
+#
+# Triggered ONLY on PRs that touch capture/ (or this workflow itself)
+# to avoid burning CI on unrelated changes.
+
+on:
+  pull_request:
+    paths:
+      - 'capture/**'
+      - '.github/workflows/bundle-size.yml'
+  workflow_dispatch:
+
+permissions:
+  contents:      read
+  pull-requests: write  # for the comment posting
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: capture
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need main's tip for the diff baseline
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: capture/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (tsc)
+        run: npm run build
+
+      - name: Measure bundle (write JSON + enforce budget)
+        id: measure
+        # `--check` exits 1 if any scenario exceeds its budget in
+        # BUNDLE_BUDGET.md. JSON always lands at ci/bundle-size.json.
+        run: |
+          node scripts/measure-bundle.mjs --check 2>&1 | tee bundle-output.txt
+          # Capture for the comment step regardless of exit code so
+          # the diff still posts when the gate fails.
+
+      - name: Compute diff vs main baseline
+        if: always()
+        id: diff
+        run: |
+          # ci/bundle-size.json on main IS the baseline. PR's just-
+          # measured version is at the same path locally. We render a
+          # markdown table comparing the two.
+          node ./scripts/render-bundle-diff.mjs \
+            <(git show origin/main:capture/ci/bundle-size.json 2>/dev/null || echo "{}") \
+            ./ci/bundle-size.json \
+            > diff.md || true
+          echo "--- diff.md ---"
+          cat diff.md || true
+
+      - name: Comment diff on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: capture/diff.md
+          header: capture-bundle-size
+
+      - name: Fail if baseline file diverged from PR measurement
+        # We DON'T fail just because numbers changed — that's expected.
+        # The hard-gate is `--check` above, which already ran. This step
+        # only re-asserts exit status so the job conclusion is clean.
+        if: always()
+        run: |
+          if grep -q "exceeded budget" bundle-output.txt; then
+            echo "Budget exceeded — failing job. See comment above."
+            exit 1
+          fi
+
+  next15-bundle-shape:
+    # Second job: build the test-bundlers/next15 app against the PR's
+    # capture/ dist and assert via the verify-bundle scanner that no
+    # heavy-module marker leaks into Next's production output. Catches
+    # Turbopack/Webpack-specific regressions that esbuild-based tests
+    # in measure-bundle would miss.
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: measure  # don't waste minutes if the budget gate already failed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build capture SDK (provides dist/ that the harness installs from)
+        working-directory: capture
+        run: npm ci && npm run build
+
+      - name: Install harness (file:../.. consumes capture/dist via npm link)
+        working-directory: capture/test-bundlers/next15
+        run: npm install --no-save
+
+      - name: Build Next.js harness app
+        working-directory: capture/test-bundlers/next15
+        run: npm run build
+
+      - name: Verify no heavy-module markers in .next/ output
+        working-directory: capture/test-bundlers/next15
+        run: npm run verify

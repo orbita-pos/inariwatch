@@ -1,0 +1,324 @@
+import { NextResponse } from "next/server";
+import {
+  verifySignature,
+  loadIntegration,
+  createAlertIfNew,
+  markIntegrationSuccess,
+} from "@/lib/webhooks/shared";
+import { resolveRepoFromGithubPayload } from "@/lib/webhooks/resolve-repo";
+import { checkWebhookRateLimit, extractClientIp } from "@/lib/webhooks/rate-limit";
+import { rateLimit } from "@/lib/auth-rate-limit";
+import { db, alerts, PLAN_LIMITS } from "@/lib/db";
+import { eq, and, like, sql } from "drizzle-orm";
+import { decryptConfig } from "@/lib/crypto";
+import { autoAnalyzeAlert } from "@/lib/ai/auto-analyze";
+import { assessPRRisk } from "@/lib/ai/risk-assessment";
+
+/**
+ * POST /api/webhooks/github/[integrationId]
+ *
+ * Receives GitHub webhook events and creates alerts in real-time.
+ *
+ * Supported events:
+ * - check_run.completed     → failed CI (critical)
+ * - workflow_run.completed   → failed workflow (critical)
+ * - pull_request.opened      → info (new PR opened)
+ * - pull_request_review      → (unused for now, reserved)
+ */
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ integrationId: string }> }
+) {
+  const { integrationId } = await params;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(integrationId))
+    return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
+
+  // IP rate limit (anti-DOS)
+  const ip = extractClientIp(req);
+  const ipRl = await checkWebhookRateLimit(ip);
+  if (!ipRl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(ipRl.retryAfter) } }
+    );
+  }
+
+  // Load integration
+  const integ = await loadIntegration(integrationId);
+  if (!integ) {
+    return NextResponse.json({ error: "Integration not found" }, { status: 404 });
+  }
+
+  if (integ.service !== "github") {
+    return NextResponse.json({ error: "Not a GitHub integration" }, { status: 400 });
+  }
+
+  // Per-project daily events cap (shared across all webhook sources).
+  const plan = integ.userPlan ?? "free";
+  const dailyCap = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.free).maxCaptureEventsPerDay;
+  const dayRl = await rateLimit("capture-daily", integ.projectId, {
+    windowMs: 86_400_000,
+    max: dailyCap,
+  });
+  if (!dayRl.allowed) {
+    return NextResponse.json(
+      { error: "Daily event cap reached for this project" },
+      { status: 429, headers: { "Retry-After": String(dayRl.retryAfterSeconds ?? 3600) } }
+    );
+  }
+
+  // Require webhook secret
+  const secret = integ.webhookSecret;
+  if (!secret) {
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 403 });
+  }
+
+  // Read raw body for signature verification
+  const body = await req.text();
+  if (body.length > 1_000_000) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
+
+  // Verify signature — GitHub sends "sha256=<hex>"
+  const sigHeader = req.headers.get("x-hub-signature-256") ?? "";
+  const sig = sigHeader.replace("sha256=", "");
+  if (!sig || !verifySignature(body, sig, secret, "sha256")) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  const event = req.headers.get("x-github-event") ?? "";
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  let created = 0;
+
+  const config = decryptConfig(integ.configEncrypted);
+  const alertConfig = (config.alertConfig ?? {}) as Record<string, { enabled?: boolean }>;
+
+  // ── check_run.completed ──────────────────────────────────────────────
+  if (event === "check_run" && payload.action === "completed") {
+    const checkCi = alertConfig.failed_ci?.enabled !== false;
+    if (!checkCi) {
+      return NextResponse.json({ ok: true, skipped: "failed_ci disabled" });
+    }
+
+    const run = payload.check_run as Record<string, unknown> | undefined;
+    if (run?.conclusion === "failure" || run?.conclusion === "timed_out") {
+      const repo = payload.repository as Record<string, unknown> | undefined;
+      const output = run.output as Record<string, unknown> | undefined;
+      const sha = (run.head_sha as string)?.slice(0, 7) ?? "unknown";
+      const runUrl = (run.html_url ?? run.details_url ?? "") as string;
+      const prs = run.pull_requests as Record<string, unknown>[] | undefined;
+      const pr = prs?.[0];
+      const prLine = pr ? `PR #${pr.number}: ${(pr as Record<string, unknown>).title ?? ""}` : "";
+
+      // Duration
+      const startedAt = run.started_at ? new Date(run.started_at as string) : null;
+      const completedAt = run.completed_at ? new Date(run.completed_at as string) : null;
+      const durationSec = startedAt && completedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 1000) : null;
+      const durationLine = durationSec ? `Duration: ${durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`}` : "";
+
+      const bodyParts = [
+        `Check "${run.name ?? ""}" ${run.conclusion} on commit ${sha}`,
+        prLine,
+        durationLine,
+        runUrl ? `View run: ${runUrl}` : "",
+        output?.summary ? `\n${output.summary}` : "",
+      ].filter(Boolean).join("\n");
+
+      const result = await createAlertIfNew(
+        {
+          severity: "critical",
+          title: `CI failing on ${repo?.name ?? "unknown"}/${repo?.default_branch ?? "main"}`,
+          body: bodyParts.trim(),
+          sourceIntegrations: ["github"],
+          isRead: false,
+          isResolved: false,
+          repo: resolveRepoFromGithubPayload(payload as { repository?: { full_name?: unknown } | null }),
+        },
+        integ.projectId
+      );
+      if (result) { created++; autoAnalyzeAlert(result).catch(() => {}); }
+    }
+
+    // Auto-resolve open "CI failing" alerts when a check run succeeds
+    if (run?.conclusion === "success" || run?.conclusion === "neutral") {
+      await db
+        .update(alerts)
+        .set({ isResolved: true })
+        .where(
+          and(
+            eq(alerts.projectId, integ.projectId),
+            eq(alerts.isResolved, false),
+            like(alerts.title, "%CI failing%"),
+            sql`'github' = ANY(${alerts.sourceIntegrations})`
+          )
+        );
+    }
+
+    // Fase 4 Part B unification — publish wake for any remediation session
+    // waiting on this commit's CI. Fire-and-forget; Redis-down is handled
+    // inside publishCiCompletion (falls back to polling in the listener).
+    // Gated by CI_WEBHOOK_MODE so operators can disable without redeploy.
+    // This makes the existing GitHub webhook (which every user already has
+    // configured) drive the listener — no separate webhook setup required.
+    const headSha = typeof run?.head_sha === "string" ? run.head_sha : null;
+    if (headSha) {
+      const { publishCiCompletion, isCiWebhookEnabled } = await import("@/lib/ai/ci-webhook");
+      if (isCiWebhookEnabled()) {
+        publishCiCompletion(headSha, {
+          conclusion: typeof run?.conclusion === "string" ? run.conclusion : "unknown",
+          deliveryId: req.headers.get("x-github-delivery"),
+          checkRunId: typeof run?.id === "number" ? run.id : null,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── workflow_run.completed ────────────────────────────────────────────
+  if (event === "workflow_run" && payload.action === "completed") {
+    const checkCi = alertConfig.failed_ci?.enabled !== false;
+    if (!checkCi) {
+      return NextResponse.json({ ok: true, skipped: "failed_ci disabled" });
+    }
+
+    const run = payload.workflow_run as Record<string, unknown> | undefined;
+    if (run?.conclusion === "failure" || run?.conclusion === "timed_out") {
+      const repo = payload.repository as Record<string, unknown> | undefined;
+      const actor = run.triggering_actor as Record<string, unknown> | undefined;
+      const runUrl = (run.html_url ?? "") as string;
+
+      const startedAt = run.run_started_at ? new Date(run.run_started_at as string) : null;
+      const updatedAt = run.updated_at ? new Date(run.updated_at as string) : null;
+      const durationSec = startedAt && updatedAt ? Math.round((updatedAt.getTime() - startedAt.getTime()) / 1000) : null;
+      const durationLine = durationSec ? `Duration: ${durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`}` : "";
+
+      const attempt = run.run_attempt && (run.run_attempt as number) > 1 ? ` (attempt ${run.run_attempt})` : "";
+
+      const bodyParts = [
+        `Run #${run.run_number ?? "?"}${attempt} ${run.conclusion}`,
+        `Triggered by: ${actor?.login ?? "unknown"} via ${run.event ?? "unknown"}`,
+        `Branch: ${run.head_branch ?? "unknown"}`,
+        durationLine,
+        runUrl ? `View run: ${runUrl}` : "",
+      ].filter(Boolean).join("\n");
+
+      const result = await createAlertIfNew(
+        {
+          severity: "critical",
+          title: `Workflow "${run.name ?? ""}" failed on ${repo?.name ?? "unknown"}/${run.head_branch ?? "main"}`,
+          body: bodyParts,
+          sourceIntegrations: ["github"],
+          isRead: false,
+          isResolved: false,
+          repo: resolveRepoFromGithubPayload(payload as { repository?: { full_name?: unknown } | null }),
+        },
+        integ.projectId
+      );
+      if (result) { created++; autoAnalyzeAlert(result).catch(() => {}); }
+    }
+  }
+
+  // ── pull_request ─────────────────────────────────────────────────────
+  if (event === "pull_request") {
+    const pr = payload.pull_request as Record<string, unknown> | undefined;
+    const action = payload.action as string;
+    const repo = payload.repository as Record<string, unknown> | undefined;
+
+    // Pre-deploy risk assessment + prediction on PR opened/updated
+    if ((action === "opened" || action === "synchronize") && pr?.number) {
+      const owner = config.owner as string;
+      const repoName = (repo?.name ?? "") as string;
+      const prNumber = pr.number as number;
+      const ghToken = config.token as string;
+
+      if (owner && repoName && prNumber && ghToken) {
+        // Fire-and-forget: AI risk assessment + comment on PR
+        const riskEnabled = alertConfig.pr_risk_assessment?.enabled !== false;
+        if (riskEnabled) {
+          assessPRRisk(integ.projectId, ghToken, owner, repoName, prNumber).catch(() => {});
+        }
+
+        // Fire-and-forget: prediction engine (pattern match + AI prediction)
+        // Dedup: skip if already predicted for this PR in the last 60s (prevents cost abuse via rapid pushes)
+        const predictionEnabled = alertConfig.prediction?.enabled !== false;
+        if (predictionEnabled) {
+          import("@/lib/redis").then(async ({ getRedis }) => {
+            const redis = getRedis();
+            const dedupKey = `pred:${integ.projectId}:${prNumber}`;
+            if (redis) {
+              const wasSet = await redis.set(dedupKey, "1", { nx: true, ex: 60 });
+              if (!wasSet) return; // already predicted recently
+            }
+            const { runPrediction } = await import("@/lib/ai/prediction");
+            await runPrediction({ projectId: integ.projectId, token: ghToken, owner, repo: repoName, prNumber });
+          }).catch(() => {});
+        }
+      }
+    }
+  }
+
+  // ── push (trigger incremental code indexing) ───────────────────────
+  if (event === "push") {
+    const repo = payload.repository as Record<string, unknown> | undefined;
+    const repoName = (repo?.name ?? "") as string;
+    const owner = config.owner as string;
+    if (owner && repoName) {
+      // Fire-and-forget: trigger incremental re-indexation
+      triggerCodeIndex(integ.projectId, owner, repoName).catch(() => {});
+    }
+  }
+
+  await markIntegrationSuccess(integrationId);
+
+  return NextResponse.json({ ok: true, created });
+}
+
+// ── Code Intelligence re-indexation (fire-and-forget, direct call) ────────────
+
+async function triggerCodeIndex(projectId: string, owner: string, repo: string) {
+  try {
+    const { db, projectIntegrations } = await import("@/lib/db");
+    const { eq, and } = await import("drizzle-orm");
+    const { decryptConfig } = await import("@/lib/crypto");
+    const { findIndexedRepoIdentity, triggerReindex } = await import(
+      "@/lib/services/code-intelligence.service"
+    );
+
+    // Only trigger if this repo is already indexed (don't auto-index on first push).
+    // Goes through the service layer so this file never touches `codeRepositories`
+    // directly — Phase 0.2 service boundary.
+    const existing = await findIndexedRepoIdentity({ projectId, owner, repo });
+    if (!existing) return;
+
+    // Get GitHub token from the project's integration
+    const [integ] = await db
+      .select({ configEncrypted: projectIntegrations.configEncrypted })
+      .from(projectIntegrations)
+      .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.service, "github")))
+      .limit(1);
+    if (!integ) return;
+
+    const cfg = decryptConfig(integ.configEncrypted);
+    const ghToken = cfg.token as string;
+    if (!ghToken) return;
+
+    // Get OpenAI key (optional — for docstrings/embeddings)
+    let openaiKey: string | undefined;
+    try {
+      const { getProjectOwnerAIKey } = await import("@/lib/ai/get-key");
+      const aiKey = await getProjectOwnerAIKey(projectId);
+      if (aiKey && aiKey.provider === "openai") openaiKey = aiKey.key;
+    } catch { /* optional */ }
+
+    // Call the service — keeps the indexing surface centralized so future
+    // routing (BullMQ queue, container worker) only changes one place.
+    await triggerReindex({ ghToken, owner, repo, projectId, openaiKey });
+  } catch (err) {
+    console.error(`[webhook] Code re-indexation failed for ${owner}/${repo}:`, err);
+  }
+}

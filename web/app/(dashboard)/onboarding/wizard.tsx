@@ -1,0 +1,345 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
+import {
+  FolderPlus,
+  Github,
+  Check,
+  ArrowRight,
+  Bell,
+  Sparkles,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+// ── Step indicator ────────────────────────────────────────────────────────────
+
+function StepIndicator({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) {
+  const steps = [
+    { num: 1, label: "Project" },
+    { num: 2, label: "Notifications" },
+    { num: 3, label: "Done" },
+  ];
+
+  return (
+    <div className="flex items-center justify-center gap-0">
+      {steps.slice(0, totalSteps).map((step, idx) => {
+        const isActive = step.num === currentStep;
+        const isCompleted = step.num < currentStep;
+
+        return (
+          <div key={step.num} className="flex items-center">
+            {/* Step circle */}
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold transition-all duration-300 ${
+                  isCompleted
+                    ? "border-inari-accent bg-inari-accent text-white"
+                    : isActive
+                    ? "border-inari-accent bg-inari-accent/10 text-inari-accent"
+                    : "border-line-medium bg-transparent text-fg-base/50"
+                }`}
+              >
+                {isCompleted ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : step.num}
+              </div>
+              <span
+                className={`text-[11px] font-medium transition-colors duration-300 ${
+                  isActive ? "text-fg-strong" : isCompleted ? "text-fg-base/60" : "text-fg-base/40"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+
+            {/* Connector line */}
+            {idx < totalSteps - 1 && (
+              <div className="mx-1.5 sm:mx-3 mb-5 h-[2px] w-8 sm:w-12">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    isCompleted ? "bg-inari-accent" : "bg-line-medium"
+                  }`}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Progress bar ──────────────────────────────────────────────────────────────
+
+function ProgressBar({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) {
+  const progress = ((currentStep - 1) / (totalSteps - 1)) * 100;
+
+  return (
+    <div className="h-1 w-full rounded-full bg-line overflow-hidden">
+      <div
+        className="h-full rounded-full bg-inari-accent transition-all duration-500 ease-out"
+        style={{ width: `${progress}%` }}
+      />
+    </div>
+  );
+}
+
+// ── Step wrapper (animated) ───────────────────────────────────────────────────
+
+function StepContainer({
+  children,
+  active,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+}) {
+  return (
+    <div
+      className={`transition-all duration-400 ease-out ${
+        active
+          ? "opacity-100 translate-y-0"
+          : "opacity-0 translate-y-4 pointer-events-none absolute inset-0"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ── Celebration particles ─────────────────────────────────────────────────────
+
+function Celebration() {
+  // Pre-compute particle properties to keep them stable across the render
+  const particles = Array.from({ length: 24 }).map((_, i) => ({
+    left: (i * 4.17 + (i % 3) * 12.5) % 100,
+    delay: (i * 0.05) % 1.2,
+    duration: 2 + (i % 5) * 0.3,
+    size: 4 + (i % 4) * 1.5,
+    rotation: 360 + (i * 47) % 360,
+  }));
+
+  const colors = [
+    "bg-inari-accent",
+    "bg-purple-400",
+    "bg-indigo-400",
+    "bg-violet-300",
+    "bg-fuchsia-400",
+    "bg-pink-400",
+  ];
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {particles.map((p, i) => (
+        <div
+          key={i}
+          className={`absolute rounded-full ${colors[i % colors.length]}`}
+          style={{
+            left: `${p.left}%`,
+            top: "-10px",
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            opacity: 0,
+            animation: `confetti-fall-${i} ${p.duration}s ${p.delay}s ease-out forwards`,
+          }}
+        />
+      ))}
+
+      <style>{particles.map((p, i) => `
+        @keyframes confetti-fall-${i} {
+          0% { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+          100% { opacity: 0; transform: translateY(500px) rotate(${p.rotation}deg) scale(0.3); }
+        }
+      `).join("")}</style>
+    </div>
+  );
+}
+
+// ── Main wizard component ─────────────────────────────────────────────────────
+
+export function OnboardingWizard({
+  userName,
+  githubAppSlug,
+}: {
+  userName: string;
+  githubAppSlug?: string;
+}) {
+  const router = useRouter();
+  const TOTAL_STEPS = 3;
+  const canImportFromGithub = !!githubAppSlug;
+
+  const [currentStep, setCurrentStep] = useState(1);
+  const [projectError] = useState("");
+
+  const goToDashboard = () => {
+    router.push("/dashboard");
+  };
+
+  return (
+    <div className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-4">
+      <div className="w-full max-w-[540px]">
+        {/* Progress bar */}
+        <div className="mb-8">
+          <ProgressBar currentStep={currentStep} totalSteps={TOTAL_STEPS} />
+        </div>
+
+        {/* Step indicator */}
+        <div className="mb-10">
+          <StepIndicator currentStep={currentStep} totalSteps={TOTAL_STEPS} />
+        </div>
+
+        {/* Step content */}
+        <div className="relative min-h-[320px] sm:min-h-[360px]">
+          {/* ── Step 1: Create Project ──────────────────────────────────────── */}
+          <StepContainer active={currentStep === 1}>
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-inari-accent/20 bg-inari-accent/[0.06]">
+                <FolderPlus aria-hidden="true" className="h-7 w-7 text-inari-accent" />
+              </div>
+
+              <h2 className="text-xl font-semibold text-fg-strong mb-2">
+                Welcome, {userName}
+              </h2>
+              <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
+                Import your repos from GitHub — we&apos;ll create one project per
+                repo and open a setup PR. Without GitHub a project has nothing
+                to monitor, so the manual &quot;blank project&quot; path is gone.
+              </p>
+
+              {canImportFromGithub ? (
+                <div className="w-full max-w-sm space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void signIn("github", { callbackUrl: "/import" });
+                    }}
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-inari-accent px-6 text-base font-semibold text-white transition-all hover:bg-[#f97316] active:bg-[#c2410c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inari-accent/50"
+                  >
+                    <Github aria-hidden="true" className="h-4 w-4" /> Install GitHub App
+                    <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                  </button>
+                  <p className="text-[11px] text-fg-base/40">
+                    One click — install the App and pick the repos you want monitored on github.com.
+                  </p>
+                </div>
+              ) : (
+                <div className="w-full max-w-sm rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-4 py-3 text-left">
+                  <p className="text-[13px] text-fg-base/70">
+                    GitHub App isn&apos;t configured on this server. Set
+                    <code className="mx-1 rounded bg-surface-dim px-1.5 py-0.5 font-mono text-[11px]">GITHUB_APP_SLUG</code>
+                    + the App credentials in env to enable repo import.
+                  </p>
+                </div>
+              )}
+              {/* Make the unused projectError binding visible only when set —
+                  prevents "declared but never used" lint after dropping the
+                  blank-project form. Ref: createProjectForOnboarding action
+                  is kept on disk in case we ever bring back manual creation. */}
+              {projectError && (
+                <p className="mt-3 text-xs text-red-600 dark:text-red-400 font-mono">{projectError}</p>
+              )}
+            </div>
+          </StepContainer>
+
+          {/* ── Step 2: Notifications ───────────────────────────────────────── */}
+          <StepContainer active={currentStep === 2}>
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-inari-accent/20 bg-inari-accent/[0.06]">
+                <Bell aria-hidden="true" className="h-7 w-7 text-inari-accent" />
+              </div>
+
+              <h2 className="text-xl font-semibold text-fg-strong mb-2">
+                Stay in the loop
+              </h2>
+              <p className="text-sm text-fg-base/60 mb-8 max-w-sm">
+                Get alerted on Telegram or email when something breaks.
+                You can configure notification channels anytime from Settings.
+              </p>
+
+              <div className="w-full max-w-sm space-y-3 mb-8">
+                {/* Telegram card */}
+                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-dim text-fg-base/50 shrink-0">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-current">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-1.99 1.27-5.62 3.72-.53.36-1.01.54-1.44.53-.47-.01-1.38-.27-2.06-.49-.83-.27-1.49-.42-1.43-.88.03-.24.37-.49 1.02-.75 3.99-1.73 6.65-2.87 7.97-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.53.17.14.12.18.28.2.45-.01.06.01.24 0 .38z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-sm font-medium text-fg-base">Telegram</p>
+                    <p className="text-xs text-fg-base/60">Instant alerts via bot message</p>
+                  </div>
+                </div>
+
+                {/* Email card */}
+                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-dim text-fg-base/50 shrink-0">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-current">
+                      <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-sm font-medium text-fg-base">Email</p>
+                    <p className="text-xs text-fg-base/60">Alert digests to your inbox</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex w-full max-w-sm flex-col gap-2 sm:flex-row sm:gap-3">
+                <Button
+                  variant="primary"
+                  className="flex-1"
+                  onClick={() => {
+                    router.push("/settings");
+                  }}
+                >
+                  Go to Settings <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setCurrentStep(3)}
+                >
+                  Set up later
+                </Button>
+              </div>
+            </div>
+          </StepContainer>
+
+          {/* ── Step 3: Done ────────────────────────────────────────────────── */}
+          <StepContainer active={currentStep === 3}>
+            <div className="relative flex flex-col items-center text-center">
+              <Celebration />
+
+              <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-inari-accent/30 bg-inari-accent/10">
+                <Sparkles aria-hidden="true" className="h-8 w-8 text-inari-accent" />
+              </div>
+
+              <h2 className="text-2xl font-semibold text-fg-strong mb-2">
+                You&apos;re all set!
+              </h2>
+              <p className="text-sm text-fg-base/60 mb-6 max-w-sm">
+                Your project is ready. Open it from the dashboard to copy your
+                Capture DSN and finish setup.
+              </p>
+
+              <Button
+                variant="primary"
+                size="lg"
+                className="w-full max-w-xs"
+                onClick={goToDashboard}
+              >
+                Go to Dashboard <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            </div>
+          </StepContainer>
+        </div>
+
+        {/* Step counter */}
+        <div className="mt-8 text-center">
+          <span className="text-xs text-fg-base/40">
+            Step {currentStep} of {TOTAL_STEPS}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,30 @@
+# sops configuration for encrypting production secrets in-repo.
+#
+# Encrypts any file whose path ends in `.env.sops.yaml` or `.env.sops.yml`.
+# The age recipient below is the PUBLIC key — safe to commit. The
+# corresponding PRIVATE key lives on each host that needs to decrypt
+# (the Hetzner server + CI runners), at ~/.config/sops/age/keys.txt.
+#
+# Workflow:
+#   sops .env.sops.yaml           # interactive edit (decrypts, re-encrypts)
+#   sops -d .env.sops.yaml        # decrypt to stdout
+#   sops -e -i <plain>.yaml       # encrypt in place
+#
+# Rotating the age key:
+#   1. Generate a new keypair with `age-keygen -o new-keys.txt`
+#   2. Add the new public key below (keep the old one so existing values decrypt)
+#   3. `sops updatekeys .env.sops.yaml`
+#   4. Distribute the new private key to hosts, remove the old public key
+#   5. `sops updatekeys` one more time to finalize
+
+creation_rules:
+  # Matches .env.sops.yaml (our encrypted file) and any .env.vercel-pull /
+  # .env.production.local / .env.* variant used as an intermediate plaintext
+  # during re-encryption. The wider pattern keeps `sops -e .env.foo` from
+  # failing with "no matching creation rules found".
+  - path_regex: \.env
+    # RE2 has no lookahead; use a plain pattern that matches any uppercase
+    # key name. Comments in YAML are stripped by sops anyway, so there's
+    # no need to exclude them via regex.
+    encrypted_regex: "^[A-Z][A-Z0-9_]*$"
+    age: age1rky23nt0kp79lmd5h6kypf4rnpq3p76p98fzxeyysw58tp6w7c9s4sqe5s

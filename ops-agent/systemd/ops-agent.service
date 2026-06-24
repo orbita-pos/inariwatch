@@ -1,0 +1,26 @@
+[Unit]
+Description=InariWatch ops-agent (internal metrics+logs HTTP API)
+Documentation=https://github.com/orbita-pos/inariwatch
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/ops-agent
+EnvironmentFile=/etc/ops-agent/env
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+MemoryMax=64M
+CPUQuota=25%
+
+[Install]
+WantedBy=multi-user.target

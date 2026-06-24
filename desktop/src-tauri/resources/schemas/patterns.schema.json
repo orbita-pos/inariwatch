@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://inariwatch.com/schemas/inari-live/patterns.schema.json",
+  "title": "Inari Live procedural patterns",
+  "description": "On-disk format of `<repo_root>/.inari/patterns.json` written by the procedural learner (Inari Live Sesión 12). Commit-friendly: stable key order, 2-space indent, integers only (no floats — score weighting lives in memory). Schema is informational; the learner does NOT runtime-validate against it. Update CURRENT_VERSION in `desktop/src-tauri/src/memory/procedural/mod.rs` when bumping `version`.",
+  "type": "object",
+  "required": ["version", "patterns"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version. The learner refuses to overwrite a file whose version is greater than its own CURRENT_VERSION."
+    },
+    "patterns": {
+      "type": "array",
+      "maxItems": 500,
+      "description": "Per-repo cap is MAX_PATTERNS_PER_REPO = 500. Anti-patterns are exempt from pruning.",
+      "items": { "$ref": "#/definitions/Pattern" }
+    }
+  },
+  "definitions": {
+    "Pattern": {
+      "type": "object",
+      "required": [
+        "kind",
+        "fingerprint",
+        "suggested_fix_summary",
+        "success_count",
+        "failure_count",
+        "evidence",
+        "last_seen_ms",
+        "created_at_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["auto-detected", "anti-pattern"],
+          "description": "auto-detected = positive recall candidate. anti-pattern = explicit do-not-suggest signal."
+        },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 hex of the normalised error text. Computed by crate::memory::fingerprint::compute_error_fingerprint and mirrored cross-language (web, cli)."
+        },
+        "suggested_fix_summary": {
+          "type": "string",
+          "description": "Human-readable description of the fix that worked (or the fix that failed for anti-patterns). Locked at first-write; later successes do not overwrite."
+        },
+        "success_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total successful applications across all sessions for this fingerprint."
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total failed applications (RemediationCompleted{success:false} + FixRejected) for this fingerprint."
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "Sample of contributing remediation_session ids, capped at MAX_EVIDENCE_PER_PATTERN. Oldest entries are dropped on overflow.",
+          "items": { "type": "string" }
+        },
+        "last_seen_ms": {
+          "type": "integer",
+          "description": "Unix epoch in ms — most-recent event that touched this pattern. Drives recency weighting in the matcher."
+        },
+        "created_at_ms": {
+          "type": "integer",
+          "description": "Unix epoch in ms — first time this fingerprint was seen by the learner."
+        }
+      }
+    }
+  }
+}

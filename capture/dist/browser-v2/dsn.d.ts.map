@@ -1,0 +1,1 @@
+{"version":3,"file":"dsn.d.ts","sourceRoot":"","sources":["../../src/browser-v2/dsn.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AACH,MAAM,WAAW,SAAS;IACxB,GAAG,EAAE,MAAM,CAAC;IACZ,MAAM,EAAE,MAAM,CAAC;IACf,SAAS,EAAE,MAAM,CAAC;IAClB,OAAO,EAAE,OAAO,CAAC;CAClB;AAED,wBAAgB,QAAQ,CAAC,GAAG,EAAE,MAAM,GAAG,SAAS,CAgD/C"}

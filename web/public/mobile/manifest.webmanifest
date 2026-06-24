@@ -1,0 +1,25 @@
+{
+  "name":             "Inari Mobile",
+  "short_name":       "Inari",
+  "description":      "Pair your phone with Inari Live for alerts and chat on the go.",
+  "start_url":        "/mobile",
+  "scope":            "/mobile/",
+  "display":          "standalone",
+  "orientation":      "portrait",
+  "background_color": "#0e0e10",
+  "theme_color":      "#0e0e10",
+  "icons": [
+    {
+      "src":  "/mobile/icon-192.png",
+      "sizes": "192x192",
+      "type":  "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src":  "/mobile/icon-512.png",
+      "sizes": "512x512",
+      "type":  "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,224 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── Light theme (default) ─────────────────────────────────────────────── */
+  :root {
+    color-scheme: light;
+
+    --bg-page:         #fafafa;
+    --bg-card:         #ffffff;
+    --bg-card-inner:   #f4f4f5;
+    --bg-card-elevated:#efefef;
+
+    --bd-default:      #e4e4e7;
+    --bd-subtle:       #f0f0f0;
+    --bd-medium:       #d4d4d8;
+
+    --fg-strong:       #0a0a0c;
+    --fg-base:         #52525b;
+
+    /* inari marketing colors — light */
+    --inari-bg:        #fafafa;
+    --inari-card:      #ffffff;
+    --inari-border:    #e4e4e7;
+  }
+
+  /* ── Dark theme ────────────────────────────────────────────────────────── */
+  .dark {
+    color-scheme: dark;
+
+    /* Near-black neutral — no color tint */
+    --bg-page:          #0a0a0c;
+    --bg-card:          #111114;
+    --bg-card-inner:    #16161a;
+    --bg-card-elevated: #1a1a1f;
+
+    --bd-default:       #1f1f24;
+    --bd-subtle:        #17171b;
+    --bd-medium:        #2a2a31;
+
+    --fg-strong:        #f5f5f7;
+    --fg-base:          #a1a1aa;
+
+    /* inari marketing colors — dark */
+    --inari-bg:         #0a0a0c;
+    --inari-card:       #111114;
+    --inari-border:     #1f1f24;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-family: var(--font-satoshi), ui-sans-serif, system-ui, sans-serif;
+    background-color: var(--bg-page);
+    color: var(--fg-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Display font for headings — Clash Display */
+  h1, h2, h3 {
+    font-family: var(--font-clash), var(--font-satoshi), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+  .dark ::-webkit-scrollbar-thumb { background: #27272a; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+  :not(.dark) ::-webkit-scrollbar-thumb { background: #d4d4d8; }
+  :not(.dark) ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+
+  /* Focus ring */
+  :focus-visible {
+    outline: 2px solid rgba(234, 88, 12, 0.5);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Gradient text — neutral fade for headings */
+  .text-gradient {
+    background: linear-gradient(135deg, #0a0a0c 0%, #52525b 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .dark .text-gradient {
+    background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Accent gradient — burnt orange wash */
+  .text-gradient-accent {
+    background: linear-gradient(135deg, #fb923c 0%, #ea580c 55%, #c2410c 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Glow effects — subtle, openclaw-style */
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(234, 88, 12, 0.18), 0 0 60px rgba(234, 88, 12, 0.07);
+  }
+
+  .glow-accent-sm {
+    box-shadow: 0 0 12px rgba(234, 88, 12, 0.3);
+  }
+
+  .glow-accent-text {
+    text-shadow: 0 0 24px rgba(234, 88, 12, 0.45);
+  }
+
+  /* Grid pattern background */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  .dark .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  /* Radial gradient mask — subtle burnt-orange wash */
+  .bg-radial-fade {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(234,88,12,0.1) 0%, transparent 70%);
+  }
+
+  /* Terminal cursor blink */
+  .cursor::after {
+    content: "▋";
+    animation: blink 1s step-end infinite;
+    color: #ea580c;
+  }
+
+  /* Infinite marquee */
+  .marquee-track {
+    display: flex;
+    align-items: center;
+    width: max-content;
+    will-change: transform;
+    animation: marquee 40s linear infinite;
+  }
+
+  /* InariWatch logo dot pulse ring */
+  .inari-dot {
+    position: relative;
+    display: inline-block;
+    line-height: 1;
+  }
+
+  .inari-dot::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1px solid rgba(234, 88, 12, 0.5);
+    animation: inari-ring 2.5s ease-out infinite;
+    pointer-events: none;
+  }
+}
+
+/* Keyframes */
+@keyframes inari-ring {
+  0%   { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+@keyframes marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+@keyframes scroll-up {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-from-right {
+  from { transform: translateX(10px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes slide-to-right {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(10px); opacity: 0; }
+}
+
+/* Reduced motion — respect user OS preference (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration:   0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration:  0.01ms !important;
+    scroll-behavior:      auto !important;
+  }
+}

@@ -1,0 +1,75 @@
+name: AI Router CI
+
+# v0.3 S1 — runs on every PR + main push that touches the AI surface or the
+# router itself. Two jobs:
+#
+#   1. lint  — enforces the inariwatch/no-direct-ai-sdk-import lockdown rule
+#              against web/. Fails if any non-router file imports a provider
+#              SDK or fetches a provider URL outside packages/ai-router/.
+#   2. test  — runs the router's own vitest suite (dispatch + lockdown).
+#
+# Per INARI_AI_ARCHITECTURE.md §9, the lockdown rule MUST stay green from
+# Phase 1 onward. Skipping is forbidden — file an exception with a per-file
+# eslint-disable + tracked follow-up instead.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'packages/ai-router/**'
+      - '.github/workflows/ai-router-ci.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'packages/ai-router/**'
+      - '.github/workflows/ai-router-ci.yml'
+
+concurrency:
+  group: ai-router-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint (lockdown rule)
+        working-directory: web
+        run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps (vitest path-alias resolution)
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Install ai-router deps (vitest + eslint as local devDeps)
+        working-directory: packages/ai-router
+        run: npm ci --no-audit --no-fund
+
+      - name: Router unit tests
+        working-directory: packages/ai-router
+        run: npx vitest run --config ./vitest.config.ts

@@ -1,0 +1,65 @@
+{
+  "name": "@inariwatch/mcp",
+  "version": "1.0.6",
+  "description": "One command to connect all your AI coding tools to InariWatch — auto-detects Claude, Cursor, Windsurf, VS Code, Codex & Gemini, configures MCP, installs capture SDK",
+  "type": "module",
+  "bin": {
+    "inariwatch-mcp": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "inariwatch",
+    "ai",
+    "monitoring",
+    "claude",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "copilot",
+    "codex",
+    "gemini",
+    "vscode",
+    "devtools",
+    "error-tracking",
+    "ai-tools",
+    "developer-tools",
+    "auto-configure",
+    "zero-config"
+  ],
+  "author": "Jesus Bernal <info@jesusbr.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orbita-pos/inariwatch-mcp.git"
+  },
+  "homepage": "https://inariwatch.com",
+  "bugs": {
+    "url": "https://github.com/orbita-pos/inariwatch-mcp/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/orbita-pos"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  }
+}

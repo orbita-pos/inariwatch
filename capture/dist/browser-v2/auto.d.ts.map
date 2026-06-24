@@ -1,0 +1,1 @@
+{"version":3,"file":"auto.d.ts","sourceRoot":"","sources":["../../src/browser-v2/auto.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AAIH,OAAO,CAAC,MAAM,CAAC;IACb,UAAU,MAAM;QACd,cAAc,CAAC,EAAE;YAAE,GAAG,CAAC,EAAE,MAAM,CAAC;YAAC,WAAW,CAAC,EAAE,MAAM,CAAC;YAAC,OAAO,CAAC,EAAE,MAAM,CAAA;SAAE,CAAC;KAC3E;CACF"}

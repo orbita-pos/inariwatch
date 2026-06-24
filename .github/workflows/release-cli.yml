@@ -1,0 +1,119 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: inariwatch-linux-x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: inariwatch-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: inariwatch-macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: inariwatch-windows-x86_64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            cli/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('cli/Cargo.lock') }}
+
+      - name: Build
+        working-directory: cli
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: cp cli/target/${{ matrix.target }}/release/inariwatch ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cp cli/target/${{ matrix.target }}/release/inariwatch.exe ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: InariWatch ${{ github.ref_name }}
+          body: |
+            ## InariWatch ${{ github.ref_name }}
+
+            ### Installation
+
+            **Linux (x86_64)**
+            ```bash
+            curl -L https://github.com/orbita-pos/inariwatch/releases/download/${{ github.ref_name }}/inariwatch-linux-x86_64 -o inariwatch
+            chmod +x inariwatch
+            sudo mv inariwatch /usr/local/bin/
+            ```
+
+            **macOS (Apple Silicon)**
+            ```bash
+            curl -L https://github.com/orbita-pos/inariwatch/releases/download/${{ github.ref_name }}/inariwatch-macos-arm64 -o inariwatch
+            chmod +x inariwatch
+            sudo mv inariwatch /usr/local/bin/
+            ```
+
+            **macOS (Intel)**
+            ```bash
+            curl -L https://github.com/orbita-pos/inariwatch/releases/download/${{ github.ref_name }}/inariwatch-macos-x86_64 -o inariwatch
+            chmod +x inariwatch
+            sudo mv inariwatch /usr/local/bin/
+            ```
+
+            **Windows**
+            Download `inariwatch-windows-x86_64.exe` below and add it to your PATH.
+
+            ### Build from source
+            ```bash
+            git clone https://github.com/orbita-pos/inariwatch
+            cd inariwatch/cli
+            cargo build --release
+            ```
+          files: artifacts/**/*
+          draft: false
+          prerelease: false

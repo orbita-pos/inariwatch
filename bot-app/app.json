@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "InariWatch Bot",
+    "slug": "inariwatch-bot",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0a0a0a",
+    "scheme": "inariwatch",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.inariwatch.bot",
+      "backgroundColor": "#0a0a0a",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0a"
+      },
+      "package": "com.inariwatch.bot",
+      "softwareKeyboardLayoutMode": "pan",
+      "backgroundColor": "#0a0a0a"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/critical.wav"
+          ],
+          "color": "#7c3aed",
+          "defaultChannel": "warning-alerts"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "168bb99e-3e42-4485-b428-7437e451809d"
+      }
+    },
+    "owner": "jesusdev21",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/168bb99e-3e42-4485-b428-7437e451809d"
+    }
+  }
+}

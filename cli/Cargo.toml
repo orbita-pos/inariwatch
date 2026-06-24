@@ -1,0 +1,36 @@
+[package]
+name = "inariwatch"
+version = "0.1.0"
+edition = "2021"
+description = "Proactive developer monitoring orchestrator"
+
+[[bin]]
+name = "inariwatch"
+path = "src/main.rs"
+
+[dependencies]
+clap       = { version = "4",    features = ["derive"] }
+tokio      = { version = "1",    features = ["full"] }
+reqwest    = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde      = { version = "1",    features = ["derive"] }
+serde_json = "1"
+toml       = "0.8"
+rusqlite   = { version = "0.31", features = ["bundled"] }
+dirs       = "5"
+colored    = "2"
+chrono     = { version = "0.4",  features = ["serde"] }
+anyhow     = "1"
+uuid       = { version = "1",    features = ["v4"] }
+dialoguer  = "0.11"
+regex       = "1"
+base64      = "0.22"
+urlencoding = "2"
+sha2        = "0.10"
+rand        = "0.8"
+tiny_http   = "0.12"
+
+# v0.3 S7 — every cloud-LLM HTTP call from cli/ now goes through this
+# crate. Consumed via `path =` (not workspace member) because cli/ is
+# a standalone Cargo workspace; see crates/ai-router-rs/Cargo.toml top
+# comment for the full rationale.
+ai-router-rs = { path = "../crates/ai-router-rs" }

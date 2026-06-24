@@ -1,0 +1,55 @@
+{
+  "name": "@inariwatch/capture-replay",
+  "version": "0.1.0",
+  "description": "Session replay integration for @inariwatch/capture — DOM + I/O timeline playback with automatic PII masking",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc"
+  },
+  "keywords": [
+    "session-replay",
+    "rrweb",
+    "inariwatch",
+    "monitoring",
+    "pii-masking"
+  ],
+  "author": "Jesus Bernal <info@jesusbr.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orbita-pos/inariwatch-capture.git",
+    "directory": "packages/capture-replay"
+  },
+  "homepage": "https://inariwatch.com/docs/session-replay",
+  "bugs": {
+    "url": "https://github.com/orbita-pos/inariwatch-capture/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "rrweb": "^2.0.0-alpha.18"
+  },
+  "peerDependencies": {
+    "@inariwatch/capture": "^0.7.0"
+  },
+  "devDependencies": {
+    "@inariwatch/capture": "file:../capture",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.5.0"
+  }
+}
